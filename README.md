@@ -1,6 +1,8 @@
 # MelonClaw
 
-<img src="src/melonclaw/web/static/assets/brand/melon-claw.png" alt="MelonClaw" width="314" height="314" />
+<p align="center">
+  <img src="src/melonclaw/web/static/assets/brand/melon-claw.png" alt="MelonClaw" width="314" height="314" />
+</p>
 
 MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。它通过 Web 界面处理问答、写作、研究、信息整理和计划制定等任务，并可按需使用联网搜索、文件工作区、MCP 工具、子 Agent 和 JavaScript 计算能力。
 
