@@ -433,3 +433,71 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Keep the complete Web UI readable at normal browser zoom. */
+body { font-size: 16px; }
+.brand-name { font-size: 17px; }
+.brand-subtitle, .shortcut, .section-label, .new-project, .project-meta, .user-picker label,
+.user-avatar, .runtime-summary, .runtime-model, .runtime-detail, .topbar-context,
+.message-meta span, .code-block-head, .copy-button, .code-copy, .copy-feedback,
+.tool-name, .subagent-status, .dialog-kicker { font-size: 12px; }
+.new-session, .project-empty, .conversation-empty, .load-more, .user-select-trigger,
+.user-option, .runtime-line, .session-label, .run-status-pill, .prompt-card strong,
+.empty-conversation-copy, .tool-head, .tool-status, .tool-args, .tool-output,
+.subagent-head, .subagent-output, .approval-copy, .approval-tool, .approval-select,
+.approval-description, .approval-args-summary, .approval-args, .approval-edit,
+.approval-reject, .approval-field-error, .dialog-label, .dialog-error { font-size: 13px; }
+.project-name, .current-project-name, .conversation-title { font-size: 14px; }
+.conversation-time { font-size: 13px; line-height: 17px; }
+.topbar-brand { font-size: 18px; }
+.welcome-kicker { font-size: 14px; }
+.welcome h1 { font-size: clamp(32px, 4vw, 36px); }
+.welcome-copy { font-size: 16px; }
+.prompt-card small { font-size: 13px; }
+.empty-conversation-title { font-size: 18px; }
+.empty-action, .approval-submit, .button-secondary, .button-primary { font-size: 14px; }
+.message-meta { font-size: 13px; }
+.message-body { font-size: 17px; }
+.code-block pre code { font-size: 14px; }
+.message-body table { font-size: 15px; }
+.approval-title { font-size: 15px; }
+.composer textarea { font-size: 16px; }
+.composer-hint, .composer-footnote { font-size: 12px; }
+.send-button { font-size: 14px; }
+.system-error { font-size: 14px; }
+.dialog-header h2 { font-size: 22px; }
+.dialog-input { font-size: 15px; }
+
+/* ChatGPT/Kimi/DeepSeek-style chat proportions: compact chrome, centered reading column. */
+.topbar { min-height: 64px; padding-top: 11px; padding-bottom: 11px; }
+.conversation { padding-top: 24px; padding-bottom: 28px; }
+.welcome { margin-top: clamp(48px, 9vh, 96px); margin-bottom: 20px; }
+.prompt-grid { gap: 10px; margin-top: 28px; }
+.prompt-card { min-height: 96px; padding: 14px; border-radius: 14px; }
+.message { gap: 12px; margin-bottom: 24px; }
+.composer-wrap { padding-bottom: 16px; }
+.composer { padding: 12px 14px 10px; border-radius: 20px; }
+.composer textarea { min-height: 32px; max-height: 180px; padding: 3px 2px; }
+.composer-bottom { margin-top: 6px; }
+.send-button { min-height: 36px; padding-top: 6px; padding-bottom: 6px; border-radius: 10px; }
+.composer-meta { gap: 12px; margin-top: 8px; }
+.message-body { font-size: 16px; line-height: 1.7; }
+
+@media (max-width: 768px) {
+  .topbar { min-height: 60px; }
+  .conversation { padding-top: 18px; padding-bottom: 22px; }
+  .welcome { margin-top: clamp(32px, 7vh, 64px); }
+  .prompt-grid { margin-top: 22px; }
+  .prompt-card { min-height: 78px; padding: 12px; }
+  .composer { padding-right: 12px; padding-left: 12px; }
+  .session-label, .run-status-pill { font-size: 12px; }
+  .welcome h1 { font-size: clamp(28px, 7vw, 32px); }
+  .welcome-copy { font-size: 15px; }
+  .message-body { font-size: 16px; }
+  .composer-footnote { font-size: 11px; }
+}
+
+@media (max-width: 460px) {
+  .composer textarea { font-size: 16px; }
+  .composer-meta, .composer-hint { font-size: 11px; }
+}

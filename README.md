@@ -17,6 +17,7 @@ MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。它通过 Web 界面
 - **长期记忆与恢复**：使用 PostgreSQL 保存业务数据、对话 Checkpoint 和 Global/Tenant/User Memory。
 - **子 Agent 协作**：相对独立的工作可以委派给通用子 Agent，再由主 Agent 汇总结果。
 - **流式反馈**：Web 页面实时展示回答、工具调用、工具结果、子 Agent 状态和审批过程。
+- **可读交互界面**：正文、侧栏、工具卡片和输入区采用统一的放大字号，方便持续阅读和操作。
 
 ## 环境要求
 
