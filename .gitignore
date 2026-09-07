@@ -1,0 +1,33 @@
+# 本地环境配置：保留可提交的示例文件，不提交真实凭据。
+.env
+.env.*
+!.env.example
+
+# Python 运行环境与解释器产物。
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# 测试、静态检查和覆盖率缓存。
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.coverage
+.coverage.*
+htmlcov/
+
+# 构建与打包产物。
+build/
+dist/
+*.egg-info/
+
+# Agent 运行时中间文件。
+/temp/
+
+# 本地编辑器与系统文件。
+.agents/
+.idea/
+.vscode/
+.DS_Store

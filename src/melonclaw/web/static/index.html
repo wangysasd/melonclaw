@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1220" />
+    <title>瓜爪智能助手</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260907-4" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">
+            <img src="/static/melon-claw.png" alt="melonclaw" />
+          </div>
+          <div>
+            <div class="brand-name">melonclaw</div>
+          </div>
+        </div>
+
+        <div class="user-picker">
+          <label for="user-select">模拟用户</label>
+          <select id="user-select" aria-label="选择模拟用户">
+            <option value="chenxi::trading">陈希-交易</option>
+          </select>
+        </div>
+
+        <button id="new-session" class="new-session" type="button">
+          <span class="plus">＋</span>
+          <span>新建对话</span>
+          <span class="shortcut">⌘ K</span>
+        </button>
+
+        <div class="project-section">
+          <div class="section-heading">
+            <div class="section-label">项目</div>
+            <button id="new-project" class="new-project" type="button" title="新增项目">
+              <span class="new-project-plus" aria-hidden="true">＋</span>
+              <span>新增项目</span>
+            </button>
+          </div>
+          <div id="project-list" class="project-list"></div>
+        </div>
+
+        <div id="conversation-section" class="conversation-section" hidden>
+          <div id="conversation-list" class="conversation-list"></div>
+          <button id="load-more" class="load-more" type="button" hidden>加载更多</button>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-label">当前运行</div>
+          <div class="runtime-card">
+            <div class="runtime-line">
+              <span id="status-dot" class="status-dot is-loading"></span>
+              <span id="status-text">正在启动助手</span>
+            </div>
+            <div id="model-text" class="runtime-model">连接配置读取中…</div>
+            <div id="mcp-text" class="runtime-detail">综合能力连接中</div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div>
+            <h1>瓜爪智能助手</h1>
+          </div>
+          <div class="topbar-meta">
+            <span id="session-label" class="session-label">选择或新建会话</span>
+            <span class="live-pill"><span class="live-dot"></span> LIVE</span>
+          </div>
+        </header>
+
+        <section id="conversation" class="conversation">
+          <div id="welcome" class="welcome">
+            <div class="welcome-orbit"><span>✦</span></div>
+            <div class="welcome-kicker">你的日常智能助手</div>
+            <h2>日常大小事，<br /><em>都可以来找我。</em></h2>
+            <p class="welcome-copy">
+              聊天陪伴、信息整理、计划安排、资料查询和问题解决，我都可以帮你。
+            </p>
+            <div class="prompt-grid">
+              <button class="prompt-card" type="button" data-prompt="帮我把今天的事情整理成待办清单，并按优先级排序。">
+                <span class="prompt-icon">◌</span>
+                <span><strong>整理信息</strong><small>把杂乱内容变得清晰</small></span>
+                <span class="prompt-arrow">↗</span>
+              </button>
+              <button class="prompt-card" type="button" data-prompt="帮我安排一个周末轻松的城市一日行程。">
+                <span class="prompt-icon">⌘</span>
+                <span><strong>安排计划</strong><small>制定行程、清单与安排</small></span>
+                <span class="prompt-arrow">↗</span>
+              </button>
+              <button class="prompt-card" type="button" data-prompt="帮我想 3 个简单又健康的晚餐。">
+                <span class="prompt-icon">⌁</span>
+                <span><strong>解决问题</strong><small>随时查询、分析和出主意</small></span>
+                <span class="prompt-arrow">↗</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <div id="sr-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
+        <div id="approval-slot"></div>
+
+        <div class="composer-wrap">
+          <form id="composer" class="composer">
+            <textarea id="message-input" rows="1" placeholder="输入你想聊的事情…" aria-label="输入内容"></textarea>
+            <div class="composer-bottom">
+              <div class="composer-hint"><span class="sparkle">✦</span> 随时聊聊，我会帮你处理</div>
+              <button id="send-button" class="send-button" type="submit" disabled>
+                <span>发送</span><span class="send-arrow">↑</span>
+              </button>
+            </div>
+          </form>
+          <div class="composer-footnote">Enter 发送 · Shift + Enter 换行</div>
+        </div>
+      </main>
+    </div>
+    <script src="/static/app.js?v=20260907-4" defer></script>
+  </body>
+</html>
