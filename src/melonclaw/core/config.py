@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import atexit
 import os
-import shutil
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -15,21 +12,6 @@ from melonclaw.core.mcp_config import (
     load_agent_mcp_servers,
     load_mcp_tool_allowlists,
 )
-
-
-def _create_runtime_dir() -> Path:
-    """在项目根目录的 ``temp/`` 下创建运行目录，并在进程退出时清理。"""
-
-    project_temp_dir = Path(__file__).resolve().parents[3] / "temp"
-    project_temp_dir.mkdir(parents=True, exist_ok=True)
-    runtime_dir = Path(
-        tempfile.mkdtemp(
-            prefix="melonclaw-",
-            dir=project_temp_dir,
-        )
-    )
-    atexit.register(shutil.rmtree, runtime_dir, ignore_errors=True)
-    return runtime_dir
 
 
 def _create_workspace_root() -> Path:
@@ -56,7 +38,6 @@ class Settings:
     model_name: str
     api_key: str = field(repr=False)
     base_url: str | None
-    runtime_dir: Path
     workspace_root: Path
     database_url: str = field(default="", repr=False)
     mcp_servers: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
@@ -117,7 +98,6 @@ def load_settings(provider: str | None = None) -> Settings:
             model_name=os.getenv("DEEPSEEK_MODEL", ""),
             api_key=os.getenv("DEEPSEEK_API_KEY", ""),
             base_url=base_url,
-            runtime_dir=_create_runtime_dir(),
             workspace_root=_create_workspace_root(),
             database_url=os.getenv("DATABASE_URL", ""),
             mcp_servers=mcp_servers,
@@ -131,7 +111,6 @@ def load_settings(provider: str | None = None) -> Settings:
             model_name=os.getenv("OPENAI_MODEL", ""),
             api_key=os.getenv("OPENAI_API_KEY", ""),
             base_url=os.getenv("OPENAI_BASE_URL"),
-            runtime_dir=_create_runtime_dir(),
             workspace_root=_create_workspace_root(),
             database_url=os.getenv("DATABASE_URL", ""),
             mcp_servers=mcp_servers,

@@ -1,6 +1,6 @@
 # MelonClaw
 
-![MelonClaw](src/melonclaw/web/static/assets/brand/melon-claw.png)
+<img src="src/melonclaw/web/static/assets/brand/melon-claw.png" alt="MelonClaw" width="314" height="314" />
 
 MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。它通过 Web 界面处理问答、写作、研究、信息整理和计划制定等任务，并可按需使用联网搜索、文件工作区、MCP 工具、子 Agent 和 JavaScript 计算能力。
 
@@ -80,7 +80,7 @@ uv run melonclaw-web
 - **研究与联网搜索**：配置 `TAVILY_API_KEY` 后，直接提出需要实时资料或来源核验的问题。
 - **文件处理**：文件写入当前 Project 的持久工作区，不会默认写入仓库源码；在 Agent 中使用类似 `/summary.md` 的工作区路径。
 - **数据计算**：要求 Agent 使用 `eval` 完成循环、排序、聚合等纯计算。Interpreter 没有文件、网络和 Shell 权限。
-- **项目隔离**：同一 Project 的会话共享文件工作区，消息和运行状态仍分别保存。工作区默认位于 `~/.melonclaw/workspaces`，可用 `MELONCLAW_WORKSPACE_DIR` 修改。
+- **项目隔离**：同一 Project 的会话共享文件工作区，消息和运行状态仍分别保存。工作区根目录默认位于 `~/.melonclaw/workspaces`，每个 Project 使用其下的 `projects/<project_id>` 子目录，可用 `MELONCLAW_WORKSPACE_DIR` 修改；仓库根目录不再创建运行时 `temp/`。
 
 ## 可选配置
 

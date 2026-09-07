@@ -23,9 +23,6 @@ build/
 dist/
 *.egg-info/
 
-# Agent 运行时中间文件。
-/temp/
-
 # 本地部署配置与开发设计记录，不纳入远程版本控制。
 /deploy/
 /note.md

@@ -118,11 +118,11 @@ async def build_research_agent(
     settings: Settings,
     *,
     checkpointer: Any | None = None,
-    workspace_dir: Path | None = None,
+    workspace_dir: Path,
     runtime_backend: BackendProtocol | None = None,
     memory_service: MemoryService | None = None,
 ) -> CompiledStateGraph:
-    """异步发现工具并构建官方 quickstart 形状的通用助手。
+    """异步发现工具并构建绑定到指定工作区的通用助手。
 
     Deep Agents 自带文件系统和 task/subagent 能力；这里注入模型、provider
     Tavily 搜索、自定义工具、可选 MCP 工具、通用助手提示词和统一的本地文件后端。
@@ -133,14 +133,13 @@ async def build_research_agent(
             "必须传入 PostgreSQL Checkpointer；请先运行 melonclaw-db-init。"
         )
 
-    backend_root = workspace_dir or settings.runtime_dir
-    backend_root.mkdir(parents=True, exist_ok=True)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
     model: BaseChatModel = build_chat_model(settings)
     tools = await build_agent_tools(settings)
     tool_selector = _build_tool_selector_middleware(settings, model, tools)
     interpreter = build_interpreter_middleware()
     backend, skill_sources, skill_permissions = build_agent_backend(
-        backend_root,
+        workspace_dir,
         default_backend=runtime_backend,
         memory_store=memory_service.store if memory_service is not None else None,
         installation_id=(
@@ -156,7 +155,7 @@ async def build_research_agent(
     )
     print(
         "运行时后端: CompositeBackend（默认虚拟根目录: "
-        f"{backend_root}；/skills/ 直读项目源目录）"
+        f"{workspace_dir}；/skills/ 直读项目源目录）"
     )
     if skill_sources:
         print(f"已启用 Agent Skill: {', '.join(skill_sources)}")

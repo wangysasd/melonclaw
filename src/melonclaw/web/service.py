@@ -94,16 +94,16 @@ class ChatService:
     memory_store_context: Any | None = None
     memory_store: Any | None = None
     memory_service: MemoryService | None = None
-    agent: Any | None = None
     project_agents: dict[str, Any] | None = None
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
 
     async def initialize(self) -> None:
-        """打开两个连接池并构建带 PostgreSQL Checkpointer 的 Agent。"""
+        """打开连接池并校验数据库、Memory 和模型配置。"""
 
         try:
             self.settings = load_settings()
+            self.settings.validate()
             self.storage = BusinessDatabase(self.settings.database_url)
             await self.storage.open()
             self.memory_store_context, self.memory_store = await open_memory_store(
@@ -122,20 +122,13 @@ class ChatService:
                 self.settings.database_url
             )
             self.checkpointer = AsyncPostgresSaver(self.checkpoint_pool)
-            self.agent = await build_research_agent(
-                self.settings,
-                checkpointer=self.checkpointer,
-                memory_service=self.memory_service,
-            )
             self.project_agents = {}
         except (DatabaseConfigurationError, DatabaseSchemaError, DatabaseUnavailableError) as exc:
             await self.close()
             self.startup_error = str(exc)
-            self.agent = None
         except Exception as exc:  # noqa: BLE001 - 启动错误交给 Web UI 展示
             await self.close()
             self.startup_error = sanitize_text(str(exc))
-            self.agent = None
 
     async def close(self) -> None:
         """按依赖顺序释放 Agent 使用的 Checkpointer 池和业务池。"""
@@ -163,8 +156,7 @@ class ChatService:
     @property
     def ready(self) -> bool:
         return (
-            self.agent is not None
-            and self.storage is not None
+            self.storage is not None
             and self.checkpointer is not None
             and self.memory_store is not None
             and self.memory_service is not None
@@ -176,7 +168,7 @@ class ChatService:
 
         if self.startup_error:
             state = "error"
-        elif self.agent is None:
+        elif not self.ready:
             state = "starting"
         else:
             state = "ready"
@@ -220,12 +212,11 @@ class ChatService:
             raise RuntimeError(self.startup_error or "数据库仍在启动，请稍候。")
         return {"items": await storage.list_users()}
 
-    def _require_ready(self) -> tuple[BusinessDatabase, Any]:
+    def _require_ready(self) -> BusinessDatabase:
         if not self.ready:
-            raise RuntimeError(self.startup_error or "Agent 仍在启动，请稍候。")
+            raise RuntimeError(self.startup_error or "服务仍在启动，请稍候。")
         assert self.storage is not None
-        assert self.agent is not None
-        return self.storage, self.agent
+        return self.storage
 
     def _project_workspace_dir(self, project: dict[str, Any]) -> Path:
         """把数据库中的受控相对路径解析为 Project 的真实工作目录。"""
@@ -288,7 +279,7 @@ class ChatService:
         name: str,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
-        storage, _ = self._require_ready()
+        storage = self._require_ready()
         context = await self.resolve_user(user_id, tenant_id)
         clean_name = " ".join(name.split()).strip()
         if not clean_name:
@@ -307,7 +298,7 @@ class ChatService:
         user_id: str,
         tenant_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        storage, _ = self._require_ready()
+        storage = self._require_ready()
         context = await self.resolve_user(user_id, tenant_id)
         return await storage.list_projects(
             context.user_id,
@@ -319,7 +310,7 @@ class ChatService:
         project_id: UUID | None = None,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
-        storage, _ = self._require_ready()
+        storage = self._require_ready()
         context = await self.resolve_user(user_id, tenant_id)
         if project_id is None:
             # 兼容旧 API：未选择 Project 时，自动使用用户唯一的临时会话。
@@ -348,7 +339,7 @@ class ChatService:
         cursor: str | None,
         project_id: UUID | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
-        storage, _ = self._require_ready()
+        storage = self._require_ready()
         context = await self.resolve_user(user_id, tenant_id)
         if project_id is not None and await storage.get_project(
             project_id,
@@ -371,7 +362,7 @@ class ChatService:
         limit: int,
         before_seq: int | None,
     ) -> dict[str, Any]:
-        storage, _ = self._require_ready()
+        storage = self._require_ready()
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
@@ -407,7 +398,7 @@ class ChatService:
     ) -> PreparedExecution:
         """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。"""
 
-        storage, _ = self._require_ready()
+        storage = self._require_ready()
         clean_content = content.strip()
         if not clean_content:
             raise ValueError("消息不能为空。")
@@ -516,7 +507,7 @@ class ChatService:
         agent: Any,
         project: dict[str, Any],
     ) -> PreparedExecution:
-        storage, _ = self._require_ready()
+        storage = self._require_ready()
         if existing.content != content:
             if lock_connection is not None:
                 await storage.release_advisory_lock(lock_connection, conversation_id)
@@ -649,7 +640,7 @@ class ChatService:
         decisions: Any,
         tenant_id: str | None = None,
     ) -> tuple[PreparedExecution, Any]:
-        storage, _ = self._require_ready()
+        storage = self._require_ready()
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
@@ -709,7 +700,7 @@ class ChatService:
     ) -> AsyncIterator[dict[str, Any]]:
         """发送业务事件；数据库最终状态先提交，再发送 completed。"""
 
-        storage, _ = self._require_ready()
+        storage = self._require_ready()
         agent = execution.agent
         display_events: list[dict[str, Any]] = []
         emitted_text: list[str] = []
