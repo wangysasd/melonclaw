@@ -1,0 +1,79 @@
+{
+  "repository": "https://github.com/lucide-icons/lucide",
+  "commit": "3859eb20fabe7fd95652fcd4395843b6c0bcdd01",
+  "files": [
+    {
+      "path": "icons/arrow-up.svg",
+      "git_blob_sha": "50a81cb370d77bccdab4e91c1aeff36b763cdfbf"
+    },
+    {
+      "path": "icons/calendar-days.svg",
+      "git_blob_sha": "78c5420d4c5020d7db7f223495a88ea21fd2562d"
+    },
+    {
+      "path": "icons/chevron-down.svg",
+      "git_blob_sha": "e70d30b88399a721cd5d20d0d26756608cf8c42b"
+    },
+    {
+      "path": "icons/chevron-right.svg",
+      "git_blob_sha": "db62a0c20181edd6173722b2a483e0b85e30f240"
+    },
+    {
+      "path": "icons/circle-alert.svg",
+      "git_blob_sha": "578d25c022d9dd30b851d4ad72d9ec7640408a21"
+    },
+    {
+      "path": "icons/circle-check.svg",
+      "git_blob_sha": "14e45c58c9ece47f2204e89d19d8463f485325a0"
+    },
+    {
+      "path": "icons/copy.svg",
+      "git_blob_sha": "f62ce99c1f34989a5f70cd15192f8adf9140f4ed"
+    },
+    {
+      "path": "icons/external-link.svg",
+      "git_blob_sha": "a73a9ba286ebaac4c7fc65bf9303a2fb9624ae76"
+    },
+    {
+      "path": "icons/file-text.svg",
+      "git_blob_sha": "67dc5b9d1a07a1b501ba87d62563b914c059096e"
+    },
+    {
+      "path": "icons/folder.svg",
+      "git_blob_sha": "ef69b345f200f1542ad9a2dfca7d41d036910f4b"
+    },
+    {
+      "path": "icons/list-checks.svg",
+      "git_blob_sha": "602734bab9f0c9938f0e99c209ac6e7bec695810"
+    },
+    {
+      "path": "icons/loader-circle.svg",
+      "git_blob_sha": "cc065ca41b26aadf640ed2bbd9828f72796a9332"
+    },
+    {
+      "path": "icons/menu.svg",
+      "git_blob_sha": "0ec97458f92564242574b65de900afbfd7123715"
+    },
+    {
+      "path": "icons/message-circle.svg",
+      "git_blob_sha": "d269b8b0f3651b6ff136036da05efe9e02214ae1"
+    },
+    {
+      "path": "icons/plus.svg",
+      "git_blob_sha": "41f92bb93eb6626368d71c9884127bbcf7d3ccdf"
+    },
+    {
+      "path": "icons/search.svg",
+      "git_blob_sha": "03e442a5440cff92c219fe3a3c1f2b0788d30701"
+    },
+    {
+      "path": "icons/shield-check.svg",
+      "git_blob_sha": "da48f664e51be4ceb800dbe4f6c10c5e7cfa800e"
+    },
+    {
+      "path": "icons/x.svg",
+      "git_blob_sha": "e31794349d3eecea1b3ae8e974b68bb8f4becda7"
+    }
+  ],
+  "license_path": "LICENSE.txt"
+}

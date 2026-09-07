@@ -1,4 +1,4 @@
-"""命令行入口：运行 Deep Agents quickstart 研究 Agent。"""
+"""命令行入口：运行 MelonClaw 通用 AI 助手。"""
 
 from __future__ import annotations
 

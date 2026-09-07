@@ -1,14 +1,15 @@
 # MelonClaw
 
-MelonClaw 是一个基于 Deep Agents 的研究型 Agent 应用，提供命令行和浏览器两种入口。它可以联网搜索、调用文件工具、委派子 Agent、执行受限的 JavaScript 计算、接入 MCP 工具，并在写文件或执行 Shell 命令前请求人工审批。
+MelonClaw 是一个基于 Deep Agents 的通用 AI 助手，提供命令行和浏览器两种入口。它可以回答问题、写作改写、整理信息、制定计划，也可以按需联网搜索、调用文件工具、委派子 Agent、执行受限的 JavaScript 计算、接入 MCP 工具，并在写文件或执行 Shell 命令前请求人工审批。
 
 项目默认面向本机或受信任环境运行。Web 入口当前没有登录鉴权，`LocalShellBackend` 也不是安全沙箱；不要直接把服务暴露给公网或不受信任的用户。
 
 ## 功能概览
 
-- 研究问答：通过 Tavily 搜索网页，整理资料并生成研究结果。
-- Agent 文件工作区：使用 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep` 等文件工具处理研究中间材料。
-- 子 Agent：通过 `task` 将相对独立的研究工作委派给 `general-purpose` 子 Agent。
+- 通用问答与任务处理：根据用户意图直接回答、解释、写作改写、总结、翻译、分析和制定计划。
+- 按需联网搜索：用户明确要求搜索或核验、问题依赖时效性信息，或搜索能显著提高准确性时，通过 Tavily 获取外部资料。
+- Agent 文件工作区：使用 `ls`、`read_file`、`write_file`、`edit_file`、`glob`、`grep` 等文件工具处理用户授权的工作材料。
+- 子 Agent：通过 `task` 将相对独立的工作委派给 `general-purpose` 子 Agent。
 - Project 与会话：Web 中可以创建 Project；同一 Project 下的多个会话共享文件工作目录，但各自拥有独立的对话状态。
 - Global/Tenant/User Memory：全局、租户和个人长期记忆使用 PostgreSQL Store 持久化；读取按当前用户和租户隔离，个人记忆可显式记住/删除，租户记忆默认通过提案发布。
 - PostgreSQL 持久化：业务数据、聊天消息、LangGraph Checkpointer、审批中断状态和长期 Memory Store 都保存在 PostgreSQL 中。
@@ -304,11 +305,87 @@ src/melonclaw/
 └── web/           FastAPI、SSE 服务和前端静态文件
 example/mcp/       MCP Server/Client 示例
 skills/            Agent 可按需读取的 Skill
+deploy/            服务器部署脚本、systemd 单元和 Nginx 反向代理配置
 mcp.json           MCP 服务目录
 note.md            功能演进中的设计决策与验证记录
 ```
 
 新增能力时，应用代码放在 `src/melonclaw/`，依赖写入 `pyproject.toml` 并更新 `uv.lock`；功能的背景、方案、取舍、验证结果和已知边界同步记录到 [note.md](note.md)。
+
+## 服务器部署
+
+`deploy/` 下的脚本面向 Ubuntu 24.04 + systemd + Nginx，应用以 `melonclaw` 系统用户运行，uvicorn 只监听 `127.0.0.1:8000`，由 Nginx 对外提供 80 端口。
+
+### 1. 准备实例和数据库
+
+- 轻量应用服务器：Ubuntu 24.04，2 核 4 GB 起，与数据库同地域。
+- PostgreSQL：可使用腾讯云 TencentDB PostgreSQL（建议开启内网地址并与轻量服务器同 VPC/同地域；跨产品内网不通时改用数据库公网地址加 SSL），也可以选择服务器本机安装。
+- 先在数据库中创建空库，例如 `melonclaw`。初始化命令只建表，不建库。
+- 防火墙放行 TCP 80；8000 不要对外放行。
+
+### 2. 放置代码并配置环境变量
+
+把项目放到 `/opt/melonclaw`，然后生成并填写 `.env`：
+
+```bash
+cp /opt/melonclaw/.env.example /opt/melonclaw/.env
+chmod 600 /opt/melonclaw/.env
+```
+
+`DATABASE_URL` 必须是 `postgresql+asyncpg://用户名:密码@主机:端口/数据库名`。密钥只在服务器上维护，不要提交到 Git，也不要写进脚本或日志。
+
+### 3. 执行安装脚本
+
+```bash
+cd /opt/melonclaw
+# 可选：设置 Basic 认证，避免带 Shell 能力的 Agent 直接暴露在公网
+export BASIC_AUTH_USER=melonclaw
+export BASIC_AUTH_PASSWORD='替换为强密码'
+bash deploy/install.sh
+```
+
+脚本会依次完成：安装系统依赖和 uv、创建 `melonclaw` 用户、`uv sync --locked`、安装 systemd 单元、执行 `melonclaw-db-init`、配置并重载 Nginx。
+
+`.env` 未填写 `DATABASE_URL` 时，脚本会跳过数据库初始化并提示；补齐后单独执行 `bash deploy/db-init.sh` 再重启服务即可。
+
+### 4. 运维命令
+
+```bash
+systemctl status melonclaw-web
+journalctl -u melonclaw-web -f
+systemctl restart melonclaw-web
+```
+
+更新代码后执行 `bash deploy/install.sh`（设置 `GIT_REPO` 可直接拉取），结构变更时先执行 `bash deploy/db-init.sh`。
+
+### 5. 验证
+
+- 打开 `http://<服务器公网IP>/`，首屏状态应显示 Agent 和数据库已就绪。
+- 发起一次对话，确认 SSE 事件逐条流式返回而不是一次性输出；Nginx 已关闭 `proxy_buffering`，若被其他网关再次缓冲会导致流式失效。
+- `journalctl -u melonclaw-web` 中不应出现 `DATABASE_URL` 或 API Key 明文。
+
+### 安全边界
+
+应用具备文件写入和 Shell 执行工具，`LocalShellBackend` 不是安全沙箱。公网部署时至少做到：只暴露 80/443、开启 Basic 认证或上游认证、`.env` 权限 600、Agent 工作区与仓库源码分离（默认在 `~/.melonclaw/workspaces`）。
+
+## Web 界面与品牌资源
+
+Web 入口继续使用原生 FastAPI HTML/CSS/JavaScript，不引入 React、Tailwind 或运行时 CDN。当前界面保留桌面两栏布局：左侧项目/会话导航，右侧聊天与底部输入区；宽度不超过 768px 时侧栏改为带遮罩的菜单抽屉。
+
+- 欢迎页在用户、项目加载完成后由运行时重新渲染，不会被清空；有可用项目但没有会话时可以先输入，首次发送会在当前/默认 Project 下创建会话并发送草稿。
+- 助手回复支持标题、列表、表格、链接、代码块和复制；Markdown 使用本地轻量解析器生成受控 HTML，原始内容保留在 DOM 数据字段中，禁止远程图片，链接仅允许 `http`、`https`、`mailto` 和站内路径。
+- 工具过程保留可折叠的调用详情、`call_key`、子 Agent 父子关系和历史事件恢复；摘要显示“搜索资料”“读取文件”“执行计算”等易懂名称，原始工具名仍保留。
+- 审批仍沿用 `approve`、`edit`、`reject`、`respond` 与 `allowed_decisions` 约束；参数 JSON 错误显示在对应表单项旁，不改变服务端工具名。
+- 状态胶囊由服务状态和 SSE 事件驱动，显示“连接中 / 已就绪 / 处理中 / 等待确认 / 失败”，不虚构 MCP 或联网连接状态。
+- 品牌原图和本地 Lucide 资源位于 `src/melonclaw/web/static/assets/`：`brand/melonclaw-mark-white.png` 是保留的白底 RGB 源图，`brand/melonclaw-mark.png` 与 `brand/favicon-48.png` 是首屏/浏览器适配尺寸；`icons/` 同时保留许可证和来源 JSON。
+
+启动 Web：
+
+```bash
+uv run melonclaw-web
+```
+
+访问 `http://127.0.0.1:8000/`。UI 仍使用 `/api/status`、`/api/dev/users`、`/api/projects`、`/api/conversations` 及既有 SSE/审批接口；模拟用户只是开发入口，不等同于生产认证。若服务端或数据库不可用，页面会显示失败状态，不能据此判断 UI 已完成端到端验收。
 
 ## 常见问题
 

@@ -1,4 +1,4 @@
-"""研究 Agent 的组装入口。"""
+"""MelonClaw 通用助手的组装入口。"""
 
 from __future__ import annotations
 
@@ -122,10 +122,10 @@ async def build_research_agent(
     runtime_backend: BackendProtocol | None = None,
     memory_service: MemoryService | None = None,
 ) -> CompiledStateGraph:
-    """异步发现工具并构建官方 quickstart 形状的研究 Agent。
+    """异步发现工具并构建官方 quickstart 形状的通用助手。
 
     Deep Agents 自带文件系统和 task/subagent 能力；这里注入模型、provider
-    Tavily 搜索、自定义工具、可选 MCP 工具、研究提示词和统一的本地文件后端。
+    Tavily 搜索、自定义工具、可选 MCP 工具、通用助手提示词和统一的本地文件后端。
     """
 
     if checkpointer is None:

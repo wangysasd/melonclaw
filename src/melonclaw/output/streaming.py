@@ -1,4 +1,4 @@
-"""研究 Agent 的流式终端输出。"""
+"""MelonClaw 通用助手的流式终端输出。"""
 
 from __future__ import annotations
 

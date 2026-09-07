@@ -1,7 +1,7 @@
 [project]
 name = "melonclaw"
 version = "0.1.0"
-description = "用于学习 Deep Agents 的持续演进研究 Agent 项目"
+description = "基于 Deep Agents 的通用 AI 助手"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 dependencies = [

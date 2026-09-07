@@ -828,3 +828,132 @@ DeepAgents 的 `CompositeBackend` 本来就支持“默认使用 Sandbox，同�
 #### 验证记录与当前边界
 
 已执行 `uv run python -m compileall -q src example`、`node --check src/melonclaw/web/static/app.js` 和 `git diff --check`。另用本地 LangGraph `InMemorySaver` 验证两个并行 interrupt 的 ID 收集与按 ID 恢复，用内存替身验证同一请求下两个不同 tool call 写入同一 `profile`，并验证文件中间件保留两个原始调用且不执行依赖读取。真实 PostgreSQL 迁移、模型 API、MCP 和生产认证仍需在对应环境中运行；`LocalShellBackend` 的非沙箱边界未因本轮修复改变。
+
+## 服务器部署：轻量应用服务器 + Nginx + 外部 PostgreSQL
+
+记录日期：2026-09-07。目标是把 Web 形态的 MelonClaw 部署到腾讯云轻量应用服务器（Ubuntu 24.04），PostgreSQL 使用独立数据库实例，对外只暴露 80 端口。
+
+### 背景与目标
+
+本地运行命令 `uv run melonclaw-web` 依赖当前工作目录的 `.env` 和仓库内的 `temp/`，没有进程托管、没有反向代理，也不适合长期驻留。部署需要解决四件事：进程托管与重启、流式 SSE 不被缓冲、密钥不进入镜像或日志、工作区与源码分离。
+
+### 方案概览
+
+新增 `deploy/` 三个文件：`install.sh`（环境、依赖、托管、Nginx）、`melonclaw-web.service`（systemd 单元）、`nginx-melonclaw.conf`（反向代理）。应用以 `melonclaw` 系统用户运行，代码位于 `/opt/melonclaw`，uvicorn 只监听 `127.0.0.1:8000`，Nginx 对外提供 80 端口。
+
+### 关键设计选择
+
+- **配置注入双通道**：systemd 用 `EnvironmentFile=-/opt/melonclaw/.env` 注入，同时 `WorkingDirectory=/opt/melonclaw` 保证 `melonclaw/__init__.py` 的 `load_dotenv()` 仍能向上找到 `.env`。前者是主通道，后者是兜底，避免 uv 安装方式变化导致配置丢失。
+- **保留 editable 安装**：`uv sync --locked --python /usr/bin/python3` 不添加 `--no-editable`，使包路径仍在源码树下，`.env` 探测和 `temp/` 运行时目录都落在预期位置。
+- **SSE 必须关闭缓冲**：`proxy_buffering off`、`proxy_request_buffering off`、`chunked_transfer_encoding on`、`proxy_read_timeout 3600s`。任何一层再开启缓冲（其他网关、CDN）都会把流式输出变成一次性返回。
+- **最小暴露面**：只放行 TCP 80；8000 不进入防火墙规则。脚本支持 `BASIC_AUTH_USER/PASSWORD` 生成 htpasswd 并取消注释 Nginx 中的 `auth_basic`。
+- **数据库初始化独立成 `db-init.sh`**：`install.sh` 检测到 `DATABASE_URL` 为空时跳过初始化而不是失败退出，因为数据库往往晚于服务器就绪；补齐配置后单独执行即可。
+- **目录边界**：`MELONCLAW_WORKSPACE_DIR=/home/melonclaw/.melonclaw/workspaces`，Project 文件不写入 `/opt/melonclaw` 源码目录；运行时 `temp/` 仍在应用目录内，由 `melonclaw` 用户持有。
+
+### 失败与安全边界
+
+- `.env` 权限 600、属主 `melonclaw`；脚本不读写任何密钥内容，日志中不打印 `DATABASE_URL`。
+- `LocalShellBackend` 不是沙箱，Web 具备文件写入和 Shell 执行工具。公网部署必须叠加 Basic 认证或上游认证，并确认 HITL 审批链路可用。
+- 数据库与应用跨产品时先确认内网可达；不可达时使用数据库公网地址并开启 SSL，同时用数据库侧白名单限制来源 IP。
+- 目前没有健康检查端点之外的自愈策略，服务异常依赖 systemd `Restart=always`。
+
+### 运行步骤与验证记录
+
+服务器上执行 `bash deploy/install.sh`；验证点：首屏状态显示 Agent 和数据库已就绪、对话事件逐条流式返回、`journalctl -u melonclaw-web` 无密钥明文。当前尚未在真实实例上执行，验证记录待实例就绪后补全。
+
+## Web 界面品牌化与聊天可读性改造
+
+记录日期：2026-09-07。目标是在不改变 FastAPI、数据库、Agent 组装、SSE 事件和审批接口的前提下，将现有浏览器入口改造成可长时间阅读的 MelonClaw 工作台。
+
+### 背景与目标
+
+源码审阅确认旧界面存在四个运行时问题：初始化会清除静态欢迎区、无会话时输入框禁用、历史与实时回复均以 `textContent` 显示 Markdown、移动端把侧栏堆在聊天区上方。视觉上还存在带字 Logo 与名称重复、侧栏字号过小、固定 LIVE 标签和工具摘要难读等问题。目标是保留左侧项目/会话与右侧聊天的结构，建立奶白画布、瓜皮绿操作、少量珊瑚红点缀和瓜子爪印品牌感，并让空状态、首条消息、流式输出、工具过程、审批和手机操作形成连续体验。
+
+### 方案概览
+
+- `index.html` 重组为品牌侧栏、项目/会话区、底部模拟用户与运行详情、聊天顶栏、欢迎区、审批槽和输入区；新增移动菜单、遮罩、关闭按钮和主题化新增 Project dialog。
+- `styles.css` 统一使用 `--canvas`、`--panel`、`--sidebar`、`--ink`、`--brand-primary`、`--brand-coral` 等设计变量，桌面侧栏约 260px、内容轴约 800px、聊天正文 15–16px；移动端 <=768px 使用抽屉，不改变主面板的视口高度关系。
+- `app.js` 新增可复用欢迎渲染、上下文就绪判断、`ensureConversation()` 首次发送建会话、轻量安全 Markdown 管线、复制反馈、工具状态摘要、动态运行状态、Project dialog 和抽屉焦点管理。
+- `static/assets/brand/` 保留 UI Kit 白底原图，同时生成 128px 标志和 48px favicon；`static/assets/icons/` 接入本地 Lucide SVG，使用 CSS mask 着色，不依赖外部 CDN。
+
+### 关键设计选择
+
+1. **首条发送是惰性创建**：加载用户和 Project 后输入框可用；只有发送时才复用原 `POST /api/conversations` 创建接口。创建期间用 `conversationCreating` 和 promise 去重防止连击，创建失败不清空草稿。
+2. **迟到响应按上下文丢弃**：创建、历史加载和 SSE 均携带 `generation`、`userId`、`tenantId`、`projectId`、`conversationId` 校验。切换模拟用户、租户、Project 或会话时先中止活动请求，旧结果不能挂入新上下文。
+3. **Markdown 采用受控渲染**：原始回复保存在 `data-raw-content`，解析器只生成本地允许的标题、段落、列表、表格、链接和代码块；原始 HTML 会被转义，图片语法显示为文本提示，链接限制为安全协议，代码/表格在内部滚动。复制读取原文而不是渲染后的文本。
+4. **状态不再依赖装饰标签**：服务状态、SSE `approval_required`、`completed`、`error` 和工具事件共同驱动“连接中 / 已就绪 / 处理中 / 等待确认 / 失败”；未返回 MCP 列表时显示“未配置”，不硬编码联网成功。
+5. **品牌与功能图标分离**：瓜爪图形只用于侧栏、助手头像、欢迎区和 favicon；Project、搜索、列表、日历、审批、复制等使用 UI Kit 中的 Lucide 线性图标。用户头像改为当前模拟用户姓名首字和稳定浅色背景，不再把人物图作为所有用户的固定身份。
+
+### 数据/事件流
+
+```text
+用户/租户/Project 加载完成
+        -> 欢迎页运行时渲染 + 输入可用
+        -> 首次发送 ensureConversation()
+        -> POST /api/conversations（沿用 user_id/tenant_id/project_id）
+        -> POST /api/conversations/{id}/messages（request_id + SSE）
+        -> message_started / text / tool_* / subagent_* / approval_required
+        -> completed 或 error / done
+        -> 历史 refreshOnly（不自动创建空会话）
+```
+
+历史消息和流式消息使用同一套消息组件。工具 `call_key`、子 Agent `subagent_id`、父子映射和 `display_metadata.events` 仍由原数据结构驱动；审批提交仍发送服务端要求的决定类型和 interrupt 分组。
+
+### 失败与安全边界
+
+- 前端 Markdown 解析器是轻量受控实现，不是通用 CommonMark；它覆盖本次验收需要的标题、列表、表格、链接、代码块和常见强调语法。没有引入第三方依赖，因此不存在新增许可证或 CDN 运行时依赖，但复杂 Markdown 仍应以纯文本降级。
+- 用户内容、工具参数和工具原始输出始终以文本节点呈现；模型 HTML 不会直接插入 DOM。外链不会自动加载远程图片，链接使用 `target=_blank` 时带 `rel="noreferrer noopener"`。
+- 首条消息创建成功但发送准备失败时，会话可能已经存在；不会自动重发不确定请求，草稿保留在输入框，用户可明确再次发送。上下文改变时不会把迟到结果写回新用户或 Project。
+- 继续保留开发模拟用户、服务层归属校验和 `LocalShellBackend` 非沙箱边界；本轮没有新增上传、语音、停止执行或租户管理入口。
+- 移动抽屉实现了遮罩、Esc 关闭、Tab 焦点约束、关闭焦点恢复和选中会话后关闭；真实移动虚拟键盘、屏幕阅读器和生产认证仍需在目标环境复验。
+
+### 运行步骤
+
+```bash
+uv sync --locked
+uv run melonclaw-db-init
+uv run melonclaw-web
+```
+
+配置继续从 `.env` 读取，默认使用已有 DeepSeek 变量；不得把 API Key、Token 或数据库凭据复制到日志、文档或示例中。
+
+### 预期结果
+
+- 服务就绪后实际首屏仍显示欢迎页，三个入口分别为“查找资料”“整理思路”“制定计划”，点击只填入输入框并聚焦。
+- 有可用 Project 时无会话也能输入；首次发送只创建一次会话并发送一次消息，创建失败保留草稿。
+- 助手历史/实时结果可读地显示 Markdown，代码和表格不撑破页面，复制可反馈成功/失败。
+- 工具摘要可折叠，运行/完成/失败带图标和文字；审批列表内部滚动且 JSON 校验错误贴近编辑框。
+- 390px 左右视口默认只显示聊天，菜单抽屉可恢复项目、会话、模拟用户和运行详情；桌面侧栏可收起。
+
+### 验证记录与当前边界
+
+已执行：
+
+- `node --check src/melonclaw/web/static/app.js`
+- `.venv/bin/python -m compileall -q src example`
+- `git diff --check`
+- 检查 UI Kit 图标文件、来源 JSON、许可证和品牌适配图均存在；128px 首屏品牌图约 16KB，48px favicon 约 4KB。
+
+浏览器视觉烟测：通过本机 Chrome 的 computer-use 访问临时端口 `127.0.0.1:8765`，实际确认新版欢迎页、三张快捷卡、无会话输入框、主题化新增项目 dialog、桌面侧栏收起，以及已有历史中的标题/列表/表格/长回复和复制入口；临时服务已停止，未保留验收标签页。当前未完成 1440×900、1024×768、390×844 的精确视口矩阵，也未执行真实首条消息发送、重复点击/创建失败草稿、审批提交与移动虚拟键盘测试。后续应在目标环境按 Prompt 继续复验这些路径，以及用户/Project 切换时的迟到响应隔离。
+
+## 通用 AI 助手定位与系统提示词修正
+
+记录日期：2026-09-07。用户确认 MelonClaw 的产品定位是通用 AI 助手，而不是默认进入研究流程的研究型助手。本次调整修正模型的默认行为与当前产品说明，同时保留联网搜索、研究 Skill 和既有持久化标识作为按需能力或兼容接口。
+
+### 背景与目标
+
+原 `BASE_SYSTEM_PROMPT` 只有“强大的助手、默认中文”这一句，模型缺少明确的通用任务边界；另一方面，组装入口和 README 使用“研究 Agent”作为主定位，容易使普通问答、写作、总结、计划等请求被误解为研究任务。目标是让模型先理解用户意图，默认直接完成任务，仅在用户要求、时效性或准确性确有需要时搜索或采用研究流程。
+
+### 方案与关键取舍
+
+- `src/melonclaw/core/prompts.py` 的基础系统提示词明确 MelonClaw 身份、通用能力、默认中文、按需工具选择、事实不确定性和副作用工具的审批边界。
+- README 和 `pyproject.toml` 的当前产品描述改为通用 AI 助手；研究工作流仍作为 `skills/research-workflow/` 下的专项能力保留。
+- `build_research_agent`、`quickstart-research-agent` 等内部函数和持久化标识暂不改名。它们涉及现有导入、Memory namespace、数据库默认值和会话兼容性，不应为了文案调整制造迁移风险；实际模型 persona 由新的系统提示词决定。
+
+### 运行与安全边界
+
+系统提示词不授予新权限，也不改变工具 schema、SSE、HITL 或服务层归属校验。搜索仍需遵守工具可用性，文件、Shell、MCP 等有副作用操作仍受既有人工审批和本地非沙箱部署限制。系统提示词要求不要编造工具结果，但不能替代服务端权限和结果校验。
+
+### 验证记录
+
+已检查 `build_system_prompt([])` 的静态拼装路径，并将通用定位、非研究默认行为和按需搜索规则写入基础提示词；同时执行 `node --check src/melonclaw/web/static/app.js`、`.venv/bin/python -m compileall -q src example`、`uv lock --check` 和 `git diff --check`。尚未调用真实模型进行行为评测，后续应使用普通问答、写作/改写、制定计划、明确要求搜索和时效性问题各一条样例观察工具调用与回答长度。

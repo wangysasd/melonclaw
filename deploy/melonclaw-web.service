@@ -1,0 +1,23 @@
+[Unit]
+Description=MelonClaw Web Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=melonclaw
+Group=melonclaw
+WorkingDirectory=/opt/melonclaw
+Environment=HOME=/home/melonclaw
+Environment=MELONCLAW_HOST=127.0.0.1
+Environment=MELONCLAW_PORT=8000
+Environment=MELONCLAW_WORKSPACE_DIR=/home/melonclaw/.melonclaw/workspaces
+EnvironmentFile=-/opt/melonclaw/.env
+ExecStart=/opt/melonclaw/.venv/bin/melonclaw-web
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

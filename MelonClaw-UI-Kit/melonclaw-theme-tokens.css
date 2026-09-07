@@ -1,0 +1,34 @@
+/* Merge into the existing stylesheet; this file contains design tokens only. */
+:root {
+  color-scheme: light;
+  --canvas: #F8FAF6;
+  --panel: #FFFFFF;
+  --sidebar: #F2F6F0;
+  --ink: #20392E;
+  --muted: #607266;
+  --line: #DCE5DC;
+  --brand-primary: #176B4A;
+  --brand-primary-hover: #12553B;
+  --brand-soft: #E8F4EA;
+  --brand-coral: #F56B70;
+  --brand-coral-soft: #FFF0ED;
+  --brand-seed: #403329;
+  --status-success: #176B4A;
+  --status-warning: #855C18;
+  --status-warning-bg: #FFF7E7;
+  --status-error: #B93848;
+  --status-error-bg: #FFF1F2;
+  --radius-control: 12px;
+  --radius-composer: 18px;
+  --sidebar-width: 260px;
+  --content-max-width: 800px;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* Migrate hardcoded legacy colors when applying these aliases. */
+  --mint: var(--brand-primary);
+  --mint-deep: var(--brand-primary);
+  --blue: var(--brand-primary);
+  --muted-2: var(--muted);
+  --panel-2: var(--canvas);
+  --panel-3: var(--brand-soft);
+}
