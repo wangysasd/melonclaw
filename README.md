@@ -56,7 +56,7 @@ uv sync --locked
 uv run melonclaw-db-init
 ```
 
-`melonclaw-db-init` 会幂等创建业务表、演示用户/租户数据、LangGraph PostgreSQL Checkpointer 表和 Memory Store 表。首次部署或数据库结构升级时执行一次即可。
+`melonclaw-db-init` 会幂等创建业务表、演示用户/租户数据、LangGraph PostgreSQL Checkpointer 表和 Memory Store 表；数据库结构升级也通过该命令完成。首次部署或升级后执行一次即可。
 
 ### 3. 启动 CLI
 
@@ -158,6 +158,14 @@ CLI 的研究中间文件写入进程临时目录，默认位于仓库根目录�
 - `reject` / `r`：不执行，并把拒绝原因反馈给 Agent
 
 读取文件、Tavily 搜索和当前只读 MCP 查询不需要审批。
+
+一个 Checkpoint 可能同时包含多个并行 interrupt。审批数据会返回每个 interrupt 的 `id`；单个 interrupt 仍可使用 `actions`，多个 interrupt 则位于 `interrupts` 数组中。提交多个 interrupt 时，`decisions` 使用如下分组形状：
+
+```json
+[
+  {"interrupt_id": "...", "decisions": [{"type": "approve"}]}
+]
+```
 
 ## MCP 配置
 

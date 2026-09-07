@@ -44,6 +44,17 @@ class MemoryValidationError(ValueError):
     """Memory 参数不满足安全或容量约束。"""
 
 
+def _clean_operation_id(value: Any) -> str | None:
+    """校验操作级幂等键；工具调用 ID 是不透明字符串，不参与路径拼接。"""
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if len(text) > 160:
+        raise MemoryValidationError("operation_id 不能超过 160 个字符。")
+    return text
+
+
 @dataclass(frozen=True)
 class MemoryRecord:
     """Store 中一个可展示的 Memory 记录。"""
@@ -414,6 +425,7 @@ class MemoryService:
         *,
         replaces: str | None,
         operation: str,
+        operation_id: str | None = None,
         source: str,
         proposal: bool = False,
     ) -> dict[str, Any]:
@@ -428,6 +440,13 @@ class MemoryService:
         clean_key = _clean_key(key)
         namespace = self.namespace(context, scope)
         path = self._path(clean_key)
+        request_id = str(_context_value(context, "request_id", "")) or None
+        clean_operation_id = _clean_operation_id(
+            operation_id or _context_value(context, "operation_id")
+        )
+        if clean_operation_id is None and request_id:
+            # 非工具调用（例如受控发布入口）仍保留旧的 request 级幂等语义。
+            clean_operation_id = f"request:{request_id}:{operation}"
         lock_key = "melonclaw:memory:" + ":".join((*namespace, clean_key))
         lock_connection = await self.storage.try_memory_advisory_lock(lock_key)
         if lock_connection is None:
@@ -436,8 +455,7 @@ class MemoryService:
             existing, _, current_version = await self._existing_item(context, scope, clean_key)
             current_value = existing.value if existing and isinstance(existing.value, dict) else {}
             current = str(current_value.get("content", ""))
-            request_id = str(_context_value(context, "request_id", "")) or None
-            if request_id:
+            if request_id and clean_operation_id:
                 duplicate = await self.storage.find_memory_event(
                     scope_type=scope,
                     scope_id=self._scope_id(namespace),
@@ -445,6 +463,7 @@ class MemoryService:
                     key=clean_key,
                     request_id=request_id,
                     operation=operation,
+                    operation_id=clean_operation_id,
                 )
                 if duplicate is not None:
                     result = {
@@ -465,7 +484,8 @@ class MemoryService:
                     operation=operation,
                     actor_user_id=verified.user_id,
                     tenant_id=verified.tenant_id,
-                    request_id=str(_context_value(context, "request_id", "")) or None,
+                    request_id=request_id,
+                    operation_id=clean_operation_id,
                     run_id=str(_context_value(context, "run_id", "")) or None,
                     version=current_version,
                     content_hash=sha256(clean_content.encode("utf-8")).hexdigest(),
@@ -512,6 +532,7 @@ class MemoryService:
                 actor_user_id=verified.user_id,
                 tenant_id=verified.tenant_id,
                 request_id=request_id,
+                operation_id=clean_operation_id,
                 run_id=str(_context_value(context, "run_id", "")) or None,
                 version=next_version,
                 content_hash=sha256(updated.encode("utf-8")).hexdigest(),
@@ -544,6 +565,7 @@ class MemoryService:
         *,
         key: str = "profile",
         replaces: str | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         return await self._write(
             context,
@@ -552,6 +574,7 @@ class MemoryService:
             content,
             replaces=replaces,
             operation="remember",
+            operation_id=operation_id,
             source="user_explicit",
         )
 
@@ -561,12 +584,19 @@ class MemoryService:
         *,
         key: str = "profile",
         content: str | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         verified = await self._authorize(context, "user", write=True)
         self._require_run_identity(context)
         clean_key = _clean_key(key)
         namespace = self.namespace(context, "user")
         path = self._path(clean_key)
+        request_id = str(_context_value(context, "request_id", "")) or None
+        clean_operation_id = _clean_operation_id(
+            operation_id or _context_value(context, "operation_id")
+        )
+        if clean_operation_id is None and request_id:
+            clean_operation_id = f"request:{request_id}:forget"
         lock_key = "melonclaw:memory:" + ":".join((*namespace, clean_key))
         lock_connection = await self.storage.try_memory_advisory_lock(lock_key)
         if lock_connection is None:
@@ -575,8 +605,7 @@ class MemoryService:
             existing, _, current_version = await self._existing_item(context, "user", clean_key)
             current_value = existing.value if existing and isinstance(existing.value, dict) else {}
             current = str(current_value.get("content", ""))
-            request_id = str(_context_value(context, "request_id", "")) or None
-            if request_id:
+            if request_id and clean_operation_id:
                 duplicate = await self.storage.find_memory_event(
                     scope_type="user",
                     scope_id=self._scope_id(namespace),
@@ -584,6 +613,7 @@ class MemoryService:
                     key=clean_key,
                     request_id=request_id,
                     operation="forget",
+                    operation_id=clean_operation_id,
                 )
                 if duplicate is not None:
                     return {
@@ -626,6 +656,7 @@ class MemoryService:
                 actor_user_id=verified.user_id,
                 tenant_id=verified.tenant_id,
                 request_id=request_id,
+                operation_id=clean_operation_id,
                 run_id=str(_context_value(context, "run_id", "")) or None,
                 version=next_version,
                 content_hash=sha256(updated.encode("utf-8")).hexdigest() if updated else None,
@@ -647,6 +678,7 @@ class MemoryService:
         *,
         key: str = "shared",
         replaces: str | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         return await self._write(
             context,
@@ -655,6 +687,7 @@ class MemoryService:
             content,
             replaces=replaces,
             operation="proposal",
+            operation_id=operation_id,
             source="agent_proposed",
             proposal=True,
         )
@@ -667,6 +700,7 @@ class MemoryService:
         *,
         key: str,
         replaces: str | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         """供受控后台/API 使用的发布入口，不注册为 Agent 工具。"""
 
@@ -677,6 +711,7 @@ class MemoryService:
             content,
             replaces=replaces,
             operation="publish",
+            operation_id=operation_id,
             source="imported",
         )
 

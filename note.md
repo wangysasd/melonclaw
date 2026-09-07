@@ -108,7 +108,7 @@ uv run melonclaw
 
 ## Human-in-the-loop：暂停、人工决定与恢复
 
-Deep Agents 将 HITL 放在模型已经提出工具调用、工具尚未执行的边界：`HumanInTheLoopMiddleware` 产生 LangGraph interrupt，调用方读取 checkpoint 中的 `action_requests`，再以 `Command(resume={"decisions": [...]})` 恢复同一执行。这里不能只在终端里打印“是否同意”，因为没有把决定传回同一个 checkpoint 的话，工具调用不会继续；也不能缺少 checkpointer，interrupt 没有可恢复的位置。
+Deep Agents 将 HITL 放在模型已经提出工具调用、工具尚未执行的边界：`HumanInTheLoopMiddleware` 产生 LangGraph interrupt，调用方读取 checkpoint 中的全部 `action_requests` 和 `interrupt.id`，再以按 ID 映射的 `Command(resume={interrupt_id: {"decisions": [...]}})` 恢复同一执行。这里不能只在终端里打印“是否同意”，因为没有把决定传回同一个 checkpoint 的话，工具调用不会继续；也不能缺少 checkpointer，interrupt 没有可恢复的位置。
 
 CLI 和 Web 都把同样的 Agent 接到 PostgreSQL `AsyncPostgresSaver`。CLI 固定使用 `deepagents-quickstart` 作为 `thread_id`，Web 使用经过归属校验的 `conversation_id`，因此业务会话和 HITL 中断都可以跨后端重启继续：
 
@@ -117,11 +117,11 @@ CLI 和 Web 都把同样的 Agent 接到 PostgreSQL `AsyncPostgresSaver`。CLI �
         ↓
 HumanInTheLoopMiddleware 暂停并持久化到 PostgreSQL Checkpointer
         ↓
-main.py 从 await agent.aget_state(config).interrupts 读取 action_requests
+main.py 从 await agent.aget_state(config).interrupts 读取全部 action_requests 和 interrupt.id
         ↓
 用户 approve / edit / reject / respond
         ↓
-Command(resume={"decisions": [...]}) 用相同 thread_id 恢复
+按 interrupt.id 构造 Command(resume={interrupt_id: {"decisions": [...]}})，用相同 thread_id 恢复
 ```
 
 ### MelonClaw 中的策略
@@ -144,7 +144,7 @@ CLI 和 Web 都使用 PostgreSQL Checkpointer；Web 由服务端先校验 user_i
 
 LangGraph 的 ToolNode 默认并发执行同一条 AIMessage 内的工具调用。于是模型若一次同时调用 `write_file('/summary.md')` 和 `read_file('/summary.md')`，读取可能先于写入，出现“文件不存在”；这不是虚拟路径后端的读写不一致。
 
-`middleware/file_ordering.py` 的 `FileOperationOrderingMiddleware` 在 `after_model` 钩子检查该批工具调用：收集 `write_file`、`edit_file`、`delete` 的 `file_path`，再找出读取相同路径的 `read_file`。命中时它会从 AIMessage 中移除读取调用，并添加带相同 `tool_call_id` 的 error ToolMessage，明确要求模型等到写操作结果返回后再单独读取。写操作仍照常进入 HITL 审批与执行；不同路径的读取与其他无依赖调用没有被串行化。
+`middleware/file_ordering.py` 的 `FileOperationOrderingMiddleware` 在工具执行层检查该批工具调用：收集 `write_file`、`edit_file`、`delete` 的 `file_path`，再找出读取相同路径的 `read_file`。命中时它保留 AIMessage 中的原始读取调用，并在 `wrap_tool_call/awrap_tool_call` 中返回带相同 `tool_call_id` 的 error ToolMessage，明确要求模型等到写操作结果返回后再单独读取。写操作仍照常进入 HITL 审批与执行；不同路径的读取与其他无依赖调用没有被串行化。
 
 这比只靠提示词可靠：即使模型再次在一个 response 中生成写后读，中间件也不会把读取送进并行 ToolNode。它不猜测跨路径的语义依赖；如需数据库事务、跨文件构建链或多步骤部署，应为那些领域操作设计专门的工作流或 middleware。
 
@@ -252,7 +252,7 @@ CLI 和 Web 遵循同一套 Agent 组装配置，都使用 `CompositeBackend` �
 - 首屏显示 provider、模型和 MCP 服务状态；不会显示任何 API Key、MCP URL 或 token。
 - 助手回复旁会出现可折叠的工具时间线；`task` 工具下面会嵌套 `general-purpose` 子 Agent 卡片，显示运行/完成/失败状态、文本进度、工具数量和限长结果。
 - 前端只在用户接近会话底部时自动跟随流式输出；工具参数/结果和已完成子 Agent 默认收起，长任务不会把历史阅读位置强行拉到底部。流末尾会 flush `TextDecoder`，缺少 `done` 时也会解除输入框锁定并提示刷新。
-- 触发 `write_file`、`edit_file`、`delete` 或 `execute` 时，流会以 `approval_required` 暂停；页面提交决定后，用相同 `thread_id` 发送 `Command(resume={"decisions": [...]})` 继续。
+- 触发 `write_file`、`edit_file`、`delete` 或 `execute` 时，流会以 `approval_required` 暂停；页面保留全部 interrupt ID 并按 ID 提交决定，用相同 `thread_id` 恢复执行。
 - 点击“新建对话”会生成新的 UUID conversation/thread；同一 Project 下的多个 conversation 共享 Project workdir 文件，但各自的多轮消息、todo 状态和 Checkpointer 状态互相隔离。
 - 页面模拟用户来自数据库的 `users` 与 `user_tenants` 关系；一个用户只生成一个下拉选项，多个租户名称由后端以“、”连接后返回。后端将张三标记为默认用户并置于第一项，前端首次加载默认选中张三。前端不维护用户或租户名单，只使用接口返回的 `display_name`、`tenant_ids` 和 `default_tenant_id`。租户只是用户标签，切换用户不会切换该用户的 Project 或 Conversation。模拟用户下面先显示“项目”文件夹列表，并在同一行提供“新增项目”；点击文件夹后进入该 Project 的聊天会话列表，再次点击已打开的文件夹即可收起会话，Project 不再作为下拉筛选器。所有按 conversation_id 的接口都按 `user_id + project_id` 再次校验归属，不存在或归属不匹配统一返回 404。它不是认证机制，上线时应由认证上下文产生 user_id。
 - 前端 localStorage 只保存当前用户、租户标签、Project 和会话提示；恢复时仍由后端按 user_id/project_id 校验，切换用户/会话会取消旧请求并丢弃迟到流事件。
@@ -800,3 +800,31 @@ DeepAgents 的 `CompositeBackend` 本来就支持“默认使用 Sandbox，同�
 - Global Memory 已支持受控读取和 `memory_admin` 发布路径，但当前演示身份没有登录鉴权和平台管理员界面；Global 内容不能替代 system/developer policy。
 - 当前 Web 仍使用模拟用户/租户身份，后端会做成员和资源归属校验；`LocalShellBackend` 仍只适合本机受信任环境。未来替换 Docker Sandbox 时只需替换 CompositeBackend 的 default 执行后端，MemoryService、PostgreSQL Store、namespace 和审计模型保持不变。
 - `build_agent_backend` 已预留 `default_backend` 注入点，`build_research_agent` 以 `runtime_backend` 透传；未来 Docker Sandbox 只替换这个执行后端，不需要改 MemoryService、Memory 工具或 Store namespace。
+
+### 11. 已实现：五处并发、幂等与 HITL 恢复修复（2026-09-07）
+
+#### 背景与目标
+
+本轮修复针对代码审查确认的五个问题：CLI 流式调用缺少运行上下文、文件写后读的工具消息失配、请求重试可能覆盖已完成消息、同一请求内多个 Memory 写操作互相误判为重试，以及并行分支中断被截断。目标是让调用链、状态转换和恢复协议都保留可验证的关联 ID。
+
+#### 方案与关键设计选择
+
+1. `output/streaming.py` 的 `stream_research()` 新增可选 `context` 并透传给 `iter_research_events()`，CLI 与 Web 使用同一套 Runtime Context。
+2. `middleware/file_ordering.py` 从 `after_model` 删除 read tool call 的做法改为 `wrap_tool_call/awrap_tool_call` 执行层短路。原始 `AIMessage.tool_calls` 保持不变，延后结果使用相同 `tool_call_id` 返回，模型可在下一轮单独读取。
+3. `BusinessDatabase.update_assistant()` 增加 `expected_status` 条件，按消息状态执行 CAS 更新。`ChatService._prepare_existing_request()` 在拿到会话锁后重新查询 request；流式完成、暂停、失败和取消都只能从本次执行预期状态推进，旧执行不能覆盖终态。
+4. `memory_events` 增加可迁移的 `operation_id` 列。Memory 工具把 `ToolRuntime.tool_call_id` 作为操作级幂等键；同一 `request_id + key + operation` 下，不同 tool call 是不同操作，同一 tool call 重试才返回幂等结果。旧的非工具受控入口保留 request 级回退键。
+5. `core/hitl.py` 收集 checkpoint 中全部 `Interrupt`，返回 `id` 与请求内容；恢复时构造 `{interrupt_id: {"decisions": [...]}}` 映射。CLI、Web 以及 Web 前端都按 interrupt 分组，单 interrupt 响应保留旧 `actions` 兼容字段。
+
+#### 数据/事件流、失败与安全边界
+
+消息流仍由业务会话 advisory lock 串行化；数据库状态更新额外使用预期状态条件。Memory 的内容事实源仍是 PostgreSQL Store，`memory_events` 只增加操作级审计关联，不改变 namespace 或权限校验。文件排序只影响匹配到写入依赖路径的 `read_file`，写文件、Shell 和其他外部副作用仍遵循既有 HITL。审批恢复要求提交全部当前 interrupt ID，未知、重复或缺失 ID 均拒绝。
+
+#### 实现位置、运行步骤与预期结果
+
+- 实现位置：`output/streaming.py`、`middleware/file_ordering.py`、`web/service.py`、`web/app.py`、`core/database.py`、`core/memory.py`、`tool/memory.py`、`core/hitl.py` 和 `web/static/app.js`。
+- 依赖数据库结构升级时执行 `uv run melonclaw-db-init`；该命令会补齐 `memory_events.operation_id`。
+- 预期结果：CLI 首轮不再因 `context` 参数报错；写后读保持一一对应的 `ToolMessage`；完成后的重试只回放终态；同轮对同一 key 的两次记忆都保留；多个并行中断可按各自 ID 一次恢复。
+
+#### 验证记录与当前边界
+
+已执行 `uv run python -m compileall -q src example`、`node --check src/melonclaw/web/static/app.js` 和 `git diff --check`。另用本地 LangGraph `InMemorySaver` 验证两个并行 interrupt 的 ID 收集与按 ID 恢复，用内存替身验证同一请求下两个不同 tool call 写入同一 `profile`，并验证文件中间件保留两个原始调用且不执行依赖读取。真实 PostgreSQL 迁移、模型 API、MCP 和生产认证仍需在对应环境中运行；`LocalShellBackend` 的非沙箱边界未因本轮修复改变。

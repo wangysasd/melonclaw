@@ -776,14 +776,21 @@ function renderApproval(request) {
   copy.textContent = "助手已提出敏感操作。请逐项确认；编辑时只能修改参数，不能替换工具名称。";
   panel.append(title, copy);
 
-  (request.actions || []).forEach((action, index) => {
+  const interrupts = Array.isArray(request.interrupts) && request.interrupts.length
+    ? request.interrupts
+    : [{ id: request.id || "", actions: request.actions || [] }];
+  let actionNumber = 0;
+  interrupts.forEach((interrupt) => (interrupt.actions || []).forEach((action) => {
+    actionNumber += 1;
     const row = document.createElement("div");
     row.className = "approval-action";
+    row.dataset.interruptId = interrupt.id || "";
+    row.dataset.toolName = action.name || "unknown";
     const top = document.createElement("div");
     top.className = "approval-action-top";
     const tool = document.createElement("div");
     tool.className = "approval-tool";
-    tool.textContent = `${index + 1}. ${action.name}`;
+    tool.textContent = `${actionNumber}. ${action.name}`;
     const select = document.createElement("select");
     select.className = "approval-select";
     const labels = { approve: "批准", edit: "编辑参数", reject: "拒绝", respond: "返回结果" };
@@ -812,7 +819,7 @@ function renderApproval(request) {
     });
     row.append(top, description, args, edit, reject);
     panel.append(row);
-  });
+  }));
 
   const submit = document.createElement("button");
   submit.className = "approval-submit";
@@ -827,20 +834,36 @@ function renderApproval(request) {
 async function submitApproval(panel, request) {
   const rows = [...panel.querySelectorAll(".approval-action")];
   try {
-    const decisions = rows.map((row, index) => {
+    const interrupts = Array.isArray(request.interrupts) && request.interrupts.length
+      ? request.interrupts
+      : [{ id: request.id || "", actions: request.actions || [] }];
+    const decisionsByInterrupt = new Map(interrupts.map((interrupt) => [interrupt.id || "", []]));
+    rows.forEach((row, index) => {
       const choice = row.querySelector("select").value;
-      if (choice === "approve") return { type: "approve" };
-      if (choice === "reject") return { type: "reject", message: row.querySelector(".approval-reject").value };
-      if (choice === "respond") return { type: "respond", message: row.querySelector(".approval-reject").value };
-      let args;
-      try {
-        args = JSON.parse(row.querySelector(".approval-edit").value);
-      } catch (error) {
-        throw new Error(`第 ${index + 1} 项参数不是合法 JSON：${error.message}`);
+      let decision;
+      if (choice === "approve") decision = { type: "approve" };
+      else if (choice === "reject") decision = { type: "reject", message: row.querySelector(".approval-reject").value };
+      else if (choice === "respond") decision = { type: "respond", message: row.querySelector(".approval-reject").value };
+      else {
+        let args;
+        try {
+          args = JSON.parse(row.querySelector(".approval-edit").value);
+        } catch (error) {
+          throw new Error(`第 ${index + 1} 项参数不是合法 JSON：${error.message}`);
+        }
+        if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error(`第 ${index + 1} 项参数必须是 JSON 对象。`);
+        decision = { type: "edit", edited_action: { name: row.dataset.toolName, args } };
       }
-      if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error(`第 ${index + 1} 项参数必须是 JSON 对象。`);
-      return { type: "edit", edited_action: { name: request.actions[index].name, args } };
+      const interruptId = row.dataset.interruptId || "";
+      if (!decisionsByInterrupt.has(interruptId)) throw new Error("审批请求已变化，请刷新会话后重试。");
+      decisionsByInterrupt.get(interruptId).push(decision);
     });
+    const decisions = interrupts.length === 1
+      ? decisionsByInterrupt.get(interrupts[0].id || "")
+      : interrupts.map((interrupt) => ({
+        interrupt_id: interrupt.id || "",
+        decisions: decisionsByInterrupt.get(interrupt.id || "") || [],
+      }));
     panel.querySelector(".approval-submit").disabled = true;
     state.currentAssistant = state.currentAssistant || [...$("#conversation").querySelectorAll("article.assistant")].map((article) => ({ article, body: article.querySelector(".message-body"), tools: article.querySelector(".message-tools") })).pop();
     await consumeStream(`/api/conversations/${state.conversationId}/approval`, {

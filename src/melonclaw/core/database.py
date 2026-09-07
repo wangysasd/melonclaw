@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -77,6 +77,10 @@ class ProjectNotFoundError(LookupError):
 
 class ConversationBusyError(RuntimeError):
     """同一会话已有另一个 Agent 执行。"""
+
+
+class AssistantStateConflictError(RuntimeError):
+    """助手消息已经离开预期状态，拒绝旧执行覆盖新状态。"""
 
 
 class RequestConflictError(RuntimeError):
@@ -247,6 +251,7 @@ memory_events = Table(
     Column("actor_user_id", String(64), nullable=True),
     Column("tenant_id", String(64), nullable=True),
     Column("request_id", String(80), nullable=True),
+    Column("operation_id", String(160), nullable=True),
     Column("run_id", String(80), nullable=True),
     Column("version", Integer, nullable=False, server_default="0"),
     Column("content_hash", String(64), nullable=True),
@@ -289,7 +294,7 @@ STORE_TABLES = (
 )
 MULTITENANT_SCHEMA_VERSION = "2026-09-07-tenant-multitenant-v2"
 PROJECT_SCHEMA_VERSION = "2026-09-07-project-workspaces"
-MEMORY_SCHEMA_VERSION = "2026-09-07-memory-scopes-v1"
+MEMORY_SCHEMA_VERSION = "2026-09-07-memory-scopes-v2-operation-id"
 CONVERSATION_SCHEMA_VERSION = "2026-09-07-conversation-user-owned-v1"
 
 
@@ -593,6 +598,12 @@ class BusinessDatabase:
                 lambda sync_connection: metadata.create_all(
                     sync_connection,
                     tables=[memory_events],
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE memory_events ADD COLUMN IF NOT EXISTS "
+                    "operation_id VARCHAR(160)"
                 )
             )
             projects_table_exists = await self._table_exists(connection, "projects")
@@ -1518,7 +1529,10 @@ class BusinessDatabase:
         status: str,
         display_metadata: dict[str, Any] | None = None,
         error_code: str | None = None,
+        expected_status: str | Collection[str] | None = None,
     ) -> dict[str, Any]:
+        """按预期状态 CAS 更新助手消息，防止旧执行覆盖终态。"""
+
         values: dict[str, Any] = {"status": status, "updated_at": _now()}
         if content is not None:
             values["content"] = content
@@ -1526,20 +1540,44 @@ class BusinessDatabase:
             values["display_metadata"] = display_metadata
         values["error_code"] = error_code
         async with self.engine.begin() as connection:
+            conditions = [
+                chat_messages.c.id == assistant_message_id,
+                chat_messages.c.conversation_id == conversation_id,
+                chat_messages.c.role == "assistant",
+            ]
+            if expected_status is not None:
+                statuses = (
+                    [expected_status]
+                    if isinstance(expected_status, str)
+                    else list(expected_status)
+                )
+                if not statuses:
+                    raise ValueError("expected_status 不能为空。")
+                conditions.append(chat_messages.c.status.in_(statuses))
             result = await connection.execute(
                 update(chat_messages)
-                .where(
-                    and_(
-                        chat_messages.c.id == assistant_message_id,
-                        chat_messages.c.conversation_id == conversation_id,
-                        chat_messages.c.role == "assistant",
-                    )
-                )
+                .where(and_(*conditions))
                 .values(**values)
                 .returning(chat_messages)
             )
             row = result.mappings().first()
             if row is None:
+                current = await connection.execute(
+                    select(chat_messages.c.status).where(
+                        and_(
+                            chat_messages.c.id == assistant_message_id,
+                            chat_messages.c.conversation_id == conversation_id,
+                            chat_messages.c.role == "assistant",
+                        )
+                    )
+                )
+                current_status = current.scalar()
+                if current_status is None:
+                    raise ConversationNotFoundError
+                if expected_status is not None:
+                    raise AssistantStateConflictError(
+                        "助手消息状态已变化，旧执行不能覆盖当前状态。"
+                    )
                 raise ConversationNotFoundError
             await connection.execute(
                 update(chat_conversations)
@@ -1634,6 +1672,7 @@ class BusinessDatabase:
         actor_user_id: str | None,
         tenant_id: str | None,
         request_id: str | None,
+        operation_id: str | None = None,
         run_id: str | None,
         version: int,
         content_hash: str | None,
@@ -1654,6 +1693,7 @@ class BusinessDatabase:
                     actor_user_id=actor_user_id,
                     tenant_id=tenant_id,
                     request_id=request_id,
+                    operation_id=operation_id,
                     run_id=run_id,
                     version=version,
                     content_hash=content_hash,
@@ -1672,21 +1712,25 @@ class BusinessDatabase:
         key: str,
         request_id: str,
         operation: str,
+        operation_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """查找已成功记录的 Memory 操作，用于请求幂等。"""
+        """按操作级 ID 查找已成功记录的 Memory 操作。"""
 
+        conditions = [
+            memory_events.c.scope_type == scope_type,
+            memory_events.c.scope_id == scope_id,
+            memory_events.c.agent_id == agent_id,
+            memory_events.c.key == key,
+            memory_events.c.request_id == request_id,
+            memory_events.c.operation == operation,
+        ]
+        if operation_id is not None:
+            conditions.append(memory_events.c.operation_id == operation_id)
+        else:
+            conditions.append(memory_events.c.operation_id.is_(None))
         query = (
             select(memory_events)
-            .where(
-                and_(
-                    memory_events.c.scope_type == scope_type,
-                    memory_events.c.scope_id == scope_id,
-                    memory_events.c.agent_id == agent_id,
-                    memory_events.c.key == key,
-                    memory_events.c.request_id == request_id,
-                    memory_events.c.operation == operation,
-                )
-            )
+            .where(and_(*conditions))
             .order_by(memory_events.c.created_at.desc())
             .limit(1)
         )
@@ -1698,6 +1742,7 @@ class BusinessDatabase:
 __all__ = [
     "CHECKPOINT_TABLES",
     "STORE_TABLES",
+    "AssistantStateConflictError",
     "BusinessDatabase",
     "ConversationBusyError",
     "ConversationNotFoundError",

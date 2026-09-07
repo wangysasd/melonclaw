@@ -62,6 +62,7 @@ def build_memory_tools(service: MemoryService) -> list[BaseTool]:
             content,
             key=key,
             replaces=replaces,
+            operation_id=runtime.tool_call_id,
         )
         return _result(value)
 
@@ -78,6 +79,7 @@ def build_memory_tools(service: MemoryService) -> list[BaseTool]:
             runtime.context,
             key=key,
             content=content,
+            operation_id=runtime.tool_call_id,
         )
         return _result(value)
 
@@ -96,6 +98,7 @@ def build_memory_tools(service: MemoryService) -> list[BaseTool]:
             content,
             key=key,
             replaces=replaces,
+            operation_id=runtime.tool_call_id,
         )
         return _result(value)
 

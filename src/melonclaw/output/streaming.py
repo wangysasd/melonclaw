@@ -121,11 +121,18 @@ async def stream_research(
     agent: Any,
     agent_input: Any,
     config: dict[str, Any],
+    *,
+    context: Any | None = None,
 ) -> None:
     """流式打印模型文本、工具调用和工具返回结果。"""
     from melonclaw.output.events import iter_research_events
 
-    async for event in iter_research_events(agent, agent_input, config):
+    async for event in iter_research_events(
+        agent,
+        agent_input,
+        config,
+        context=context,
+    ):
         event_type = event.get("type")
         if event_type == "text":
             print(event.get("text", ""), end="", flush=True)

@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from melonclaw.core.database import (
+    AssistantStateConflictError,
     ConversationBusyError,
     ConversationNotFoundError,
     DatabaseConfigurationError,
@@ -129,6 +130,7 @@ def _error_response(exc: Exception) -> JSONResponse:
         exc,
         (
             ConversationBusyError,
+            AssistantStateConflictError,
             RequestConflictError,
             RequestInProgressError,
         ),

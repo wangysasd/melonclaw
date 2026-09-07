@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from melonclaw.core.agent import AgentContext, build_research_agent
 from melonclaw.core.config import Settings, load_settings
 from melonclaw.core.database import (
+    AssistantStateConflictError,
     BusinessDatabase,
     ConversationBusyError,
     ConversationNotFoundError,
@@ -468,16 +469,21 @@ class ChatService:
             )
             if stale is not None:
                 # 能取得会话锁说明旧执行已经不再运行，此时才安全收敛遗留状态。
-                await storage.update_assistant(
-                    conversation_id,
-                    UUID(stale["id"]),
-                    status="failed",
-                    error_code=(
-                        "stale_pending"
-                        if stale["status"] == "pending"
-                        else "stale_interrupted"
-                    ),
-                )
+                try:
+                    await storage.update_assistant(
+                        conversation_id,
+                        UUID(stale["id"]),
+                        status="failed",
+                        error_code=(
+                            "stale_pending"
+                            if stale["status"] == "pending"
+                            else "stale_interrupted"
+                        ),
+                        expected_status=stale["status"],
+                    )
+                except AssistantStateConflictError:
+                    # 状态已经由持锁执行收敛；不要用旧快照覆盖它。
+                    pass
             pair = await storage.create_message_pair(
                 conversation_id,
                 context.user_id,
@@ -524,14 +530,45 @@ class ChatService:
                 lock_connection = await storage.try_advisory_lock(conversation_id)
                 if lock_connection is None:
                     raise RequestInProgressError("该 request_id 正在执行中，请稍候查询历史。")
-            # 没有锁时代表旧进程仍在执行；能拿到锁则确认它已经结束，安全标记失败。
-            updated = await storage.update_assistant(
-                conversation_id,
-                UUID(assistant["id"]),
-                status="failed",
-                error_code="stale_pending",
-            )
-            await storage.release_advisory_lock(lock_connection, conversation_id)
+            try:
+                # 初次读取到 pending 只代表一个瞬间。拿到锁后必须重新读，
+                # 因为原执行可能刚好已经提交 completed/failed。
+                latest = await storage.find_request(
+                    conversation_id,
+                    context.user_id,
+                    request_id,
+                )
+                if latest is None:
+                    raise ConversationNotFoundError
+                if latest.content != content:
+                    raise RequestConflictError(
+                        "相同 request_id 已存在，但消息正文与首次请求不同。"
+                    )
+                assistant = latest.assistant_message
+                status = assistant["status"]
+                if status == "pending":
+                    try:
+                        assistant = await storage.update_assistant(
+                            conversation_id,
+                            UUID(assistant["id"]),
+                            status="failed",
+                            error_code="stale_pending",
+                            expected_status="pending",
+                        )
+                    except AssistantStateConflictError:
+                        # 即使锁外存在异常旧执行，CAS 失败后也只回放最新状态。
+                        refreshed = await storage.find_request(
+                            conversation_id,
+                            context.user_id,
+                            request_id,
+                        )
+                        if refreshed is None:
+                            raise ConversationNotFoundError
+                        assistant = refreshed.assistant_message
+                        if assistant["status"] == "pending":
+                            raise
+            finally:
+                await storage.release_advisory_lock(lock_connection, conversation_id)
             return PreparedExecution(
                 conversation_id=conversation_id,
                 project_id=UUID(project["id"]),
@@ -546,9 +583,9 @@ class ChatService:
                 run_id="",
                 worker_id=self.worker_id,
                 config=self._conversation_config(conversation_id),
-                assistant_message_id=UUID(updated["id"]),
+                assistant_message_id=UUID(assistant["id"]),
                 agent=agent,
-                replay_message=updated,
+                replay_message=assistant,
             )
         if lock_connection is not None:
             # 已完成/失败/取消的幂等重试不需要占用会话锁。
@@ -773,6 +810,7 @@ class ChatService:
                     execution.assistant_message_id,
                     status="interrupted",
                     display_metadata=display_metadata,
+                    expected_status=self._expected_assistant_status(execution),
                 )
                 yield {
                     "type": "approval_required",
@@ -795,6 +833,7 @@ class ChatService:
                 content=final_content,
                 status="completed",
                 display_metadata=display_metadata,
+                expected_status=self._expected_assistant_status(execution),
             )
             yield {
                 "type": "completed",
@@ -847,6 +886,7 @@ class ChatService:
                 status=status,
                 display_metadata={"events": display_metadata} if display_metadata else {},
                 error_code=error_code,
+                expected_status=self._expected_assistant_status(execution),
             )
         except Exception:  # noqa: BLE001 - 不覆盖原始 Agent/取消错误
             # 原始 Agent/取消错误优先；下一次历史查询仍会显示已存在的业务状态。
@@ -862,6 +902,12 @@ class ChatService:
                 execution.lock_connection,
                 execution.conversation_id,
             )
+
+    @staticmethod
+    def _expected_assistant_status(execution: PreparedExecution) -> str:
+        """返回本次执行被允许推进的状态，作为数据库 CAS 条件。"""
+
+        return "interrupted" if execution.resuming else "pending"
 
     async def _latest_root_assistant_text(
         self,
