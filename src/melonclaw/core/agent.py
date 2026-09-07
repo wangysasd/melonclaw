@@ -56,7 +56,7 @@ class AgentContext:
 
 
 def _format_tool_summary(tools: list[object]) -> str:
-    """显示工具总数和有限预览，避免 Tushare 全量工具刷满终端。"""
+    """生成工具总数和有限预览，避免 Tushare 全量工具刷满日志。"""
 
     names = [
         getattr(tool, "name", getattr(tool, "__name__", type(tool).__name__))
@@ -83,7 +83,7 @@ def _build_tool_selector_middleware(
 
     if settings.provider == "openai":
         # 官方 selector 的内部结构化输出也会进入 LangGraph 消息流。只给它使用
-        # 的模型副本增加标签，让 streaming.py 隐藏这段内部 JSON；主模型不受影响。
+        # 的模型副本增加标签，让 Web 事件适配器隐藏这段内部 JSON；主模型不受影响。
         selector_model = model.model_copy(
             update={
                 "tags": [*(getattr(model, "tags", None) or []), TOOL_SELECTOR_TAG],

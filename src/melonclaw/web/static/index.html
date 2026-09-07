@@ -7,7 +7,7 @@
     <meta name="description" content="MelonClaw 瓜爪助手：查资料、理思路、做计划。" />
     <link rel="icon" type="image/png" sizes="48x48" href="/static/assets/brand/favicon-48.png" />
     <title>MelonClaw · 瓜爪助手</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260907-7" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260907-11" />
   </head>
   <body>
     <div class="app-shell" id="app-shell">
@@ -154,14 +154,16 @@
           <form id="composer" class="composer">
             <textarea id="message-input" rows="1" placeholder="输入你想聊的事情…" aria-label="输入内容"></textarea>
             <div class="composer-bottom">
-              <div class="composer-hint"><span class="icon" data-icon="message-circle" aria-hidden="true"></span> Enter 发送 · Shift + Enter 换行</div>
               <button id="send-button" class="send-button" type="submit" disabled>
                 <span id="send-label">发送</span>
                 <span class="send-arrow icon" data-icon="arrow-up" aria-hidden="true"></span>
               </button>
             </div>
           </form>
-          <div class="composer-footnote">内容会保存在当前项目的会话中</div>
+          <div class="composer-meta">
+            <div class="composer-hint"><span class="icon" data-icon="message-circle" aria-hidden="true"></span> Enter 发送 · Shift + Enter 换行</div>
+            <div class="composer-footnote">AI生成内容仅供参考。</div>
+          </div>
         </div>
       </main>
     </div>
@@ -187,6 +189,6 @@
       </form>
     </dialog>
 
-    <script src="/static/app.js?v=20260907-7" defer></script>
+    <script src="/static/app.js?v=20260907-11" defer></script>
   </body>
 </html>

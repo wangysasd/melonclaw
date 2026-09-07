@@ -33,8 +33,7 @@ def build_agent_backend(
 ) -> tuple[BackendProtocol, list[str], list[FilesystemPermission]]:
     """构造指定工作区，并把虚拟 ``/skills/`` 路由到项目源目录。
 
-    普通文件操作和 Shell 命令使用调用方提供的工作区；CLI 传入进程临时
-    runtime，Web 则传入持久 Project workdir。项目 Skill 通过
+    普通文件操作和 Shell 命令使用调用方提供的持久 Project workdir。项目 Skill 通过
     ``CompositeBackend`` 的独立路由直接读取仓库根目录下的 ``skills/``，不在
     工作区中创建副本。DeepAgents 0.7 要求传入已经构造好的 Backend 实例，但
     不影响使用 ``CompositeBackend`` 做路径路由。

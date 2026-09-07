@@ -1,4 +1,4 @@
-"""把 Deep Agents 流转换成 CLI 与 Web 都能消费的事件。
+"""把 Deep Agents 流转换成 Web 可消费的结构化事件。
 
 Deep Agents 的 v3 流协议把协调 Agent、工具调用和命名子 Agent 拆成了
 可独立消费的投影。这里把这些投影收敛成稳定的应用事件，Web 层不需要依赖
@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from melonclaw.output.content import content_to_text
-from melonclaw.output.streaming import (
+from melonclaw.output.formatting import (
     _call_key,
     _decode_tool_args,
     _preview,

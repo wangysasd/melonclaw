@@ -41,7 +41,7 @@ from melonclaw.core.memory import MemoryService
 from melonclaw.core.skills import project_skills_enabled
 from melonclaw.output.content import content_to_text
 from melonclaw.output.events import DISPLAY_EVENT_TYPES, iter_research_events
-from melonclaw.output.streaming import _preview, sanitize_text
+from melonclaw.output.formatting import _preview, sanitize_text
 
 
 class InvalidUserError(ValueError):

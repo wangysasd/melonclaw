@@ -1,4 +1,4 @@
-"""终端中的 Human-in-the-Loop 审批与恢复逻辑。"""
+"""Web Human-in-the-Loop 审批与恢复逻辑。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 from langchain.agents.middleware import InterruptOnConfig
 from langgraph.types import Command
 
-from melonclaw.output.streaming import sanitize_text
+from melonclaw.output.formatting import sanitize_text
 
 
 _SENSITIVE_DECISIONS = ["approve", "edit", "reject"]
@@ -27,16 +27,6 @@ SENSITIVE_TOOL_INTERRUPTS: dict[str, InterruptOnConfig] = {
         description="Shell 命令需要人工确认后才会执行。",
     ),
 }
-
-
-def get_pending_approval(
-    agent: Any,
-    config: dict[str, Any],
-) -> list[dict[str, Any]] | None:
-    """从当前 checkpoint 取出等待人工决定的 HITL 请求。"""
-
-    snapshot = agent.get_state(config)
-    return _pending_from_snapshot(snapshot)
 
 
 async def aget_pending_approval(
@@ -234,86 +224,3 @@ def build_resume_command(
         for item in pending
     }
     return Command(resume=resumes)
-
-
-def _ask_edit(action: Mapping[str, Any]) -> dict[str, Any]:
-    while True:
-        raw_args = input("新的参数 JSON> ").strip()
-        try:
-            args = json.loads(raw_args)
-        except json.JSONDecodeError as exc:
-            print(f"参数不是合法 JSON：{exc.msg}。请重试。")
-            continue
-        if not isinstance(args, dict):
-            print("参数必须是 JSON 对象。请重试。")
-            continue
-        return {
-            "type": "edit",
-            "edited_action": {"name": action.get("name", ""), "args": args},
-        }
-
-
-def _ask_decision(action: Mapping[str, Any], allowed: set[str]) -> dict[str, Any]:
-    choices = "/".join(
-        choice
-        for choice in ("approve", "edit", "reject", "respond")
-        if choice in allowed
-    )
-    while True:
-        raw = input(f"决定 [{choices}]> ").strip().lower()
-        aliases = {"a": "approve", "e": "edit", "r": "reject", "s": "respond"}
-        decision_type = aliases.get(raw, raw)
-        if decision_type not in allowed:
-            print("请输入列出的决定或其首字母。")
-            continue
-        if decision_type == "approve":
-            return {"type": "approve"}
-        if decision_type == "edit":
-            return _ask_edit(action)
-        if decision_type == "reject":
-            message = input("拒绝原因（可选）> ").strip()
-            return {"type": "reject", **({"message": message} if message else {})}
-        message = input("作为工具结果返回给 Agent 的内容> ").strip()
-        if message:
-            return {"type": "respond", "message": message}
-        print("respond 需要提供结果内容。")
-
-
-def request_human_decision(request: Any) -> Command:
-    """在 CLI 展示请求并构造可恢复该 checkpoint 的 ``Command``。"""
-
-    print("\n🛡️  [需要人工审批]", flush=True)
-    pending = _pending_requests(request)
-    decisions_by_interrupt: dict[str, list[dict[str, Any]]] = {}
-    action_number = 0
-    for pending_request in pending:
-        interrupt_id = str(pending_request.get("id", ""))
-        actions = pending_request.get("action_requests", [])
-        reviews = pending_request.get("review_configs", [])
-        decisions: list[dict[str, Any]] = []
-        print(f"\ninterrupt: {interrupt_id}")
-        for index, action in enumerate(actions):
-            if not isinstance(action, Mapping):
-                raise RuntimeError("HITL 请求格式无效：缺少工具调用详情。")
-            action_number += 1
-            review = reviews[index] if index < len(reviews) else {}
-            allowed = set(review.get("allowed_decisions", _SENSITIVE_DECISIONS))
-            print(f"\n{action_number}. 工具: {sanitize_text(str(action.get('name', 'unknown')))}")
-            description = action.get("description")
-            if description:
-                print(f"   说明: {sanitize_text(str(description))}")
-            print(f"   参数:\n{_pretty(action.get('args', {}))}")
-            decisions.append(_ask_decision(action, allowed))
-        decisions_by_interrupt[interrupt_id] = decisions
-
-    if len(pending) == 1:
-        resume_decisions: Any = decisions_by_interrupt[str(pending[0].get("id", ""))]
-    else:
-        resume_decisions = [
-            {
-                "interrupt_id": str(pending_request.get("id", "")),
-                "decisions": decisions_by_interrupt[str(pending_request.get("id", ""))],
-            }
-            for pending_request in pending
-        ]
-    return build_resume_command(request, resume_decisions)

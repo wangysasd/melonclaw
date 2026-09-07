@@ -83,7 +83,7 @@ function userInitials(name) {
   return Array.from(clean.replace(/\s/g, "")).slice(0, 2).join("") || "我";
 }
 
-function setUserAvatar(node, name) {
+function setPickerAvatar(node, name, userId = "") {
   if (!node) return;
   const palette = [
     ["#dceee0", "#176b4a"],
@@ -91,11 +91,19 @@ function setUserAvatar(node, name) {
     ["#e5e4f5", "#4e548a"],
     ["#f3eacb", "#785f18"],
   ];
-  const hash = Array.from(String(state.userId || name)).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const hash = Array.from(String(userId || name)).reduce((sum, char) => sum + char.charCodeAt(0), 0);
   const [background, color] = palette[hash % palette.length];
   node.textContent = userInitials(name);
   node.style.backgroundColor = background;
   node.style.color = color;
+}
+
+function setMessageAvatar(node) {
+  if (!node) return;
+  const image = document.createElement("img");
+  image.src = "/static/assets/brand/melon.png";
+  image.alt = "";
+  node.replaceChildren(image);
 }
 
 function setRunStatus(status, label = "") {
@@ -225,7 +233,15 @@ function renderUserPicker() {
     option.dataset.userId = user.user_id;
     option.setAttribute("role", "option");
     option.setAttribute("aria-selected", String(user.user_id === state.userId));
-    option.textContent = user.display_name || user.user_name_zh || user.username || user.user_id;
+    const displayName = user.display_name || user.user_name_zh || user.username || user.user_id;
+    const avatar = document.createElement("span");
+    avatar.className = "user-avatar option-avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    setPickerAvatar(avatar, displayName, user.user_id);
+    const label = document.createElement("span");
+    label.className = "user-option-label";
+    label.textContent = displayName;
+    option.append(avatar, label);
     option.addEventListener("click", () => {
       setUserPickerOpen(false);
       handleUserChange(user.user_id);
@@ -235,7 +251,7 @@ function renderUserPicker() {
   const selected = state.users.find((user) => user.user_id === state.userId);
   const displayName = selected?.user_name_zh || selected?.display_name || selected?.username || "请选择用户";
   triggerValue.textContent = displayName;
-  setUserAvatar(triggerAvatar, displayName);
+  setPickerAvatar(triggerAvatar, displayName, state.userId);
 }
 
 async function loadUsers() {
@@ -730,7 +746,7 @@ function addMessage(kind, { messageId = null, status = null, timestamp = null, s
   avatar.className = "avatar";
   if (kind === "user") {
     avatar.classList.add("user-avatar");
-    setUserAvatar(avatar, currentUserDisplayName());
+    setMessageAvatar(avatar);
   } else {
     avatar.classList.add("assistant-avatar");
     const image = document.createElement("img");
@@ -1772,12 +1788,18 @@ $("#conversation").addEventListener("click", (event) => {
 $("#mobile-menu").addEventListener("click", openSidebar);
 $("#sidebar-close").addEventListener("click", () => closeSidebar());
 $("#sidebar-overlay").addEventListener("click", () => closeSidebar());
+function updateSidebarCollapseButton(collapsed) {
+  const button = $("#sidebar-collapse");
+  if (!button) return;
+  setIcon(button.querySelector(".icon"), collapsed ? "chevron-right" : "chevron-left");
+  button.setAttribute("aria-label", collapsed ? "展开侧栏" : "收起侧栏");
+  button.title = collapsed ? "展开侧栏" : "收起侧栏";
+}
 $("#sidebar-collapse").addEventListener("click", () => {
   const shell = $("#app-shell");
   const collapsed = shell.classList.toggle("is-collapsed");
   localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed));
-  $("#sidebar-collapse").setAttribute("aria-label", collapsed ? "展开侧栏" : "收起侧栏");
-  $("#sidebar-collapse").title = collapsed ? "展开侧栏" : "收起侧栏";
+  updateSidebarCollapseButton(collapsed);
 });
 document.addEventListener("keydown", (event) => {
   if ($("#app-shell").classList.contains("sidebar-is-open")) {
@@ -1795,9 +1817,8 @@ window.addEventListener("resize", () => {
 
 if (localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true" && !isMobileLayout()) {
   $("#app-shell").classList.add("is-collapsed");
-  $("#sidebar-collapse").setAttribute("aria-label", "展开侧栏");
-  $("#sidebar-collapse").title = "展开侧栏";
 }
+updateSidebarCollapseButton($("#app-shell").classList.contains("is-collapsed"));
 updateProjectContext();
 updateComposer();
 refreshStatus();

@@ -26,7 +26,6 @@ dependencies = [
 ]
 
 [project.scripts]
-melonclaw = "melonclaw.main:main"
 melonclaw-web = "melonclaw.main_web:main"
 melonclaw-db-init = "melonclaw.db_init:main"
 

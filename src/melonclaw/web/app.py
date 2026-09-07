@@ -26,7 +26,7 @@ from melonclaw.core.database import (
     ProjectNotFoundError,
     RequestConflictError,
 )
-from melonclaw.output.streaming import sanitize_text
+from melonclaw.output.formatting import sanitize_text
 from melonclaw.web.service import (
     ChatService,
     InvalidUserError,

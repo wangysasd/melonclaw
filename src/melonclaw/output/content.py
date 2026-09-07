@@ -1,4 +1,4 @@
-"""统一处理 LangChain 消息内容，避免 CLI 依赖具体消息格式。"""
+"""统一处理 LangChain 消息内容，避免依赖具体消息格式。"""
 
 from __future__ import annotations
 
@@ -24,12 +24,3 @@ def content_to_text(content: Any) -> str:
             if isinstance(text, str):
                 chunks.append(text)
     return "".join(chunks)
-
-
-def final_message_text(result: dict[str, Any]) -> str:
-    """取 invoke 结果中的最后一条消息文本。"""
-
-    messages = result.get("messages", [])
-    if not messages:
-        return ""
-    return content_to_text(getattr(messages[-1], "content", ""))
