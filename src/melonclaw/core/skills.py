@@ -7,9 +7,16 @@ import sys
 from pathlib import Path
 
 from deepagents import FilesystemPermission
-from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
+from deepagents.backends import (
+    CompositeBackend,
+    FilesystemBackend,
+    LocalShellBackend,
+    StoreBackend,
+)
 from deepagents.backends.protocol import BackendProtocol
+from langgraph.store.base import BaseStore
 
+from melonclaw.core.memory import namespace_for_context
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PROJECT_SKILLS_DIR = PROJECT_ROOT / "skills"
@@ -18,6 +25,11 @@ SKILLS_ROUTE = "/skills/"
 
 def build_agent_backend(
     workspace_dir: Path,
+    *,
+    default_backend: BackendProtocol | None = None,
+    memory_store: BaseStore | None = None,
+    installation_id: str = "local",
+    agent_id: str = "quickstart-research-agent",
 ) -> tuple[BackendProtocol, list[str], list[FilesystemPermission]]:
     """构造指定工作区，并把虚拟 ``/skills/`` 路由到项目源目录。
 
@@ -32,7 +44,7 @@ def build_agent_backend(
     """
 
     workspace_dir.mkdir(parents=True, exist_ok=True)
-    runtime_backend: BackendProtocol = LocalShellBackend(
+    runtime_backend: BackendProtocol = default_backend or LocalShellBackend(
         root_dir=workspace_dir,
         virtual_mode=True,
         env={
@@ -45,25 +57,75 @@ def build_agent_backend(
         },
     )
 
-    if not PROJECT_SKILLS_DIR.is_dir():
-        return runtime_backend, [], []
+    routes: dict[str, BackendProtocol] = {}
+    permissions: list[FilesystemPermission] = []
 
-    skills_backend = FilesystemBackend(
-        root_dir=PROJECT_SKILLS_DIR,
-        virtual_mode=True,
-    )
+    if memory_store is not None:
+        routes.update(
+            {
+                "/memories/global/": StoreBackend(
+                    store=memory_store,
+                    namespace=lambda runtime: namespace_for_context(
+                        runtime.context,
+                        "global",
+                        installation_id=installation_id,
+                        agent_id=agent_id,
+                    ),
+                ),
+                "/memories/tenant/": StoreBackend(
+                    store=memory_store,
+                    namespace=lambda runtime: namespace_for_context(
+                        runtime.context,
+                        "tenant",
+                        installation_id=installation_id,
+                        agent_id=agent_id,
+                    ),
+                ),
+                "/memories/user/": StoreBackend(
+                    store=memory_store,
+                    namespace=lambda runtime: namespace_for_context(
+                        runtime.context,
+                        "user",
+                        installation_id=installation_id,
+                        agent_id=agent_id,
+                    ),
+                ),
+            }
+        )
+        # 长期 Memory 的写入必须经过 MemoryService 的固定工具、锁和审计。
+        permissions.append(
+            FilesystemPermission(
+                operations=["write"],
+                paths=[
+                    "/memories/global/**",
+                    "/memories/tenant/**",
+                    "/memories/user/**",
+                ],
+                mode="deny",
+            )
+        )
+
+    if PROJECT_SKILLS_DIR.is_dir():
+        routes[SKILLS_ROUTE] = FilesystemBackend(
+            root_dir=PROJECT_SKILLS_DIR,
+            virtual_mode=True,
+        )
+        permissions.append(
+            FilesystemPermission(
+                operations=["write"],
+                paths=[f"{SKILLS_ROUTE}**"],
+                mode="deny",
+            )
+        )
+
+    if not routes:
+        return runtime_backend, [], permissions
+
     backend = CompositeBackend(
         default=runtime_backend,
-        routes={SKILLS_ROUTE: skills_backend},
+        routes=routes,
     )
-    permissions = [
-        FilesystemPermission(
-            operations=["write"],
-            paths=[f"{SKILLS_ROUTE}**"],
-            mode="deny",
-        ),
-    ]
-    return backend, [SKILLS_ROUTE], permissions
+    return backend, ([SKILLS_ROUTE] if PROJECT_SKILLS_DIR.is_dir() else []), permissions
 
 
 def project_skills_enabled() -> bool:

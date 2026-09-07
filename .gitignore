@@ -26,6 +26,9 @@ dist/
 # Agent 运行时中间文件。
 /temp/
 
+# 本地导入的 CICC Skills，不纳入项目版本控制。
+/skills/cicc-*/
+
 # 本地编辑器与系统文件。
 .agents/
 .idea/

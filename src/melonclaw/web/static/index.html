@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0b1220" />
     <title>瓜爪智能助手</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260907-4" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260907-6" />
   </head>
   <body>
     <div class="app-shell">
@@ -21,9 +21,21 @@
 
         <div class="user-picker">
           <label for="user-select">模拟用户</label>
-          <select id="user-select" aria-label="选择模拟用户">
-            <option value="chenxi::trading">陈希-交易</option>
-          </select>
+          <div class="user-select-wrap">
+            <button
+              id="user-select"
+              class="user-select-trigger"
+              type="button"
+              aria-label="选择模拟用户"
+              aria-haspopup="listbox"
+              aria-expanded="false"
+              aria-controls="user-options"
+            >
+              <span id="user-select-value">正在加载用户…</span>
+              <span class="user-select-chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div id="user-options" class="user-options" role="listbox" hidden></div>
+          </div>
         </div>
 
         <button id="new-session" class="new-session" type="button">
@@ -118,6 +130,6 @@
         </div>
       </main>
     </div>
-    <script src="/static/app.js?v=20260907-4" defer></script>
+    <script src="/static/app.js?v=20260907-6" defer></script>
   </body>
 </html>

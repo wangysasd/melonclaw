@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Mapping
+from datetime import UTC, datetime
+from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from langgraph.store.postgres.aio import AsyncPostgresStore
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy import (
@@ -26,6 +28,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    case,
     desc,
     func,
     insert,
@@ -34,14 +37,15 @@ from sqlalchemy import (
     text,
     update,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from melonclaw.core.tenant_data import (
     TENANT_SEEDS,
-    USER_TENANT_SEEDS,
     USER_SEEDS,
+    USER_TENANT_SEEDS,
 )
 
 
@@ -87,9 +91,12 @@ class UserContext:
     user_name_zh: str
     tenant_id: str
     tenant_name_zh: str
+    tenant_role: str = "member"
+    tenant_status: str = "active"
 
 
-DEFAULT_PROJECT_NAME = "临时默认"
+DEFAULT_PROJECT_NAME = "临时会话"
+DEFAULT_SIMULATED_USER_ID = "zhangsan"
 DEFAULT_PROJECT_SCHEMA_VERSION = "2026-09-07-default-project"
 
 
@@ -134,6 +141,8 @@ user_tenants = Table(
         ForeignKey("tenants.tenant_id", ondelete="RESTRICT"),
         nullable=False,
     ),
+    Column("status", String(16), nullable=False, server_default="active"),
+    Column("role", String(32), nullable=False, server_default="member"),
     Column("created_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint(
         "user_id",
@@ -226,6 +235,37 @@ chat_messages = Table(
     Index("ix_chat_messages_conversation_seq", "conversation_id", "seq"),
 )
 
+memory_events = Table(
+    "memory_events",
+    metadata,
+    Column("event_id", PGUUID(as_uuid=True), primary_key=True),
+    Column("scope_type", String(16), nullable=False),
+    Column("scope_id", String(128), nullable=False),
+    Column("agent_id", String(120), nullable=False),
+    Column("key", String(120), nullable=False),
+    Column("operation", String(32), nullable=False),
+    Column("actor_user_id", String(64), nullable=True),
+    Column("tenant_id", String(64), nullable=True),
+    Column("request_id", String(80), nullable=True),
+    Column("run_id", String(80), nullable=True),
+    Column("version", Integer, nullable=False, server_default="0"),
+    Column("content_hash", String(64), nullable=True),
+    Column("metadata", JSONB, nullable=False, server_default="{}"),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "scope_type IN ('global', 'tenant', 'user')",
+        name="ck_memory_events_scope_type",
+    ),
+    Index(
+        "ix_memory_events_scope_key_created",
+        "scope_type",
+        "scope_id",
+        "agent_id",
+        "key",
+        desc("created_at"),
+    ),
+)
+
 
 BUSINESS_TABLES = (
     "schema_migrations",
@@ -235,6 +275,7 @@ BUSINESS_TABLES = (
     "projects",
     "chat_conversations",
     "chat_messages",
+    "memory_events",
 )
 CHECKPOINT_TABLES = (
     "checkpoint_migrations",
@@ -242,8 +283,14 @@ CHECKPOINT_TABLES = (
     "checkpoint_blobs",
     "checkpoint_writes",
 )
+STORE_TABLES = (
+    "store_migrations",
+    "store",
+)
 MULTITENANT_SCHEMA_VERSION = "2026-09-07-tenant-multitenant-v2"
 PROJECT_SCHEMA_VERSION = "2026-09-07-project-workspaces"
+MEMORY_SCHEMA_VERSION = "2026-09-07-memory-scopes-v1"
+CONVERSATION_SCHEMA_VERSION = "2026-09-07-conversation-user-owned-v1"
 
 
 def normalize_async_database_url(raw_url: str) -> str:
@@ -253,7 +300,7 @@ def normalize_async_database_url(raw_url: str) -> str:
         raise DatabaseConfigurationError("未配置 DATABASE_URL。")
     try:
         url = make_url(raw_url)
-    except Exception as exc:  # noqa: BLE001 - 不把可能含凭据的 URL 回显
+    except Exception as exc:
         raise DatabaseConfigurationError("DATABASE_URL 格式无效。") from exc
     if url.drivername != "postgresql+asyncpg":
         raise DatabaseConfigurationError(
@@ -288,12 +335,38 @@ async def open_checkpoint_pool(raw_url: str) -> AsyncConnectionPool:
     )
     try:
         await pool.open(wait=True)
-    except Exception as exc:  # noqa: BLE001 - 对外只报告安全的配置提示
+    except Exception as exc:
         await pool.close()
         raise DatabaseUnavailableError(
             "PostgreSQL Checkpointer 连接失败，请检查 DATABASE_URL 和 PostgreSQL 认证配置。"
         ) from exc
     return pool
+
+
+async def open_memory_store(
+    raw_url: str,
+) -> tuple[Any, AsyncPostgresStore]:
+    """打开长期 Memory 使用的异步 PostgreSQL Store。"""
+
+    connection_url = derive_psycopg_database_url(raw_url)
+    context_manager = AsyncPostgresStore.from_conn_string(
+        connection_url,
+        pool_config={"min_size": 1, "max_size": 8},
+    )
+    try:
+        store = await context_manager.__aenter__()
+    except Exception as exc:
+        raise DatabaseUnavailableError(
+            "PostgreSQL Memory Store 连接失败，请检查 DATABASE_URL 和 PostgreSQL 配置。"
+        ) from exc
+    return context_manager, store
+
+
+async def close_memory_store(context_manager: Any) -> None:
+    """关闭由 ``open_memory_store`` 创建的异步 Store 和连接池。"""
+
+    if context_manager is not None:
+        await context_manager.__aexit__(None, None, None)
 
 
 @dataclass(frozen=True)
@@ -316,12 +389,12 @@ class PreparedMessagePair:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _as_iso(value: datetime) -> str:
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
+        value = value.replace(tzinfo=UTC)
     return value.isoformat()
 
 
@@ -341,17 +414,41 @@ def _conversation_dict(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _user_dict(row: Mapping[str, Any]) -> dict[str, Any]:
+def _user_dict(
+    row: Mapping[str, Any],
+    *,
+    tenant_ids: list[str] | None = None,
+    tenant_names: list[str] | None = None,
+    tenant_memberships: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     user_name = str(row["user_name_zh"])
-    tenant_name = str(row["tenant_name_zh"])
+    normalized_tenant_ids = tenant_ids or [str(row["tenant_id"])]
+    normalized_tenant_names = tenant_names or [str(row["tenant_name_zh"])]
+    tenant_name = "、".join(normalized_tenant_names)
+    default_tenant_id = normalized_tenant_ids[0]
     return {
         "user_id": str(row["user_id"]),
         # username 保留现有开发接口字段，值改为用户中文名。
         "username": user_name,
         "user_name_zh": user_name,
-        "tenant_id": str(row["tenant_id"]),
+        # 保留 tenant_id 作为当前开发上下文的默认租户；完整关系见 tenant_ids。
+        "tenant_id": default_tenant_id,
+        "default_tenant_id": default_tenant_id,
+        "tenant_ids": normalized_tenant_ids,
+        "tenant_names": normalized_tenant_names,
         "tenant_name": tenant_name,
         "tenant_name_zh": tenant_name,
+        "tenant_role": str(row.get("role") or "member"),
+        "tenant_status": str(row.get("status") or "active"),
+        "tenant_memberships": tenant_memberships or [
+            {
+                "tenant_id": normalized_tenant_ids[0],
+                "tenant_name": normalized_tenant_names[0],
+                "role": str(row.get("role") or "member"),
+                "status": str(row.get("status") or "active"),
+            }
+        ],
+        "is_default": str(row["user_id"]) == DEFAULT_SIMULATED_USER_ID,
         "display_name": f"{user_name}-{tenant_name}",
     }
 
@@ -426,7 +523,7 @@ def decode_conversation_cursor(cursor: str) -> tuple[datetime, UUID]:
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError("cursor 无效。") from exc
     if updated_at.tzinfo is None:
-        updated_at = updated_at.replace(tzinfo=timezone.utc)
+        updated_at = updated_at.replace(tzinfo=UTC)
     return updated_at, conversation_id
 
 
@@ -456,7 +553,7 @@ class BusinessDatabase:
         try:
             async with engine.connect() as connection:
                 await connection.execute(text("SELECT 1"))
-        except Exception as exc:  # noqa: BLE001 - 不回显可能含凭据的连接信息
+        except Exception as exc:
             await engine.dispose()
             raise DatabaseUnavailableError(
                 "业务数据库连接失败，请检查 DATABASE_URL 和 PostgreSQL 认证配置。"
@@ -478,6 +575,24 @@ class BusinessDatabase:
                 lambda sync_connection: metadata.create_all(
                     sync_connection,
                     tables=[schema_migrations, tenants, users, user_tenants],
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE user_tenants "
+                    "ADD COLUMN IF NOT EXISTS status VARCHAR(16) NOT NULL DEFAULT 'active'"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE user_tenants "
+                    "ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'member'"
+                )
+            )
+            await connection.run_sync(
+                lambda sync_connection: metadata.create_all(
+                    sync_connection,
+                    tables=[memory_events],
                 )
             )
             projects_table_exists = await self._table_exists(connection, "projects")
@@ -539,7 +654,7 @@ class BusinessDatabase:
             await connection.run_sync(
                 lambda sync_connection: metadata.create_all(
                     sync_connection,
-                    tables=[projects, chat_conversations, chat_messages],
+                    tables=[projects, chat_conversations, chat_messages, memory_events],
                 )
             )
 
@@ -553,6 +668,26 @@ class BusinessDatabase:
                 ")"
             ),
             {"table_name": table_name},
+        )
+        return bool(result.scalar())
+
+    @staticmethod
+    async def _column_exists(
+        connection: AsyncConnection,
+        *,
+        table_name: str,
+        column_name: str,
+    ) -> bool:
+        result = await connection.execute(
+            text(
+                "SELECT EXISTS ("
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_schema = 'public' "
+                "AND table_name = :table_name "
+                "AND column_name = :column_name"
+                ")"
+            ),
+            {"table_name": table_name, "column_name": column_name},
         )
         return bool(result.scalar())
 
@@ -658,7 +793,7 @@ class BusinessDatabase:
         self,
         user_id: str,
     ) -> dict[str, Any]:
-        """幂等返回用户的“临时默认” Project。"""
+        """幂等返回用户的“临时会话” Project。"""
 
         project_id = _default_project_id(user_id)
         timestamp = _now()
@@ -777,6 +912,31 @@ class BusinessDatabase:
                     )
                 )
 
+        # Conversation 只属于 User + Project。旧版本曾增加 tenant_id；保留旧列
+        # 以避免历史数据库发生数据丢失，但移除其外键并停止在业务层读取/写入。
+        if await self._constraint_exists(
+            connection,
+            "fk_chat_conversations_user_tenant",
+        ):
+            await connection.execute(
+                text(
+                    "ALTER TABLE chat_conversations DROP CONSTRAINT "
+                    "fk_chat_conversations_user_tenant"
+                )
+            )
+        if await self._column_exists(
+            connection,
+            table_name="chat_conversations",
+            column_name="tenant_id",
+        ):
+            await connection.execute(
+                text(
+                    "COMMENT ON COLUMN chat_conversations.tenant_id IS "
+                    "'兼容历史数据；当前业务不读取、不写入、不按此字段过滤。"
+                    "Conversation 归属由 user_id + project_id 决定。'"
+                )
+            )
+
         constraints = {
             "fk_chat_conversations_project_user": (
                 "ALTER TABLE chat_conversations ADD CONSTRAINT "
@@ -831,10 +991,45 @@ class BusinessDatabase:
                 )
             )
 
-    async def verify_schema(self, *, require_checkpointer: bool = True) -> None:
+        memory_migration_exists = await connection.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = :version)"
+            ),
+            {"version": MEMORY_SCHEMA_VERSION},
+        )
+        if not memory_migration_exists.scalar():
+            await connection.execute(
+                insert(schema_migrations).values(
+                    version=MEMORY_SCHEMA_VERSION,
+                    applied_at=_now(),
+                )
+            )
+
+        conversation_migration_exists = await connection.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = :version)"
+            ),
+            {"version": CONVERSATION_SCHEMA_VERSION},
+        )
+        if not conversation_migration_exists.scalar():
+            await connection.execute(
+                insert(schema_migrations).values(
+                    version=CONVERSATION_SCHEMA_VERSION,
+                    applied_at=_now(),
+                )
+            )
+
+    async def verify_schema(
+        self,
+        *,
+        require_checkpointer: bool = True,
+        require_store: bool = False,
+    ) -> None:
         expected = list(BUSINESS_TABLES)
         if require_checkpointer:
             expected.extend(CHECKPOINT_TABLES)
+        if require_store:
+            expected.extend(STORE_TABLES)
         placeholders = ", ".join(f":table_{index}" for index in range(len(expected)))
         query = text(
             "SELECT table_name FROM information_schema.tables "
@@ -853,7 +1048,14 @@ class BusinessDatabase:
 
     async def list_users(self) -> list[dict[str, Any]]:
         query = (
-            select(users, tenants)
+            select(
+                users.c.user_id,
+                users.c.user_name_zh,
+                tenants.c.tenant_id,
+                tenants.c.tenant_name_zh,
+                user_tenants.c.role,
+                user_tenants.c.status,
+            )
             .select_from(
                 users.join(
                     user_tenants,
@@ -863,11 +1065,49 @@ class BusinessDatabase:
                     user_tenants.c.tenant_id == tenants.c.tenant_id,
                 )
             )
-            .order_by(users.c.user_id.asc(), tenants.c.tenant_id.asc())
+            .where(user_tenants.c.status == "active")
+            .order_by(
+                case(
+                    (users.c.user_id == DEFAULT_SIMULATED_USER_ID, 0),
+                    else_=1,
+                ),
+                users.c.user_id.asc(),
+                tenants.c.tenant_id.asc(),
+            )
         )
         async with self.engine.connect() as connection:
             rows = (await connection.execute(query)).mappings().all()
-        return [_user_dict(row) for row in rows]
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            user_id = str(row["user_id"])
+            item = grouped.setdefault(
+                user_id,
+                {
+                    "row": row,
+                    "tenant_ids": [],
+                    "tenant_names": [],
+                    "tenant_memberships": [],
+                },
+            )
+            item["tenant_ids"].append(str(row["tenant_id"]))
+            item["tenant_names"].append(str(row["tenant_name_zh"]))
+            item["tenant_memberships"].append(
+                {
+                    "tenant_id": str(row["tenant_id"]),
+                    "tenant_name": str(row["tenant_name_zh"]),
+                    "role": str(row.get("role") or "member"),
+                    "status": str(row.get("status") or "active"),
+                }
+            )
+        return [
+            _user_dict(
+                item["row"],
+                tenant_ids=item["tenant_ids"],
+                tenant_names=item["tenant_names"],
+                tenant_memberships=item["tenant_memberships"],
+            )
+            for item in grouped.values()
+        ]
 
     async def get_user_context(
         self,
@@ -880,6 +1120,8 @@ class BusinessDatabase:
                 users.c.user_name_zh,
                 tenants.c.tenant_id,
                 tenants.c.tenant_name_zh,
+                user_tenants.c.role,
+                user_tenants.c.status,
             )
             .select_from(
                 users.join(
@@ -891,6 +1133,7 @@ class BusinessDatabase:
                 )
             )
             .where(users.c.user_id == user_id)
+            .where(user_tenants.c.status == "active")
             .order_by(user_tenants.c.tenant_id.asc())
         )
         if tenant_id is not None:
@@ -904,6 +1147,8 @@ class BusinessDatabase:
             user_name_zh=str(row["user_name_zh"]),
             tenant_id=str(row["tenant_id"]),
             tenant_name_zh=str(row["tenant_name_zh"]),
+            tenant_role=str(row.get("role") or "member"),
+            tenant_status=str(row.get("status") or "active"),
         )
 
     async def create_project(
@@ -1319,7 +1564,7 @@ class BusinessDatabase:
                 await connection.close()
                 return None
             return connection
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await connection.rollback()
             await connection.close()
             raise DatabaseUnavailableError("无法获取会话执行锁。") from exc
@@ -1339,12 +1584,124 @@ class BusinessDatabase:
         finally:
             await connection.close()
 
+    async def try_memory_advisory_lock(
+        self,
+        lock_key: str,
+    ) -> AsyncConnection | None:
+        """持有一个跨 Web worker 的 Memory scope/key 协作锁。"""
+
+        connection = await self.engine.connect()
+        try:
+            result = await connection.execute(
+                text("SELECT pg_try_advisory_lock(hashtext(:lock_key), 1)"),
+                {"lock_key": lock_key},
+            )
+            acquired = bool(result.scalar())
+            await connection.commit()
+            if not acquired:
+                await connection.close()
+                return None
+            return connection
+        except Exception as exc:
+            await connection.rollback()
+            await connection.close()
+            raise DatabaseUnavailableError("无法获取 Memory 写入锁。") from exc
+
+    async def release_memory_advisory_lock(
+        self,
+        connection: AsyncConnection,
+        lock_key: str,
+    ) -> None:
+        """释放 Memory scope/key 协作锁。"""
+
+        try:
+            await connection.execute(
+                text("SELECT pg_advisory_unlock(hashtext(:lock_key), 1)"),
+                {"lock_key": lock_key},
+            )
+            await connection.commit()
+        finally:
+            await connection.close()
+
+    async def record_memory_event(
+        self,
+        *,
+        scope_type: str,
+        scope_id: str,
+        agent_id: str,
+        key: str,
+        operation: str,
+        actor_user_id: str | None,
+        tenant_id: str | None,
+        request_id: str | None,
+        run_id: str | None,
+        version: int,
+        content_hash: str | None,
+        event_metadata: dict[str, Any] | None = None,
+    ) -> UUID:
+        """记录 Memory 控制面事件；内容本身仍以 Store 为事实源。"""
+
+        event_id = uuid4()
+        async with self.engine.begin() as connection:
+            await connection.execute(
+                insert(memory_events).values(
+                    event_id=event_id,
+                    scope_type=scope_type,
+                    scope_id=scope_id,
+                    agent_id=agent_id,
+                    key=key,
+                    operation=operation,
+                    actor_user_id=actor_user_id,
+                    tenant_id=tenant_id,
+                    request_id=request_id,
+                    run_id=run_id,
+                    version=version,
+                    content_hash=content_hash,
+                    metadata=event_metadata or {},
+                    created_at=_now(),
+                )
+            )
+        return event_id
+
+    async def find_memory_event(
+        self,
+        *,
+        scope_type: str,
+        scope_id: str,
+        agent_id: str,
+        key: str,
+        request_id: str,
+        operation: str,
+    ) -> dict[str, Any] | None:
+        """查找已成功记录的 Memory 操作，用于请求幂等。"""
+
+        query = (
+            select(memory_events)
+            .where(
+                and_(
+                    memory_events.c.scope_type == scope_type,
+                    memory_events.c.scope_id == scope_id,
+                    memory_events.c.agent_id == agent_id,
+                    memory_events.c.key == key,
+                    memory_events.c.request_id == request_id,
+                    memory_events.c.operation == operation,
+                )
+            )
+            .order_by(memory_events.c.created_at.desc())
+            .limit(1)
+        )
+        async with self.engine.connect() as connection:
+            row = (await connection.execute(query)).mappings().first()
+        return dict(row) if row else None
+
 
 __all__ = [
-    "BusinessDatabase",
     "CHECKPOINT_TABLES",
+    "STORE_TABLES",
+    "BusinessDatabase",
     "ConversationBusyError",
     "ConversationNotFoundError",
+    "CONVERSATION_SCHEMA_VERSION",
     "DatabaseConfigurationError",
     "DatabaseSchemaError",
     "DatabaseUnavailableError",
@@ -1354,12 +1711,15 @@ __all__ = [
     "UserContext",
     "chat_conversations",
     "chat_messages",
-    "tenants",
+    "close_memory_store",
     "derive_psycopg_database_url",
+    "memory_events",
     "metadata",
     "normalize_async_database_url",
     "open_checkpoint_pool",
+    "open_memory_store",
     "schema_migrations",
+    "tenants",
     "user_tenants",
     "users",
 ]

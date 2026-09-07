@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
@@ -27,17 +27,21 @@ from melonclaw.core.database import (
     RequestConflictError,
     RequestRecord,
     UserContext,
+    close_memory_store,
     open_checkpoint_pool,
+    open_memory_store,
 )
 from melonclaw.core.hitl import (
     aget_pending_approval,
     build_resume_command,
     serialize_pending_approval,
 )
+from melonclaw.core.memory import MemoryService
 from melonclaw.core.skills import project_skills_enabled
 from melonclaw.output.content import content_to_text
 from melonclaw.output.events import DISPLAY_EVENT_TYPES, iter_research_events
 from melonclaw.output.streaming import _preview, sanitize_text
+
 
 class InvalidUserError(ValueError):
     """请求中的用户不存在或没有有效的租户标签。"""
@@ -62,7 +66,11 @@ class PreparedExecution:
     user_id: str
     tenant_id: str
     tenant_name: str
+    tenant_role: str
+    tenant_status: str
     request_id: str
+    run_id: str
+    worker_id: str
     config: dict[str, Any]
     assistant_message_id: UUID
     agent: Any
@@ -82,9 +90,13 @@ class ChatService:
     storage: BusinessDatabase | None = None
     checkpoint_pool: AsyncConnectionPool | None = None
     checkpointer: AsyncPostgresSaver | None = None
+    memory_store_context: Any | None = None
+    memory_store: Any | None = None
+    memory_service: MemoryService | None = None
     agent: Any | None = None
     project_agents: dict[str, Any] | None = None
     startup_error: str | None = None
+    worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
 
     async def initialize(self) -> None:
         """打开两个连接池并构建带 PostgreSQL Checkpointer 的 Agent。"""
@@ -93,8 +105,18 @@ class ChatService:
             self.settings = load_settings()
             self.storage = BusinessDatabase(self.settings.database_url)
             await self.storage.open()
+            self.memory_store_context, self.memory_store = await open_memory_store(
+                self.settings.database_url
+            )
             # 初始化和迁移由 melonclaw-db-init 独立执行，服务启动只检查状态。
-            await self.storage.verify_schema(require_checkpointer=True)
+            await self.storage.verify_schema(
+                require_checkpointer=True,
+                require_store=True,
+            )
+            self.memory_service = MemoryService(
+                self.storage,
+                self.memory_store,
+            )
             self.checkpoint_pool = await open_checkpoint_pool(
                 self.settings.database_url
             )
@@ -102,6 +124,7 @@ class ChatService:
             self.agent = await build_research_agent(
                 self.settings,
                 checkpointer=self.checkpointer,
+                memory_service=self.memory_service,
             )
             self.project_agents = {}
         except (DatabaseConfigurationError, DatabaseSchemaError, DatabaseUnavailableError) as exc:
@@ -116,6 +139,13 @@ class ChatService:
     async def close(self) -> None:
         """按依赖顺序释放 Agent 使用的 Checkpointer 池和业务池。"""
 
+        if self.memory_store_context is not None:
+            try:
+                await close_memory_store(self.memory_store_context)
+            finally:
+                self.memory_store_context = None
+                self.memory_store = None
+                self.memory_service = None
         if self.checkpoint_pool is not None:
             try:
                 await self.checkpoint_pool.close()
@@ -135,6 +165,8 @@ class ChatService:
             self.agent is not None
             and self.storage is not None
             and self.checkpointer is not None
+            and self.memory_store is not None
+            and self.memory_service is not None
             and self.startup_error is None
         )
 
@@ -156,6 +188,7 @@ class ChatService:
             "mcp_servers": sorted(settings.mcp_servers) if settings else [],
             "skills": ["/skills/"] if project_skills_enabled() else [],
             "database": "connected" if self.storage is not None else "",
+            "memory_store": "connected" if self.memory_store is not None else "",
         }
 
     async def resolve_user(
@@ -213,6 +246,8 @@ class ChatService:
         self._require_ready()
         if self.settings is None or self.checkpointer is None:
             raise RuntimeError("Agent 仍在启动，请稍候。")
+        if self.memory_service is None:
+            raise RuntimeError("Memory Store 仍在启动，请稍候。")
         if self.project_agents is None:
             self.project_agents = {}
         key = str(project["id"])
@@ -223,6 +258,7 @@ class ChatService:
             self.settings,
             checkpointer=self.checkpointer,
             workspace_dir=self._project_workspace_dir(project),
+            memory_service=self.memory_service,
         )
         self.project_agents[key] = agent
         return agent
@@ -285,7 +321,7 @@ class ChatService:
         storage, _ = self._require_ready()
         context = await self.resolve_user(user_id, tenant_id)
         if project_id is None:
-            # 兼容旧 API：未选择 Project 时，自动使用用户唯一的临时默认。
+            # 兼容旧 API：未选择 Project 时，自动使用用户唯一的临时会话。
             project = await storage.ensure_default_project(
                 context.user_id,
             )
@@ -338,6 +374,8 @@ class ChatService:
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
+        # Conversation 只按 user_id + project_id 归属；tenant_id 仅用于
+        # 校验当前运行上下文并加载对应的 Tenant Memory。
         context = await self.resolve_user(user_id, tenant_id)
         conversation, messages, next_before_seq = await storage.list_messages(
             conversation_id,
@@ -377,6 +415,7 @@ class ChatService:
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
+        # Conversation 不绑定 tenant；每轮执行根据请求上下文选择 Tenant Memory。
         context = await self.resolve_user(user_id, tenant_id)
         project = await self._project_for_conversation(storage, conversation, context)
         agent = await self._agent_for_project(project)
@@ -452,6 +491,8 @@ class ChatService:
                 lock_connection,
                 agent,
                 project,
+                run_id=str(uuid4()),
+                worker_id=self.worker_id,
             )
         except Exception:
             await storage.release_advisory_lock(lock_connection, conversation_id)
@@ -499,7 +540,11 @@ class ChatService:
                 user_id=context.user_id,
                 tenant_id=context.tenant_id,
                 tenant_name=context.tenant_name_zh,
+                tenant_role=context.tenant_role,
+                tenant_status=context.tenant_status,
                 request_id=request_id,
+                run_id="",
+                worker_id=self.worker_id,
                 config=self._conversation_config(conversation_id),
                 assistant_message_id=UUID(updated["id"]),
                 agent=agent,
@@ -516,7 +561,11 @@ class ChatService:
             user_id=context.user_id,
             tenant_id=context.tenant_id,
             tenant_name=context.tenant_name_zh,
+            tenant_role=context.tenant_role,
+            tenant_status=context.tenant_status,
             request_id=request_id,
+            run_id="",
+            worker_id=self.worker_id,
             config=self._conversation_config(conversation_id),
             assistant_message_id=UUID(assistant["id"]),
             agent=agent,
@@ -531,6 +580,9 @@ class ChatService:
         lock_connection: AsyncConnection,
         agent: Any,
         project: dict[str, Any],
+        *,
+        run_id: str,
+        worker_id: str,
     ) -> PreparedExecution:
         return PreparedExecution(
             conversation_id=conversation_id,
@@ -540,7 +592,11 @@ class ChatService:
             user_id=context.user_id,
             tenant_id=context.tenant_id,
             tenant_name=context.tenant_name_zh,
+            tenant_role=context.tenant_role,
+            tenant_status=context.tenant_status,
             request_id=pair.request_id,
+            run_id=run_id,
+            worker_id=worker_id,
             config=ChatService._conversation_config(conversation_id),
             assistant_message_id=UUID(pair.assistant_message["id"]),
             agent=agent,
@@ -560,6 +616,7 @@ class ChatService:
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
+        # 审批恢复同样按当前请求校验租户成员关系，但不改变 Conversation 归属。
         context = await self.resolve_user(user_id, tenant_id)
         project = await self._project_for_conversation(storage, conversation, context)
         agent = await self._agent_for_project(project)
@@ -592,7 +649,11 @@ class ChatService:
                 user_id=context.user_id,
                 tenant_id=context.tenant_id,
                 tenant_name=context.tenant_name_zh,
+                tenant_role=context.tenant_role,
+                tenant_status=context.tenant_status,
                 request_id=assistant["request_id"],
+                run_id=str(uuid4()),
+                worker_id=self.worker_id,
                 config=self._conversation_config(conversation_id),
                 assistant_message_id=UUID(assistant["id"]),
                 agent=agent,
@@ -691,6 +752,12 @@ class ChatService:
                     project_id=str(execution.project_id),
                     project_name=execution.project_name,
                     workdir_path=execution.workdir_path,
+                    request_id=execution.request_id,
+                    run_id=execution.run_id,
+                    worker_id=execution.worker_id,
+                    tenant_role=execution.tenant_role,
+                    tenant_status=execution.tenant_status,
+                    memory_enabled=True,
                 ),
             ):
                 if event.get("type") == "text":

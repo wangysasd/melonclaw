@@ -88,7 +88,7 @@ async def dev_users(request: Request) -> JSONResponse:
 
 
 class ConversationRequest(BaseModel):
-    """创建会话时的开发用户和租户上下文。"""
+    """创建会话时的开发用户和当前租户运行上下文；会话本身不绑定租户。"""
 
     user_id: str = Field(min_length=1, max_length=64)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=64)

@@ -1,4 +1,4 @@
-const USER_STORAGE_KEY = "melonclaw.user_id.v2";
+const USER_STORAGE_KEY = "melonclaw.user_id.v3";
 const TENANT_STORAGE_KEY = "melonclaw.tenant_id.v1";
 const CONVERSATION_STORAGE_PREFIX = "melonclaw.conversation_id.";
 const PROJECT_STORAGE_PREFIX = "melonclaw.project_id.";
@@ -19,6 +19,7 @@ const state = {
   conversations: [],
   conversationCursor: null,
   projects: [],
+  users: [],
   bootstrapped: false,
 };
 
@@ -26,10 +27,6 @@ const $ = (selector) => document.querySelector(selector);
 
 function conversationStorageKey(userId = state.userId) {
   return `${CONVERSATION_STORAGE_PREFIX}${userId}`;
-}
-
-function userTenantKey(userId, tenantId) {
-  return `${userId}::${tenantId}`;
 }
 
 function projectStorageKey(userId = state.userId) {
@@ -112,27 +109,57 @@ async function refreshStatus() {
   }
 }
 
+function setUserPickerOpen(open) {
+  const trigger = $("#user-select");
+  const options = $("#user-options");
+  if (!trigger || !options) return;
+  trigger.setAttribute("aria-expanded", String(open));
+  options.hidden = !open;
+}
+
+function renderUserPicker() {
+  const triggerValue = $("#user-select-value");
+  const options = $("#user-options");
+  if (!triggerValue || !options) return;
+  options.replaceChildren();
+  state.users.forEach((user) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = `user-option${user.user_id === state.userId ? " is-selected" : ""}`;
+    option.dataset.userId = user.user_id;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(user.user_id === state.userId));
+    option.textContent = user.display_name || user.username || user.user_id;
+    option.addEventListener("click", () => {
+      setUserPickerOpen(false);
+      handleUserChange(user.user_id);
+    });
+    options.append(option);
+  });
+  const selected = state.users.find((user) => user.user_id === state.userId);
+  triggerValue.textContent = selected?.display_name || selected?.username || "请选择用户";
+}
+
+function currentUserDisplayName() {
+  const user = state.users.find((item) => item.user_id === state.userId);
+  return user?.user_name_zh || user?.username || state.userId;
+}
+
 async function loadUsers() {
   const response = await api("/api/dev/users");
   const data = await response.json();
-  const select = $("#user-select");
-  select.innerHTML = "";
   const users = [...(data.items || [])];
-  users.forEach((user) => {
-    const option = document.createElement("option");
-    option.value = userTenantKey(user.user_id, user.tenant_id);
-    option.textContent = `${user.username}-${user.tenant_name}`;
-    select.append(option);
-  });
-  const available = users.map((item) => userTenantKey(item.user_id, item.tenant_id));
-  let selected = userTenantKey(state.userId, state.tenantId);
-  if (!available.includes(selected)) {
-    const first = users[0];
-    state.userId = first?.user_id || "";
-    state.tenantId = first?.tenant_id || "";
-    selected = userTenantKey(state.userId, state.tenantId);
+  state.users = users;
+  let selected = users.find((item) => item.user_id === state.userId);
+  if (!selected) {
+    selected = users.find((item) => item.is_default) || users[0] || null;
+    state.userId = selected?.user_id || "";
   }
-  select.value = selected;
+  const tenantIds = selected?.tenant_ids || (selected?.tenant_id ? [selected.tenant_id] : []);
+  if (!tenantIds.includes(state.tenantId)) {
+    state.tenantId = selected?.default_tenant_id || tenantIds[0] || "";
+  }
+  renderUserPicker();
   localStorage.setItem(USER_STORAGE_KEY, state.userId);
   localStorage.setItem(TENANT_STORAGE_KEY, state.tenantId);
 }
@@ -274,7 +301,7 @@ function renderConversationList() {
       title.textContent = conversation.title || "新会话";
       const time = document.createElement("div");
       time.className = "conversation-time";
-      time.textContent = `${conversation.project_name || "临时默认"} · ${formatConversationTime(conversation.updated_at)}`;
+      time.textContent = `${conversation.project_name || "临时会话"} · ${formatConversationTime(conversation.updated_at)}`;
       button.append(title, time);
       button.addEventListener("click", () => selectConversation(conversation.id));
       list.append(button);
@@ -442,6 +469,7 @@ async function selectConversation(conversationId) {
   state.generation += 1;
   const generation = state.generation;
   const userId = state.userId;
+  const tenantId = state.tenantId;
   state.conversationId = conversationId;
   localStorage.setItem(conversationStorageKey(), conversationId);
   renderConversationList();
@@ -450,10 +478,10 @@ async function selectConversation(conversationId) {
   const controller = new AbortController();
   state.dataController = controller;
   try {
-    const query = new URLSearchParams({ user_id: userId, tenant_id: state.tenantId, limit: "50" });
+    const query = new URLSearchParams({ user_id: userId, tenant_id: tenantId, limit: "50" });
     const response = await api(`/api/conversations/${conversationId}/messages?${query.toString()}`, { signal: controller.signal });
     const data = await response.json();
-    if (generation !== state.generation || userId !== state.userId || conversationId !== state.conversationId) return;
+    if (generation !== state.generation || userId !== state.userId || tenantId !== state.tenantId || conversationId !== state.conversationId) return;
     renderHistory(data);
   } catch (error) {
     if (error.name !== "AbortError" && generation === state.generation) showError(error.message);
@@ -491,7 +519,7 @@ function addMessage(kind, { messageId = null, status = null, scroll = true } = {
   content.className = "message-content";
   const meta = document.createElement("div");
   meta.className = "message-meta";
-  meta.textContent = kind === "user" ? state.userId : "瓜爪智能助手";
+  meta.textContent = kind === "user" ? currentUserDisplayName() : "瓜爪智能助手";
   const time = document.createElement("span");
   time.textContent = kind === "user" ? "刚刚" : (statusLabel(status) || "流式响应");
   meta.append(time);
@@ -1004,26 +1032,31 @@ $("#message-input").addEventListener("keydown", (event) => {
 });
 $("#new-session").addEventListener("click", createConversation);
 $("#load-more").addEventListener("click", () => loadConversations({ append: true }));
-$("#user-select").addEventListener("change", async (event) => {
+async function handleUserChange(userId) {
   abortActiveRequests();
   state.generation += 1;
   const previousUserId = state.userId;
-  const [userId, tenantId] = event.target.value.split("::");
-  state.userId = userId || "";
-  state.tenantId = tenantId || "";
+  const previousTenantId = state.tenantId;
+  const selectedUser = state.users.find((item) => item.user_id === userId);
+  state.userId = selectedUser?.user_id || "";
+  const tenantIds = selectedUser?.tenant_ids || (selectedUser?.tenant_id ? [selectedUser.tenant_id] : []);
+  state.tenantId = tenantIds.includes(previousTenantId)
+    ? previousTenantId
+    : selectedUser?.default_tenant_id || tenantIds[0] || "";
   const userChanged = previousUserId !== state.userId;
-  if (userChanged) {
+  const tenantChanged = previousUserId !== state.userId || previousTenantId !== state.tenantId;
+  if (tenantChanged) {
     state.conversationId = null;
-    state.projectId = "";
-    state.projects = [];
     state.conversations = [];
     state.conversationCursor = null;
   }
   localStorage.setItem(USER_STORAGE_KEY, state.userId);
   localStorage.setItem(TENANT_STORAGE_KEY, state.tenantId);
   clearConversationView(
-    userChanged ? "正在切换用户" : "正在切换租户标签",
-    userChanged ? "正在加载该用户的 Project…" : "Project 和会话归属用户，不随租户标签变化。",
+    userChanged ? "正在切换用户" : "正在切换租户",
+    userChanged
+      ? "正在加载该用户的 Project…"
+      : "个人 Memory 会保留；当前租户 Memory 和会话将切换到新的租户边界。",
   );
   renderProjectList();
   renderConversationPanel();
@@ -1034,6 +1067,24 @@ $("#user-select").addEventListener("change", async (event) => {
     showError(error.message);
   }
   await loadConversations();
+  renderUserPicker();
+}
+
+$("#user-select").addEventListener("click", () => {
+  const trigger = $("#user-select");
+  setUserPickerOpen(trigger.getAttribute("aria-expanded") !== "true");
+});
+$("#user-select").addEventListener("keydown", (event) => {
+  if (["Enter", " ", "ArrowDown"].includes(event.key)) {
+    event.preventDefault();
+    setUserPickerOpen(true);
+    $("#user-options")?.querySelector(".user-option")?.focus();
+  } else if (event.key === "Escape") {
+    setUserPickerOpen(false);
+  }
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".user-select-wrap")) setUserPickerOpen(false);
 });
 $("#new-project").addEventListener("click", createProject);
 document.querySelectorAll("[data-prompt]").forEach((button) => {
@@ -1050,6 +1101,5 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-$("#user-select").value = userTenantKey(state.userId, state.tenantId);
 updateComposer();
 refreshStatus();

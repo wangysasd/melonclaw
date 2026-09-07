@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from deepagents import create_deep_agent
+from deepagents.backends.protocol import BackendProtocol
 from langchain.agents.middleware import LLMToolSelectorMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.language_models import BaseChatModel
@@ -19,13 +20,14 @@ from melonclaw.core.interpreter import (
     INTERPRETER_PTC_TOOLS,
     build_interpreter_middleware,
 )
-from melonclaw.middleware import FileOperationOrderingMiddleware
-from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
+from melonclaw.core.memory import MemoryService
 from melonclaw.core.model import build_chat_model
 from melonclaw.core.prompts import build_system_prompt
 from melonclaw.core.skills import build_agent_backend
+from melonclaw.middleware import FileOperationOrderingMiddleware
+from melonclaw.middleware.memory import MemoryScopeMiddleware
+from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
 from melonclaw.tool.tools import build_agent_tools
-
 
 TOOL_NAMES_PREVIEW_LIMIT = 12
 MAX_SELECTED_TOOLS_PER_MODEL_CALL = 16
@@ -42,6 +44,15 @@ class AgentContext:
     project_id: str = ""
     project_name: str = ""
     workdir_path: str = ""
+    agent_id: str = "quickstart-research-agent"
+    installation_id: str = "local"
+    request_id: str = ""
+    run_id: str = ""
+    worker_id: str = ""
+    tenant_role: str = "member"
+    tenant_status: str = "active"
+    memory_enabled: bool = False
+    memory_admin: bool = False
 
 
 def _format_tool_summary(tools: list[object]) -> str:
@@ -108,6 +119,8 @@ async def build_research_agent(
     *,
     checkpointer: Any | None = None,
     workspace_dir: Path | None = None,
+    runtime_backend: BackendProtocol | None = None,
+    memory_service: MemoryService | None = None,
 ) -> CompiledStateGraph:
     """异步发现工具并构建官方 quickstart 形状的研究 Agent。
 
@@ -128,6 +141,18 @@ async def build_research_agent(
     interpreter = build_interpreter_middleware()
     backend, skill_sources, skill_permissions = build_agent_backend(
         backend_root,
+        default_backend=runtime_backend,
+        memory_store=memory_service.store if memory_service is not None else None,
+        installation_id=(
+            memory_service.installation_id
+            if memory_service is not None
+            else "local"
+        ),
+        agent_id=(
+            memory_service.agent_id
+            if memory_service is not None
+            else "quickstart-research-agent"
+        ),
     )
     print(
         "运行时后端: CompositeBackend（默认虚拟根目录: "
@@ -150,20 +175,29 @@ async def build_research_agent(
         )
         print(f"动态工具选择器: {_tool_selector_summary(settings)}")
 
+    middleware: list[AgentMiddleware] = [
+        tool_selector,
+        FileOperationOrderingMiddleware(),
+        interpreter,
+    ]
+    if memory_service is not None:
+        middleware.insert(0, MemoryScopeMiddleware(memory_service))
+        print("已启用 Global/Tenant/User Memory（Store 持久化，主 Agent 受控工具）")
+
     return create_deep_agent(
         name="quickstart-research-agent",
         model=model,
         tools=tools,
-        middleware=[
-            tool_selector,
-            FileOperationOrderingMiddleware(),
-            interpreter,
-        ],
+        middleware=middleware,
         backend=backend,
         skills=skill_sources or None,
         permissions=skill_permissions or None,
-        system_prompt=build_system_prompt(settings.mcp_servers),
+        system_prompt=build_system_prompt(
+            settings.mcp_servers,
+            memory_enabled=memory_service is not None,
+        ),
         context_schema=AgentContext,
         checkpointer=checkpointer,
+        store=memory_service.store if memory_service is not None else None,
         interrupt_on=SENSITIVE_TOOL_INTERRUPTS,
     )
