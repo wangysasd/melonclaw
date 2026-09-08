@@ -7,13 +7,12 @@ import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from melonclaw.core.database import (
@@ -33,8 +32,28 @@ from melonclaw.web.service import (
     RequestInProgressError,
 )
 
-WEB_ROOT = Path(__file__).resolve().parent
-STATIC_ROOT = WEB_ROOT / "static"
+DEFAULT_ALLOWED_ORIGINS = (
+    "http://localhost:8001",
+    "http://127.0.0.1:8001",
+)
+
+
+def _allowed_origins() -> list[str]:
+    """解析前端独立部署时的允许来源。
+
+    MELONCLAW_ALLOWED_ORIGINS 为逗号分隔的 origin 列表；未配置时仅放行
+    本地 React/Vite 开发端口。
+    """
+
+    raw = os.getenv("MELONCLAW_ALLOWED_ORIGINS", "")
+    origins = [
+        origin.strip().rstrip("/")
+        for origin in raw.split(",")
+        if origin.strip()
+    ]
+    if origins:
+        return origins
+    return list(DEFAULT_ALLOWED_ORIGINS)
 
 
 @asynccontextmanager
@@ -62,14 +81,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# 前后端分离部署（frontend/ 独立构建）时允许跨域调用 /api。
+# 配置 "MELONCLAW_ALLOWED_ORIGINS=*" 表示放行所有来源。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins(),
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
+
 
 def _manager(request: Request) -> ChatService:
     return request.app.state.chat
-
-
-@app.get("/", include_in_schema=False)
-async def homepage() -> FileResponse:
-    return FileResponse(STATIC_ROOT / "index.html")
 
 
 @app.get("/api/status")
@@ -373,9 +396,6 @@ async def submit_approval(
     except Exception as exc:  # noqa: BLE001 - 准备阶段需要真实 HTTP 状态码
         return _error_response(exc)
     return _stream_response(manager.stream_execution(execution, agent_input=command))
-
-
-app.mount("/static", StaticFiles(directory=STATIC_ROOT), name="static")
 
 
 def main() -> None:

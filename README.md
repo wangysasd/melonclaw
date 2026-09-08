@@ -1,7 +1,7 @@
 # MelonClaw
 
 <p align="center">
-  <img src="src/melonclaw/web/static/assets/brand/melon-claw.png" alt="MelonClaw" width="314" height="314" />
+  <img src="frontend/public/assets/brand/melon-claw.png" alt="MelonClaw" width="314" height="314" />
 </p>
 
 MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。它通过 Web 界面处理问答、写作、研究、信息整理和计划制定等任务，并可按需使用联网搜索、文件工作区、MCP 工具、子 Agent 和 JavaScript 计算能力。
@@ -26,6 +26,7 @@ MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。它通过 Web 界面
 - PostgreSQL 14+
 - 一个模型 API，默认使用 DeepSeek，也支持 OpenAI 兼容接口
 - Tavily API Key（仅在需要联网搜索时使用）
+- Node.js 20+ 与 npm（仅在开发或构建 `frontend/` 独立前端时需要）
 
 ## 快速开始
 
@@ -61,10 +62,68 @@ uv run melonclaw-db-init
 ### 3. 启动应用
 
 ```bash
-uv run melonclaw-web
+scripts/start.sh
 ```
 
-打开 <http://127.0.0.1:8000>，即可开始使用。监听地址和端口可以通过 `MELONCLAW_HOST`、`MELONCLAW_PORT` 修改。
+打开 <http://localhost:8001>，即可开始使用。启动脚本会同时运行 React/Vite 前端和 FastAPI 后端；监听地址和端口可以通过 `MELONCLAW_HOST`、`MELONCLAW_PORT`、`MELONCLAW_FRONTEND_PORT` 修改。
+
+## 前端独立项目（frontend/）
+
+前端唯一实现位于根目录的 `frontend/`，是一个独立的 React + Vite + TypeScript 项目，与 Python/uv 构建体系解耦。它已接入完整聊天界面（SSE 消息流、Markdown 渲染、工具时间线与子 Agent 卡片、HITL 审批面板）；FastAPI 仅提供 `/api` 接口，不再托管旧版静态页面。
+
+开发模式（前后端联调）：
+
+```bash
+# 一键启动（后端 FastAPI + 前端 Vite，已运行的服务会自动跳过）
+scripts/start.sh
+
+# 一键停止（日志保留在系统临时目录的 melonclaw-dev/ 下）
+scripts/shutdown.sh
+```
+
+也可以手动分步启动：
+
+```bash
+uv run melonclaw-web        # 后端 API，默认 127.0.0.1:8000
+cd frontend
+npm install
+npm run dev                 # Vite dev server，默认 http://localhost:8001
+```
+
+打开 <http://localhost:8001>。Vite 会把 `/api` 请求代理到后端，默认目标 `http://127.0.0.1:8000`，可用 `MELONCLAW_PORT`（改后端端口）或 `MELONCLAW_API_TARGET`（改完整地址）覆盖；SSE 流式响应在代理层关闭缓冲。
+
+生产构建与部署：
+
+```bash
+cd frontend
+npm run build               # 类型检查 + 构建产物输出到 frontend/dist/
+```
+
+`dist/` 由独立的 Node 静态服务或 Nginx 托管，后端只提供 API。两种接法：
+
+- **同源反代（推荐）**：静态服务把 `/api` 反向代理到 FastAPI，无需跨域。Nginx 示例：
+
+  ```nginx
+  server {
+    listen 8080;
+    root /path/to/frontend/dist;
+
+    location /api/ {
+      proxy_pass http://127.0.0.1:8000;
+      proxy_buffering off;              # SSE 必须关闭缓冲
+      proxy_set_header Host $host;
+      proxy_read_timeout 3600s;
+    }
+
+    location / {
+      try_files $uri /index.html;
+    }
+  }
+  ```
+
+- **跨域直连**：构建前设置 `VITE_API_BASE_URL`（如 `https://api.example.com`），并在后端用 `MELONCLAW_ALLOWED_ORIGINS` 放行前端来源（逗号分隔 origin，如 `https://web.example.com`；未配置时默认放行 `http://localhost:8001` 与 `http://127.0.0.1:8001`）。
+
+其他常用命令：`npm run typecheck`、`npm run lint`、`npm run preview`。
 
 ## 如何使用
 
@@ -96,6 +155,8 @@ uv run melonclaw-web
 | `DATABASE_URL` | PostgreSQL 连接，使用 `postgresql+asyncpg://` |
 | `MELONCLAW_WORKSPACE_DIR` | Project 工作区根目录 |
 | `MELONCLAW_HOST` / `MELONCLAW_PORT` | Web 监听地址和端口 |
+| `MELONCLAW_FRONTEND_PORT` | React/Vite 开发服务器端口，默认 `8001` |
+| `MELONCLAW_ALLOWED_ORIGINS` | 独立前端跨域部署时放行的 origin（逗号分隔；未配置时默认放行本地 Vite 开发端口） |
 
 MCP 服务定义放在根目录的 `mcp.json` 中。没有启用 MCP 时应用仍可正常启动；启用外部服务时，再按服务要求配置对应的 Token 和服务名环境变量。
 

@@ -1,0 +1,133 @@
+- generic [ref=f1e4]:
+  - complementary "项目与会话导航" [ref=f1e5]:
+    - generic [ref=f1e6]:
+      - generic [ref=f1e7]:
+        - generic [ref=f1e9]:
+          - generic [ref=f1e10]: MelonClaw
+          - generic [ref=f1e11]: 瓜爪助手
+        - button "收起侧栏" [ref=f1e12] [cursor=pointer]
+      - button "新建对话 ⌘ K" [ref=f1e14] [cursor=pointer]:
+        - generic [ref=f1e16]: 新建对话
+        - generic [ref=f1e17]: ⌘ K
+      - generic [ref=f1e18]:
+        - region "项目" [ref=f1e19]:
+          - generic [ref=f1e20]:
+            - generic [ref=f1e21]: 项目
+            - button "新增项目" [ref=f1e22] [cursor=pointer]
+          - generic [ref=f1e78]:
+            - button "键盘输入项目迁移验证项目" [ref=f1e79] [cursor=pointer]
+            - button "秋季攻势" [ref=f1e82] [cursor=pointer]
+            - button "临时会话 默认" [ref=f1e85] [cursor=pointer]:
+              - generic [ref=f1e87]: 临时会话
+              - generic [ref=f1e88]: 默认
+        - region "当前项目会话" [ref=f1e111]:
+          - generic [ref=f1e112]:
+            - generic [ref=f1e113]: 当前项目
+            - generic [ref=f1e114]: 键盘输入项目迁移验证项目
+          - button "搜索一下：2025年诺贝尔物理学奖的获奖者是谁，简要列出获奖 12:23" [ref=f1e246] [cursor=pointer]:
+            - generic [ref=f1e119]: 搜索一下：2025年诺贝尔物理学奖的获奖者是谁，简要列出获奖
+            - generic [ref=f1e120]: 12:23
+      - generic [ref=f1e25]:
+        - generic [ref=f1e26]:
+          - generic [ref=f1e27]: 模拟用户
+          - button "选择模拟用户" [ref=f1e28] [cursor=pointer]:
+            - generic [ref=f1e29]: 张三
+            - generic [ref=f1e30]: 张三-投资、研究
+        - group [ref=f1e32]:
+          - generic "运行详情" [ref=f1e33] [cursor=pointer]
+  - generic [ref=f1e36]:
+    - banner [ref=f1e37]:
+      - generic [ref=f1e38]: 瓜爪助手 · 键盘输入项目迁移验证项目
+      - generic [ref=f1e39]: 新会话
+    - generic "聊天记录" [ref=f1e40]:
+      - generic [ref=f1e41]:
+        - generic [ref=f1e147]:
+          - generic [ref=f1e148]: 搜索一下：2025年诺贝尔物理学奖的获奖者是谁，简要列出获奖理由
+          - generic [ref=f1e149]: 12:18
+        - generic [ref=f1e159]:
+          - generic [ref=f1e161]:
+            - paragraph [ref=f1e162]: 根据搜索结果，2025年诺贝尔物理学奖信息如下：
+            - heading "获奖者（3人）" [level=2] [ref=f1e163]
+            - table [ref=f1e165]:
+              - rowgroup [ref=f1e166]:
+                - row [ref=f1e167]:
+                  - columnheader "姓名" [ref=f1e168]
+                  - columnheader "国籍" [ref=f1e169]
+              - rowgroup [ref=f1e170]:
+                - row [ref=f1e171]:
+                  - cell [ref=f1e172]:
+                    - strong [ref=f1e173]: 约翰·克拉克
+                    - text: （John Clarke）
+                  - cell "英国" [ref=f1e174]
+                - row [ref=f1e175]:
+                  - cell [ref=f1e176]:
+                    - strong [ref=f1e177]: 米歇尔·H. 德沃雷
+                    - text: （Michel H. Devoret）
+                  - cell "法国" [ref=f1e178]
+                - row [ref=f1e179]:
+                  - cell [ref=f1e180]:
+                    - strong [ref=f1e181]: 约翰·M. 马丁尼斯
+                    - text: （John M. Martinis）
+                  - cell "美国" [ref=f1e182]
+            - heading "获奖理由" [level=2] [ref=f1e183]
+            - blockquote [ref=f1e184]:
+              - strong [ref=f1e185]: "\"在电路中发现宏观量子力学隧穿效应与能量量子化现象\""
+              - text: （for their discovery of macroscopic quantum mechanical tunnelling and energy quantisation in an electric circuit）
+            - heading "简要解读" [level=2] [ref=f1e186]
+            - list [ref=f1e187]:
+              - listitem [ref=f1e188]:
+                - text: 三人通过一系列实验证明，量子世界的奇特性质可以在
+                - strong [ref=f1e189]: 宏观尺度的超导电路
+                - text: 中呈现——这些电路大到肉眼可见，却能像量子粒子一样发生"穿墙"（量子隧穿），并以离散的"能量包"（量子化）吸收和释放能量。
+              - listitem [ref=f1e190]: 这相当于实现了"宏观版薛定谔的猫"：一个宏观系统可以同时处于多种状态。
+              - listitem [ref=f1e191]:
+                - text: 他们的工作为
+                - strong [ref=f1e192]: 超导量子比特
+                - text: 奠定了基础，是当前超导量子计算技术的起点（如SQUID超导量子干涉仪、量子计算机研究），并推动了量子力学诞生百年（1925-2025）后该领域的再次重大表彰。
+            - paragraph [ref=f1e193]:
+              - generic [ref=f1e194]:
+                - strong [ref=f1e195]: 其他信息
+                - text: ：2025年奖金为1100万瑞典克朗，由三人共享；奖项于2025年10月7日（北京时间）公布。
+          - generic [ref=f1e196]:
+            - generic [ref=f1e197]:
+              - group [ref=f1e198]:
+                - generic "搜索资料 internet_search 已完成" [ref=f1e199] [cursor=pointer]:
+                  - generic [ref=f1e201]: 搜索资料
+                  - generic [ref=f1e202]: internet_search
+                  - generic [ref=f1e203]: 已完成
+              - group [ref=f1e206]:
+                - generic "搜索资料 internet_search 已完成" [ref=f1e207] [cursor=pointer]:
+                  - generic [ref=f1e209]: 搜索资料
+                  - generic [ref=f1e210]: internet_search
+                  - generic [ref=f1e211]: 已完成
+            - generic [ref=f1e214]:
+              - generic [ref=f1e215]: 已完成
+              - button "复制" [ref=f1e216] [cursor=pointer]
+        - generic [ref=f1e222]:
+          - generic [ref=f1e223]: 在工作区创建一个 scratch/hello.txt 文件，内容为 hello melonclaw
+          - generic [ref=f1e224]: 12:22
+        - generic [ref=f1e247]:
+          - paragraph [ref=f1e250]:
+            - generic [ref=f1e251]:
+              - text: 已创建文件
+              - code [ref=f1e252]: /scratch/hello.txt
+              - text: ，内容为
+              - code [ref=f1e253]: hello melonclaw
+              - text: 。
+          - generic [ref=f1e254]:
+            - group [ref=f1e256]:
+              - generic "写入文件 write_file 已完成" [ref=f1e257] [cursor=pointer]:
+                - generic [ref=f1e259]: 写入文件
+                - generic [ref=f1e260]: write_file
+                - generic [ref=f1e261]: 已完成
+            - generic [ref=f1e264]:
+              - generic [ref=f1e265]: 已完成
+              - button "复制" [ref=f1e266] [cursor=pointer]
+    - generic [ref=f1e67]:
+      - generic [ref=f1e69]:
+        - textbox "输入你想聊的事情…" [active] [ref=f1e269]
+        - button [ref=f1e73] [cursor=pointer]:
+          - img "arrow-up" [ref=f1e91]
+      - generic [ref=f1e74]:
+        - generic [ref=f1e75]: Enter 发送 · Shift + Enter 换行
+        - generic [ref=f1e77]: AI生成内容仅供参考。

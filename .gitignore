@@ -33,6 +33,8 @@ dist/
 
 # 本地编辑器与系统文件。
 .agents/
+.codebuddy/
+.workbuddy/
 .idea/
 .vscode/
 .DS_Store

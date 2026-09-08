@@ -1,0 +1,40 @@
+- generic [ref=f1e4]:
+  - complementary "项目与会话导航" [ref=f1e5]:
+    - generic [ref=f1e6]:
+      - generic [ref=f1e7]:
+        - generic [ref=f1e9]:
+          - generic [ref=f1e10]: MelonClaw
+          - generic [ref=f1e11]: 瓜爪助手
+        - button "收起侧栏" [ref=f1e12] [cursor=pointer]
+      - button "新建对话 ⌘ K" [disabled] [ref=f1e14]:
+        - generic [ref=f1e16]: 新建对话
+        - generic [ref=f1e17]: ⌘ K
+      - region "项目" [ref=f1e19]:
+        - generic [ref=f1e20]:
+          - generic [ref=f1e21]: 项目
+          - button "新增项目" [ref=f1e22] [cursor=pointer]
+      - generic [ref=f1e25]:
+        - generic [ref=f1e26]:
+          - generic [ref=f1e27]: 模拟用户
+          - button "选择模拟用户" [disabled] [ref=f1e28] [cursor=pointer]:
+            - generic [ref=f1e29]: "?"
+            - generic [ref=f1e30]: zhangsan
+        - group [ref=f1e32]:
+          - generic "运行详情" [ref=f1e33] [cursor=pointer]
+  - main [ref=f1e36]:
+    - heading "迁移进行中：侧栏已接入" [level=1] [ref=f1e37]
+    - paragraph [ref=f1e38]: 侧栏的项目/会话/用户切换已可用；聊天视图（消息流、输入区、审批）在下一步接入。
+    - region "迁移进度" [ref=f1e39]:
+      - generic [ref=f1e40]:
+        - generic [ref=f1e41]:
+          - term [ref=f1e42]: 当前用户
+          - definition [ref=f1e43]: zhangsan
+        - generic [ref=f1e44]:
+          - term [ref=f1e45]: 当前租户
+          - definition [ref=f1e46]: investment
+        - generic [ref=f1e47]:
+          - term [ref=f1e48]: 当前项目
+          - definition [ref=f1e49]: 未选择
+        - generic [ref=f1e50]:
+          - term [ref=f1e51]: 当前会话
+          - definition [ref=f1e52]: 未选择

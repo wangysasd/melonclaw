@@ -1,0 +1,25 @@
+[    1505ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/chunk-D6757VOR.js?v=df06cc00:21550
+[   55859ms] [ERROR] Warning: Each child in a list should have a unique "key" prop.%s%s See https://reactjs.org/link/warning-keys for more information.%s 
+
+Check the render method of `Markdown`.  
+    at Markdown (http://localhost:5173/src/components/Markdown.tsx:160:28)
+    at div
+    at div
+    at div
+    at div
+    at Bubble (http://localhost:5173/node_modules/.vite/deps/@ant-design_x.js?v=df06cc00:32411:14)
+    at MessageBubble2 (http://localhost:5173/src/components/ChatView.tsx:152:3)
+    at div
+    at div
+    at div
+    at ChatView (http://localhost:5173/src/components/ChatView.tsx:220:19)
+    at div
+    at Workspace (http://localhost:5173/src/App.tsx?t=1788836535899:30:19)
+    at SessionProvider (http://localhost:5173/src/state/session.tsx?t=1788836450799:143:35)
+    at div
+    at http://localhost:5173/node_modules/.vite/deps/chunk-A3MGK5J2.js?v=df06cc00:25686:16
+    at LocaleProvider (http://localhost:5173/node_modules/.vite/deps/chunk-A3MGK5J2.js?v=df06cc00:9409:13)
+    at MotionWrapper (http://localhost:5173/node_modules/.vite/deps/chunk-A3MGK5J2.js?v=df06cc00:11603:32)
+    at ProviderChildren (http://localhost:5173/node_modules/.vite/deps/chunk-A3MGK5J2.js?v=df06cc00:11703:5)
+    at ConfigProvider (http://localhost:5173/node_modules/.vite/deps/chunk-A3MGK5J2.js?v=df06cc00:12042:27)
+    at App @ http://localhost:5173/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=df06cc00:63
