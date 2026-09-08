@@ -123,7 +123,7 @@ npm run build               # 类型检查 + 构建产物输出到 frontend/dist
 
 - **跨域直连**：构建前设置 `VITE_API_BASE_URL`（如 `https://api.example.com`），并在后端用 `MELONCLAW_ALLOWED_ORIGINS` 放行前端来源（逗号分隔 origin，如 `https://web.example.com`；未配置时默认放行 `http://localhost:8001` 与 `http://127.0.0.1:8001`）。
 
-其他常用命令：`npm run typecheck`、`npm run lint`、`npm run preview`。
+其他常用命令：`npm run typecheck`、`npm run lint`、`npm run test`、`npm run preview`。
 
 ## 如何使用
 
@@ -135,7 +135,9 @@ npm run build               # 类型检查 + 构建产物输出到 frontend/dist
    ```
 
 3. Agent 会根据任务决定是否搜索资料、读取项目文件、调用 MCP、委派子 Agent 或使用 Interpreter。
-4. 如果涉及写文件、编辑文件、删除文件或执行 Shell，检查审批卡片中的参数后选择批准、编辑或拒绝。
+4. 如果涉及写文件、编辑文件、删除文件或执行 Shell，审批卡片会展开显示本次操作的工具和参数。逐项选择“允许本次”“编辑参数”或“拒绝”后，点击提交；没有明确选择时不能提交。审批暂停期间可以继续在输入框中预写下一条消息，但必须先完成当前审批。
+
+聊天页面会把工具活动与最终回答分层显示：成功的工具默认收起，失败或没有收到终态的工具会展开并标记原因；流式连接异常时会保留已收到的回答，并提供“重新同步会话”入口。切换会话或刷新页面后，待审批状态会从服务端恢复。
 
 常见使用方式：
 

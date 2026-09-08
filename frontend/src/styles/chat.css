@@ -1085,3 +1085,51 @@
     font-size: 11px;
   }
 }
+
+/* 聊天交互：审批属于消息上下文，底部只保留轻量提醒。 */
+.approval-inline:not(:empty) { margin-top: 20px; }
+.approval-inline .approval-panel { max-height: none; }
+.approval-inline .approval-actions { overflow: visible; padding: 0; }
+.approval-panel { overflow-wrap: anywhere; }
+.approval-tool { white-space: normal; overflow-wrap: anywhere; }
+.approval-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.approval-choice {
+  min-height: 38px; padding: 7px 12px; border: 1px solid #d9cba9;
+  border-radius: 8px; background: #fffdf8; color: #684d21; cursor: pointer;
+}
+.approval-choice[aria-pressed="true"] { background: #315f48; border-color: #315f48; color: white; }
+.approval-choice:disabled { cursor: wait; opacity: .65; }
+.approval-submit { flex-shrink: 0; }
+.approval-args { overflow-wrap: anywhere; }
+.approval-edit[aria-invalid="true"], .approval-reject[aria-invalid="true"] { border-color: var(--status-error); }
+.tool-detail-label { color: var(--muted); font-size: 12px; margin: 8px 0; }
+.message-progress { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin: 12px 0; }
+.message-notice { color: var(--status-error); font-size: 13px; margin: 10px 0; }
+.chat-attention {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 8px; flex-shrink: 0; margin: 0 20px 8px; color: var(--status-warning); font-size: 13px;
+}
+.chat-attention button, .chat-error button, .jump-to-latest {
+  min-height: 36px; padding: 6px 12px; border: 1px solid #c2d4c6; border-radius: 18px;
+  background: #fff; color: var(--brand-primary); cursor: pointer;
+}
+.jump-to-latest { display: flex; align-items: center; gap: 6px; align-self: center; flex-shrink: 0; margin-bottom: 8px; }
+.chat-error { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px; margin: 16px 0; border: 1px solid #e6c7c0; border-radius: 10px; color: var(--status-error); }
+.chat-error button { flex-shrink: 0; }
+.chat-view :is(button, summary, textarea):focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 3px; }
+.chat-view .composer textarea:focus,
+.chat-view .composer textarea:focus-visible {
+  outline: none;
+  outline-offset: 0;
+  box-shadow: none;
+}
+@media (max-width: 640px) {
+  .approval-panel { padding: 12px; }
+  .approval-choice { min-height: 44px; }
+  .approval-submit { align-self: stretch; min-height: 44px; }
+  .chat-attention { font-size: 12px; gap: 5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-icon-spin { animation: none !important; }
+  .chat-view *, .chat-view *::before, .chat-view *::after { scroll-behavior: auto !important; transition: none !important; }
+}

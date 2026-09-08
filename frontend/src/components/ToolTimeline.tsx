@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 
 import { Icon } from "./Icon";
-import type { DisplayEvent } from "../types/api";
+import type { DisplayEvent, MessageStatus } from "../types/api";
 
 /**
  * 工具时间线：将消息的 display events 归约为「工具卡片 + 嵌套子 Agent 卡片」的树，
@@ -13,30 +13,7 @@ import type { DisplayEvent } from "../types/api";
  * - 流式与历史重放共用同一归约器；React 按消息分组渲染，天然隔离不同消息。
  */
 
-const TOOL_LABELS: Record<string, string> = {
-  search: "搜索资料",
-  tavily_search: "搜索资料",
-  internet_search: "搜索资料",
-  read_file: "读取文件",
-  write_file: "写入文件",
-  edit_file: "编辑文件",
-  delete_file: "删除文件",
-  glob: "查找文件",
-  grep: "查找内容",
-  ls: "查看目录",
-  execute: "执行计算",
-  eval: "执行计算",
-  task: "委派子 Agent",
-  search_memory: "检索记忆",
-  read_memory: "读取记忆",
-  remember_user_memory: "保存个人记忆",
-  forget_user_memory: "删除个人记忆",
-  propose_tenant_memory: "提交租户记忆提案",
-};
-
-export function toolSummary(name: string): string {
-  return TOOL_LABELS[name] || name || "未知工具";
-}
+import { toolSummary } from "../lib/toolDisplay";
 
 function formatToolValue(value: unknown, fallback = "{}"): string {
   if (value === undefined || value === null || value === "") return fallback;
@@ -48,8 +25,8 @@ function formatToolValue(value: unknown, fallback = "{}"): string {
   }
 }
 
-type ToolStatus = "started" | "completed" | "failed";
-type SubagentStatus = "running" | "completed" | "failed";
+type ToolStatus = "started" | "completed" | "failed" | "waiting" | "unknown";
+type SubagentStatus = "running" | "completed" | "failed" | "waiting" | "unknown";
 
 interface ToolNode {
   kind: "tool";
@@ -73,16 +50,33 @@ interface SubagentNode {
 
 type TimelineEntry = ToolNode | SubagentNode;
 
+function hasFailure(entry: TimelineEntry): boolean {
+  return entry.status === "failed" || (entry.kind === "tool" ? entry.children : entry.tools).some(hasFailure);
+}
+
 function normalizeToolStatus(status: unknown): ToolStatus {
   if (status === "failed") return "failed";
   if (status === "completed") return "completed";
   return "started";
 }
 
-function buildTimeline(events: DisplayEvent[]): TimelineEntry[] {
+export function buildTimeline(events: DisplayEvent[], messageStatus?: MessageStatus | "streaming" | null): TimelineEntry[] {
   const root: TimelineEntry[] = [];
   const toolMap = new Map<string, ToolNode>();
   const subagentMap = new Map<string, SubagentNode>();
+  const anonymousPending = new Map<string, string[]>();
+  const eventKey = (event: DisplayEvent): string => {
+    if (event.call_key) return String(event.call_key);
+    const scope = `${event.subagent_id ?? "root"}:${event.name ?? "tool"}`;
+    const pending = anonymousPending.get(scope) ?? [];
+    if (event.type.endsWith("_result") && pending.length) return pending.shift()!;
+    const key = `anonymous:${toolMap.size}:${scope}`;
+    if (event.type.endsWith("_call")) {
+      pending.push(key);
+      anonymousPending.set(scope, pending);
+    }
+    return key;
+  };
 
   const appendRoot = (entry: TimelineEntry) => {
     if (!root.includes(entry)) root.push(entry);
@@ -159,9 +153,7 @@ function buildTimeline(events: DisplayEvent[]): TimelineEntry[] {
   for (const event of events) {
     switch (event.type) {
       case "tool_call": {
-        const key = String(
-          event.call_key || `anonymous:${toolMap.size}:${event.name || "tool"}`,
-        );
+        const key = eventKey(event);
         const tool = ensureTool(key, event.name, event.status);
         appendRoot(tool);
         if (event.name) tool.name = String(event.name);
@@ -172,9 +164,7 @@ function buildTimeline(events: DisplayEvent[]): TimelineEntry[] {
         break;
       }
       case "tool_result": {
-        const key = String(
-          event.call_key || `anonymous:${toolMap.size}:${event.name || "tool"}`,
-        );
+        const key = eventKey(event);
         const tool = ensureTool(key, event.name, "started");
         appendRoot(tool);
         tool.status = event.status === "failed" ? "failed" : "completed";
@@ -193,9 +183,7 @@ function buildTimeline(events: DisplayEvent[]): TimelineEntry[] {
       case "subagent_tool_call": {
         const node = ensureSubagent(event);
         if (!node) break;
-        const key = String(
-          event.call_key || `anonymous:${toolMap.size}:${event.name || "tool"}`,
-        );
+        const key = eventKey(event);
         const tool = ensureTool(key, event.name, event.status);
         if (!node.tools.includes(tool)) node.tools.push(tool);
         if (event.name) tool.name = String(event.name);
@@ -203,21 +191,18 @@ function buildTimeline(events: DisplayEvent[]): TimelineEntry[] {
           tool.args = formatToolValue(event.args);
         }
         tool.status = normalizeToolStatus(event.status);
-        if (normalizeToolStatus(event.status) === "started") {
-          node.toolCount += 1;
-        }
+        node.toolCount = node.tools.length;
         break;
       }
       case "subagent_tool_result": {
         const node = ensureSubagent(event);
         if (!node) break;
-        const key = String(
-          event.call_key || `anonymous:${toolMap.size}:${event.name || "tool"}`,
-        );
+        const key = eventKey(event);
         const tool = ensureTool(key, event.name, "started");
         if (!node.tools.includes(tool)) node.tools.push(tool);
         tool.status = event.status === "failed" ? "failed" : "completed";
         tool.output = formatToolValue(event.content, "<无文本输出>");
+        node.toolCount = node.tools.length;
         break;
       }
       case "subagent_completed": {
@@ -237,6 +222,12 @@ function buildTimeline(events: DisplayEvent[]): TimelineEntry[] {
         break;
     }
   }
+  const inactive = messageStatus === "interrupted" ? "waiting" :
+    messageStatus === "failed" || messageStatus === "cancelled" || messageStatus === "completed" ? "unknown" : null;
+  if (inactive) {
+    for (const tool of toolMap.values()) if (tool.status === "started") tool.status = inactive;
+    for (const node of subagentMap.values()) if (node.status === "running") node.status = inactive;
+  }
   return root;
 }
 
@@ -244,30 +235,34 @@ const TOOL_STATUS_LABELS: Record<ToolStatus, string> = {
   started: "处理中",
   completed: "已完成",
   failed: "失败",
+  waiting: "已暂停，等待确认",
+  unknown: "未收到执行结果",
 };
 
 const SUBAGENT_STATUS_LABELS: Record<SubagentStatus, string> = {
   running: "处理中",
   completed: "已完成",
   failed: "失败",
+  waiting: "已暂停，等待确认",
+  unknown: "未收到执行结果",
 };
 
 function ToolCard({ tool }: { tool: ToolNode }) {
-  const [open, setOpen] = useState(tool.status === "started");
-
-  // 对齐旧 renderToolResult：结果成功返回后自动收起；失败保持展开。
-  useEffect(() => {
-    if (tool.status === "completed") setOpen(false);
-  }, [tool.status]);
+  const [expanded, setExpanded] = useState<{ status: ToolStatus; open: boolean } | null>(null);
+  const open = expanded?.status === tool.status ? expanded.open : hasFailure(tool);
 
   const headIcon =
-    tool.name === "task" ? "list-checks" : "loader-circle";
+    tool.name === "task" ? "list-checks" : "file-text";
   const statusIcon =
     tool.status === "completed"
       ? "circle-check"
       : tool.status === "failed"
         ? "circle-alert"
-        : "loader-circle";
+        : tool.status === "waiting"
+          ? "shield-check"
+          : tool.status === "unknown"
+            ? "circle-alert"
+            : "loader-circle";
 
   return (
     <details
@@ -279,13 +274,12 @@ function ToolCard({ tool }: { tool: ToolNode }) {
         .filter(Boolean)
         .join(" ")}
       open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onToggle={(event) => setExpanded({ status: tool.status, open: event.currentTarget.open })}
     >
       <summary className="tool-head">
         <Icon
           name={headIcon}
           size={17}
-          className={tool.status === "started" ? "mc-icon-spin" : undefined}
         />
         <span className="tool-summary">{toolSummary(tool.name)}</span>
         <span className="tool-name">{tool.name}</span>
@@ -301,9 +295,9 @@ function ToolCard({ tool }: { tool: ToolNode }) {
         </span>
       </summary>
       <div className="tool-details">
-        {tool.args !== undefined && <pre className="tool-args">{tool.args}</pre>}
+        {tool.args !== undefined && <><div className="tool-detail-label">输入参数</div><pre className="tool-args">{tool.args}</pre></>}
         {tool.output !== undefined && (
-          <pre className="tool-output">{tool.output}</pre>
+          <><div className="tool-detail-label">{tool.status === "failed" ? "错误详情" : "执行结果"}</div><pre className="tool-output">{tool.output}</pre></>
         )}
         {tool.children.length > 0 && (
           <div className="tool-children">
@@ -318,12 +312,8 @@ function ToolCard({ tool }: { tool: ToolNode }) {
 }
 
 function SubagentCard({ node }: { node: SubagentNode }) {
-  const [open, setOpen] = useState(node.status === "running");
-
-  // 对齐 note.md 可观察点：已完成子 Agent 默认收起。
-  useEffect(() => {
-    if (node.status !== "running") setOpen(false);
-  }, [node.status]);
+  const [expanded, setExpanded] = useState<{ status: SubagentStatus; open: boolean } | null>(null);
+  const open = expanded?.status === node.status ? expanded.open : hasFailure(node);
 
   const failed = node.status === "failed";
 
@@ -333,7 +323,7 @@ function SubagentCard({ node }: { node: SubagentNode }) {
         .filter(Boolean)
         .join(" ")}
       open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onToggle={(event) => setExpanded({ status: node.status, open: event.currentTarget.open })}
     >
       <summary className="subagent-head">
         <Icon name="list-checks" size={16} className="subagent-icon" />
@@ -364,11 +354,12 @@ function TimelineEntryView({ entry }: { entry: TimelineEntry }): ReactNode {
   );
 }
 
-export function ToolTimeline({ events }: { events: DisplayEvent[] }) {
-  const timeline = buildTimeline(events);
+export const ToolTimeline = memo(function ToolTimeline({ events, messageStatus }: { events: DisplayEvent[]; messageStatus?: MessageStatus | "streaming" | null }) {
+  const timeline = useMemo(() => buildTimeline(events, messageStatus), [events, messageStatus]);
   if (timeline.length === 0) return null;
   return (
-    <div className="message-tools">
+    <div className="message-tools" aria-label="工具活动">
+      <div className="tool-detail-label">工具活动 · {timeline.length} 项</div>
       {timeline.map((entry) => (
         <TimelineEntryView
           key={entry.kind === "tool" ? entry.key : entry.id}
@@ -377,4 +368,4 @@ export function ToolTimeline({ events }: { events: DisplayEvent[] }) {
       ))}
     </div>
   );
-}
+});

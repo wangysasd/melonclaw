@@ -79,14 +79,15 @@ export async function streamRequest(
     for (;;) {
       const { done, value } = await reader.read();
       if (done) {
+        buffer += decoder.decode();
         break;
       }
       buffer += decoder.decode(value, { stream: true });
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        dispatchFrame(buffer.slice(0, boundary), onEvent);
-        buffer = buffer.slice(boundary + 2);
-        boundary = buffer.indexOf("\n\n");
+      let boundary = /\r?\n\r?\n/.exec(buffer);
+      while (boundary) {
+        dispatchFrame(buffer.slice(0, boundary.index), onEvent);
+        buffer = buffer.slice(boundary.index + boundary[0].length);
+        boundary = /\r?\n\r?\n/.exec(buffer);
       }
     }
     // 兼容流末尾缺少空行终止符的最后一段。
@@ -94,13 +95,14 @@ export async function streamRequest(
       dispatchFrame(buffer, onEvent);
     }
   } finally {
+    await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }
 
 function dispatchFrame(frame: string, onEvent: (event: StreamEvent) => void): void {
   const dataLines: string[] = [];
-  for (const line of frame.split("\n")) {
+  for (const line of frame.split(/\r?\n/)) {
     if (!line || line.startsWith(":")) {
       // 空行或 keep-alive 注释帧。
       continue;

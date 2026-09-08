@@ -94,7 +94,8 @@ export type DecisionType = "approve" | "reject" | "respond" | "edit";
 
 export interface ApprovalAction {
   name: string;
-  args?: Record<string, unknown>;
+  /** 后端返回经过脱敏的 JSON 文本；兼容对象形式。 */
+  args?: string | Record<string, unknown>;
   description?: string | null;
   allowed_decisions?: DecisionType[];
 }

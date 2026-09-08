@@ -275,7 +275,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   /** 选中会话：历史消息由聊天视图在 conversationId 变化时加载。 */
   const selectConversationInternal = useCallback((conversationId: string) => {
-    if (!conversationId) return;
+    if (!conversationId || conversationId === stateRef.current.conversationId) return;
     abortActiveRequests();
     bumpGeneration();
     const { userId } = stateRef.current;

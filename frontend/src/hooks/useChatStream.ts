@@ -30,7 +30,7 @@ export interface ChatMessage {
   timestamp?: string | null;
   /** completed 的助手消息按 Markdown 渲染。 */
   markdown: boolean;
-  /** 工具/子代理轨迹事件（下一迁移步骤接入 ThoughtChain 渲染）。 */
+  /** 工具/子代理轨迹事件，与最终回复分层展示。 */
   events: DisplayEvent[];
   /** 乐观渲染的临时消息（未收到 message_started 前）。 */
   optimistic?: boolean;
@@ -44,6 +44,7 @@ interface ChatState {
   historyLoading: boolean;
   /** 失败时需要回填的草稿（仅当输入框为空时生效，对齐旧 restoreDraft）。 */
   restoreDraft: string | null;
+  error: string | null;
 }
 
 type ChatAction =
@@ -56,29 +57,32 @@ type ChatAction =
       messages: ChatMessage[];
       approval: PendingApproval | null;
     }
-  | { type: "optimistic"; user: ChatMessage; assistant: ChatMessage }
+  | { type: "optimistic"; conversationId: string; user: ChatMessage; assistant: ChatMessage }
   | { type: "removeOptimistic"; ids: string[] }
   | {
       type: "messageStarted";
       assistantMessageId: string;
       userMessageId: string | null;
+      resuming?: boolean;
     }
   | { type: "text"; text: string }
   | { type: "displayEvent"; event: DisplayEvent }
   | { type: "completed"; messageId: string; content: string }
   | { type: "messageStatus"; messageId: string; status: MessageStatus }
-  | { type: "streamFailed"; messageId?: string; message?: string }
+  | { type: "streamFailed"; messageId?: string; message?: string; error?: string }
+  | { type: "historyFailed"; error: string }
   | { type: "approvalRequired"; request: PendingApproval }
   | { type: "approvalCleared" }
   | { type: "draftRestored" };
 
-const INITIAL_CHAT_STATE: ChatState = {
+export const INITIAL_CHAT_STATE: ChatState = {
   conversationId: null,
   conversationTitle: null,
   messages: [],
   approval: null,
   historyLoading: false,
   restoreDraft: null,
+  error: null,
 };
 
 function upsertLastAssistant(
@@ -95,7 +99,7 @@ function upsertLastAssistant(
   return messages;
 }
 
-function reducer(state: ChatState, action: ChatAction): ChatState {
+export function reducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "reset":
       return { ...INITIAL_CHAT_STATE, conversationId: action.conversationId };
@@ -114,10 +118,14 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         approval: action.approval,
         historyLoading: false,
         restoreDraft: null,
+        error: null,
       };
     case "optimistic":
       return {
         ...state,
+        conversationId: action.conversationId,
+        historyLoading: false,
+        error: null,
         messages: [...state.messages, action.user, action.assistant],
       };
     case "removeOptimistic":
@@ -130,9 +138,11 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
     case "messageStarted":
       return {
         ...state,
+        approval: action.resuming ? null : state.approval,
+        error: null,
         messages: state.messages.map((message) => {
-          if (message.role === "assistant" && message.optimistic) {
-            return { ...message, id: action.assistantMessageId, optimistic: false };
+          if (message.role === "assistant" && (message.optimistic || message.id === action.assistantMessageId)) {
+            return { ...message, id: action.assistantMessageId, status: "streaming", optimistic: false };
           }
           if (
             message.role === "user" &&
@@ -191,14 +201,19 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
     case "streamFailed":
       return {
         ...state,
-        messages: upsertLastAssistant(state, (message) => ({
+        messages: state.messages.map((message) => message.role === "assistant" &&
+          (action.messageId ? message.id === action.messageId : message.status === "streaming") ? ({
           ...message,
           status: "failed",
-        })),
+          markdown: true,
+        }) : message),
         restoreDraft: state.restoreDraft ?? action.message ?? null,
+        error: action.error ?? state.error,
       };
+    case "historyFailed":
+      return { ...state, historyLoading: false, error: action.error };
     case "approvalRequired":
-      return { ...state, approval: action.request };
+      return { ...state, approval: action.request, messages: upsertLastAssistant(state, (message) => ({ ...message, status: "interrupted", markdown: true })) };
     case "approvalCleared":
       return { ...state, approval: null };
     case "draftRestored":
@@ -219,13 +234,14 @@ interface SendContext {
 
 export interface ChatStreamHandle {
   state: ChatState;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, onAccepted?: () => void) => Promise<void>;
   submitApproval: (
     decisions:
       | ApprovalDecision[]
       | { interrupt_id: string; decisions: ApprovalDecision[] }[],
   ) => Promise<void>;
   clearRestoreDraft: () => void;
+  reloadHistory: () => void;
 }
 
 export interface UseChatStreamOptions {
@@ -242,10 +258,12 @@ export function useChatStream({
   const session = useSession();
   const { message } = AntdApp.useApp();
   const [state, dispatch] = useReducer(reducer, INITIAL_CHAT_STATE);
+  const [historyRevision, reloadHistory] = useReducer((value: number) => value + 1, 0);
 
   const sessionRef = useRef(session);
   sessionRef.current = session;
-  const startedRef = useRef(false);
+  const activeRunRef = useRef<{ controller: AbortController; context: SendContext } | null>(null);
+  const historyControllerRef = useRef<AbortController | null>(null);
 
   const matchesContext = useCallback((context: SendContext): boolean => {
     const current = sessionRef.current;
@@ -264,17 +282,20 @@ export function useChatStream({
       const follow = scroll.isNearBottom();
       switch (event.type) {
         case "message_started":
-          startedRef.current = true;
           dispatch({
             type: "messageStarted",
             assistantMessageId: event.message_id,
             userMessageId: event.user_message_id,
+            resuming: event.resuming,
           });
           break;
         case "text":
           dispatch({ type: "text", text: event.text });
           break;
         case "completed":
+          sessionRef.current.setBusy(false);
+          sessionRef.current.setRunStatus(null);
+          dispatch({ type: "approvalCleared" });
           dispatch({
             type: "completed",
             messageId: event.message_id,
@@ -289,6 +310,7 @@ export function useChatStream({
           });
           if (event.status === "pending") {
             message.error("该请求正在进行中，请稍候刷新会话。");
+            dispatch({ type: "historyFailed", error: "该请求仍在进行中。请稍后重新同步会话，确认结果后再发送新消息。" });
           }
           sessionRef.current.setBusy(false);
           sessionRef.current.setRunStatus(
@@ -306,8 +328,6 @@ export function useChatStream({
           break;
         case "done":
           sessionRef.current.setBusy(false);
-          sessionRef.current.setRunStatus(null);
-          dispatch({ type: "approvalCleared" });
           void sessionRef.current.refreshConversations();
           break;
         case "error":
@@ -317,6 +337,7 @@ export function useChatStream({
             type: "streamFailed",
             messageId: event.message_id,
             message: context.draft,
+            error: event.message || "助手运行失败。请检查会话状态后重试。",
           });
           message.error(event.message || "助手运行失败。请重试。");
           break;
@@ -348,51 +369,60 @@ export function useChatStream({
       }) => Promise<void>,
       context: SendContext,
       optimisticIds: string[],
-    ): Promise<void> => {
+    ): Promise<boolean> => {
+      if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return false;
       sessionRef.current.setBusy(true);
       sessionRef.current.setRunStatus("processing");
-      startedRef.current = false;
+      let started = false;
+      let failed = false;
       let terminal = false;
       const controller = new AbortController();
+      activeRunRef.current = { controller, context };
       sessionRef.current.attachStream(controller);
       try {
         await stream({
           signal: controller.signal,
           onEvent: (event) => {
+            if (event.type === "message_started") started = true;
+            if (event.type === "error") failed = true;
             if (TERMINAL_HINT.has(event.type)) terminal = true;
             handleEvent(event, context);
           },
         });
         if (!terminal && matchesContext(context)) {
-          // 流结束但没有任何终止事件：收敛 busy 并提示。
-          sessionRef.current.setBusy(false);
-          message.error("流连接已结束，但服务器没有返回完成状态。请刷新会话后重试。");
+          throw new Error("连接意外结束，回复可能不完整。请重新同步会话以确认执行结果。");
         }
+        return !failed;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
-          return;
+          return false;
         }
-        if (!startedRef.current && matchesContext(context)) {
+        if (!started && matchesContext(context)) {
           dispatch({ type: "removeOptimistic", ids: optimisticIds });
         }
         if (matchesContext(context)) {
           sessionRef.current.setBusy(false);
           sessionRef.current.setRunStatus("failed");
-          dispatch({ type: "streamFailed", message: context.draft });
+          dispatch({ type: "streamFailed", message: context.draft, error: error instanceof Error ? error.message : String(error) });
           message.error(error instanceof Error ? error.message : String(error));
         }
+        return false;
       } finally {
-        sessionRef.current.attachStream(null);
+        if (activeRunRef.current?.controller === controller) {
+          activeRunRef.current = null;
+          if (matchesContext(context)) sessionRef.current.attachStream(null);
+        }
       }
     },
     [handleEvent, matchesContext, message],
   );
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, onAccepted?: () => void) => {
       const snapshot = sessionRef.current;
       const cleanText = content.trim();
       if (!cleanText || snapshot.busy || snapshot.conversationCreating) return;
+      if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return;
       if (!snapshot.contextReady || snapshot.status?.status !== "ready") {
         message.error("服务仍在准备中，请稍候再发送。");
         return;
@@ -411,11 +441,11 @@ export function useChatStream({
       }
       if (
         !conversationId ||
+        conversationId !== sessionRef.current.conversationId ||
         startUserId !== sessionRef.current.userId ||
         startTenantId !== sessionRef.current.tenantId ||
         (startProjectId && startProjectId !== sessionRef.current.projectId)
       ) {
-        dispatch({ type: "streamFailed", message: cleanText });
         return;
       }
       const context: SendContext = {
@@ -431,8 +461,12 @@ export function useChatStream({
         `optimistic-user-${requestId}`,
         `optimistic-assistant-${requestId}`,
       ];
+      // 新会话历史与首次发送可能并发；迟到的历史不能覆盖本次乐观消息。
+      historyControllerRef.current?.abort();
+      onAccepted?.();
       dispatch({
         type: "optimistic",
+        conversationId,
         user: {
           id: optimisticIds[0],
           role: "user",
@@ -471,7 +505,7 @@ export function useChatStream({
         optimisticIds,
       );
     },
-    [message, runStream, scroll],
+    [message, runStream, scroll, matchesContext],
   );
 
   const submitApproval = useCallback(
@@ -483,6 +517,7 @@ export function useChatStream({
       const snapshot = sessionRef.current;
       const conversationId = snapshot.conversationId;
       if (!conversationId) return;
+      historyControllerRef.current?.abort();
       const context: SendContext = {
         epoch: snapshot.epoch,
         conversationId,
@@ -491,21 +526,28 @@ export function useChatStream({
         projectId: snapshot.projectId,
         draft: "",
       };
-      await runStream(
+      const succeeded = await runStream(
         (handlers) =>
           sendApprovalStream(conversationId, { userId: context.userId, tenantId: context.tenantId, decisions }, handlers),
         context,
         [],
       );
+      if (!succeeded && matchesContext(context)) {
+        throw new Error(
+          "决定未能完成提交或运行已中断。请重新同步会话，确认当前审批状态后再试。",
+        );
+      }
     },
-    [runStream],
+    [runStream, matchesContext],
   );
 
   // 切换会话/用户/项目时加载历史消息（含 pending_approval 恢复）。
   useEffect(() => {
     const snapshot = session;
     const controller = new AbortController();
+    historyControllerRef.current = controller;
     const load = async () => {
+      if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return;
       if (!snapshot.conversationId) {
         dispatch({ type: "reset", conversationId: null });
         return;
@@ -549,22 +591,26 @@ export function useChatStream({
           sessionRef.current.setRunStatus("waiting");
         } else {
           sessionRef.current.setBusy(false);
-          sessionRef.current.setRunStatus(null);
+          const pending = messages.some((item) => item.status === "pending");
+          sessionRef.current.setRunStatus(pending ? "processing" : null);
+          if (pending) {
+            dispatch({ type: "historyFailed", error: "上次请求尚未结束，当前未连接其输出。请稍后重新同步会话。" });
+          }
         }
       } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
+        if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
           return;
         }
         if (snapshot.epoch === sessionRef.current.epoch) {
           message.error(error instanceof Error ? error.message : String(error));
-          dispatch({ type: "reset", conversationId: snapshot.conversationId });
+          dispatch({ type: "historyFailed", error: error instanceof Error ? error.message : String(error) });
         }
       }
     };
     void load();
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.conversationId, session.userId, session.tenantId, session.projectId]);
+  }, [session.conversationId, session.userId, session.tenantId, session.projectId, session.epoch, historyRevision]);
 
   const handle = useMemo<ChatStreamHandle>(
     () => ({
@@ -572,6 +618,7 @@ export function useChatStream({
       sendMessage,
       submitApproval,
       clearRestoreDraft: () => dispatch({ type: "draftRestored" }),
+      reloadHistory,
     }),
     [state, sendMessage, submitApproval],
   );
@@ -580,7 +627,7 @@ export function useChatStream({
 }
 
 const TERMINAL_HINT = new Set([
-  "done",
+  "completed",
   "error",
   "approval_required",
   "message_status",

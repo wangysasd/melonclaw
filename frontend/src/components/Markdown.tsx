@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 
 import { copyText } from "../lib/clipboard";
 import { Icon } from "./Icon";
@@ -117,7 +117,7 @@ const BLOCK_START =
   /^(\s*```|\s{0,3}#{1,3}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|\s*>\s?)/;
 
 /** 块级渲染：逐行解析为标题/代码块/表格/列表/引用/段落。 */
-export function Markdown({ source }: { source: string }) {
+export const Markdown = memo(function Markdown({ source }: { source: string }) {
   const lines = String(source || "")
     .replaceAll("\r\n", "\n")
     .split("\n");
@@ -253,4 +253,4 @@ export function Markdown({ source }: { source: string }) {
   }
 
   return <>{blocks}</>;
-}
+});

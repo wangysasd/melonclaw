@@ -23,8 +23,10 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     placeholder = "请先创建一个项目…";
   } else if (session.conversationCreating) {
     placeholder = "正在准备会话…";
+  } else if (session.runStatus === "waiting") {
+    placeholder = "请先处理待确认操作，也可以先写下一条消息…";
   } else if (session.busy) {
-    placeholder = "助手正在处理，结果会实时出现…";
+    placeholder = "助手正在回复，可以先写下一条消息…";
   }
 
   const canUse =
@@ -32,10 +34,12 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     session.status?.status === "ready" &&
     session.projects.length > 0;
 
-  const inputDisabled = !canUse || disabled;
-  const sendDisabled = inputDisabled || !value.trim();
+  const inputDisabled = !canUse;
+  const sendDisabled = inputDisabled || disabled || !value.trim();
   const sendLabel = session.conversationCreating
     ? "准备中"
+    : session.runStatus === "waiting"
+      ? "等待确认"
     : session.busy
       ? "处理中"
       : "发送";
@@ -61,6 +65,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
           value={value}
           placeholder={placeholder}
           aria-label="输入内容"
+          aria-describedby="composer-hint"
           disabled={inputDisabled}
           onChange={(event) => onChange(event.currentTarget.value)}
           onCompositionStart={() => {
@@ -99,7 +104,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
         </div>
       </form>
       <div className="composer-meta">
-        <div className="composer-hint">
+        <div className="composer-hint" id="composer-hint">
           <Icon name="message-circle" size={15} /> Enter 发送 · Shift + Enter 换行
         </div>
         <div className="composer-footnote">AI生成内容仅供参考。</div>

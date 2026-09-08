@@ -1,5 +1,5 @@
 import { Spin } from "antd";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icon } from "./Icon";
 import { Composer } from "./Composer";
@@ -98,7 +98,7 @@ function CopyButton({ message }: { message: ChatMessage }) {
 }
 
 function MessageFooter({ message }: { message: ChatMessage }) {
-  if (message.role === "user") return null;
+  if (message.role === "user" || !message.content || message.status === "streaming") return null;
   return (
     <div className="message-actions">
       <CopyButton message={message} />
@@ -122,6 +122,7 @@ const MessageBubble = memo(function MessageBubble({
     message.role === "user"
       ? formatMessageTime(message.timestamp ?? null)
       : status;
+  const renderedContent = useDeferredValue(message.content);
 
   return (
     <article className={`message ${message.role}`}>
@@ -140,22 +141,31 @@ const MessageBubble = memo(function MessageBubble({
           <span className="message-author">{metaLabel}</span>
           {metaDetail ? <span className="message-time">{metaDetail}</span> : null}
         </div>
+        {message.role === "assistant" ? <ToolTimeline events={message.events} messageStatus={message.status} /> : null}
         <div className="message-body">
-          {message.markdown ? <Markdown source={message.content} /> : message.content}
+          {message.role === "assistant" ? <Markdown source={renderedContent} /> : message.content}
         </div>
-        {message.role === "assistant" ? <ToolTimeline events={message.events} /> : null}
+        {message.status === "streaming" && !message.content && message.events.length === 0 ? (
+          <div className="message-progress" role="status"><Icon name="loader-circle" size={15} className="mc-icon-spin" />正在准备回复…</div>
+        ) : null}
+        {message.status === "failed" || message.status === "cancelled" ? (
+          <p className="message-notice">{message.status === "failed" ? "本次回复未完成，当前显示已接收的内容。" : "本次回复已中止。"}</p>
+        ) : null}
         <MessageFooter message={message} />
       </div>
     </article>
   );
 });
 
-/** 聊天主视图：消息流 + 欢迎页 + 输入区；审批卡片在后续步骤接入。 */
+/** 聊天主视图：消息与审批共用阅读流，底部保留输入区与状态提醒。 */
 export function ChatView() {
   const session = useSession();
   const { runStatus } = useServiceStatus();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const scrollFrame = useRef<number | null>(null);
+  const approvalRef = useRef<HTMLDivElement>(null);
 
   const scroll = useMemo(
     () => ({
@@ -167,12 +177,14 @@ export function ChatView() {
         );
       },
       scrollToBottom: (smooth = false) => {
-        requestAnimationFrame(() => {
+        if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+        scrollFrame.current = requestAnimationFrame(() => {
+          scrollFrame.current = null;
           const element = scrollRef.current;
           if (!element) return;
           element.scrollTo({
             top: element.scrollHeight,
-            behavior: smooth ? "smooth" : "auto",
+            behavior: smooth && !window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto",
           });
         });
       },
@@ -181,6 +193,12 @@ export function ChatView() {
   );
 
   const chat = useChatStream({ scroll });
+  useEffect(() => () => {
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+  }, []);
+  useEffect(() => {
+    if (!chat.state.historyLoading) scroll.scrollToBottom();
+  }, [chat.state.conversationId, chat.state.historyLoading, scroll]);
 
   // 失败回滚：仅当输入框为空时回填草稿（对齐旧 restoreDraft）。
   useEffect(() => {
@@ -193,8 +211,7 @@ export function ChatView() {
   }, [chat.state.restoreDraft]);
 
   const handleSend = (value: string) => {
-    setDraft("");
-    void chat.sendMessage(value);
+    void chat.sendMessage(value, () => setDraft((current) => current === value ? "" : current));
   };
 
   const hasMessages = chat.state.messages.length > 0;
@@ -247,13 +264,14 @@ export function ChatView() {
         </div>
       </header>
 
-      <div className="conversation" ref={scrollRef} aria-label="聊天记录">
+      <div className="conversation" ref={scrollRef} aria-label="聊天记录"
+        onScroll={() => setAwayFromBottom(!scroll.isNearBottom())}>
         {chat.state.historyLoading ? (
           <div className="conversation-state">
             <Spin />
             <p>正在加载会话…</p>
           </div>
-        ) : !hasMessages ? (
+        ) : !hasMessages && !chat.state.approval && !chat.state.error ? (
           <div className="welcome">
             <div className="welcome-mark">
               <img src="/assets/brand/melonclaw-mark.png" alt="" />
@@ -290,9 +308,7 @@ export function ChatView() {
             ))}
           </div>
         )}
-      </div>
-
-      <div className="approval-slot">
+      <div className="approval-inline" ref={approvalRef}>
         {chat.state.approval ? (
           <ApprovalPanel
             key={approvalKey(chat.state.approval)}
@@ -301,12 +317,31 @@ export function ChatView() {
           />
         ) : null}
       </div>
+      {chat.state.error ? (
+        <div className="chat-error" role="alert">
+          <span>{chat.state.error}</span>
+          <button type="button" onClick={chat.reloadHistory} disabled={session.busy && runStatus !== "waiting"}>重新同步会话</button>
+        </div>
+      ) : null}
+      </div>
+
+      {chat.state.approval ? (
+        <div className="chat-attention" role="status">
+          <Icon name="shield-check" size={16} />助手已暂停，等待你的决定
+          <button type="button" onClick={() => {
+            approvalRef.current?.scrollIntoView({ block: "start" });
+            approvalRef.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+          }}>查看待确认操作</button>
+        </div>
+      ) : awayFromBottom ? (
+        <button type="button" className="jump-to-latest" onClick={() => scroll.scrollToBottom(true)}>回到最新消息<Icon name="chevron-down" size={15} /></button>
+      ) : null}
 
       <Composer
         value={draft}
         onChange={setDraft}
         onSend={handleSend}
-        disabled={session.busy || session.conversationCreating}
+        disabled={session.busy || session.conversationCreating || chat.state.historyLoading || Boolean(chat.state.approval) || Boolean(chat.state.error)}
       />
     </div>
   );
