@@ -17,6 +17,7 @@ __pycache__/
 .coverage
 .coverage.*
 htmlcov/
+temp/
 
 # 构建与打包产物。
 build/
@@ -30,6 +31,7 @@ dist/
 
 # 本地导入的 CICC Skills，不纳入项目版本控制。
 /skills/cicc-*/
+/skills-lock.json
 
 # 本地编辑器与系统文件。
 .agents/
