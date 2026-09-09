@@ -37,6 +37,7 @@ import {
 export type RunStatus =
   | "starting"
   | "ready"
+  | "selecting_tools"
   | "processing"
   | "waiting"
   | "failed";

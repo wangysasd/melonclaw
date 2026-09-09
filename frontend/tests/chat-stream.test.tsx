@@ -67,6 +67,28 @@ describe("chat run lifecycle", () => {
     await act(() => result.current.sendMessage("test"));
     expect(result.current.state.error).toBe("网络中断"); expect(mocks.session.runStatus).toBe("failed");
   });
+  it("shows tool selection while hiding the selector JSON", async () => {
+    const stream = deferred<void>(); let emit!: (event: StreamEvent) => void;
+    vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent }) => {
+      emit = onEvent;
+      return stream.promise;
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let task!: Promise<void>;
+    act(() => { task = result.current.sendMessage("test"); });
+    await waitFor(() => expect(emit).toBeDefined());
+    act(() => emit({ type: "text", text: '{"tools":' }));
+    expect(mocks.session.runStatus).toBe("selecting_tools");
+    act(() => emit({ type: "text", text: "[]}" }));
+    expect(result.current.state.messages[1].content).toBe("");
+    expect(mocks.session.runStatus).toBe("selecting_tools");
+    act(() => emit({ type: "tool_call", name: "example", args: {}, status: "started" }));
+    expect(mocks.session.runStatus).toBe("processing");
+    act(() => emit({ type: "completed", message_id: "a1", content: '{"tools":[]}' }));
+    await act(async () => { emit({ type: "done", terminal_reason: "completed" }); stream.resolve(); await task; });
+    expect(result.current.state.messages[1].content).toBe("");
+  });
   it("clears approval only after resume is accepted and can show a subsequent interrupt", async () => {
     const approval = { id: "first", actions: [] };
     vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, pending_approval: approval, items: [{ id: "a1", role: "assistant", content: "", status: "interrupted" }] });

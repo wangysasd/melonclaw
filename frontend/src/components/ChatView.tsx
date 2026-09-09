@@ -1,7 +1,7 @@
 import { Spin } from "antd";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import { Composer } from "./Composer";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { Markdown } from "./Markdown";
@@ -10,7 +10,7 @@ import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
 import { useServiceStatus } from "../hooks/useServiceStatus";
 import { copyText } from "../lib/clipboard";
 import { formatMessageTime } from "../lib/format";
-import { useSession } from "../state/session";
+import { useSession, type RunStatus } from "../state/session";
 import type { PendingApproval } from "../types/api";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -21,21 +21,23 @@ const STATUS_LABELS: Record<string, string> = {
   interrupted: "等待确认",
 };
 
-const RUN_STATUS_LABELS: Record<string, string> = {
+const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   starting: "连接中",
   ready: "已就绪",
+  selecting_tools: "正在工具筛选",
   processing: "处理中",
   waiting: "等待确认",
   failed: "失败",
 };
 
-const RUN_STATUS_ICONS = {
+const RUN_STATUS_ICONS: Record<RunStatus, IconName> = {
   starting: "loader-circle",
   ready: "circle-check",
+  selecting_tools: "loader-circle",
   processing: "loader-circle",
   waiting: "shield-check",
   failed: "circle-alert",
-} as const;
+};
 
 /** 审批面板重挂载 key：interrupt ID 组合变化时重置面板内部表单状态。 */
 function approvalKey(approval: PendingApproval): string {
@@ -109,9 +111,11 @@ function MessageFooter({ message }: { message: ChatMessage }) {
 const MessageBubble = memo(function MessageBubble({
   message,
   userName,
+  runStatus,
 }: {
   message: ChatMessage;
   userName: string;
+  runStatus: RunStatus;
 }) {
   const status =
     message.status === "streaming"
@@ -146,7 +150,7 @@ const MessageBubble = memo(function MessageBubble({
           {message.role === "assistant" ? <Markdown source={renderedContent} /> : message.content}
         </div>
         {message.status === "streaming" && !message.content && message.events.length === 0 ? (
-          <div className="message-progress" role="status"><Icon name="loader-circle" size={15} className="mc-icon-spin" />正在准备回复…</div>
+          <div className="message-progress" role="status"><Icon name="loader-circle" size={15} className="mc-icon-spin" />{runStatus === "selecting_tools" ? "正在工具筛选…" : "正在准备回复…"}</div>
         ) : null}
         {message.status === "failed" || message.status === "cancelled" ? (
           <p className="message-notice">{message.status === "failed" ? "本次回复未完成，当前显示已接收的内容。" : "本次回复已中止。"}</p>
@@ -254,7 +258,7 @@ export function ChatView() {
               name={statusIcon}
               size={15}
               className={
-                runStatus === "starting" || runStatus === "processing"
+                runStatus === "starting" || runStatus === "selecting_tools" || runStatus === "processing"
                   ? "mc-icon-spin"
                   : undefined
               }
@@ -304,6 +308,7 @@ export function ChatView() {
                 key={`${message.id}-${message.role}`}
                 message={message}
                 userName={userName}
+                runStatus={runStatus}
               />
             ))}
           </div>

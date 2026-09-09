@@ -17,6 +17,7 @@ import type {
   PendingApproval,
   StreamEvent,
 } from "../types/api";
+import { classifyToolSelectorText } from "../lib/toolSelection";
 import { useSession } from "../state/session";
 
 /** 聊天视图内的消息模型（乐观消息与历史消息统一表示）。 */
@@ -264,6 +265,7 @@ export function useChatStream({
   sessionRef.current = session;
   const activeRunRef = useRef<{ controller: AbortController; context: SendContext } | null>(null);
   const historyControllerRef = useRef<AbortController | null>(null);
+  const selectorTextBufferRef = useRef("");
 
   const matchesContext = useCallback((context: SendContext): boolean => {
     const current = sessionRef.current;
@@ -274,6 +276,26 @@ export function useChatStream({
       context.tenantId === current.tenantId &&
       context.projectId === current.projectId
     );
+  }, []);
+
+  const appendStreamText = useCallback((text: string): boolean => {
+    if (!text) return false;
+    const candidate = selectorTextBufferRef.current + text;
+    const kind = classifyToolSelectorText(candidate);
+    if (kind === "selector") {
+      selectorTextBufferRef.current = "";
+      return false;
+    }
+    if (kind === "pending") {
+      selectorTextBufferRef.current = candidate;
+      return false;
+    }
+    if (selectorTextBufferRef.current) {
+      dispatch({ type: "text", text: selectorTextBufferRef.current });
+      selectorTextBufferRef.current = "";
+    }
+    dispatch({ type: "text", text });
+    return true;
   }, []);
 
   const handleEvent = useCallback(
@@ -290,16 +312,19 @@ export function useChatStream({
           });
           break;
         case "text":
-          dispatch({ type: "text", text: event.text });
+          if (appendStreamText(event.text)) {
+            sessionRef.current.setRunStatus("processing");
+          }
           break;
         case "completed":
+          selectorTextBufferRef.current = "";
           sessionRef.current.setBusy(false);
           sessionRef.current.setRunStatus(null);
           dispatch({ type: "approvalCleared" });
           dispatch({
             type: "completed",
             messageId: event.message_id,
-            content: event.content,
+            content: classifyToolSelectorText(event.content) === "selector" ? "" : event.content,
           });
           break;
         case "message_status":
@@ -349,6 +374,7 @@ export function useChatStream({
         case "subagent_tool_result":
         case "subagent_completed":
         case "subagent_failed":
+          sessionRef.current.setRunStatus("processing");
           dispatch({ type: "displayEvent", event: event as DisplayEvent });
           break;
         default:
@@ -358,7 +384,7 @@ export function useChatStream({
         scroll.scrollToBottom();
       }
     },
-    [matchesContext, message, scroll],
+    [appendStreamText, matchesContext, message, scroll],
   );
 
   const runStream = useCallback(
@@ -372,7 +398,8 @@ export function useChatStream({
     ): Promise<boolean> => {
       if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return false;
       sessionRef.current.setBusy(true);
-      sessionRef.current.setRunStatus("processing");
+      sessionRef.current.setRunStatus("selecting_tools");
+      selectorTextBufferRef.current = "";
       let started = false;
       let failed = false;
       let terminal = false;
@@ -408,6 +435,7 @@ export function useChatStream({
         }
         return false;
       } finally {
+        selectorTextBufferRef.current = "";
         if (activeRunRef.current?.controller === controller) {
           activeRunRef.current = null;
           if (matchesContext(context)) sessionRef.current.attachStream(null);
@@ -570,15 +598,21 @@ export function useChatStream({
         ) {
           return;
         }
-        const messages: ChatMessage[] = data.items.map((item) => ({
-          id: item.id,
-          role: item.role === "user" ? "user" : "assistant",
-          content: item.content || "",
-          status: item.status,
-          timestamp: item.created_at ?? null,
-          markdown: item.role !== "user",
-          events: item.display_metadata?.events ?? [],
-        }));
+        const messages: ChatMessage[] = data.items.flatMap((item) => {
+          const content = item.content || "";
+          if (item.role !== "user" && classifyToolSelectorText(content) === "selector") {
+            return [];
+          }
+          return {
+            id: item.id,
+            role: item.role === "user" ? "user" : "assistant",
+            content,
+            status: item.status,
+            timestamp: item.created_at ?? null,
+            markdown: item.role !== "user",
+            events: item.display_metadata?.events ?? [],
+          };
+        });
         dispatch({
           type: "historyLoaded",
           conversationId: snapshot.conversationId,
