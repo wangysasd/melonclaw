@@ -27,7 +27,7 @@ from melonclaw.core.skills import build_agent_backend
 from melonclaw.middleware import FileOperationOrderingMiddleware
 from melonclaw.middleware.memory import MemoryScopeMiddleware
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
-from melonclaw.tool.tools import build_agent_tools
+from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
 
 TOOL_NAMES_PREVIEW_LIMIT = 12
 MAX_SELECTED_TOOLS_PER_MODEL_CALL = 16
@@ -101,7 +101,11 @@ def _build_tool_selector_middleware(
     if settings.provider == "deepseek":
         return CatalogToolSelectorMiddleware(
             model=model,
-            catalog_tool_names=[_tool_name(tool) for tool in tools],
+            catalog_tool_names=[
+                _tool_name(tool)
+                for tool in tools
+                if _tool_name(tool) != MCP_CATALOG_TOOL_NAME
+            ],
             max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
         )
 

@@ -34,12 +34,14 @@ Shell 和 MCP 工具不能从 Interpreter 内调用。需要命令执行、安�
 文件系统时使用普通 `execute` / 文件工具，并遵守其人工审批流程。
 """.strip()
 
-TUSHARE_MCP_GUIDANCE = """
-你可以使用 Tushare MCP 查询金融数据。遇到沪深股票基础信息、交易日历、
-行情或复权因子问题时，优先依据工具名称、描述和参数 schema 选择合适工具。
-调用前从用户问题中提取代码、交易所和日期范围；缺少关键参数时先询问，
-不要猜测。回答时只陈述工具实际返回的数据，并明确日期与数据口径；
-空结果、权限不足或接口错误必须如实说明。
+MCP_GUIDANCE = """
+当前运行时已加载 MCP 服务：{servers}。
+MCP 工具会根据每轮请求动态选择，工具名称不要求带有 `mcp__服务器__工具` 前缀。
+当用户询问当前配置了哪些 MCP、有哪些 MCP 工具或某个 MCP 服务是否可用时，
+必须调用只读工具 `list_mcp_tools` 获取当前运行时清单后再回答；不能因为本轮
+其他 MCP 工具没有被动态选择，就声称系统没有 MCP。对于普通任务，按工具名称、
+描述和参数 schema 选择最小必要的 MCP 工具；只陈述工具实际返回的结果，空结果、
+权限不足或接口错误必须如实说明。
 """.strip()
 
 MEMORY_GUIDANCE = """
@@ -67,10 +69,10 @@ def build_system_prompt(
         INTERPRETER_GUIDANCE,
         f"今天的日期是 {today.isoformat()}（以应用启动时的本地时区为准）。",
     ]
+    server_text = "、".join(sorted(mcp_server_names)) or "未配置"
+    sections.append(MCP_GUIDANCE.format(servers=server_text))
     if memory_enabled:
         sections.append(MEMORY_GUIDANCE)
-    if "tushare_mcp" in mcp_server_names:
-        sections.append(TUSHARE_MCP_GUIDANCE)
     return "\n\n".join(sections)
 
 

@@ -42,6 +42,7 @@ def build_agent_backend(
     开发，并默认只监听 127.0.0.1。文件写入和 Shell 执行仍由 HITL 保护。
     """
 
+
     workspace_dir.mkdir(parents=True, exist_ok=True)
     runtime_backend: BackendProtocol = default_backend or LocalShellBackend(
         root_dir=workspace_dir,

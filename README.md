@@ -167,6 +167,8 @@ npm run build               # 类型检查 + 构建产物输出到 frontend/dist
 
 MCP 服务定义放在根目录的 `mcp.json` 中，文件必须是合法 JSON；应用默认加载其中列出的全部服务。`.env` 不会因为多出某个 Token 就自动启用服务，只用于替换 `mcp.json` 明确写出的 `${VARIABLE_NAME}` 占位符；占位符对应变量缺失时，后端会报告具体变量名。暂时不用 MCP 时可将配置设为 `{}`，或将整份文件全部用 `//` 注释。
 
+Agent 还会注册一个只读的 `list_mcp_tools` 运行时清单工具。当用户询问当前配置了哪些 MCP、有哪些 MCP 工具或某个 MCP 服务是否可用时，Agent 会先调用它，再根据实际加载结果回答。MCP 工具名称不要求带 `mcp__服务器__工具` 前缀；动态工具选择只影响普通任务的工具子集，不代表 MCP 服务未配置。
+
 切换到 OpenAI 兼容接口时，将 `DEEPAGENTS_PROVIDER` 设为 `openai`，并填写对应的 `OPENAI_*` 配置。
 
 ## 使用边界
