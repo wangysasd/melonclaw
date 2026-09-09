@@ -6,6 +6,30 @@
 # 不会碰端口相同但无关的服务。
 set -uo pipefail
 
+if [ "$#" -gt 1 ]; then
+  echo "用法: $0 [frontend]" >&2
+  exit 2
+fi
+
+case "${1:-all}" in
+  all)
+    FRONTEND_ONLY=0
+    ;;
+  frontend|--frontend)
+    FRONTEND_ONLY=1
+    ;;
+  -h|--help)
+    echo "用法: $0 [frontend]"
+    echo "  无参数    关闭前后端"
+    echo "  frontend  只关闭前端"
+    exit 0
+    ;;
+  *)
+    echo "未知参数: $1。用法: $0 [frontend]" >&2
+    exit 2
+    ;;
+esac
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="${TMPDIR:-/tmp}/melonclaw-dev"
 
@@ -41,20 +65,31 @@ port_free() {
 }
 
 # 先按 PID 文件优雅停止，再按端口兜底（uv/npm 的子进程由端口监听者兜住）。
-stop_pidfile "$RUN_DIR/backend.pid" "后端"
+if [ "$FRONTEND_ONLY" -eq 0 ]; then
+  stop_pidfile "$RUN_DIR/backend.pid" "后端"
+fi
 stop_pidfile "$RUN_DIR/frontend.pid" "前端"
-kill_port "$BACKEND_PORT" "后端" "melonclaw"
+if [ "$FRONTEND_ONLY" -eq 0 ]; then
+  kill_port "$BACKEND_PORT" "后端" "melonclaw"
+fi
 kill_port "$FRONTEND_PORT" "前端" "vite"
 
 # 等待端口释放；超过 5s 仍有残留则强制结束。
 for i in 1 2 3 4 5; do
-  if port_free "$BACKEND_PORT" && port_free "$FRONTEND_PORT"; then
+  ports_free=1
+  if [ "$FRONTEND_ONLY" -eq 0 ] && ! port_free "$BACKEND_PORT"; then
+    ports_free=0
+  fi
+  if ! port_free "$FRONTEND_PORT"; then
+    ports_free=0
+  fi
+  if [ "$ports_free" -eq 1 ]; then
     break
   fi
   sleep 1
 done
 
-if ! port_free "$BACKEND_PORT"; then
+if [ "$FRONTEND_ONLY" -eq 0 ] && ! port_free "$BACKEND_PORT"; then
   kill_port "$BACKEND_PORT" "后端" "melonclaw" KILL
 fi
 if ! port_free "$FRONTEND_PORT"; then
@@ -62,7 +97,15 @@ if ! port_free "$FRONTEND_PORT"; then
 fi
 
 echo
-if port_free "$BACKEND_PORT" && port_free "$FRONTEND_PORT"; then
+if [ "$FRONTEND_ONLY" -eq 1 ]; then
+  if port_free "$FRONTEND_PORT"; then
+    echo "MelonClaw 前端开发环境已停止（前端 ${FRONTEND_PORT} 端口已释放）。"
+    echo "日志保留在: $RUN_DIR"
+  else
+    echo "仍有进程占用前端端口，请手动检查: lsof -i tcp:${FRONTEND_PORT}"
+    exit 1
+  fi
+elif port_free "$BACKEND_PORT" && port_free "$FRONTEND_PORT"; then
   echo "MelonClaw 开发环境已停止（后端 ${BACKEND_PORT}、前端 ${FRONTEND_PORT} 端口已释放）。"
   echo "日志保留在: $RUN_DIR"
 else

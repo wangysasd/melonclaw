@@ -1,59 +1,39 @@
-"""Web 聊天业务、用户隔离、持久化和 Deep Agents 流式运行服务。"""
+"""Agent 消息执行、HITL 恢复和执行事件流。"""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
 
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from psycopg_pool import AsyncConnectionPool
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from melonclaw.core.agent import AgentContext, build_research_agent
-from melonclaw.core.config import Settings, load_settings
-from melonclaw.core.database import (
-    AssistantStateConflictError,
-    BusinessDatabase,
-    ConversationBusyError,
-    ConversationNotFoundError,
-    DatabaseConfigurationError,
-    DatabaseSchemaError,
-    DatabaseUnavailableError,
-    PreparedMessagePair,
-    ProjectNotFoundError,
-    RequestConflictError,
-    RequestRecord,
-    UserContext,
-    close_memory_store,
-    open_checkpoint_pool,
-    open_memory_store,
-)
+from melonclaw.core.agent import AgentContext
 from melonclaw.core.hitl import (
     aget_pending_approval,
     build_resume_command,
     serialize_pending_approval,
 )
-from melonclaw.core.memory import MemoryService
-from melonclaw.core.skills import project_skills_enabled
 from melonclaw.output.content import content_to_text
 from melonclaw.output.events import DISPLAY_EVENT_TYPES, iter_research_events
 from melonclaw.output.formatting import _preview, sanitize_text
-
-
-class InvalidUserError(ValueError):
-    """请求中的用户不存在或没有有效的租户标签。"""
-
-
-class RequestInProgressError(RuntimeError):
-    """同一个 request_id 已经在执行中。"""
-
-
-class AgentExecutionError(RuntimeError):
-    """Agent 没有产生可以持久化的最终回复。"""
+from melonclaw.repository import (
+    AssistantStateConflictError,
+    ConversationBusyError,
+    ConversationNotFoundError,
+    PreparedMessagePair,
+    RequestConflictError,
+    RequestRecord,
+    UserContext,
+)
+from melonclaw.services.errors import (
+    AgentExecutionError,
+    RequestInProgressError,
+)
+from melonclaw.services.runtime import ChatRuntime
+from melonclaw.services.conversations import ConversationService
 
 
 @dataclass
@@ -83,310 +63,12 @@ class PreparedExecution:
     released: bool = False
 
 
-@dataclass
-class ChatService:
-    """持久化聊天服务；不把浏览器 session 当成持久化身份或上下文。"""
+class ExecutionService:
+    """处理消息幂等、会话锁、Agent 执行和最终状态落库。"""
 
-    settings: Settings | None = None
-    storage: BusinessDatabase | None = None
-    checkpoint_pool: AsyncConnectionPool | None = None
-    checkpointer: AsyncPostgresSaver | None = None
-    memory_store_context: Any | None = None
-    memory_store: Any | None = None
-    memory_service: MemoryService | None = None
-    project_agents: dict[str, Any] | None = None
-    startup_error: str | None = None
-    worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
-
-    async def initialize(self) -> None:
-        """打开连接池并校验数据库、Memory 和模型配置。"""
-
-        try:
-            self.settings = load_settings()
-            self.settings.validate()
-            self.storage = BusinessDatabase(self.settings.database_url)
-            await self.storage.open()
-            self.memory_store_context, self.memory_store = await open_memory_store(
-                self.settings.database_url
-            )
-            # 初始化和迁移由 melonclaw-db-init 独立执行，服务启动只检查状态。
-            await self.storage.verify_schema(
-                require_checkpointer=True,
-                require_store=True,
-            )
-            self.memory_service = MemoryService(
-                self.storage,
-                self.memory_store,
-            )
-            self.checkpoint_pool = await open_checkpoint_pool(
-                self.settings.database_url
-            )
-            self.checkpointer = AsyncPostgresSaver(self.checkpoint_pool)
-            self.project_agents = {}
-        except (DatabaseConfigurationError, DatabaseSchemaError, DatabaseUnavailableError) as exc:
-            await self.close()
-            self.startup_error = str(exc)
-        except Exception as exc:  # noqa: BLE001 - 启动错误交给 Web UI 展示
-            await self.close()
-            self.startup_error = sanitize_text(str(exc))
-
-    async def close(self) -> None:
-        """按依赖顺序释放 Agent 使用的 Checkpointer 池和业务池。"""
-
-        if self.memory_store_context is not None:
-            try:
-                await close_memory_store(self.memory_store_context)
-            finally:
-                self.memory_store_context = None
-                self.memory_store = None
-                self.memory_service = None
-        if self.checkpoint_pool is not None:
-            try:
-                await self.checkpoint_pool.close()
-            finally:
-                self.checkpoint_pool = None
-                self.checkpointer = None
-        if self.storage is not None:
-            await self.storage.close()
-            self.storage = None
-        if self.project_agents is not None:
-            self.project_agents.clear()
-        self.project_agents = None
-
-    @property
-    def ready(self) -> bool:
-        return (
-            self.storage is not None
-            and self.checkpointer is not None
-            and self.memory_store is not None
-            and self.memory_service is not None
-            and self.startup_error is None
-        )
-
-    def status(self) -> dict[str, Any]:
-        """返回不含凭据的服务状态。"""
-
-        if self.startup_error:
-            state = "error"
-        elif not self.ready:
-            state = "starting"
-        else:
-            state = "ready"
-        settings = self.settings
-        return {
-            "status": state,
-            "message": self.startup_error or "",
-            "provider": settings.provider if settings else "",
-            "model": settings.model_name if settings else "",
-            "mcp_servers": sorted(settings.mcp_servers) if settings else [],
-            "skills": ["/skills/"] if project_skills_enabled() else [],
-            "database": "connected" if self.storage is not None else "",
-            "memory_store": "connected" if self.memory_store is not None else "",
-        }
-
-    async def resolve_user(
-        self,
-        user_id: str,
-        tenant_id: str | None = None,
-    ) -> UserContext:
-        """解析用户及可选租户标签；Project/Conversation 只归属用户。"""
-
-        storage = self.storage
-        if storage is None:
-            raise RuntimeError(self.startup_error or "数据库仍在启动，请稍候。")
-        clean_user_id = user_id.strip()
-        clean_tenant_id = tenant_id.strip() if tenant_id is not None else None
-        if not clean_user_id:
-            raise InvalidUserError("user_id 不能为空。")
-        context = await storage.get_user_context(clean_user_id, clean_tenant_id)
-        if context is None:
-            raise InvalidUserError("用户不存在或没有租户标签。")
-        await storage.ensure_default_project(
-            context.user_id,
-        )
-        return context
-
-    async def users(self) -> dict[str, Any]:
-        storage = self.storage
-        if storage is None:
-            raise RuntimeError(self.startup_error or "数据库仍在启动，请稍候。")
-        return {"items": await storage.list_users()}
-
-    def _require_ready(self) -> BusinessDatabase:
-        if not self.ready:
-            raise RuntimeError(self.startup_error or "服务仍在启动，请稍候。")
-        assert self.storage is not None
-        return self.storage
-
-    def _project_workspace_dir(self, project: dict[str, Any]) -> Path:
-        """把数据库中的受控相对路径解析为 Project 的真实工作目录。"""
-
-        if self.settings is None:
-            raise RuntimeError("运行配置尚未加载。")
-        root = self.settings.workspace_root.resolve()
-        candidate = (root / str(project["workdir_path"])).resolve()
-        try:
-            candidate.relative_to(root)
-        except ValueError as exc:
-            raise DatabaseSchemaError("Project 工作目录超出 workspace 根目录。") from exc
-        candidate.mkdir(parents=True, exist_ok=True)
-        return candidate
-
-    async def _agent_for_project(self, project: dict[str, Any]) -> Any:
-        """按 Project 缓存 Agent，使同一 Project 的会话共享文件后端。"""
-
-        self._require_ready()
-        if self.settings is None or self.checkpointer is None:
-            raise RuntimeError("Agent 仍在启动，请稍候。")
-        if self.memory_service is None:
-            raise RuntimeError("Memory Store 仍在启动，请稍候。")
-        if self.project_agents is None:
-            self.project_agents = {}
-        key = str(project["id"])
-        cached = self.project_agents.get(key)
-        if cached is not None:
-            return cached
-        agent = await build_research_agent(
-            self.settings,
-            checkpointer=self.checkpointer,
-            workspace_dir=self._project_workspace_dir(project),
-            memory_service=self.memory_service,
-        )
-        self.project_agents[key] = agent
-        return agent
-
-    async def _project_for_conversation(
-        self,
-        storage: BusinessDatabase,
-        conversation: dict[str, Any],
-        context: UserContext,
-    ) -> dict[str, Any]:
-        project = await storage.get_project(
-            UUID(conversation["project_id"]),
-            context.user_id,
-        )
-        if project is None:
-            raise ProjectNotFoundError
-        return project
-
-    @staticmethod
-    def _conversation_config(conversation_id: UUID) -> dict[str, Any]:
-        return {"configurable": {"thread_id": str(conversation_id)}}
-
-    async def create_project(
-        self,
-        user_id: str,
-        name: str,
-        tenant_id: str | None = None,
-    ) -> dict[str, Any]:
-        storage = self._require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
-        clean_name = " ".join(name.split()).strip()
-        if not clean_name:
-            raise ValueError("Project 名称不能为空。")
-        if len(clean_name) > 120:
-            raise ValueError("Project 名称不能超过 120 个字符。")
-        project = await storage.create_project(
-            context.user_id,
-            clean_name,
-        )
-        self._project_workspace_dir(project)
-        return project
-
-    async def list_projects(
-        self,
-        user_id: str,
-        tenant_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        storage = self._require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
-        return await storage.list_projects(
-            context.user_id,
-        )
-
-    async def create_conversation(
-        self,
-        user_id: str,
-        project_id: UUID | None = None,
-        tenant_id: str | None = None,
-    ) -> dict[str, Any]:
-        storage = self._require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
-        if project_id is None:
-            # 兼容旧 API：未选择 Project 时，自动使用用户唯一的临时会话。
-            project = await storage.ensure_default_project(
-                context.user_id,
-            )
-        else:
-            project = await storage.get_project(
-                project_id,
-                context.user_id,
-            )
-            if project is None:
-                raise ProjectNotFoundError
-        self._project_workspace_dir(project)
-        return await storage.create_conversation(
-            context.user_id,
-            UUID(project["id"]),
-        )
-
-    async def list_conversations(
-        self,
-        user_id: str,
-        *,
-        tenant_id: str | None = None,
-        limit: int,
-        cursor: str | None,
-        project_id: UUID | None = None,
-    ) -> tuple[list[dict[str, Any]], str | None]:
-        storage = self._require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
-        if project_id is not None and await storage.get_project(
-            project_id,
-            context.user_id,
-        ) is None:
-            raise ProjectNotFoundError
-        return await storage.list_conversations(
-            context.user_id,
-            limit=limit,
-            cursor=cursor,
-            project_id=project_id,
-        )
-
-    async def history(
-        self,
-        conversation_id: UUID,
-        user_id: str,
-        *,
-        tenant_id: str | None = None,
-        limit: int,
-        before_seq: int | None,
-    ) -> dict[str, Any]:
-        storage = self._require_ready()
-        conversation = await storage.get_conversation(conversation_id, user_id)
-        if conversation is None:
-            raise ConversationNotFoundError
-        # Conversation 只按 user_id + project_id 归属；tenant_id 仅用于
-        # 校验当前运行上下文并加载对应的 Tenant Memory。
-        context = await self.resolve_user(user_id, tenant_id)
-        conversation, messages, next_before_seq = await storage.list_messages(
-            conversation_id,
-            context.user_id,
-            limit=limit,
-            before_seq=before_seq,
-        )
-        project = await self._project_for_conversation(storage, conversation, context)
-        agent = await self._agent_for_project(project)
-        pending = await aget_pending_approval(
-            agent,
-            self._conversation_config(conversation_id),
-        )
-        return {
-            "conversation": conversation,
-            "items": messages,
-            "next_before_seq": next_before_seq,
-            "pending_approval": serialize_pending_approval(pending) if pending else None,
-        }
+    def __init__(self, runtime: ChatRuntime, conversations: ConversationService) -> None:
+        self.runtime = runtime
+        self.conversations = conversations
 
     async def prepare_message(
         self,
@@ -398,7 +80,7 @@ class ChatService:
     ) -> PreparedExecution:
         """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。"""
 
-        storage = self._require_ready()
+        storage = self.runtime.require_ready()
         clean_content = content.strip()
         if not clean_content:
             raise ValueError("消息不能为空。")
@@ -408,9 +90,13 @@ class ChatService:
         if conversation is None:
             raise ConversationNotFoundError
         # Conversation 不绑定 tenant；每轮执行根据请求上下文选择 Tenant Memory。
-        context = await self.resolve_user(user_id, tenant_id)
-        project = await self._project_for_conversation(storage, conversation, context)
-        agent = await self._agent_for_project(project)
+        context = await self.conversations.resolve_user(user_id, tenant_id)
+        project = await self.conversations.project_for_conversation(
+            storage,
+            conversation,
+            context,
+        )
+        agent = await self.runtime.agent_for_project(project)
 
         existing = await storage.find_request(
             conversation_id,
@@ -451,7 +137,7 @@ class ChatService:
                 )
             if await aget_pending_approval(
                 agent,
-                self._conversation_config(conversation_id),
+                self.runtime.conversation_config(conversation_id),
             ):
                 raise ValueError("当前对话正在等待人工审批，请先处理审批请求。")
             stale = await storage.get_incomplete_assistant(
@@ -489,7 +175,7 @@ class ChatService:
                 agent,
                 project,
                 run_id=str(uuid4()),
-                worker_id=self.worker_id,
+                worker_id=self.runtime.worker_id,
             )
         except Exception:
             await storage.release_advisory_lock(lock_connection, conversation_id)
@@ -507,7 +193,7 @@ class ChatService:
         agent: Any,
         project: dict[str, Any],
     ) -> PreparedExecution:
-        storage = self._require_ready()
+        storage = self.runtime.require_ready()
         if existing.content != content:
             if lock_connection is not None:
                 await storage.release_advisory_lock(lock_connection, conversation_id)
@@ -560,27 +246,32 @@ class ChatService:
                             raise
             finally:
                 await storage.release_advisory_lock(lock_connection, conversation_id)
-            return PreparedExecution(
-                conversation_id=conversation_id,
-                project_id=UUID(project["id"]),
-                project_name=project["name"],
-                workdir_path=project["workdir_path"],
-                user_id=context.user_id,
-                tenant_id=context.tenant_id,
-                tenant_name=context.tenant_name_zh,
-                tenant_role=context.tenant_role,
-                tenant_status=context.tenant_status,
-                request_id=request_id,
-                run_id="",
-                worker_id=self.worker_id,
-                config=self._conversation_config(conversation_id),
-                assistant_message_id=UUID(assistant["id"]),
-                agent=agent,
-                replay_message=assistant,
+            return self._replay_execution(
+                conversation_id,
+                context,
+                assistant,
+                agent,
+                project,
             )
         if lock_connection is not None:
             # 已完成/失败/取消的幂等重试不需要占用会话锁。
             await storage.release_advisory_lock(lock_connection, conversation_id)
+        return self._replay_execution(
+            conversation_id,
+            context,
+            assistant,
+            agent,
+            project,
+        )
+
+    def _replay_execution(
+        self,
+        conversation_id: UUID,
+        context: UserContext,
+        assistant: dict[str, Any],
+        agent: Any,
+        project: dict[str, Any],
+    ) -> PreparedExecution:
         return PreparedExecution(
             conversation_id=conversation_id,
             project_id=UUID(project["id"]),
@@ -591,10 +282,10 @@ class ChatService:
             tenant_name=context.tenant_name_zh,
             tenant_role=context.tenant_role,
             tenant_status=context.tenant_status,
-            request_id=request_id,
+            request_id=assistant["request_id"],
             run_id="",
-            worker_id=self.worker_id,
-            config=self._conversation_config(conversation_id),
+            worker_id=self.runtime.worker_id,
+            config=self.runtime.conversation_config(conversation_id),
             assistant_message_id=UUID(assistant["id"]),
             agent=agent,
             replay_message=assistant,
@@ -625,7 +316,7 @@ class ChatService:
             request_id=pair.request_id,
             run_id=run_id,
             worker_id=worker_id,
-            config=ChatService._conversation_config(conversation_id),
+            config=ChatRuntime.conversation_config(conversation_id),
             assistant_message_id=UUID(pair.assistant_message["id"]),
             agent=agent,
             user_message_id=UUID(pair.user_message["id"]),
@@ -640,17 +331,21 @@ class ChatService:
         decisions: Any,
         tenant_id: str | None = None,
     ) -> tuple[PreparedExecution, Any]:
-        storage = self._require_ready()
+        storage = self.runtime.require_ready()
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
         # 审批恢复同样按当前请求校验租户成员关系，但不改变 Conversation 归属。
-        context = await self.resolve_user(user_id, tenant_id)
-        project = await self._project_for_conversation(storage, conversation, context)
-        agent = await self._agent_for_project(project)
+        context = await self.conversations.resolve_user(user_id, tenant_id)
+        project = await self.conversations.project_for_conversation(
+            storage,
+            conversation,
+            context,
+        )
+        agent = await self.runtime.agent_for_project(project)
         pending = await aget_pending_approval(
             agent,
-            self._conversation_config(conversation_id),
+            self.runtime.conversation_config(conversation_id),
         )
         if pending is None:
             raise ValueError("当前没有等待处理的审批请求。")
@@ -681,8 +376,8 @@ class ChatService:
                 tenant_status=context.tenant_status,
                 request_id=assistant["request_id"],
                 run_id=str(uuid4()),
-                worker_id=self.worker_id,
-                config=self._conversation_config(conversation_id),
+                worker_id=self.runtime.worker_id,
+                config=self.runtime.conversation_config(conversation_id),
                 assistant_message_id=UUID(assistant["id"]),
                 agent=agent,
                 lock_connection=lock_connection,
@@ -700,14 +395,14 @@ class ChatService:
     ) -> AsyncIterator[dict[str, Any]]:
         """发送业务事件；数据库最终状态先提交，再发送 completed。"""
 
-        storage = self._require_ready()
+        storage = self.runtime.require_ready()
         agent = execution.agent
         display_events: list[dict[str, Any]] = []
         emitted_text: list[str] = []
         finished = False
 
         def remember_display_event(event: dict[str, Any]) -> None:
-            """保留可回放的工具/子 Agent轨迹，并合并子 Agent 文本分片。"""
+            """保留可回放的工具/子 Agent 轨迹，并合并子 Agent 文本分片。"""
 
             event_type = event.get("type")
             if event_type not in DISPLAY_EVENT_TYPES:
@@ -731,7 +426,11 @@ class ChatService:
                 "type": "message_started",
                 "conversation_id": str(execution.conversation_id),
                 "request_id": execution.request_id,
-                "user_message_id": str(execution.user_message_id) if execution.user_message_id else None,
+                "user_message_id": (
+                    str(execution.user_message_id)
+                    if execution.user_message_id
+                    else None
+                ),
                 "message_id": str(execution.assistant_message_id),
                 "resuming": execution.resuming,
             }
@@ -868,10 +567,11 @@ class ChatService:
         error_code: str,
         display_metadata: list[dict[str, Any]],
     ) -> None:
-        if self.storage is None:
+        storage = self.runtime.storage
+        if storage is None:
             return
         try:
-            await self.storage.update_assistant(
+            await storage.update_assistant(
                 execution.conversation_id,
                 execution.assistant_message_id,
                 status=status,
@@ -888,8 +588,9 @@ class ChatService:
             execution.released = True
             return
         execution.released = True
-        if self.storage is not None:
-            await self.storage.release_advisory_lock(
+        storage = self.runtime.storage
+        if storage is not None:
+            await storage.release_advisory_lock(
                 execution.lock_connection,
                 execution.conversation_id,
             )
@@ -921,13 +622,3 @@ class ChatService:
                 if text.strip():
                     return text.strip()
         return ""
-
-
-__all__ = [
-    "ChatService",
-    "ConversationBusyError",
-    "ConversationNotFoundError",
-    "InvalidUserError",
-    "RequestConflictError",
-    "RequestInProgressError",
-]

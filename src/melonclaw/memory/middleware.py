@@ -11,8 +11,8 @@ from langchain.agents.middleware.types import (
     ModelResponse,
 )
 
-from melonclaw.core.memory import MemoryService
-from melonclaw.tool.memory import build_memory_tools
+from melonclaw.memory.service import MemoryService
+from melonclaw.memory.tools import build_memory_tools
 
 
 class MemoryScopeMiddleware(AgentMiddleware):
@@ -45,3 +45,4 @@ class MemoryScopeMiddleware(AgentMiddleware):
 
 
 __all__ = ["MemoryScopeMiddleware"]
+

@@ -5,6 +5,30 @@
 # MELONCLAW_FRONTEND_PORT / UV_CACHE_DIR
 set -euo pipefail
 
+if [ "$#" -gt 1 ]; then
+  echo "用法: $0 [frontend]" >&2
+  exit 2
+fi
+
+case "${1:-all}" in
+  all)
+    FRONTEND_ONLY=0
+    ;;
+  frontend|--frontend)
+    FRONTEND_ONLY=1
+    ;;
+  -h|--help)
+    echo "用法: $0 [frontend]"
+    echo "  无参数    启动前后端"
+    echo "  frontend  只启动前端"
+    exit 0
+    ;;
+  *)
+    echo "未知参数: $1。用法: $0 [frontend]" >&2
+    exit 2
+    ;;
+esac
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="${TMPDIR:-/tmp}/melonclaw-dev"
 mkdir -p "$RUN_DIR"
@@ -21,13 +45,16 @@ port_busy() {
 }
 
 check_ports_free() {
-  local occupied=0
-  if port_busy "$BACKEND_PORT"; then
-    echo "启动失败：后端端口 ${BACKEND_PORT} 已被占用。请先执行 scripts/shutdown.sh 关闭前后端服务。"
+  local occupied=0 shutdown_command="scripts/shutdown.sh"
+  if [ "$FRONTEND_ONLY" -eq 1 ]; then
+    shutdown_command="scripts/shutdown.sh frontend"
+  fi
+  if [ "$FRONTEND_ONLY" -eq 0 ] && port_busy "$BACKEND_PORT"; then
+    echo "启动失败：后端端口 ${BACKEND_PORT} 已被占用。请先执行 ${shutdown_command} 关闭前后端服务。"
     occupied=1
   fi
   if port_busy "$FRONTEND_PORT"; then
-    echo "启动失败：前端端口 ${FRONTEND_PORT} 已被占用。请先执行 scripts/shutdown.sh 关闭前后端服务。"
+    echo "启动失败：前端端口 ${FRONTEND_PORT} 已被占用。请先执行 ${shutdown_command} 关闭服务。"
     occupied=1
   fi
   if [ "$occupied" -ne 0 ]; then
@@ -92,25 +119,43 @@ show_backend_status() {
 }
 
 check_ports_free
-start_backend
+if [ "$FRONTEND_ONLY" -eq 0 ]; then
+  start_backend
+fi
 start_frontend
 
-backend_ok=0
+backend_ok=1
 frontend_ok=0
-wait_for_backend "http://$BACKEND_HOST:$BACKEND_PORT/api/status" "后端" 30 && backend_ok=1
+if [ "$FRONTEND_ONLY" -eq 0 ]; then
+  backend_ok=0
+  wait_for_backend "http://$BACKEND_HOST:$BACKEND_PORT/api/status" "后端" 30 && backend_ok=1
+fi
 wait_for "http://$FRONTEND_HOST:$FRONTEND_PORT" "前端" 30 && frontend_ok=1
 
 echo
 if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ]; then
-  echo "MelonClaw 开发环境已就绪："
-  echo "  前端: http://$FRONTEND_HOST:$FRONTEND_PORT"
-  echo "  后端 API: http://$BACKEND_HOST:$BACKEND_PORT"
+  if [ "$FRONTEND_ONLY" -eq 1 ]; then
+    echo "MelonClaw 前端开发环境已就绪："
+    echo "  前端: http://$FRONTEND_HOST:$FRONTEND_PORT"
+  else
+    echo "MelonClaw 开发环境已就绪："
+    echo "  前端: http://$FRONTEND_HOST:$FRONTEND_PORT"
+    echo "  后端 API: http://$BACKEND_HOST:$BACKEND_PORT"
+  fi
 else
-  echo "部分服务未就绪，请查看日志: $RUN_DIR/{backend,frontend}.log"
-  if [ "$backend_ok" -eq 0 ]; then
+  if [ "$FRONTEND_ONLY" -eq 1 ]; then
+    echo "前端未就绪，请查看日志: $RUN_DIR/frontend.log"
+  else
+    echo "部分服务未就绪，请查看日志: $RUN_DIR/{backend,frontend}.log"
+  fi
+  if [ "$FRONTEND_ONLY" -eq 0 ] && [ "$backend_ok" -eq 0 ]; then
     show_backend_status
   fi
   exit 1
 fi
 echo "日志目录: $RUN_DIR"
-echo "停止环境: scripts/shutdown.sh"
+if [ "$FRONTEND_ONLY" -eq 1 ]; then
+  echo "停止前端: scripts/shutdown.sh frontend"
+else
+  echo "停止环境: scripts/shutdown.sh"
+fi

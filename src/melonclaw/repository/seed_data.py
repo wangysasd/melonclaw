@@ -38,3 +38,5 @@ USER_TENANT_SEEDS: tuple[dict[str, str], ...] = (
     {"user_id": "linan", "tenant_id": "trading"},
     {"user_id": "chenxi", "tenant_id": "trading"},
 )
+
+

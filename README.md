@@ -68,6 +68,10 @@ scripts/start.sh
 
 打开 <http://127.0.0.1:8001>，即可开始使用。启动脚本会同时运行 React/Vite 前端和 FastAPI 后端；默认绑定本机回环地址，监听地址和端口可以通过 `MELONCLAW_HOST`、`MELONCLAW_PORT`、`MELONCLAW_FRONTEND_HOST`、`MELONCLAW_FRONTEND_PORT` 修改。脚本会先检查两个端口，任一端口被占用时不会启动任何服务，请先执行 `scripts/shutdown.sh`。脚本还会在系统临时目录下为 `uv` 创建可写缓存，必要时可用 `UV_CACHE_DIR` 覆盖。
 
+需要根据当前状态自动选择“启动”或“停止后重启”时，执行 `scripts/restart.sh`：前后端都未启动时直接启动，都已启动时先停止再启动；如果只启动了一端，脚本会先清理残留服务再启动完整环境。
+
+当后端需要在 IDE 中手工启动或调试时，可传入 `frontend` 参数，让脚本只操作前端：`scripts/start.sh frontend`、`scripts/shutdown.sh frontend`、`scripts/restart.sh frontend`。不传参数时，三个脚本仍操作前后端。
+
 ## 前端独立项目（frontend/）
 
 前端唯一实现位于根目录的 `frontend/`，是一个独立的 React + Vite + TypeScript 项目，与 Python/uv 构建体系解耦。它已接入完整聊天界面（SSE 消息流、Markdown 渲染、工具时间线与子 Agent 卡片、HITL 审批面板）；FastAPI 仅提供 `/api` 接口，不再托管旧版静态页面。
@@ -78,8 +82,16 @@ scripts/start.sh
 # 一键启动（后端 FastAPI + 前端 Vite，端口被占用时会先报错）
 scripts/start.sh
 
+# 只启动前端（后端可在 IDE 中手工启动）
+scripts/start.sh frontend
+
+# 按当前状态启动或重启
+scripts/restart.sh
+scripts/restart.sh frontend
+
 # 一键停止（日志保留在系统临时目录的 melonclaw-dev/ 下）
 scripts/shutdown.sh
+scripts/shutdown.sh frontend
 ```
 
 也可以手动分步启动：

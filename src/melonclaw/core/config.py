@@ -57,7 +57,7 @@ class Settings:
     def psycopg_database_url(self) -> str:
         """把业务 asyncpg URL 派生为 Checkpointer 使用的 psycopg URL。"""
 
-        from melonclaw.core.database import derive_psycopg_database_url
+        from melonclaw.database import derive_psycopg_database_url
 
         return derive_psycopg_database_url(self.database_url)
 

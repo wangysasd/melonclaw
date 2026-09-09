@@ -27,7 +27,7 @@ dependencies = [
 
 [project.scripts]
 melonclaw-web = "melonclaw.main_web:main"
-melonclaw-db-init = "melonclaw.db_init:main"
+melonclaw-db-init = "melonclaw.main_db_init:main"
 
 [build-system]
 requires = ["hatchling"]

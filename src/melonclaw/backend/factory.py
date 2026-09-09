@@ -1,4 +1,4 @@
-"""项目 Skill 的来源与统一的 Agent 文件后端。"""
+"""项目 Skill 来源、Memory 路由与 Agent 文件后端的组装。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from deepagents.backends import (
 from deepagents.backends.protocol import BackendProtocol
 from langgraph.store.base import BaseStore
 
-from melonclaw.core.memory import namespace_for_context
+from melonclaw.memory.service import namespace_for_context
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PROJECT_SKILLS_DIR = PROJECT_ROOT / "skills"
@@ -41,7 +41,6 @@ def build_agent_backend(
     ``LocalShellBackend`` 的 Shell 能力没有沙箱隔离，Web 入口因此只适合本机
     开发，并默认只监听 127.0.0.1。文件写入和 Shell 执行仍由 HITL 保护。
     """
-
 
     workspace_dir.mkdir(parents=True, exist_ok=True)
     runtime_backend: BackendProtocol = default_backend or LocalShellBackend(

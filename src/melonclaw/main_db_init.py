@@ -8,8 +8,8 @@ import sys
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from melonclaw.core.config import load_settings
-from melonclaw.core.database import (
-    BusinessDatabase,
+from melonclaw.database import (
+    Database,
     DatabaseConfigurationError,
     DatabaseSchemaError,
     DatabaseUnavailableError,
@@ -17,16 +17,18 @@ from melonclaw.core.database import (
     open_checkpoint_pool,
     open_memory_store,
 )
+from melonclaw.repository import seed_demo_data
 
 
 async def initialize_database() -> None:
     settings = load_settings()
-    database = BusinessDatabase(settings.database_url)
+    database = Database(settings.database_url)
     checkpoint_pool = None
     memory_store_context = None
     try:
         await database.open()
         await database.create_schema()
+        await seed_demo_data(database)
         memory_store_context, memory_store = await open_memory_store(
             settings.database_url
         )

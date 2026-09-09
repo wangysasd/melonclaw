@@ -8,7 +8,7 @@ from typing import Any
 from langchain.tools import ToolRuntime, tool
 from langchain_core.tools import BaseTool
 
-from melonclaw.core.memory import MemoryScope, MemoryService
+from melonclaw.memory.service import MemoryScope, MemoryService
 
 
 def _result(value: Any) -> str:
@@ -112,3 +112,4 @@ def build_memory_tools(service: MemoryService) -> list[BaseTool]:
 
 
 __all__ = ["build_memory_tools"]
+

@@ -11,10 +11,7 @@ from typing import Any, Literal
 
 from langgraph.store.base import BaseStore, Item
 
-from melonclaw.core.database import (
-    BusinessDatabase,
-    UserContext,
-)
+from melonclaw.repository import BusinessRepository, UserContext
 
 MemoryScope = Literal["global", "tenant", "user"]
 SEARCH_SCOPES = ("global", "tenant", "user")
@@ -149,7 +146,7 @@ class MemoryService:
 
     def __init__(
         self,
-        storage: BusinessDatabase,
+        storage: BusinessRepository,
         store: BaseStore,
         *,
         installation_id: str = DEFAULT_INSTALLATION_ID,

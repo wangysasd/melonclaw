@@ -20,12 +20,11 @@ from melonclaw.core.interpreter import (
     INTERPRETER_PTC_TOOLS,
     build_interpreter_middleware,
 )
-from melonclaw.core.memory import MemoryService
-from melonclaw.core.model import build_chat_model
+from melonclaw.memory import MemoryScopeMiddleware, MemoryService
+from melonclaw.core.chat_model import build_chat_model
 from melonclaw.core.prompts import build_system_prompt
-from melonclaw.core.skills import build_agent_backend
+from melonclaw.backend import build_agent_backend
 from melonclaw.middleware import FileOperationOrderingMiddleware
-from melonclaw.middleware.memory import MemoryScopeMiddleware
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
 
