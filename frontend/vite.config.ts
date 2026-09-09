@@ -9,10 +9,12 @@ const frontendPort = Number.parseInt(
   process.env.MELONCLAW_FRONTEND_PORT ?? "8001",
   10,
 );
+const frontendHost = process.env.MELONCLAW_FRONTEND_HOST ?? "127.0.0.1";
 
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: frontendHost,
     port: frontendPort,
     proxy: {
       "/api": {

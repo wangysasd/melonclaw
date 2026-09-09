@@ -5,11 +5,18 @@
   flex-direction: column;
   background: var(--sidebar);
   border-right: 1px solid var(--line);
+  flex: 0 0 var(--sidebar-width);
   min-width: var(--sidebar-width);
   width: var(--sidebar-width);
   height: 100vh;
   position: sticky;
   top: 0;
+}
+
+.sidebar.is-collapsed {
+  flex-basis: var(--sidebar-collapsed-width);
+  min-width: var(--sidebar-collapsed-width);
+  width: var(--sidebar-collapsed-width);
 }
 
 .sidebar-content {
@@ -24,6 +31,13 @@
 .sidebar-content.is-collapsed {
   align-items: center;
   padding: 16px 8px;
+}
+
+.collapsed-brand-mark {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex: 0 0 auto;
 }
 
 .icon-button {
@@ -420,41 +434,10 @@
   }
 }
 
-/* 折叠态（桌面） */
+/* 折叠态（桌面）：只保留品牌标志和恢复按钮。 */
 
-.collapsed-projects {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  align-items: center;
-  overflow-y: auto;
-}
-
-.collapsed-project {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.collapsed-project:hover {
-  background: var(--brand-soft);
-}
-
-.collapsed-project.is-active {
-  background: var(--brand-soft);
-  color: var(--brand-primary);
-}
-
-.sidebar-footer-collapsed {
-  margin-top: auto;
+.sidebar-content.is-collapsed .sidebar-expand {
+  flex: 0 0 auto;
 }
 
 /* 移动端 */

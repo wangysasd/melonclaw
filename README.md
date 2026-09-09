@@ -18,6 +18,7 @@ MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。它通过 Web 界面
 - **子 Agent 协作**：相对独立的工作可以委派给通用子 Agent，再由主 Agent 汇总结果。
 - **流式反馈**：Web 页面实时展示回答、工具调用、工具结果、子 Agent 状态和审批过程。
 - **可读交互界面**：正文、侧栏、工具卡片和输入区采用统一的放大字号，方便持续阅读和操作。
+- **可收起侧栏**：桌面端侧栏可收起为仅保留 MelonClaw 标志和展开按钮的窄条，点击展开按钮即可恢复项目与会话导航。
 
 ## 环境要求
 
@@ -65,7 +66,7 @@ uv run melonclaw-db-init
 scripts/start.sh
 ```
 
-打开 <http://localhost:8001>，即可开始使用。启动脚本会同时运行 React/Vite 前端和 FastAPI 后端；监听地址和端口可以通过 `MELONCLAW_HOST`、`MELONCLAW_PORT`、`MELONCLAW_FRONTEND_PORT` 修改。
+打开 <http://127.0.0.1:8001>，即可开始使用。启动脚本会同时运行 React/Vite 前端和 FastAPI 后端；默认绑定本机回环地址，监听地址和端口可以通过 `MELONCLAW_HOST`、`MELONCLAW_PORT`、`MELONCLAW_FRONTEND_HOST`、`MELONCLAW_FRONTEND_PORT` 修改。脚本会先检查两个端口，任一端口被占用时不会启动任何服务，请先执行 `scripts/shutdown.sh`。脚本还会在系统临时目录下为 `uv` 创建可写缓存，必要时可用 `UV_CACHE_DIR` 覆盖。
 
 ## 前端独立项目（frontend/）
 
@@ -74,7 +75,7 @@ scripts/start.sh
 开发模式（前后端联调）：
 
 ```bash
-# 一键启动（后端 FastAPI + 前端 Vite，已运行的服务会自动跳过）
+# 一键启动（后端 FastAPI + 前端 Vite，端口被占用时会先报错）
 scripts/start.sh
 
 # 一键停止（日志保留在系统临时目录的 melonclaw-dev/ 下）
@@ -87,10 +88,10 @@ scripts/shutdown.sh
 uv run melonclaw-web        # 后端 API，默认 127.0.0.1:8000
 cd frontend
 npm install
-npm run dev                 # Vite dev server，默认 http://localhost:8001
+npm run dev -- --host 127.0.0.1  # Vite dev server，默认 http://127.0.0.1:8001
 ```
 
-打开 <http://localhost:8001>。Vite 会把 `/api` 请求代理到后端，默认目标 `http://127.0.0.1:8000`，可用 `MELONCLAW_PORT`（改后端端口）或 `MELONCLAW_API_TARGET`（改完整地址）覆盖；SSE 流式响应在代理层关闭缓冲。
+打开 <http://127.0.0.1:8001>。Vite 会把 `/api` 请求代理到后端，默认目标 `http://127.0.0.1:8000`，可用 `MELONCLAW_PORT`（改后端端口）或 `MELONCLAW_API_TARGET`（改完整地址）覆盖；SSE 流式响应在代理层关闭缓冲。若手动启动 Vite，建议显式绑定回环地址：`npm run dev -- --host 127.0.0.1`。
 
 生产构建与部署：
 
@@ -139,6 +140,8 @@ npm run build               # 类型检查 + 构建产物输出到 frontend/dist
 
 聊天页面会把工具活动与最终回答分层显示：成功的工具默认收起，失败或没有收到终态的工具会展开并标记原因；流式连接异常时会保留已收到的回答，并提供“重新同步会话”入口。切换会话或刷新页面后，待审批状态会从服务端恢复。
 
+桌面端侧栏可通过顶部收起按钮变为窄条；收起后只显示品牌标志和恢复按钮，不影响当前会话。移动端继续通过顶部菜单打开抽屉式导航。
+
 常见使用方式：
 
 - **研究与联网搜索**：配置 `TAVILY_API_KEY` 后，直接提出需要实时资料或来源核验的问题。
@@ -154,13 +157,15 @@ npm run build               # 类型检查 + 构建产物输出到 frontend/dist
 | `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` | DeepSeek 或其他兼容接口的配置 |
 | `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_BASE_URL` | 切换到 OpenAI 兼容接口时使用 |
 | `TAVILY_API_KEY` | 启用联网搜索 |
+| `TUSHARE_MCP_TOKEN` / `YUJIAN_MCP_TOKEN` | 仅当 `mcp.json` 中对应服务写出占位符时，用于展开 MCP 凭据 |
 | `DATABASE_URL` | PostgreSQL 连接，使用 `postgresql+asyncpg://` |
 | `MELONCLAW_WORKSPACE_DIR` | Project 工作区根目录 |
 | `MELONCLAW_HOST` / `MELONCLAW_PORT` | Web 监听地址和端口 |
-| `MELONCLAW_FRONTEND_PORT` | React/Vite 开发服务器端口，默认 `8001` |
+| `MELONCLAW_FRONTEND_HOST` / `MELONCLAW_FRONTEND_PORT` | React/Vite 开发服务器监听地址和端口，默认 `127.0.0.1:8001` |
+| `UV_CACHE_DIR` | `uv` 缓存目录；启动脚本默认使用系统临时目录下的项目缓存 |
 | `MELONCLAW_ALLOWED_ORIGINS` | 独立前端跨域部署时放行的 origin（逗号分隔；未配置时默认放行本地 Vite 开发端口） |
 
-MCP 服务定义放在根目录的 `mcp.json` 中。没有启用 MCP 时应用仍可正常启动；启用外部服务时，再按服务要求配置对应的 Token 和服务名环境变量。
+MCP 服务定义放在根目录的 `mcp.json` 中，文件必须是合法 JSON；应用默认加载其中列出的全部服务。`.env` 不会因为多出某个 Token 就自动启用服务，只用于替换 `mcp.json` 明确写出的 `${VARIABLE_NAME}` 占位符；占位符对应变量缺失时，后端会报告具体变量名。暂时不用 MCP 时可将配置设为 `{}`，或将整份文件全部用 `//` 注释。
 
 切换到 OpenAI 兼容接口时，将 `DEEPAGENTS_PROVIDER` 设为 `openai`，并填写对应的 `OPENAI_*` 配置。
 

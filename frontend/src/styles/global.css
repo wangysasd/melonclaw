@@ -23,6 +23,7 @@
 
   /* 布局 */
   --sidebar-width: 260px;
+  --sidebar-collapsed-width: 64px;
   --content-max-width: 800px;
   --radius-control: 12px;
   --radius-composer: 18px;

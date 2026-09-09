@@ -1,21 +1,10 @@
-//{
-//  "mcpServers": {
-//    "math_stdio": {
-//      "type": "stdio",
-//      "command": "uv",
-//      "args": [
-//        "run",
-//        "python",
-//        "example/mcp/server/math_stdio_server.py"
-//      ]
-//    },
-//    "math_sse": {
-//      "type": "sse",
-//      "url": "http://127.0.0.1:8000/sse"
-//    },
-//    "tushare_mcp": {
-//      "type": "http",
-//      "url": "https://api.tushare.pro/mcp/?token=${TUSHARE_MCP_TOKEN}"
-//    }
-//  }
-//}
+{
+  "mcpServers": {
+    "yujiantouzi": {
+      "url": "https://mcp.yujiantouzi.com/mcp",
+      "headers": {
+        "token": "${YUJIAN_MCP_TOKEN}"
+      }
+    }
+  }
+}

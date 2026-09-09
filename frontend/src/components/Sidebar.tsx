@@ -85,6 +85,11 @@ export function SidebarContent({
   if (collapsed) {
     return (
       <div className="sidebar-content is-collapsed">
+        <img
+          className="collapsed-brand-mark"
+          src="/assets/brand/melonclaw-mark.png"
+          alt="MelonClaw"
+        />
         <button
           type="button"
           className="icon-button sidebar-expand"
@@ -94,40 +99,6 @@ export function SidebarContent({
         >
           <Icon name="chevron-right" size={16} />
         </button>
-        <button
-          type="button"
-          className="icon-button"
-          onClick={onNewConversation}
-          disabled={!canCreate}
-          aria-label="新建对话"
-          title="新建对话（⌘ K）"
-        >
-          <Icon name="plus" size={16} />
-        </button>
-        <div className="collapsed-projects">
-          {session.projects.map((project) => (
-            <button
-              key={project.id}
-              type="button"
-              className={[
-                "collapsed-project",
-                project.id === session.projectId ? "is-active" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onClick={() => void session.openProject(project.id)}
-              title={project.name}
-              aria-label={project.name}
-            >
-              <Icon name="folder" size={16} />
-            </button>
-          ))}
-        </div>
-        <div className="sidebar-footer-collapsed">
-          <span className="user-avatar" aria-hidden>
-            ?
-          </span>
-        </div>
       </div>
     );
   }
@@ -310,7 +281,12 @@ export function Sidebar({ onNewConversation, onOpenProjectDialog }: SidebarProps
 
   return (
     <>
-      <aside className="sidebar" aria-label="项目与会话导航">
+      <aside
+        className={["sidebar", collapsed ? "is-collapsed" : ""]
+          .filter(Boolean)
+          .join(" ")}
+        aria-label="项目与会话导航"
+      >
         <SidebarContent
           collapsed={collapsed}
           onToggleCollapse={toggleCollapse}

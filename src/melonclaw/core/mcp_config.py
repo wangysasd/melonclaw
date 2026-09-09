@@ -74,31 +74,16 @@ def load_agent_mcp_servers(
 ) -> dict[str, dict[str, Any]]:
     """加载要注入 Deep Agent 的 MCP 服务。
 
-    MCP 服务定义只来自根目录 ``mcp.json``；环境变量只负责选择已定义的服务，
-    以及展开配置文件中的凭据占位符。
-    未显式设置服务名且存在 Tushare token 时，自动启用 ``tushare_mcp``。
+    MCP 服务清单只来自根目录 ``mcp.json``。环境变量不负责启用服务，
+    只用于展开配置文件中明确写出的凭据占位符。
     """
 
     source = os.environ if environ is None else environ
-    selected_names = _selected_catalog_server_names(source)
-    if not selected_names:
-        return {}
-
     catalog = _load_server_catalog(config_path)
     if not catalog:
         return {}
 
-    servers: dict[str, dict[str, Any]] = {}
-    for server_name in selected_names:
-        if server_name not in catalog:
-            available = ", ".join(sorted(catalog)) or "（无）"
-            raise RuntimeError(
-                f"mcp.json 中不存在 MCP 服务 {server_name!r}；"
-                f"可选服务：{available}。"
-            )
-        servers[server_name] = catalog[server_name]
-
-    expanded = expand_env_placeholders(servers, source)
+    expanded = expand_env_placeholders(catalog, source)
     return _validate_servers(expanded)
 
 
@@ -125,21 +110,6 @@ def load_mcp_tool_allowlists(
     if len(names) != len(set(names)):
         raise RuntimeError("DEEPAGENTS_TUSHARE_MCP_TOOLS 中不能包含重复工具名。")
     return {DEFAULT_TUSHARE_SERVER_NAME: names}
-
-
-def _selected_catalog_server_names(
-    environ: Mapping[str, str],
-) -> tuple[str, ...]:
-    raw_names = environ.get("DEEPAGENTS_MCP_SERVER_NAMES")
-    if raw_names is None:
-        if environ.get("TUSHARE_MCP_TOKEN", "").strip():
-            return (DEFAULT_TUSHARE_SERVER_NAME,)
-        return ()
-
-    names = tuple(name.strip() for name in raw_names.split(",") if name.strip())
-    if len(names) != len(set(names)):
-        raise RuntimeError("DEEPAGENTS_MCP_SERVER_NAMES 中不能包含重复服务名。")
-    return names
 
 
 def _load_server_catalog(
