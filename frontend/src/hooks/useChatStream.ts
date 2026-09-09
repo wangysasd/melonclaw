@@ -259,18 +259,20 @@ export function useChatStream({
   const session = useSession();
   const { message } = AntdApp.useApp();
   const [state, dispatch] = useReducer(reducer, INITIAL_CHAT_STATE);
-  const [historyRevision, reloadHistory] = useReducer((value: number) => value + 1, 0);
+  const [historyRevision, bumpHistoryRevision] = useReducer((value: number) => value + 1, 0);
 
   const sessionRef = useRef(session);
   sessionRef.current = session;
+  const chatStateRef = useRef(state);
+  chatStateRef.current = state;
   const activeRunRef = useRef<{ controller: AbortController; context: SendContext } | null>(null);
   const historyControllerRef = useRef<AbortController | null>(null);
+  const forceHistoryReloadRef = useRef(false);
   const selectorTextBufferRef = useRef("");
 
   const matchesContext = useCallback((context: SendContext): boolean => {
     const current = sessionRef.current;
     return (
-      context.epoch === current.epoch &&
       context.conversationId === current.conversationId &&
       context.userId === current.userId &&
       context.tenantId === current.tenantId &&
@@ -297,6 +299,11 @@ export function useChatStream({
     dispatch({ type: "text", text });
     return true;
   }, []);
+
+  const reloadHistory = useCallback(() => {
+    forceHistoryReloadRef.current = true;
+    bumpHistoryRevision();
+  }, [bumpHistoryRevision]);
 
   const handleEvent = useCallback(
     (event: StreamEvent, context: SendContext): void => {
@@ -413,11 +420,64 @@ export function useChatStream({
             if (event.type === "message_started") started = true;
             if (event.type === "error") failed = true;
             if (TERMINAL_HINT.has(event.type)) terminal = true;
+            if (
+              !matchesContext(context) &&
+              activeRunRef.current?.controller === controller
+            ) {
+              switch (event.type) {
+                case "text":
+                case "tool_call":
+                case "tool_result":
+                case "subagent_started":
+                case "subagent_text":
+                case "subagent_tool_call":
+                case "subagent_tool_result":
+                case "subagent_completed":
+                case "subagent_failed":
+                  sessionRef.current.setRunStatus("processing");
+                  break;
+                case "completed":
+                case "done":
+                  sessionRef.current.setBusy(false);
+                  sessionRef.current.setRunStatus(null);
+                  if (event.type === "done") {
+                    void sessionRef.current.refreshConversations();
+                  }
+                  break;
+                case "approval_required":
+                  sessionRef.current.setBusy(true);
+                  sessionRef.current.setRunStatus("waiting");
+                  break;
+                case "error":
+                  sessionRef.current.setBusy(false);
+                  sessionRef.current.setRunStatus("failed");
+                  break;
+                case "message_status":
+                  sessionRef.current.setBusy(false);
+                  sessionRef.current.setRunStatus(
+                    event.status === "interrupted"
+                      ? "waiting"
+                      : event.status === "failed"
+                        ? "failed"
+                        : null,
+                  );
+                  break;
+                default:
+                  break;
+              }
+            }
             handleEvent(event, context);
           },
         });
-        if (!terminal && matchesContext(context)) {
-          throw new Error("连接意外结束，回复可能不完整。请重新同步会话以确认执行结果。");
+        if (!terminal) {
+          if (matchesContext(context)) {
+            throw new Error("连接意外结束，回复可能不完整。请重新同步会话以确认执行结果。");
+          }
+          if (activeRunRef.current?.controller === controller) {
+            sessionRef.current.setBusy(false);
+            sessionRef.current.setRunStatus("failed");
+          }
+          return false;
         }
         return !failed;
       } catch (error) {
@@ -575,7 +635,16 @@ export function useChatStream({
     const controller = new AbortController();
     historyControllerRef.current = controller;
     const load = async () => {
-      if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return;
+      const forceReload = forceHistoryReloadRef.current;
+      forceHistoryReloadRef.current = false;
+      const activeRun = activeRunRef.current;
+      if (
+        !forceReload &&
+        activeRun &&
+        !activeRun.controller.signal.aborted &&
+        matchesContext(activeRun.context) &&
+        chatStateRef.current.conversationId === snapshot.conversationId
+      ) return;
       if (!snapshot.conversationId) {
         dispatch({ type: "reset", conversationId: null });
         return;
@@ -620,16 +689,25 @@ export function useChatStream({
           messages,
           approval: data.pending_approval,
         });
+        const currentActiveRun = activeRunRef.current;
+        const activeStream =
+          currentActiveRun && !currentActiveRun.controller.signal.aborted;
+        const activeForSnapshot =
+          activeStream && matchesContext(currentActiveRun.context);
         if (data.pending_approval) {
           sessionRef.current.setBusy(true);
           sessionRef.current.setRunStatus("waiting");
-        } else {
+        } else if (!activeStream) {
           sessionRef.current.setBusy(false);
           const pending = messages.some((item) => item.status === "pending");
           sessionRef.current.setRunStatus(pending ? "processing" : null);
           if (pending) {
             dispatch({ type: "historyFailed", error: "上次请求尚未结束，当前未连接其输出。请稍后重新同步会话。" });
           }
+        } else if (activeForSnapshot) {
+          // 回到仍在运行的会话：历史只提供已落库内容，后续事件继续由原 SSE 补上。
+          sessionRef.current.setBusy(true);
+          sessionRef.current.setRunStatus("processing");
         }
       } catch (error) {
         if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
@@ -654,7 +732,7 @@ export function useChatStream({
       clearRestoreDraft: () => dispatch({ type: "draftRestored" }),
       reloadHistory,
     }),
-    [state, sendMessage, submitApproval],
+    [state, reloadHistory, sendMessage, submitApproval],
   );
 
   return handle;

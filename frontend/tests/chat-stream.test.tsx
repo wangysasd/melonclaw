@@ -121,4 +121,54 @@ describe("chat run lifecycle", () => {
     expect(vi.mocked(mocks.session.attachStream).mock.calls).toHaveLength(calls);
     await act(async () => { second.resolve(); await secondTask; });
   });
+  it("forces history sync after returning to a conversation with a stale stream ref", async () => {
+    const stream = deferred<void>();
+    vi.mocked(sendMessageStream).mockImplementation(() => stream.promise);
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let task!: Promise<void>;
+    act(() => { task = result.current.sendMessage("test"); });
+    await waitFor(() => expect(vi.mocked(sendMessageStream)).toHaveBeenCalled());
+    const initialHistoryCalls = vi.mocked(getConversationHistory).mock.calls.length;
+    act(() => result.current.reloadHistory());
+    await waitFor(() => expect(vi.mocked(getConversationHistory).mock.calls.length).toBe(initialHistoryCalls + 1));
+    stream.resolve();
+    await act(async () => { await task; });
+  });
+  it("keeps the conversation stream alive while another conversation is selected", async () => {
+    const stream = deferred<void>(); let streamSignal!: AbortSignal; let emit!: (event: StreamEvent) => void;
+    let historyCalls = 0;
+    vi.mocked(getConversationHistory).mockImplementation(async () => {
+      historyCalls += 1;
+      return historyCalls >= 3
+        ? { ...emptyHistory, items: [{ id: "a1", role: "assistant", content: "", status: "pending" }] }
+        : emptyHistory;
+    });
+    vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent, signal }) => {
+      emit = onEvent;
+      streamSignal = signal!;
+      return stream.promise;
+    });
+    const { result, rerender } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let task!: Promise<void>;
+    act(() => { task = result.current.sendMessage("test"); });
+    await waitFor(() => expect(streamSignal).toBeDefined());
+    act(() => {
+      mocks.session = { ...mocks.session, conversationId: "c2", epoch: 2 };
+      rerender();
+    });
+    expect(streamSignal.aborted).toBe(false);
+    act(() => {
+      mocks.session = { ...mocks.session, conversationId: "c1", epoch: 3 };
+      rerender();
+    });
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    act(() => emit({ type: "text", text: "继续输出" }));
+    expect(result.current.state.messages.at(-1)?.content).toBe("继续输出");
+    act(() => emit({ type: "completed", message_id: "a1", content: "继续输出" }));
+    act(() => emit({ type: "done", terminal_reason: "completed" }));
+    stream.resolve();
+    await act(async () => { await task; });
+  });
 });

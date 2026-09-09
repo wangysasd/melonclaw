@@ -325,7 +325,7 @@ export function ChatView() {
       {chat.state.error ? (
         <div className="chat-error" role="alert">
           <span>{chat.state.error}</span>
-          <button type="button" onClick={chat.reloadHistory} disabled={session.busy && runStatus !== "waiting"}>重新同步会话</button>
+          <button type="button" onClick={chat.reloadHistory} disabled={chat.state.historyLoading}>重新同步会话</button>
         </div>
       ) : null}
       </div>

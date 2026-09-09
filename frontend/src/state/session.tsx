@@ -214,7 +214,7 @@ export interface SessionContextValue extends SessionState {
   newConversation: () => Promise<ConversationSummary | null>;
   setBusy: (busy: boolean) => void;
   setRunStatus: (runStatus: RunStatus | null) => void;
-  /** 聊天流注册当前 AbortController，使切换上下文时能中止流。 */
+  /** 聊天流注册当前 AbortController；切换用户/项目时中止，切换会话时保持连接。 */
   attachStream: (controller: AbortController | null) => void;
 }
 
@@ -274,15 +274,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     dispatchSync({ type: "runStatus", runStatus: null });
   }, [dispatchSync]);
 
+  const abortActiveDataRequests = useCallback(() => {
+    dataControllerRef.current?.abort();
+    dataControllerRef.current = null;
+  }, []);
+
   /** 选中会话：历史消息由聊天视图在 conversationId 变化时加载。 */
   const selectConversationInternal = useCallback((conversationId: string) => {
     if (!conversationId || conversationId === stateRef.current.conversationId) return;
-    abortActiveRequests();
+    abortActiveDataRequests();
     bumpGeneration();
     const { userId } = stateRef.current;
     writeStorage(conversationStorageKey(userId), conversationId);
     dispatchSync({ type: "conversationSelected", conversationId });
-  }, [abortActiveRequests, bumpGeneration, dispatchSync]);
+  }, [abortActiveDataRequests, bumpGeneration, dispatchSync]);
 
   /** 加载会话列表；autoSelect 时恢复记忆会话或选第一项（仅 bootstrap 路径）。 */
   const loadConversationsInternal = useCallback(
