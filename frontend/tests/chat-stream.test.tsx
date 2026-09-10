@@ -110,11 +110,18 @@ describe("chat run lifecycle", () => {
     let task!: Promise<void>;
     act(() => { task = result.current.sendMessage("test"); });
     await waitFor(() => expect(emit).toBeDefined());
+    expect(mocks.session.runStatus).toBe("starting");
+    act(() => emit({ type: "run_phase", phase: "selecting_tools" }));
     act(() => emit({ type: "text", text: '{"tools":' }));
     expect(mocks.session.runStatus).toBe("selecting_tools");
     act(() => emit({ type: "text", text: "[]}" }));
     expect(result.current.state.messages[1].content).toBe("");
     expect(mocks.session.runStatus).toBe("selecting_tools");
+    act(() => emit({ type: "run_phase", phase: "thinking" }));
+    expect(mocks.session.runStatus).toBe("thinking");
+    expect(result.current.state.messages[1].content).toBe("");
+    act(() => emit({ type: "text", text: "正文" }));
+    expect(mocks.session.runStatus).toBe("responding");
     act(() => emit({ type: "tool_call", name: "example", args: {}, status: "started" }));
     expect(mocks.session.runStatus).toBe("processing");
     act(() => emit({ type: "completed", message_id: "a1", content: '{"tools":[]}' }));
@@ -136,7 +143,7 @@ describe("chat run lifecycle", () => {
     expect(result.current.state.approval?.id).toBe("second");
   });
   it("does not mark an old completed answer as failed when a new request fails before starting", () => {
-    const state = { ...INITIAL_CHAT_STATE, messages: [{ id: "old", role: "assistant" as const, content: "done", status: "completed" as const, markdown: true, events: [] }] };
+    const state = { ...INITIAL_CHAT_STATE, messages: [{ id: "old", role: "assistant" as const, content: "done", status: "completed" as const, markdown: true, events: [], phases: [] }] };
     expect(reducer(state, { type: "streamFailed", message: "draft", error: "offline" }).messages[0].status).toBe("completed");
   });
   it("an old stream cannot detach the new conversation's controller", async () => {
@@ -204,6 +211,7 @@ describe("chat run lifecycle", () => {
     await waitFor(() => expect(mocks.session.busy).toBe(false));
     act(() => emit({ type: "approval_required", request: { id: "background", actions: [] } }));
     expect(mocks.session.busy).toBe(false);
+    act(() => emit({ type: "run_phase", phase: "thinking" }));
     expect(mocks.session.runStatus).toBeNull();
     expect(result.current.state.approval).toBeNull();
     act(() => {

@@ -18,8 +18,17 @@ import type {
   PendingApproval,
   StreamEvent,
 } from "../types/api";
-import { classifyToolSelectorText } from "../lib/toolSelection";
+import { classifyToolSelectorText, visibleAssistantText } from "../lib/toolSelection";
 import { useSession } from "../state/session";
+
+/** 展示给用户的安全执行阶段；不包含模型的隐藏推理文本。 */
+export type ReasoningPhase =
+  | "starting"
+  | "selecting_tools"
+  | "thinking"
+  | "responding"
+  | "processing"
+  | "waiting";
 
 /** 聊天视图内的消息模型（乐观消息与历史消息统一表示）。 */
 export interface ChatMessage {
@@ -34,6 +43,8 @@ export interface ChatMessage {
   markdown: boolean;
   /** 工具/子代理轨迹事件，与最终回复分层展示。 */
   events: DisplayEvent[];
+  /** 安全的阶段摘要，不保存或展示原始模型思维链。 */
+  phases: ReasoningPhase[];
   model?: MessageModel | null;
   /** 乐观渲染的临时消息（未收到 message_started 前）。 */
   optimistic?: boolean;
@@ -70,6 +81,7 @@ type ChatAction =
       model?: MessageModel;
     }
   | { type: "text"; text: string }
+  | { type: "runPhase"; phase: ReasoningPhase }
   | { type: "displayEvent"; event: DisplayEvent }
   | { type: "completed"; messageId: string; content: string }
   | { type: "messageStatus"; messageId: string; status: MessageStatus }
@@ -101,6 +113,13 @@ function upsertLastAssistant(
     }
   }
   return messages;
+}
+
+function appendPhase(message: ChatMessage, phase: ReasoningPhase): ChatMessage {
+  const phases = message.phases ?? [];
+  return phases.includes(phase)
+    ? message
+    : { ...message, phases: [...phases, phase] };
 }
 
 export function reducer(state: ChatState, action: ChatAction): ChatState {
@@ -168,16 +187,21 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         messages: upsertLastAssistant(state, (message) => ({
-          ...message,
+          ...appendPhase(message, "responding"),
           content: message.content + action.text,
           status: message.status === "streaming" ? message.status : "streaming",
         })),
+      };
+    case "runPhase":
+      return {
+        ...state,
+        messages: upsertLastAssistant(state, (message) => appendPhase(message, action.phase)),
       };
     case "displayEvent":
       return {
         ...state,
         messages: upsertLastAssistant(state, (message) => ({
-          ...message,
+          ...appendPhase(message, "processing"),
           events: [...message.events, action.event],
         })),
       };
@@ -223,7 +247,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
     case "historyFailed":
       return { ...state, historyLoading: false, error: action.error };
     case "approvalRequired":
-      return { ...state, approval: action.request, messages: upsertLastAssistant(state, (message) => ({ ...message, status: "interrupted", markdown: true })) };
+      return { ...state, approval: action.request, messages: upsertLastAssistant(state, (message) => ({ ...appendPhase(message, "waiting"), status: "interrupted", markdown: true })) };
     case "approvalCleared":
       return { ...state, approval: null };
     case "draftRestored":
@@ -320,6 +344,10 @@ export function useChatStream({
       if (!matchesContext(context)) return;
       const follow = scroll.isNearBottom();
       switch (event.type) {
+        case "run_phase":
+          dispatch({ type: "runPhase", phase: event.phase });
+          sessionRef.current.setRunStatus(event.phase);
+          break;
         case "message_started":
           dispatch({
             type: "messageStarted",
@@ -330,8 +358,9 @@ export function useChatStream({
           });
           break;
         case "text":
+          dispatch({ type: "runPhase", phase: "responding" });
           if (appendStreamText(event.text)) {
-            sessionRef.current.setRunStatus("processing");
+            sessionRef.current.setRunStatus("responding");
           }
           break;
         case "completed":
@@ -342,7 +371,7 @@ export function useChatStream({
           dispatch({
             type: "completed",
             messageId: event.message_id,
-            content: classifyToolSelectorText(event.content) === "selector" ? "" : event.content,
+            content: visibleAssistantText(event.content),
           });
           break;
         case "message_status":
@@ -367,6 +396,7 @@ export function useChatStream({
         case "approval_required":
           sessionRef.current.setBusy(true);
           sessionRef.current.setRunStatus("waiting");
+          dispatch({ type: "runPhase", phase: "waiting" });
           dispatch({ type: "approvalRequired", request: event.request });
           break;
         case "done":
@@ -416,7 +446,7 @@ export function useChatStream({
     ): Promise<boolean> => {
       if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return false;
       sessionRef.current.setBusy(true);
-      sessionRef.current.setRunStatus("selecting_tools");
+      sessionRef.current.setRunStatus("starting");
       selectorTextBufferRef.current = "";
       let started = false;
       let failed = false;
@@ -424,6 +454,7 @@ export function useChatStream({
       const controller = new AbortController();
       activeRunRef.current = { controller, context };
       sessionRef.current.attachStream(controller);
+      dispatch({ type: "runPhase", phase: "starting" });
       try {
         await stream({
           signal: controller.signal,
@@ -527,6 +558,7 @@ export function useChatStream({
           timestamp: new Date().toISOString(),
           markdown: false,
           events: [],
+          phases: [],
           optimistic: true,
         },
         assistant: {
@@ -537,6 +569,7 @@ export function useChatStream({
           timestamp: null,
           markdown: false,
           events: [],
+          phases: [],
           optimistic: true,
         },
       });
@@ -635,7 +668,7 @@ export function useChatStream({
           return;
         }
         const messages: ChatMessage[] = data.items.flatMap((item) => {
-          const content = item.content || "";
+          const content = item.role === "user" ? item.content || "" : visibleAssistantText(item.content || "");
           if (item.role !== "user" && classifyToolSelectorText(content) === "selector") {
             return [];
           }
@@ -647,6 +680,7 @@ export function useChatStream({
             timestamp: item.created_at ?? null,
             markdown: item.role !== "user",
             events: item.display_metadata?.events ?? [],
+            phases: [],
             model: item.model ?? null,
           };
         });

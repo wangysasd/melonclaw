@@ -3,6 +3,12 @@ const MAX_SELECTOR_CANDIDATE_LENGTH = 200;
 
 export type ToolSelectorTextKind = "text" | "pending" | "selector";
 
+/** 兼容修复前保存的助手正文；不用于用户消息或模型 checkpoint。 */
+export function visibleAssistantText(value: string): string {
+  const text = value.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, "");
+  return classifyToolSelectorText(text) === "selector" ? "" : text;
+}
+
 /** 识别动态工具选择器的内部 JSON，避免把实现细节当作助手正文展示。 */
 export function classifyToolSelectorText(value: string): ToolSelectorTextKind {
   const trimmed = value.trimStart();

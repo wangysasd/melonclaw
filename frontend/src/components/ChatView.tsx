@@ -5,7 +5,7 @@ import { Icon, type IconName } from "./Icon";
 import { Composer } from "./Composer";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { Markdown } from "./Markdown";
-import { ToolTimeline } from "./ToolTimeline";
+import { ReasoningSummary } from "./ReasoningSummary";
 import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
 import { useServiceStatus } from "../hooks/useServiceStatus";
 import { copyText } from "../lib/clipboard";
@@ -22,9 +22,11 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const RUN_STATUS_LABELS: Record<RunStatus, string> = {
-  starting: "连接中",
+  starting: "正在准备",
   ready: "已就绪",
   selecting_tools: "正在工具筛选",
+  thinking: "思考中",
+  responding: "正在回复",
   processing: "处理中",
   waiting: "等待确认",
   failed: "失败",
@@ -34,6 +36,8 @@ const RUN_STATUS_ICONS: Record<RunStatus, IconName> = {
   starting: "loader-circle",
   ready: "circle-check",
   selecting_tools: "loader-circle",
+  thinking: "loader-circle",
+  responding: "loader-circle",
   processing: "loader-circle",
   waiting: "shield-check",
   failed: "circle-alert",
@@ -148,12 +152,14 @@ const MessageBubble = memo(function MessageBubble({
           ) : null}
           {metaDetail ? <span className="message-time">{metaDetail}</span> : null}
         </div>
-        {message.role === "assistant" ? <ToolTimeline events={message.events} messageStatus={message.status} /> : null}
+        {message.role === "assistant" ? (
+          <ReasoningSummary phases={message.phases} events={message.events} status={message.status} />
+        ) : null}
         <div className="message-body">
           {message.role === "assistant" ? <Markdown source={renderedContent} /> : message.content}
         </div>
         {message.status === "streaming" && !message.content && message.events.length === 0 ? (
-          <div className="message-progress" role="status"><Icon name="loader-circle" size={15} className="mc-icon-spin" />{runStatus === "selecting_tools" ? "正在工具筛选…" : "正在准备回复…"}</div>
+          <div className="message-progress" role="status"><Icon name="loader-circle" size={15} className="mc-icon-spin" />{`${RUN_STATUS_LABELS[runStatus]}…`}</div>
         ) : null}
         {message.status === "failed" || message.status === "cancelled" ? (
           <p className="message-notice">{message.status === "failed" ? "本次回复未完成，当前显示已接收的内容。" : "本次回复已中止。"}</p>
@@ -261,7 +267,7 @@ export function ChatView() {
               name={statusIcon}
               size={15}
               className={
-                runStatus === "starting" || runStatus === "selecting_tools" || runStatus === "processing"
+                runStatus === "starting" || runStatus === "selecting_tools" || runStatus === "thinking" || runStatus === "responding" || runStatus === "processing"
                   ? "mc-icon-spin"
                   : undefined
               }

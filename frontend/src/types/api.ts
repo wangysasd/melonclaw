@@ -198,6 +198,7 @@ export interface SendApprovalInput {
 /* ---------- SSE 流事件 ---------- */
 
 export type StreamEvent =
+  | { type: "run_phase"; phase: "selecting_tools" | "thinking" }
   | {
       type: "message_started";
       conversation_id: string;

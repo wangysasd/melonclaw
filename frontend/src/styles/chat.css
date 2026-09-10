@@ -531,6 +531,40 @@
 
 /* 工具时间线（对齐旧 .message-tools / .tool-card / .subagent-card 系列） */
 
+.reasoning-summary {
+  max-width: 680px;
+  margin: 0 0 12px;
+  overflow: hidden;
+  border: 1px solid #d7e4d9;
+  border-radius: 11px;
+  background: #f8fbf8;
+}
+
+.reasoning-summary > summary {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  color: var(--brand-primary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.reasoning-summary > summary::-webkit-details-marker { display: none; }
+.reasoning-summary-title { color: var(--ink); font-size: 13px; font-weight: 750; }
+.reasoning-summary-note { color: var(--muted); font-size: 11px; }
+.reasoning-summary-chevron { margin-left: auto; transition: transform 160ms ease; }
+.reasoning-summary[open] .reasoning-summary-chevron { transform: rotate(90deg); }
+.reasoning-summary-body { padding: 0 11px 11px; border-top: 1px solid #e4eee5; }
+.reasoning-steps { display: grid; gap: 8px; margin: 11px 0 0; padding: 0; list-style: none; }
+.reasoning-steps li { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.reasoning-step-marker { width: 18px; height: 18px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; background: #e5f0e7; color: var(--brand-primary); font-size: 10px; font-weight: 750; }
+.reasoning-step-label { color: var(--ink); font-weight: 650; }
+.reasoning-step-detail { display: block; color: var(--muted); font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
+.reasoning-summary .message-tools { margin-top: 12px; }
+.reasoning-summary-footnote { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
 .message-tools {
   display: grid;
   gap: 8px;

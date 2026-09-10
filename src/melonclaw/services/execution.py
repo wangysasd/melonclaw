@@ -18,6 +18,7 @@ from melonclaw.core.hitl import (
 )
 from melonclaw.core.model_catalog import ResolvedModel
 from melonclaw.output.content import content_to_text
+from melonclaw.output.visible_text import visible_text
 from melonclaw.output.events import DISPLAY_EVENT_TYPES, iter_research_events
 from melonclaw.output.formatting import _preview, sanitize_text
 from melonclaw.repository import (
@@ -652,7 +653,7 @@ class ExecutionService:
                 content = getattr(message, "content", "")
                 tool_calls = getattr(message, "tool_calls", None)
             if message_type in {"ai", "assistant"} and not tool_calls:
-                text = content_to_text(content)
+                text = visible_text(content_to_text(content))
                 if text.strip():
                     return text.strip()
         return ""

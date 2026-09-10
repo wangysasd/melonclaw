@@ -41,6 +41,8 @@ export type RunStatus =
   | "starting"
   | "ready"
   | "selecting_tools"
+  | "thinking"
+  | "responding"
   | "processing"
   | "waiting"
   | "failed";

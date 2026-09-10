@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyToolSelectorText } from "../src/lib/toolSelection";
+import { classifyToolSelectorText, visibleAssistantText } from "../src/lib/toolSelection";
 
 describe("tool selector text", () => {
+  it("hides reasoning in saved assistant messages", () => {
+    expect(visibleAssistantText('<think>internal</think>{"tools": []}')).toBe("");
+    expect(visibleAssistantText("<think>internal</think>正文")).toBe("正文");
+    expect(visibleAssistantText("<think>unfinished")).toBe("");
+  });
   it("recognizes the complete internal selector JSON", () => {
     expect(classifyToolSelectorText('{"tools":[]}')).toBe("selector");
   });

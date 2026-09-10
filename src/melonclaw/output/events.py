@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from melonclaw.output.content import content_to_text
+from melonclaw.output.visible_text import VisibleTextFilter, visible_text
 from melonclaw.output.formatting import (
     _call_key,
     _decode_tool_args,
@@ -113,17 +114,27 @@ async def _consume_messages(
 
     async for message_stream in scope_stream.messages:
         if _is_tool_selector_message(message_stream):
+            if scope is None:
+                await output.put({"type": "run_phase", "phase": "selecting_tools"})
             # 仍然把该 message 的生产者排空，避免阻塞 v3 的共享 pump。
             async for _ in message_stream.text:
                 pass
+            if scope is None:
+                await output.put({"type": "run_phase", "phase": "thinking"})
             continue
 
+        if scope is None:
+            await output.put({"type": "run_phase", "phase": "thinking"})
         chunks: list[str] = []
+        text_filter = VisibleTextFilter()
         async for delta in message_stream.text:
             text = content_to_text(delta)
             if not text:
                 continue
             chunks.append(text)
+            text = text_filter.feed(text)
+            if not text:
+                continue
             if scope is None:
                 await output.put({"type": "text", "text": sanitize_text(text)})
             else:
@@ -135,6 +146,13 @@ async def _consume_messages(
                     }
                 )
 
+        tail = text_filter.finish()
+        if tail:
+            await output.put(
+                {"type": "text", "text": sanitize_text(tail)} if scope is None else
+                {"type": "subagent_text", **_scope_fields(scope), "text": sanitize_text(tail)}
+            )
+
         # 非流式 provider 可能只在最终 message 中提供正文；不要让它在前端
         # 看起来像“子 Agent 没有输出”。仅在没有任何 delta 时补发一次。
         if not chunks:
@@ -142,7 +160,7 @@ async def _consume_messages(
                 message = await message_stream.output
             except Exception:  # noqa: BLE001 - provider output is optional fallback
                 message = None
-            text = content_to_text(getattr(message, "content", ""))
+            text = visible_text(content_to_text(getattr(message, "content", "")))
             if text:
                 if scope is None:
                     await output.put({"type": "text", "text": sanitize_text(text)})
@@ -406,6 +424,8 @@ async def _iter_legacy_research_events(
     index_keys: dict[int, str] = {}
     started_calls: set[str] = set()
     emitted_args: set[str] = set()
+    text_filters: dict[str, VisibleTextFilter] = {}
+    last_phase_message: tuple[str, str] | None = None
 
     stream_kwargs: dict[str, Any] = {
         "config": config,
@@ -416,10 +436,15 @@ async def _iter_legacy_research_events(
 
     async for message_chunk, metadata in agent.astream(agent_input, **stream_kwargs):
         message_type = getattr(message_chunk, "type", "")
+        message_id = str(getattr(message_chunk, "id", None) or metadata.get("langgraph_node"))
         if (
             metadata.get("tool_selector")
             or "tool-selector" in metadata.get("tags", [])
         ):
+            phase_message = (message_id, "selecting_tools")
+            if phase_message != last_phase_message:
+                yield {"type": "run_phase", "phase": "selecting_tools"}
+                last_phase_message = phase_message
             continue
 
         if message_type == "tool":
@@ -517,9 +542,19 @@ async def _iter_legacy_research_events(
 
         if metadata.get("langgraph_node") not in {"model", "agent"}:
             continue
-        text = content_to_text(getattr(message_chunk, "content", ""))
+        phase_message = (message_id, "thinking")
+        if phase_message != last_phase_message:
+            yield {"type": "run_phase", "phase": "thinking"}
+            last_phase_message = phase_message
+        text_filter = text_filters.setdefault(message_id, VisibleTextFilter())
+        text = text_filter.feed(content_to_text(getattr(message_chunk, "content", "")))
         if text:
             yield {"type": "text", "text": sanitize_text(text)}
+
+    for text_filter in text_filters.values():
+        tail = text_filter.finish()
+        if tail:
+            yield {"type": "text", "text": sanitize_text(tail)}
 
     # 兼容只发出参数分片、但没有 ToolMessage 的模型或失败路径。
     for key, pending in pending_calls.items():
