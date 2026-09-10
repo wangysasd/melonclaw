@@ -142,6 +142,8 @@ npm run dev -- --host 127.0.0.1   # 开发模式，Vite 会把 /api 代理到后
 npm run build                     # 构建产物输出到 frontend/dist/
 ```
 
+聊天输入支持 Enter 发送、Shift + Enter 换行；回复生成或等待审批时仍可编辑下一条草稿，但发送会暂时锁定。发送按钮左侧的模型选择会从下一条消息生效。回复中的 Markdown 使用 Ant Design X Markdown，支持嵌套列表、表格、代码复制、公式和安全 Mermaid 图表；工具与子 Agent 活动在可展开的执行摘要中显示，失败、等待审批和未收到结果会分别标注。
+
 生产部署时由 Nginx 或 Node 静态服务托管 `dist/`，并将 `/api` 反向代理到 FastAPI（SSE 需关闭缓冲）；跨域直连时用 `VITE_API_BASE_URL` 指定后端地址。
 
 ## ⚠️ 使用边界

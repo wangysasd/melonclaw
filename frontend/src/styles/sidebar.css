@@ -228,6 +228,14 @@
   flex-shrink: 0;
 }
 
+/* Conversations 只替换会话数据列表，保持侧栏原有密度和中文时间信息。 */
+.conversation-list.ant-conversations { display: flex; flex-direction: column; gap: 2px; overflow: visible; padding: 0; margin: 0; background: transparent; }
+.conversation-list.ant-conversations .ant-conversations-item { min-height: 36px; padding: 8px 10px; border-radius: 10px; color: var(--ink); }
+.conversation-list.ant-conversations .ant-conversations-item:hover { background: var(--brand-soft); }
+.conversation-list.ant-conversations .ant-conversations-item-active { background: var(--brand-soft); color: var(--brand-primary); font-weight: 600; }
+.conversation-list.ant-conversations .ant-conversations-label { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
+.conversation-list.ant-conversations .conversation-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .conversation-empty {
   font-size: 13px;
   color: var(--muted);

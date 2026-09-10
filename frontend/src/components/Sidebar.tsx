@@ -1,4 +1,5 @@
 import { Button, Drawer, Empty } from "antd";
+import Conversations from "@ant-design/x/es/conversations";
 import { useEffect, useState } from "react";
 
 import { Icon } from "./Icon";
@@ -191,34 +192,22 @@ export function SidebarContent({
                   "未选择项目"}
               </div>
             </div>
-            <div className="conversation-list">
-              {session.conversations.map((conversation) => (
-                <button
-                  key={conversation.id}
-                  type="button"
-                  className={[
-                    "conversation-item",
-                    conversation.id === session.conversationId ? "is-active" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onClick={() => conversationClick(conversation.id)}
-                >
-                  <Icon name="message-circle" size={14} />
-                  <span className="conversation-item-title">
-                    {conversation.title || "未命名会话"}
-                  </span>
-                  <span className="conversation-item-time">
-                    {formatConversationTime(conversation.updated_at)}
-                  </span>
-                </button>
-              ))}
-              {session.conversations.length === 0 ? (
-                <div className="conversation-empty">
-                  {session.contextReady ? "这个项目还没有会话" : "会话加载中…"}
-                </div>
-              ) : null}
-            </div>
+            {session.conversations.length > 0 ? (
+              <Conversations
+                rootClassName="conversation-list"
+                activeKey={session.conversationId ?? undefined}
+                items={session.conversations.map((conversation) => ({
+                  key: conversation.id,
+                  label: <><span className="conversation-item-title">{conversation.title || "未命名会话"}</span><span className="conversation-item-time">{formatConversationTime(conversation.updated_at)}</span></>,
+                  icon: <Icon name="message-circle" size={14} />,
+                }))}
+                onActiveChange={(id) => conversationClick(id)}
+              />
+            ) : (
+              <div className="conversation-empty">
+                {session.contextReady ? "这个项目还没有会话" : "会话加载中…"}
+              </div>
+            )}
             {session.conversationCursor ? (
               <Button
                 type="text"

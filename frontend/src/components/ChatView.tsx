@@ -1,4 +1,6 @@
 import { Spin } from "antd";
+import Bubble from "@ant-design/x/es/bubble";
+import Prompts from "@ant-design/x/es/prompts";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icon, type IconName } from "./Icon";
@@ -156,7 +158,15 @@ const MessageBubble = memo(function MessageBubble({
           <ReasoningSummary phases={message.phases} events={message.events} status={message.status} />
         ) : null}
         <div className="message-body">
-          {message.role === "assistant" ? <Markdown source={renderedContent} /> : message.content}
+          {message.role === "user" || message.content ? (
+            <Bubble
+              placement={message.role === "user" ? "end" : "start"}
+              variant={message.role === "assistant" ? "borderless" : "filled"}
+              content={message.role === "assistant"
+                ? <Markdown source={renderedContent} streaming={message.status === "streaming"} />
+                : message.content}
+            />
+          ) : null}
         </div>
         {message.status === "streaming" && !message.content && message.events.length === 0 ? (
           <div className="message-progress" role="status"><Icon name="loader-circle" size={15} className="mc-icon-spin" />{`${RUN_STATUS_LABELS[runStatus]}…`}</div>
@@ -292,23 +302,15 @@ export function ChatView() {
             <div className="welcome-kicker">你好，我是 MelonClaw</div>
             <h1>今天，有什么想一起搞定的？</h1>
             <p className="welcome-copy">查资料、理思路、做计划，瓜爪来帮你。</p>
-            <div className="prompt-grid">
-              {WELCOME_PROMPTS.map(({ key, icon, label, description, prompt }) => (
-                <button
-                  key={key}
-                  type="button"
-                  className="prompt-card"
-                  onClick={() => setDraft(prompt)}
-                >
-                  {icon}
-                  <span className="prompt-copy">
-                    <strong>{label}</strong>
-                    <small>{description}</small>
-                  </span>
-                  <Icon name="chevron-right" size={17} className="prompt-arrow" />
-                </button>
-              ))}
-            </div>
+            <Prompts
+              className="prompt-grid"
+              wrap
+              items={WELCOME_PROMPTS.map(({ key, icon, label, description }) => ({ key, icon, label, description }))}
+              onItemClick={({ data }) => {
+                const prompt = WELCOME_PROMPTS.find((item) => item.key === data.key)?.prompt;
+                if (prompt) setDraft(prompt);
+              }}
+            />
           </div>
         ) : (
             <div className="message-list">

@@ -171,69 +171,6 @@
   text-align: left;
 }
 
-.prompt-card {
-  min-height: 112px;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 18px;
-  align-items: start;
-  gap: 10px;
-  padding: 16px;
-  cursor: pointer;
-  color: inherit;
-  text-align: left;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.78);
-  transition: transform 160ms ease, border-color 160ms ease,
-    background 160ms ease;
-}
-
-.prompt-card:hover {
-  border-color: #a8cbb0;
-  background: #fff;
-  transform: translateY(-2px);
-}
-
-.prompt-card:focus-visible {
-  outline: 3px solid rgba(23, 107, 74, 0.24);
-  outline-offset: 2px;
-}
-
-.prompt-icon {
-  color: var(--brand-primary);
-}
-
-.prompt-card:nth-child(3) .prompt-icon {
-  color: var(--brand-coral);
-}
-
-.prompt-copy {
-  min-width: 0;
-}
-
-.prompt-card strong,
-.prompt-card small {
-  display: block;
-}
-
-.prompt-card strong {
-  color: var(--ink);
-  font-size: 13px;
-}
-
-.prompt-card small {
-  margin-top: 7px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.prompt-arrow {
-  width: 17px;
-  height: 17px;
-  color: #83a28d;
-}
-
 /* 消息流 */
 
 .message-list {
@@ -321,18 +258,46 @@
   overflow-wrap: anywhere;
 }
 
-.message-body:empty {
-  display: none;
+/* Ant Design X Bubble/Markdown 仍沿用 MelonClaw 的阅读宽度与品牌色。 */
+.message-body .ant-bubble {
+  max-width: 100%;
+  padding: 0;
+  color: inherit;
+  background: transparent;
 }
-
-.message.user .message-body {
-  display: inline-block;
+.message.user .message-body .ant-bubble {
+  display: inline-flex;
+  padding: 0;
+  text-align: left;
+}
+.message.user .message-body .ant-bubble-content {
   padding: 10px 14px;
   color: #315744;
   border: 1px solid #cce0d0;
   border-radius: 14px 3px 14px 14px;
   background: #edf7ef;
-  text-align: left;
+}
+.melon-markdown { min-width: 0; overflow-wrap: anywhere; }
+.markdown-code { max-width: 100%; overflow: hidden; border: 1px solid #d3e0d5; border-radius: 10px; background: var(--brand-primary-hover); }
+.markdown-code-head { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; color: var(--muted); font: 12px var(--font-mono); border-bottom: 1px solid #d3e0d5; }
+.markdown-code-head button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--brand-primary); cursor: pointer; font: inherit; }
+.markdown-code pre, .markdown-code .ant-code-highlighter { max-width: 100%; overflow-x: auto; margin: 0; }
+.markdown-code pre { max-height: 420px; padding: 12px; white-space: pre; }
+.markdown-code pre code, .markdown-code .ant-code-highlighter code { padding: 0; color: inherit; background: transparent; font-family: inherit; font-size: inherit; white-space: pre; }
+.markdown-fallback { white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdown-incomplete { color: var(--muted); overflow-wrap: anywhere; }
+.markdown-incomplete code { color: inherit; background: #f4f7f4; }
+.mermaid-pending { color: var(--muted); font-size: 13px; }
+
+.message-body:empty {
+  display: none;
+}
+
+.message.user .message-body {
+  display: block;
+  padding: 0;
+  color: #315744;
+  text-align: right;
   white-space: pre-wrap;
 }
 
@@ -422,44 +387,6 @@
   padding: 0 0 12px;
 }
 
-.code-block {
-  position: relative;
-  margin: 12px 0;
-  overflow: hidden;
-  border: 1px solid #d3e0d5;
-  border-radius: 10px;
-  background: #f2f6f2;
-}
-
-.code-block-head {
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 9px;
-  color: var(--muted);
-  border-bottom: 1px solid #dbe6dc;
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.code-block pre {
-  margin: 0;
-  max-height: 420px;
-  overflow: auto;
-  padding: 12px;
-}
-
-.code-block pre code {
-  display: block;
-  padding: 0;
-  color: var(--ink);
-  background: transparent;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre;
-}
-
 .markdown-table {
   max-width: 100%;
   margin: 12px 0;
@@ -502,8 +429,7 @@
   margin-top: 4px;
 }
 
-.copy-button,
-.code-copy {
+.copy-button {
   min-height: 30px;
   display: inline-flex;
   align-items: center;
@@ -517,8 +443,7 @@
   font-size: 11px;
 }
 
-.copy-button:hover:not(:disabled),
-.code-copy:hover {
+.copy-button:hover:not(:disabled) {
   color: var(--brand-primary);
   border-color: var(--line);
   background: var(--panel);
@@ -557,11 +482,7 @@
 .reasoning-summary-chevron { margin-left: auto; transition: transform 160ms ease; }
 .reasoning-summary[open] .reasoning-summary-chevron { transform: rotate(90deg); }
 .reasoning-summary-body { padding: 0 11px 11px; border-top: 1px solid #e4eee5; }
-.reasoning-steps { display: grid; gap: 8px; margin: 11px 0 0; padding: 0; list-style: none; }
-.reasoning-steps li { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.reasoning-step-marker { width: 18px; height: 18px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; background: #e5f0e7; color: var(--brand-primary); font-size: 10px; font-weight: 750; }
 .reasoning-step-label { color: var(--ink); font-weight: 650; }
-.reasoning-step-detail { display: block; color: var(--muted); font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
 .reasoning-summary .message-tools { margin-top: 12px; }
 .reasoning-summary-footnote { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
@@ -906,6 +827,17 @@
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
+.composer .melon-sender {
+  min-height: 94px;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.composer .melon-sender:focus-within { border: 0; box-shadow: none; }
+.composer .melon-sender textarea { min-height: 38px; max-height: 180px; padding: 3px 2px; color: var(--ink); font-family: var(--font-ui); font-size: 16px; line-height: 1.6; resize: none; }
+.composer .melon-sender textarea::placeholder { color: #84958a; }
+.composer .melon-sender .ant-sender-footer { padding: 0; }
+
 .composer:focus-within {
   border-color: #8fbea0;
   box-shadow: 0 0 0 3px rgba(23, 107, 74, 0.1),
@@ -952,30 +884,11 @@
   max-width: min(220px, 48%);
 }
 
-.model-picker select {
-  min-height: 27px;
-  max-width: 100%;
-  padding: 2px 24px 2px 9px;
-  cursor: pointer;
-  color: var(--ink);
-  border: 1px solid rgba(32, 57, 46, 0.16);
-  border-radius: 9px;
-  outline: 0;
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  appearance: auto;
-}
-
-.model-picker select:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.model-picker select:focus-visible {
-  outline: 2px solid rgba(23, 107, 74, 0.28);
-  outline-offset: 2px;
-}
+.model-picker.ant-select { min-width: 110px; }
+.model-picker.ant-select .ant-select-selector { min-height: 27px; padding: 2px 9px !important; border: 1px solid rgba(32, 57, 46, 0.16); border-radius: 9px; background: transparent; }
+.model-picker.ant-select .ant-select-selection-item { font-size: 12px; line-height: 21px; }
+.model-picker.ant-select-disabled { cursor: not-allowed; opacity: 0.55; }
+.model-picker.ant-select:focus-visible { outline: 2px solid rgba(23, 107, 74, 0.28); outline-offset: 2px; }
 
 .composer-meta {
   display: flex;
@@ -1004,6 +917,14 @@
   text-align: center;
   font-size: 12px;
 }
+
+.prompt-grid.ant-prompts { display: block; }
+.prompt-grid.ant-prompts .ant-prompts-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.prompt-grid.ant-prompts .ant-prompts-item { min-width: 0; border: 1px solid #dbe8dc; border-radius: 12px; background: #fff; color: var(--ink); }
+.prompt-grid.ant-prompts .ant-prompts-item:hover { border-color: #8fbea0; background: #f4faf4; }
+.prompt-grid.ant-prompts .prompt-icon { color: var(--brand-primary); }
+.prompt-grid.ant-prompts .ant-prompts-item:nth-child(3) .prompt-icon { color: var(--brand-coral); }
+@media (max-width: 640px) { .prompt-grid.ant-prompts .ant-prompts-list { grid-template-columns: 1fr; } }
 
 .send-button {
   width: 32px;
@@ -1055,6 +976,7 @@
     margin-right: auto;
     margin-left: auto;
   }
+  .prompt-grid.ant-prompts .ant-prompts-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
@@ -1097,16 +1019,6 @@
   .prompt-grid {
     gap: 9px;
     margin-top: 24px;
-  }
-
-  .prompt-card {
-    min-height: 78px;
-    grid-template-columns: 22px minmax(0, 1fr) 18px;
-    padding: 12px;
-  }
-
-  .prompt-card small {
-    margin-top: 4px;
   }
 
   .composer-wrap {
@@ -1160,13 +1072,6 @@
 
   .model-picker {
     max-width: 48%;
-  }
-
-  .model-picker select {
-    max-width: 100%;
-    padding-left: 8px;
-    padding-right: 22px;
-    font-size: 12px;
   }
 }
 

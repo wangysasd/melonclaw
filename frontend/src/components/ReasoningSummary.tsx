@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ThoughtChain from "@ant-design/x/es/thought-chain";
 
 import { Icon } from "./Icon";
 import { ToolTimeline } from "./ToolTimeline";
@@ -57,6 +58,7 @@ export function buildReasoningSteps(
   }
   if (status === "completed") steps.push({ label: "回复已生成" });
   if (status === "failed") steps.push({ label: "执行未完成" });
+  if (status === "cancelled") steps.push({ label: "回复已中止" });
   if (status === "interrupted" && !phases.includes("waiting")) {
     steps.push({ label: "等待你的确认" });
   }
@@ -73,7 +75,17 @@ export function ReasoningSummary({
   status: MessageStatus | "streaming" | null;
 }) {
   const [expanded, setExpanded] = useState(status === "streaming");
+  const userToggledRef = useRef(false);
   const steps = useMemo(() => buildReasoningSteps(phases, events, status), [phases, events, status]);
+  const displaySteps = useMemo(
+    () => events.length > 0
+      ? steps.filter((step) => step.label !== "已调用相关工具" && step.label !== "已委派子任务")
+      : steps,
+    [events.length, steps],
+  );
+  useEffect(() => {
+    if (!userToggledRef.current) setExpanded(status === "streaming");
+  }, [status]);
   if (steps.length === 0 && events.length === 0) return null;
 
   return (
@@ -82,25 +94,27 @@ export function ReasoningSummary({
       open={expanded}
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
-      <summary className="reasoning-summary-head">
+      <summary className="reasoning-summary-head" onClick={() => { userToggledRef.current = true; }}>
         <Icon name="list-checks" size={16} />
         <span className="reasoning-summary-title">思路摘要</span>
         <span className="reasoning-summary-note">执行阶段与工具活动</span>
         <Icon name="chevron-right" size={15} className="reasoning-summary-chevron" />
       </summary>
       <div className="reasoning-summary-body">
-        {steps.length > 0 ? (
-          <ol className="reasoning-steps">
-            {steps.map((step, index) => (
-              <li key={`${step.label}-${index}`}>
-                <span className="reasoning-step-marker">{index + 1}</span>
-                <span>
-                  <span className="reasoning-step-label">{step.label}</span>
-                  {step.detail ? <span className="reasoning-step-detail">{step.detail}</span> : null}
-                </span>
-              </li>
-            ))}
-          </ol>
+        {displaySteps.length > 0 ? (
+          <ThoughtChain
+            className="reasoning-thought-chain"
+            line="solid"
+            items={displaySteps.map((step, index) => ({
+              key: `${step.label}-${index}`,
+              title: <span className="reasoning-step-label">{step.label}</span>,
+              description: step.detail,
+              status: (status === "streaming" || status === "pending") && index === displaySteps.length - 1 ? "loading" :
+                status === "failed" && index === displaySteps.length - 1 ? "error" :
+                  (status === "interrupted" && (index === displaySteps.length - 1 || step.label === PHASE_LABELS.waiting)) ||
+                    (status === "cancelled" && index === displaySteps.length - 1) ? "abort" : "success",
+            }))}
+          />
         ) : null}
         {events.length > 0 ? <ToolTimeline events={events} messageStatus={status} /> : null}
         <p className="reasoning-summary-footnote">这里显示可验证的执行摘要，不包含模型隐藏推理文本。</p>

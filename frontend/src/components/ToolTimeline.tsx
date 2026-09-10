@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
+import ThoughtChain from "@ant-design/x/es/thought-chain";
 
 import { Icon } from "./Icon";
 import type { DisplayEvent, MessageStatus } from "../types/api";
@@ -57,6 +58,7 @@ function hasFailure(entry: TimelineEntry): boolean {
 function normalizeToolStatus(status: unknown): ToolStatus {
   if (status === "failed") return "failed";
   if (status === "completed") return "completed";
+  if (status === "waiting" || status === "interrupted") return "waiting";
   return "started";
 }
 
@@ -167,7 +169,7 @@ export function buildTimeline(events: DisplayEvent[], messageStatus?: MessageSta
         const key = eventKey(event);
         const tool = ensureTool(key, event.name, "started");
         appendRoot(tool);
-        tool.status = event.status === "failed" ? "failed" : "completed";
+        tool.status = event.status === "failed" ? "failed" : event.status === "waiting" ? "waiting" : "completed";
         tool.output = formatToolValue(event.content, "<无文本输出>");
         break;
       }
@@ -200,7 +202,7 @@ export function buildTimeline(events: DisplayEvent[], messageStatus?: MessageSta
         const key = eventKey(event);
         const tool = ensureTool(key, event.name, "started");
         if (!node.tools.includes(tool)) node.tools.push(tool);
-        tool.status = event.status === "failed" ? "failed" : "completed";
+        tool.status = event.status === "failed" ? "failed" : event.status === "waiting" ? "waiting" : "completed";
         tool.output = formatToolValue(event.content, "<无文本输出>");
         node.toolCount = node.tools.length;
         break;
@@ -357,15 +359,27 @@ function TimelineEntryView({ entry }: { entry: TimelineEntry }): ReactNode {
 export const ToolTimeline = memo(function ToolTimeline({ events, messageStatus }: { events: DisplayEvent[]; messageStatus?: MessageStatus | "streaming" | null }) {
   const timeline = useMemo(() => buildTimeline(events, messageStatus), [events, messageStatus]);
   if (timeline.length === 0) return null;
+  const thoughtItems = timeline.map((entry) => {
+    const status = entry.status === "failed" || hasFailure(entry) ? "error" as const
+      : entry.status === "completed" ? "success" as const
+        : entry.status === "waiting" || entry.status === "unknown" ? "abort" as const
+          : "loading" as const;
+    const title = entry.kind === "tool"
+      ? `${toolSummary(entry.name)} · ${TOOL_STATUS_LABELS[entry.status]}`
+      : `${entry.name} · ${SUBAGENT_STATUS_LABELS[entry.status]}`;
+    return {
+      key: entry.kind === "tool" ? entry.key : entry.id,
+      title,
+      status,
+      // 保留旧卡片作为详情内容，ThoughtChain 负责阶段的统一层级与状态线。
+      content: <TimelineEntryView entry={entry} />,
+      collapsible: false,
+    };
+  });
   return (
     <div className="message-tools" aria-label="工具活动">
       <div className="tool-detail-label">工具活动 · {timeline.length} 项</div>
-      {timeline.map((entry) => (
-        <TimelineEntryView
-          key={entry.kind === "tool" ? entry.key : entry.id}
-          entry={entry}
-        />
-      ))}
+      <ThoughtChain className="tool-thought-chain" line="solid" items={thoughtItems} />
     </div>
   );
 });

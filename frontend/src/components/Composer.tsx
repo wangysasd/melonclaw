@@ -1,4 +1,6 @@
-import { useLayoutEffect, useRef, type FormEvent } from "react";
+import { useRef } from "react";
+import { Select } from "antd";
+import Sender from "@ant-design/x/es/sender";
 
 import { Icon } from "./Icon";
 import { useSession } from "../state/session";
@@ -10,11 +12,11 @@ export interface ComposerProps {
   disabled: boolean;
 }
 
-/** 输入区：恢复旧版 textarea/form 布局，Enter 发送、Shift+Enter 换行。 */
+/** Sender 仅负责输入展示；模型快照与发送恢复仍由现有聊天流管理。 */
 export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
   const session = useSession();
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
+  const submittingRef = useRef(false);
 
   let placeholder = "输入你想聊的事情…";
   if (!session.contextReady) {
@@ -35,7 +37,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     session.projects.length > 0;
 
   const inputDisabled = !canUse;
-  const sendDisabled = inputDisabled || disabled || !value.trim();
+  const sendDisabled = inputDisabled || disabled || session.busy || session.runStatus === "waiting" || session.conversationCreating || !value.trim();
   const modelOptions = session.modelOptions ?? [];
   const selectedModelId =
     session.selectedModelId || modelOptions.find((item) => item.available)?.id || "";
@@ -43,82 +45,85 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     ? "准备中"
     : session.runStatus === "waiting"
       ? "等待确认"
-    : session.busy
-      ? "处理中"
-      : "发送";
+      : session.busy
+        ? "处理中"
+        : "发送";
+  const sendIcon = session.conversationCreating || session.busy
+    ? "loader-circle"
+    : session.runStatus === "waiting"
+      ? "shield-check"
+      : "arrow-up";
 
-  useLayoutEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.style.height = "auto";
-    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
-  }, [value]);
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!sendDisabled) onSend(value);
+  const submit = () => {
+    if (sendDisabled || composingRef.current || submittingRef.current) return;
+    submittingRef.current = true;
+    try { onSend(value); } finally {
+      queueMicrotask(() => { submittingRef.current = false; });
+    }
   };
 
   return (
     <div className="composer-wrap">
-      <form className="composer" onSubmit={submit}>
-        <textarea
-          ref={inputRef}
-          rows={1}
+      <div className="composer" onCompositionStartCapture={() => { composingRef.current = true; }}
+        onCompositionEndCapture={() => { composingRef.current = false; }}>
+        <Sender
+          className="melon-sender"
           value={value}
           placeholder={placeholder}
           aria-label="输入内容"
           aria-describedby="composer-hint"
           disabled={inputDisabled}
-          onChange={(event) => onChange(event.currentTarget.value)}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={() => {
-            composingRef.current = false;
-          }}
+          loading={session.busy || session.conversationCreating}
+          onChange={(nextValue) => onChange(nextValue)}
+          onSubmit={submit}
+          submitType="enter"
+          autoSize={{ minRows: 1, maxRows: 6 }}
+          suffix={false}
           onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              !event.shiftKey &&
-              !event.nativeEvent.isComposing &&
-              !composingRef.current
-            ) {
+            if (event.nativeEvent.isComposing || event.keyCode === 229 || composingRef.current) return false;
+            if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
               event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
+              submit();
+              return false;
             }
           }}
-        />
-        <div className="composer-bottom">
-          {modelOptions.length > 0 ? (
-            <label className="model-picker">
-              <span className="sr-only">选择模型</span>
-              <select
-                aria-label="选择模型"
-                value={selectedModelId}
-                disabled={inputDisabled || session.conversationCreating}
-                title="模型选择从下一条消息生效"
-                onChange={(event) => session.selectModel?.(event.currentTarget.value)}
+          footer={
+            <div className="composer-bottom">
+              {modelOptions.length > 0 ? (
+                <Select
+                  className="model-picker"
+                  aria-label="选择模型"
+                  value={selectedModelId || undefined}
+                  disabled={inputDisabled || session.conversationCreating}
+                  title="模型选择从下一条消息生效"
+                  options={modelOptions.map((option) => ({
+                    key: option.id,
+                    value: option.id,
+                    label: option.model,
+                    disabled: !option.available,
+                  }))}
+                  onChange={(modelId) => session.selectModel?.(modelId)}
+                />
+              ) : null}
+              <button
+                className="send-button"
+                type="button"
+                onClick={submit}
+                disabled={sendDisabled}
+                aria-label={sendLabel}
+                aria-busy={session.busy || session.conversationCreating}
+                title={sendLabel}
               >
-                {modelOptions.map((option) => (
-                  <option key={option.id} value={option.id} disabled={!option.available}>
-                    {option.model}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <button
-            className="send-button"
-            type="submit"
-            disabled={sendDisabled}
-            aria-label={sendLabel}
-            aria-busy={session.busy || session.conversationCreating}
-          >
-            <Icon name="arrow-up" size={18} className="send-arrow" />
-          </button>
-        </div>
-      </form>
+                <Icon
+                  name={sendIcon}
+                  size={18}
+                  className={sendIcon === "loader-circle" ? "send-arrow mc-icon-spin" : "send-arrow"}
+                />
+              </button>
+            </div>
+          }
+        />
+      </div>
       <div className="composer-meta">
         <div className="composer-hint" id="composer-hint">
           <Icon name="message-circle" size={15} /> Enter 发送 · Shift + Enter 换行

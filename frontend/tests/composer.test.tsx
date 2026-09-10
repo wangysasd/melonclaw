@@ -44,7 +44,8 @@ describe("composer", () => {
     expect(input.disabled).toBe(false);
     const picker = screen.getByRole("combobox", { name: "选择模型" }) as HTMLSelectElement;
     expect(picker.disabled).toBe(false);
-    fireEvent.change(picker, { target: { value: "system:deepseek:pro" } });
+    fireEvent.mouseDown(picker);
+    fireEvent.click(screen.getByText("deepseek-v4-pro"));
     expect(session.selectModel).toHaveBeenCalledWith("system:deepseek:pro");
     fireEvent.change(input, { target: { value: "next draft" } });
     expect(onChange).toHaveBeenCalledWith("next draft");
@@ -62,18 +63,44 @@ describe("composer", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it("submits a non-empty draft once on Enter", () => {
+    session.busy = false;
+    session.runStatus = null;
+    const onSend = vi.fn();
+    render(<Composer value="你好" onChange={vi.fn()} onSend={onSend} disabled={false} />);
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("你好");
+  });
+
+  it("submits after an initially empty draft is edited", () => {
+    const onSend = vi.fn();
+    const view = render(<Composer value="" onChange={vi.fn()} onSend={onSend} disabled={false} />);
+    view.rerender(<Composer value="后来输入" onChange={vi.fn()} onSend={onSend} disabled={false} />);
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("后来输入");
+  });
+
+  it("keeps whitespace-only drafts unsendable", () => {
+    const onSend = vi.fn();
+    render(<Composer value={"   \n"} onChange={vi.fn()} onSend={onSend} disabled={false} />);
+    const sendButton = screen.getByRole("button", { name: "发送" });
+    expect((sendButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it("shows model choices to the left of send and reports a selection", () => {
     render(<Composer value="你好" onChange={vi.fn()} onSend={vi.fn()} disabled={false} />);
     const picker = screen.getByRole("combobox", { name: "选择模型" }) as HTMLSelectElement;
     const sendButton = screen.getByRole("button", { name: "发送" });
-    expect(picker.value).toBe("system:deepseek:flash");
-    expect(picker.options[0]?.textContent).toBe("deepseek-v4-flash");
-    expect(picker.options[1]?.textContent).toBe("deepseek-v4-pro");
+    expect(screen.getByText("deepseek-v4-flash")).toBeTruthy();
     expect(sendButton.textContent).toBe("");
     expect(
       picker.compareDocumentPosition(sendButton) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    fireEvent.change(picker, { target: { value: "system:deepseek:pro" } });
+    fireEvent.mouseDown(picker);
+    fireEvent.click(screen.getByText("deepseek-v4-pro"));
     expect(session.selectModel).toHaveBeenCalledWith("system:deepseek:pro");
   });
 });

@@ -1,4 +1,5 @@
 import { App as AntdApp, ConfigProvider } from "antd";
+import XProvider from "@ant-design/x/es/x-provider";
 import zhCN from "antd/locale/zh_CN";
 import { useEffect, useState } from "react";
 
@@ -49,11 +50,13 @@ function Workspace() {
 export default function App() {
   return (
     <ConfigProvider theme={antdTheme} locale={zhCN}>
-      <AntdApp>
-        <SessionProvider>
-          <Workspace />
-        </SessionProvider>
-      </AntdApp>
+      <XProvider theme={antdTheme}>
+        <AntdApp>
+          <SessionProvider>
+            <Workspace />
+          </SessionProvider>
+        </AntdApp>
+      </XProvider>
     </ConfigProvider>
   );
 }
