@@ -218,6 +218,11 @@ class ConversationRepositoryMixin:
         user_id: str,
         request_id: str,
         content: str,
+        *,
+        model_id: str,
+        model_provider: str,
+        model_name: str,
+        model_display_name: str,
     ) -> PreparedMessagePair:
         timestamp = _now()
         user_message_id = uuid4()
@@ -256,6 +261,10 @@ class ConversationRepositoryMixin:
                         "status": "completed",
                         "display_metadata": {},
                         "error_code": None,
+                        "model_id": None,
+                        "model_provider": None,
+                        "model_name": None,
+                        "model_display_name": None,
                         "created_at": timestamp,
                         "updated_at": timestamp,
                     },
@@ -269,6 +278,10 @@ class ConversationRepositoryMixin:
                         "status": "pending",
                         "display_metadata": {},
                         "error_code": None,
+                        "model_id": model_id,
+                        "model_provider": model_provider,
+                        "model_name": model_name,
+                        "model_display_name": model_display_name,
                         "created_at": timestamp,
                         "updated_at": timestamp,
                     },
@@ -289,6 +302,7 @@ class ConversationRepositoryMixin:
             "status": "completed",
             "display_metadata": {},
             "error_code": None,
+            "model": None,
             "created_at": _as_iso(timestamp),
             "updated_at": _as_iso(timestamp),
         }
@@ -299,6 +313,12 @@ class ConversationRepositoryMixin:
             "role": "assistant",
             "content": "",
             "status": "pending",
+            "model": {
+                "id": model_id,
+                "display_name": model_display_name,
+                "provider": model_provider,
+                "model": model_name,
+            },
         }
         return PreparedMessagePair(request_id, user_message, assistant_message)
 
@@ -393,4 +413,3 @@ class ConversationRepositoryMixin:
                 .values(updated_at=values["updated_at"])
             )
         return _message_dict(row)
-

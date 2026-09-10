@@ -14,6 +14,7 @@ import type {
   ApprovalDecision,
   DisplayEvent,
   MessageStatus,
+  MessageModel,
   PendingApproval,
   StreamEvent,
 } from "../types/api";
@@ -33,6 +34,7 @@ export interface ChatMessage {
   markdown: boolean;
   /** 工具/子代理轨迹事件，与最终回复分层展示。 */
   events: DisplayEvent[];
+  model?: MessageModel | null;
   /** 乐观渲染的临时消息（未收到 message_started 前）。 */
   optimistic?: boolean;
 }
@@ -65,6 +67,7 @@ type ChatAction =
       assistantMessageId: string;
       userMessageId: string | null;
       resuming?: boolean;
+      model?: MessageModel;
     }
   | { type: "text"; text: string }
   | { type: "displayEvent"; event: DisplayEvent }
@@ -143,7 +146,13 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         error: null,
         messages: state.messages.map((message) => {
           if (message.role === "assistant" && (message.optimistic || message.id === action.assistantMessageId)) {
-            return { ...message, id: action.assistantMessageId, status: "streaming", optimistic: false };
+            return {
+              ...message,
+              id: action.assistantMessageId,
+              status: "streaming",
+              model: action.model ?? message.model,
+              optimistic: false,
+            };
           }
           if (
             message.role === "user" &&
@@ -230,6 +239,7 @@ interface SendContext {
   userId: string;
   tenantId: string;
   projectId: string;
+  modelId: string;
   draft: string;
 }
 
@@ -316,6 +326,7 @@ export function useChatStream({
             assistantMessageId: event.message_id,
             userMessageId: event.user_message_id,
             resuming: event.resuming,
+            model: event.model,
           });
           break;
         case "text":
@@ -522,6 +533,7 @@ export function useChatStream({
       const startUserId = snapshot.userId;
       const startTenantId = snapshot.tenantId;
       const startProjectId = snapshot.projectId;
+      const startModelId = snapshot.selectedModelId || "";
       let conversationId = snapshot.conversationId;
       if (!conversationId) {
         const conversation = await snapshot.newConversation();
@@ -542,6 +554,7 @@ export function useChatStream({
         userId: sessionRef.current.userId,
         tenantId: sessionRef.current.tenantId,
         projectId: sessionRef.current.projectId,
+        modelId: startModelId,
         draft: cleanText,
       };
       const requestId = crypto.randomUUID();
@@ -586,6 +599,7 @@ export function useChatStream({
               tenantId: context.tenantId,
               requestId,
               content: cleanText,
+              modelId: context.modelId || null,
             },
             handlers,
           ),
@@ -612,6 +626,7 @@ export function useChatStream({
         userId: snapshot.userId,
         tenantId: snapshot.tenantId,
         projectId: snapshot.projectId,
+        modelId: snapshot.selectedModelId || "",
         draft: "",
       };
       const succeeded = await runStream(
@@ -680,6 +695,7 @@ export function useChatStream({
             timestamp: item.created_at ?? null,
             markdown: item.role !== "user",
             events: item.display_metadata?.events ?? [],
+            model: item.model ?? null,
           };
         });
         dispatch({

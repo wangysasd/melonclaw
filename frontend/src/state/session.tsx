@@ -14,6 +14,7 @@ import {
   createConversation as apiCreateConversation,
   createProject as apiCreateProject,
   getStatus,
+  listModels,
   listConversations,
   listDevUsers,
   listProjects,
@@ -21,6 +22,7 @@ import {
 import type {
   ConversationSummary,
   DevUser,
+  ModelOption,
   Project,
   ServiceStatus,
 } from "../types/api";
@@ -28,6 +30,7 @@ import {
   TENANT_STORAGE_KEY,
   USER_STORAGE_KEY,
   conversationStorageKey,
+  modelStorageKey,
   projectStorageKey,
   readStorage,
   writeStorage,
@@ -50,6 +53,8 @@ export interface SessionState {
   users: DevUser[];
   projects: Project[];
   conversations: ConversationSummary[];
+  modelOptions: ModelOption[];
+  selectedModelId: string;
   conversationCursor: string | null;
   userId: string;
   tenantId: string;
@@ -82,6 +87,12 @@ type SessionAction =
       cursor: string | null;
     }
   | { type: "conversationsCleared" }
+  | {
+      type: "modelsLoaded";
+      items: ModelOption[];
+      selectedModelId: string;
+    }
+  | { type: "modelsCleared" }
   | { type: "contextCleared" }
   | { type: "projectSelected"; projectId: string }
   | { type: "conversationSelected"; conversationId: string | null }
@@ -99,6 +110,8 @@ const INITIAL_STATE: SessionState = {
   users: [],
   projects: [],
   conversations: [],
+  modelOptions: [],
+  selectedModelId: "",
   conversationCursor: null,
   userId: readStorage(USER_STORAGE_KEY) ?? "",
   tenantId: readStorage(TENANT_STORAGE_KEY) ?? "",
@@ -142,6 +155,14 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         conversationCursor: null,
         conversationId: null,
       };
+    case "modelsLoaded":
+      return {
+        ...state,
+        modelOptions: action.items,
+        selectedModelId: action.selectedModelId,
+      };
+    case "modelsCleared":
+      return { ...state, modelOptions: [], selectedModelId: "" };
     case "contextCleared":
       // 关闭项目：清空项目与会话选择（contextReady 不变，对齐旧 closeProject）。
       return {
@@ -162,7 +183,12 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         tenantId: action.tenantId,
         contextReady: false,
         ...(action.resetContext
-          ? { projectId: "", conversationId: null }
+          ? {
+              projectId: "",
+              conversationId: null,
+              modelOptions: [],
+              selectedModelId: "",
+            }
           : {}),
       };
     case "conversationCreated":
@@ -211,6 +237,7 @@ export interface SessionContextValue extends SessionState {
   selectConversation: (conversationId: string) => void;
   loadMoreConversations: () => Promise<void>;
   refreshConversations: () => Promise<void>;
+  selectModel: (modelId: string) => void;
   newConversation: () => Promise<ConversationSummary | null>;
   setBusy: (busy: boolean) => void;
   setRunStatus: (runStatus: RunStatus | null) => void;
@@ -372,6 +399,37 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [contextMatches, dispatchSync]);
 
+  const loadModelsInternal = useCallback(async () => {
+    const generation = generationRef.current;
+    const { userId, tenantId } = stateRef.current;
+    try {
+      const data = await listModels({ userId, tenantId });
+      if (!contextMatches(generation, { userId, tenantId })) return;
+      const saved = readStorage(modelStorageKey(userId, tenantId)) ?? "";
+      const availableItems = data.items.filter((item) => item.available);
+      const selectedModelId = data.items.some(
+        (item) => item.id === saved && item.available,
+      )
+        ? saved
+        : data.items.some(
+              (item) => item.id === data.default_model_id && item.available,
+            )
+          ? data.default_model_id
+          : availableItems[0]?.id || "";
+      writeStorage(modelStorageKey(userId, tenantId), selectedModelId);
+      dispatchSync({
+        type: "modelsLoaded",
+        items: data.items,
+        selectedModelId,
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (contextMatches(generation, { userId, tenantId })) {
+        message.error(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }, [contextMatches, dispatchSync, message]);
+
   const changeUser = useCallback(
     async (userId: string) => {
       const snapshot = stateRef.current;
@@ -389,7 +447,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       writeStorage(TENANT_STORAGE_KEY, tenantId);
       dispatchSync({ type: "userSwitched", userId, tenantId, resetContext: tenantChanged });
       try {
-        await loadProjectsInternal();
+        await Promise.all([loadModelsInternal(), loadProjectsInternal()]);
         await loadConversationsInternal({ append: false, refreshOnly: false });
       } catch (error) {
         message.error(error instanceof Error ? error.message : String(error));
@@ -400,6 +458,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       bumpGeneration,
       dispatchSync,
       loadConversationsInternal,
+      loadModelsInternal,
       loadProjectsInternal,
       message,
     ],
@@ -561,6 +620,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     dispatchSync({ type: "runStatus", runStatus });
   }, [dispatchSync]);
 
+  const selectModel = useCallback((modelId: string) => {
+    const snapshot = stateRef.current;
+    const option = snapshot.modelOptions.find((item) => item.id === modelId);
+    if (!option || !option.available) return;
+    writeStorage(modelStorageKey(snapshot.userId, snapshot.tenantId), modelId);
+    dispatchSync({
+      type: "modelsLoaded",
+      items: snapshot.modelOptions,
+      selectedModelId: modelId,
+    });
+  }, [dispatchSync]);
+
   const attachStream = useCallback((controller: AbortController | null) => {
     streamControllerRef.current = controller;
   }, []);
@@ -608,7 +679,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         writeStorage(TENANT_STORAGE_KEY, tenantId);
         dispatchSync({ type: "bootstrapUsers", users, userId, tenantId });
 
-        await loadProjectsInternal();
+        await Promise.all([loadModelsInternal(), loadProjectsInternal()]);
         if (cancelled) return;
         await loadConversationsInternal({
           append: false,
@@ -660,6 +731,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       selectConversation,
       loadMoreConversations,
       refreshConversations,
+      selectModel,
       newConversation,
       setBusy,
       setRunStatus,
@@ -674,6 +746,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       selectConversation,
       loadMoreConversations,
       refreshConversations,
+      selectModel,
       newConversation,
       setBusy,
       setRunStatus,

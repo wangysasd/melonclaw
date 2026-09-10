@@ -74,7 +74,9 @@ class ChatService:
         return self.runtime.memory_service
 
     @property
-    def project_agents(self) -> dict[str, Any] | None:
+    def project_agents(
+        self,
+    ) -> dict[tuple[str, tuple[str, int, str, str, str]], Any] | None:
         return self.runtime.project_agents
 
     @property
@@ -107,6 +109,16 @@ class ChatService:
 
     async def users(self) -> dict[str, Any]:
         return await self.conversations.users()
+
+    async def models(
+        self,
+        user_id: str,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        """校验当前用户租户上下文后返回系统模型目录。"""
+
+        await self.conversations.resolve_user(user_id, tenant_id)
+        return self.runtime.models()
 
     def _require_ready(self) -> BusinessRepository:
         return self.runtime.require_ready()
@@ -188,6 +200,7 @@ class ChatService:
         user_id: str,
         request_id: str,
         content: str,
+        model_id: str | None = None,
         tenant_id: str | None = None,
     ) -> PreparedExecution:
         return await self.execution.prepare_message(
@@ -195,7 +208,8 @@ class ChatService:
             user_id,
             request_id,
             content,
-            tenant_id,
+            model_id=model_id,
+            tenant_id=tenant_id,
         )
 
     async def prepare_approval(

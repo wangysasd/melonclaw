@@ -15,6 +15,7 @@ from melonclaw.database.constants import (
     DEFAULT_PROJECT_NAME,
     DEFAULT_PROJECT_SCHEMA_VERSION,
     MEMORY_SCHEMA_VERSION,
+    MODEL_SELECTION_SCHEMA_VERSION,
     MULTITENANT_SCHEMA_VERSION,
     PROJECT_SCHEMA_VERSION,
     STORE_TABLES,
@@ -140,6 +141,32 @@ class SchemaMigrationMixin:
                 lambda sync_connection: metadata.create_all(
                     sync_connection,
                     tables=[projects, chat_conversations, chat_messages, memory_events],
+                )
+            )
+            # ``create_all`` 不会给已有 chat_messages 增加新列，显式补齐模型
+            # 快照字段以兼容第一阶段上线前创建的数据库。
+            await connection.execute(
+                text(
+                    "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "
+                    "model_id VARCHAR(160)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "
+                    "model_provider VARCHAR(80)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "
+                    "model_name VARCHAR(160)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "
+                    "model_display_name VARCHAR(120)"
                 )
             )
 
@@ -424,6 +451,20 @@ class SchemaMigrationMixin:
                 )
             )
 
+        model_selection_migration_exists = await connection.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = :version)"
+            ),
+            {"version": MODEL_SELECTION_SCHEMA_VERSION},
+        )
+        if not model_selection_migration_exists.scalar():
+            await connection.execute(
+                insert(schema_migrations).values(
+                    version=MODEL_SELECTION_SCHEMA_VERSION,
+                    applied_at=_now(),
+                )
+            )
+
     async def verify_schema(
         self,
         *,
@@ -450,5 +491,3 @@ class SchemaMigrationMixin:
             raise DatabaseSchemaError(
                 f"数据库尚未初始化，缺少表：{required}。请先运行 uv run melonclaw-db-init。"
             )
-
-

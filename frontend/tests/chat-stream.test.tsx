@@ -19,6 +19,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.session = {
     conversationId: "c1", userId: "u", tenantId: "t", projectId: "p", epoch: 1,
+    selectedModelId: "system:deepseek:flash",
+    modelOptions: [{ id: "system:deepseek:flash", display_name: "DeepSeek Flash", source: "system", provider: "deepseek", model: "deepseek-v4-flash", available: true, is_default: true }],
     contextReady: true, busy: false, conversationCreating: false, projects: [{ id: "p", name: "p" }], status: { status: "ready" },
     setBusy: vi.fn((value) => { mocks.session.busy = value; }),
     setRunStatus: vi.fn((value) => { mocks.session.runStatus = value; }),
@@ -28,6 +30,36 @@ beforeEach(() => {
 });
 
 describe("chat run lifecycle", () => {
+  it("sends the selected model ID and records it on the streaming reply", async () => {
+    vi.mocked(sendMessageStream).mockImplementation(async (_id, _input, { onEvent }) => {
+      onEvent({
+        type: "message_started",
+        conversation_id: "c1",
+        request_id: "r",
+        user_message_id: "u1",
+        message_id: "a1",
+        model: {
+          id: "system:deepseek:flash",
+          display_name: "DeepSeek Flash",
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+        },
+      });
+      onEvent({ type: "completed", message_id: "a1", content: "你好" });
+      onEvent({ type: "done", terminal_reason: "completed" });
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    await act(() => result.current.sendMessage("test"));
+    expect(vi.mocked(sendMessageStream).mock.calls[0]?.[1]).toMatchObject({
+      modelId: "system:deepseek:flash",
+    });
+    expect(result.current.state.messages[1]).toMatchObject({
+      content: "你好",
+      model: { id: "system:deepseek:flash", model: "deepseek-v4-flash" },
+    });
+  });
+
   it("ignores a late history response after sending", async () => {
     const history = deferred<ConversationHistory>();
     vi.mocked(getConversationHistory).mockReturnValue(history.promise);

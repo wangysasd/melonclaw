@@ -36,6 +36,9 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
 
   const inputDisabled = !canUse;
   const sendDisabled = inputDisabled || disabled || !value.trim();
+  const modelOptions = session.modelOptions ?? [];
+  const selectedModelId =
+    session.selectedModelId || modelOptions.find((item) => item.available)?.id || "";
   const sendLabel = session.conversationCreating
     ? "准备中"
     : session.runStatus === "waiting"
@@ -87,19 +90,31 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
           }}
         />
         <div className="composer-bottom">
+          {modelOptions.length > 0 ? (
+            <label className="model-picker">
+              <span className="sr-only">选择模型</span>
+              <select
+                aria-label="选择模型"
+                value={selectedModelId}
+                disabled={inputDisabled || disabled || session.busy}
+                onChange={(event) => session.selectModel?.(event.currentTarget.value)}
+              >
+                {modelOptions.map((option) => (
+                  <option key={option.id} value={option.id} disabled={!option.available}>
+                    {option.model}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <button
             className="send-button"
             type="submit"
             disabled={sendDisabled}
+            aria-label={sendLabel}
             aria-busy={session.busy || session.conversationCreating}
           >
-            <span>{sendLabel}</span>
-            <Icon
-              name="arrow-up"
-              size={17}
-              className="send-arrow"
-              style={{ backgroundColor: "rgba(255, 255, 255, 0.18)" }}
-            />
+            <Icon name="arrow-up" size={18} className="send-arrow" />
           </button>
         </div>
       </form>

@@ -140,6 +140,12 @@ chat_messages = Table(
     Column("status", String(16), nullable=False),
     Column("display_metadata", JSONB, nullable=False, server_default="{}"),
     Column("error_code", String(80), nullable=True),
+    # 模型绑定属于本次 assistant run，而不是 Conversation 全局配置。
+    # 这些字段只保存非敏感快照，绝不保存 API Key。
+    Column("model_id", String(160), nullable=True),
+    Column("model_provider", String(80), nullable=True),
+    Column("model_name", String(160), nullable=True),
+    Column("model_display_name", String(120), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint("conversation_id", "seq", name="uq_chat_messages_conversation_seq"),
@@ -188,4 +194,3 @@ memory_events = Table(
         desc("created_at"),
     ),
 )
-

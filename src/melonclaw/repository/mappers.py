@@ -91,6 +91,17 @@ def _project_dict(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _message_dict(row: Mapping[str, Any]) -> dict[str, Any]:
+    model_id = row.get("model_id") if hasattr(row, "get") else None
+    model = (
+        {
+            "id": str(model_id),
+            "display_name": str(row.get("model_display_name") or ""),
+            "provider": str(row.get("model_provider") or ""),
+            "model": str(row.get("model_name") or ""),
+        }
+        if model_id
+        else None
+    )
     return {
         "id": str(row["id"]),
         "conversation_id": str(row["conversation_id"]),
@@ -101,6 +112,7 @@ def _message_dict(row: Mapping[str, Any]) -> dict[str, Any]:
         "status": str(row["status"]),
         "display_metadata": row["display_metadata"] or {},
         "error_code": row["error_code"],
+        "model": model,
         "created_at": _as_iso(row["created_at"]),
         "updated_at": _as_iso(row["updated_at"]),
     }
@@ -149,5 +161,4 @@ def decode_conversation_cursor(cursor: str) -> tuple[datetime, UUID]:
     if updated_at.tzinfo is None:
         updated_at = updated_at.replace(tzinfo=UTC)
     return updated_at, conversation_id
-
 

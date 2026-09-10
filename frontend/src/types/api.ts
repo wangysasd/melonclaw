@@ -22,6 +22,25 @@ export interface ServiceStatus {
   memory_store: string;
 }
 
+/* ---------- 模型目录 ---------- */
+
+/** 第一阶段只返回代码定义的系统模型；后续用户模型沿用同一契约。 */
+export interface ModelOption {
+  id: string;
+  display_name: string;
+  source: "system";
+  provider: string;
+  model: string;
+  available: boolean;
+  is_default: boolean;
+  config_version?: number;
+}
+
+export interface ModelCatalog {
+  items: ModelOption[];
+  default_model_id: string;
+}
+
 /* ---------- 开发用户 ---------- */
 
 /** GET /api/dev/users 响应项（开发模拟用户，非生产认证）。 */
@@ -77,7 +96,17 @@ export interface Message {
   content: string;
   created_at?: string;
   error_code?: string | null;
+  model?: MessageModel | null;
   display_metadata?: { events?: DisplayEvent[] } | null;
+}
+
+/** 消息历史和 SSE 中使用的非敏感模型快照。 */
+export interface MessageModel {
+  id: string;
+  display_name: string;
+  provider: string;
+  model: string;
+  config_version?: number;
 }
 
 /** GET /api/conversations/{id}/messages 响应。 */
@@ -157,6 +186,7 @@ export interface SendMessageInput {
   /** 每次发送生成新的 UUID，用于服务端幂等。 */
   requestId: string;
   content: string;
+  modelId?: string | null;
 }
 
 export interface SendApprovalInput {
@@ -175,6 +205,7 @@ export type StreamEvent =
       user_message_id: string | null;
       message_id: string;
       resuming?: boolean;
+      model?: MessageModel;
     }
   | { type: "text"; text: string }
   | {

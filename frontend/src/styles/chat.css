@@ -861,6 +861,9 @@
 }
 
 .composer {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
   padding: 12px 14px 10px;
   border: 1px solid #cbdacc;
   border-radius: 20px;
@@ -877,7 +880,8 @@
 
 .composer textarea {
   width: 100%;
-  min-height: 32px;
+  min-height: 38px;
+  flex: 1 1 auto;
   max-height: 180px;
   display: block;
   padding: 3px 2px;
@@ -901,11 +905,42 @@
 }
 
 .composer-bottom {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 6px;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.model-picker {
+  position: relative;
+  max-width: min(220px, 48%);
+}
+
+.model-picker select {
+  min-height: 27px;
+  max-width: 100%;
+  padding: 2px 24px 2px 9px;
+  cursor: pointer;
+  color: var(--ink);
+  border: 1px solid rgba(32, 57, 46, 0.16);
+  border-radius: 9px;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  appearance: auto;
+}
+
+.model-picker select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.model-picker select:focus-visible {
+  outline: 2px solid rgba(23, 107, 74, 0.28);
+  outline-offset: 2px;
 }
 
 .composer-meta {
@@ -937,18 +972,18 @@
 }
 
 .send-button {
-  min-height: 36px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 9px 6px 13px;
+  justify-content: center;
+  padding: 0;
   cursor: pointer;
   color: #fff;
   border: 1px solid var(--brand-primary);
-  border-radius: 10px;
+  border-radius: 50%;
   background: var(--brand-primary);
-  font-size: 14px;
-  font-weight: 750;
   transition: background 160ms ease, border-color 160ms ease,
     transform 160ms ease, opacity 160ms ease;
 }
@@ -964,11 +999,15 @@
   opacity: 0.42;
 }
 
+.message-model {
+  color: var(--brand-primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .send-arrow {
-  width: 17px;
-  height: 17px;
-  padding: 3px;
-  border-radius: 5px;
+  width: 16px;
+  height: 16px;
 }
 
 .chat-empty-project {
@@ -1083,6 +1122,17 @@
 
   .composer-hint {
     font-size: 11px;
+  }
+
+  .model-picker {
+    max-width: 48%;
+  }
+
+  .model-picker select {
+    max-width: 100%;
+    padding-left: 8px;
+    padding-right: 22px;
+    font-size: 12px;
   }
 }
 

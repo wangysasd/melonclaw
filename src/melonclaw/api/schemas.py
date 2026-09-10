@@ -25,12 +25,13 @@ class ProjectRequest(BaseModel):
 
 
 class MessageRequest(BaseModel):
-    """浏览器发送给 Agent 的一轮消息和可选用户标签。"""
+    """浏览器发送给 Agent 的一轮消息、模型选择和用户标签。"""
 
     user_id: str = Field(min_length=1, max_length=64)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     request_id: UUID
     content: str = Field(min_length=1, max_length=12000)
+    model_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class ApprovalRequest(BaseModel):

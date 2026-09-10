@@ -34,7 +34,8 @@ async def send_message(
             payload.user_id,
             str(payload.request_id),
             payload.content,
-            payload.tenant_id,
+            model_id=payload.model_id,
+            tenant_id=payload.tenant_id,
         )
     except Exception as exc:  # noqa: BLE001 - 准备阶段需要真实 HTTP 状态码
         return error_response(exc)

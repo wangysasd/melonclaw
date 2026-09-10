@@ -15,6 +15,11 @@ from langgraph.graph.state import CompiledStateGraph
 
 from melonclaw.core.config import Settings
 from melonclaw.core.hitl import SENSITIVE_TOOL_INTERRUPTS
+from melonclaw.core.model_catalog import (
+    ResolvedModel,
+    SYSTEM_DEFAULT_MODEL_ID,
+    resolve_system_model,
+)
 from melonclaw.core.interpreter import (
     INTERPRETER_MAX_PTC_CALLS,
     INTERPRETER_PTC_TOOLS,
@@ -50,6 +55,8 @@ class AgentContext:
     worker_id: str = ""
     tenant_role: str = "member"
     tenant_status: str = "active"
+    model_id: str = SYSTEM_DEFAULT_MODEL_ID
+    model_spec: str = ""
     memory_enabled: bool = False
     memory_admin: bool = False
 
@@ -74,13 +81,13 @@ def _tool_name(tool: object) -> str:
 
 
 def _build_tool_selector_middleware(
-    settings: Settings,
+    provider: str,
     model: BaseChatModel,
     tools: list[object],
 ) -> AgentMiddleware:
-    """按 provider 选择官方或兼容 DeepSeek 的动态工具选择器。"""
+    """按实际模型 provider 选择动态工具选择器。"""
 
-    if settings.provider == "openai":
+    if provider == "openai":
         # 官方 selector 的内部结构化输出也会进入 LangGraph 消息流。只给它使用
         # 的模型副本增加标签，让 Web 事件适配器隐藏这段内部 JSON；主模型不受影响。
         selector_model = model.model_copy(
@@ -97,7 +104,7 @@ def _build_tool_selector_middleware(
             max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
         )
 
-    if settings.provider == "deepseek":
+    if provider in {"deepseek", "minimax"}:
         return CatalogToolSelectorMiddleware(
             model=model,
             catalog_tool_names=[
@@ -108,11 +115,11 @@ def _build_tool_selector_middleware(
             max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
         )
 
-    raise ValueError(f"没有为 provider={settings.provider!r} 配置工具选择器。")
+    raise ValueError(f"没有为 provider={provider!r} 配置工具选择器。")
 
 
-def _tool_selector_summary(settings: Settings) -> str:
-    if settings.provider == "openai":
+def _tool_selector_summary(provider: str) -> str:
+    if provider == "openai":
         return "LangChain 官方 LLMToolSelectorMiddleware"
     return "项目自定义 CatalogToolSelectorMiddleware"
 
@@ -122,6 +129,7 @@ async def build_research_agent(
     *,
     checkpointer: Any | None = None,
     workspace_dir: Path,
+    model: ResolvedModel | None = None,
     runtime_backend: BackendProtocol | None = None,
     memory_service: MemoryService | None = None,
 ) -> CompiledStateGraph:
@@ -137,9 +145,14 @@ async def build_research_agent(
         )
 
     workspace_dir.mkdir(parents=True, exist_ok=True)
-    model: BaseChatModel = build_chat_model(settings)
+    resolved_model = model or resolve_system_model(settings)
+    chat_model: BaseChatModel = build_chat_model(resolved_model)
     tools = await build_agent_tools(settings)
-    tool_selector = _build_tool_selector_middleware(settings, model, tools)
+    tool_selector = _build_tool_selector_middleware(
+        resolved_model.provider,
+        chat_model,
+        tools,
+    )
     interpreter = build_interpreter_middleware()
     backend, skill_sources, skill_permissions = build_agent_backend(
         workspace_dir,
@@ -175,7 +188,7 @@ async def build_research_agent(
             "每轮主模型动态选择工具上限: "
             f"{MAX_SELECTED_TOOLS_PER_MODEL_CALL}"
         )
-        print(f"动态工具选择器: {_tool_selector_summary(settings)}")
+        print(f"动态工具选择器: {_tool_selector_summary(resolved_model.provider)}")
 
     middleware: list[AgentMiddleware] = [
         tool_selector,
@@ -188,7 +201,7 @@ async def build_research_agent(
 
     return create_deep_agent(
         name="quickstart-research-agent",
-        model=model,
+        model=chat_model,
         tools=tools,
         middleware=middleware,
         backend=backend,

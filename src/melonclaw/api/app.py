@@ -13,6 +13,7 @@ from melonclaw.api.routes.chat import router as chat_router
 from melonclaw.api.routes.conversations import router as conversations_router
 from melonclaw.api.routes.projects import router as projects_router
 from melonclaw.api.routes.status import router as status_router
+from melonclaw.api.routes.models import router as models_router
 
 DEFAULT_ALLOWED_ORIGINS = (
     "http://localhost:8001",
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type"],
     )
     application.include_router(status_router)
+    application.include_router(models_router)
     application.include_router(projects_router)
     application.include_router(conversations_router)
     application.include_router(chat_router)

@@ -13,6 +13,11 @@ from psycopg_pool import AsyncConnectionPool
 from melonclaw.backend import project_skills_enabled
 from melonclaw.core.agent import build_research_agent
 from melonclaw.core.config import Settings, load_settings
+from melonclaw.core.model_catalog import (
+    ResolvedModel,
+    list_system_models,
+    resolve_system_model,
+)
 from melonclaw.database import (
     Database,
     DatabaseConfigurationError,
@@ -39,7 +44,7 @@ class ChatRuntime:
     memory_store_context: Any | None = None
     memory_store: Any | None = None
     memory_service: MemoryService | None = None
-    project_agents: dict[str, Any] | None = None
+    project_agents: dict[tuple[str, tuple[str, int, str, str, str]], Any] | None = None
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
 
@@ -135,6 +140,44 @@ class ChatRuntime:
             "memory_store": "connected" if self.memory_store is not None else "",
         }
 
+    def models(self) -> dict[str, Any]:
+        """返回当前部署的系统模型目录，不包含任何凭据。"""
+
+        if self.settings is None:
+            return {"items": [], "default_model_id": ""}
+        items = list_system_models(self.settings)
+        default_model_id = next(
+            (item["id"] for item in items if item.get("is_default")),
+            items[0]["id"] if items else "",
+        )
+        return {"items": items, "default_model_id": default_model_id}
+
+    def resolve_model(
+        self,
+        model_id: str | None = None,
+        *,
+        model_name: str | None = None,
+    ) -> ResolvedModel:
+        if self.settings is None:
+            raise RuntimeError("运行配置尚未加载。")
+        return resolve_system_model(
+            self.settings,
+            model_id,
+            model_name=model_name,
+        )
+
+    def model_for_message(self, message: dict[str, Any]) -> ResolvedModel:
+        """从消息中恢复模型绑定；兼容第一阶段迁移前的旧消息。"""
+
+        return self.resolve_model(
+            message.get("model", {}).get("id") if message.get("model") else None,
+            model_name=(
+                message.get("model", {}).get("model")
+                if message.get("model")
+                else None
+            ),
+        )
+
     def require_ready(self) -> BusinessRepository:
         if not self.ready:
             raise RuntimeError(self.startup_error or "服务仍在启动，请稍候。")
@@ -155,8 +198,12 @@ class ChatRuntime:
         candidate.mkdir(parents=True, exist_ok=True)
         return candidate
 
-    async def agent_for_project(self, project: dict[str, Any]) -> Any:
-        """按 Project 缓存 Agent，使同一 Project 的会话共享文件后端。"""
+    async def agent_for_project(
+        self,
+        project: dict[str, Any],
+        model: ResolvedModel | None = None,
+    ) -> Any:
+        """按 Project + 模型版本缓存 Agent，共享同一 Project 文件后端。"""
 
         self.require_ready()
         if self.settings is None or self.checkpointer is None:
@@ -165,7 +212,8 @@ class ChatRuntime:
             raise RuntimeError("Memory Store 仍在启动，请稍候。")
         if self.project_agents is None:
             self.project_agents = {}
-        key = str(project["id"])
+        resolved_model = model or self.resolve_model()
+        key = (str(project["id"]), resolved_model.cache_key)
         cached = self.project_agents.get(key)
         if cached is not None:
             return cached
@@ -173,6 +221,7 @@ class ChatRuntime:
             self.settings,
             checkpointer=self.checkpointer,
             workspace_dir=self.project_workspace_dir(project),
+            model=resolved_model,
             memory_service=self.memory_service,
         )
         self.project_agents[key] = agent

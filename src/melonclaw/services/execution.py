@@ -16,6 +16,7 @@ from melonclaw.core.hitl import (
     build_resume_command,
     serialize_pending_approval,
 )
+from melonclaw.core.model_catalog import ResolvedModel
 from melonclaw.output.content import content_to_text
 from melonclaw.output.events import DISPLAY_EVENT_TYPES, iter_research_events
 from melonclaw.output.formatting import _preview, sanitize_text
@@ -55,6 +56,7 @@ class PreparedExecution:
     config: dict[str, Any]
     assistant_message_id: UUID
     agent: Any
+    model: ResolvedModel
     lock_connection: AsyncConnection | None = None
     user_message_id: UUID | None = None
     content: str = ""
@@ -76,6 +78,7 @@ class ExecutionService:
         user_id: str,
         request_id: str,
         content: str,
+        model_id: str | None = None,
         tenant_id: str | None = None,
     ) -> PreparedExecution:
         """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。"""
@@ -96,7 +99,6 @@ class ExecutionService:
             conversation,
             context,
         )
-        agent = await self.runtime.agent_for_project(project)
 
         existing = await storage.find_request(
             conversation_id,
@@ -104,6 +106,10 @@ class ExecutionService:
             request_id,
         )
         if existing is not None:
+            # 幂等重试沿用第一次请求实际绑定的模型，即使前端下拉框已经
+            # 切换到了另一个选项。
+            model = self.runtime.model_for_message(existing.assistant_message)
+            agent = await self.runtime.agent_for_project(project, model)
             return await self._prepare_existing_request(
                 conversation_id,
                 context,
@@ -112,8 +118,11 @@ class ExecutionService:
                 existing,
                 agent=agent,
                 project=project,
+                model=model,
             )
 
+        model = self.runtime.resolve_model(model_id)
+        agent = await self.runtime.agent_for_project(project, model)
         lock_connection = await storage.try_advisory_lock(conversation_id)
         if lock_connection is None:
             raise ConversationBusyError("当前会话正在处理另一条消息，请稍候。")
@@ -125,6 +134,13 @@ class ExecutionService:
                 request_id,
             )
             if existing is not None:
+                stored_model = self.runtime.model_for_message(
+                    existing.assistant_message
+                )
+                stored_agent = await self.runtime.agent_for_project(
+                    project,
+                    stored_model,
+                )
                 return await self._prepare_existing_request(
                     conversation_id,
                     context,
@@ -132,8 +148,9 @@ class ExecutionService:
                     clean_content,
                     existing,
                     lock_connection=lock_connection,
-                    agent=agent,
+                    agent=stored_agent,
                     project=project,
+                    model=stored_model,
                 )
             if await aget_pending_approval(
                 agent,
@@ -166,6 +183,10 @@ class ExecutionService:
                 context.user_id,
                 request_id,
                 clean_content,
+                model_id=model.profile_id,
+                model_provider=model.provider,
+                model_name=model.model_name,
+                model_display_name=model.display_name,
             )
             return self._execution_from_pair(
                 conversation_id,
@@ -174,6 +195,7 @@ class ExecutionService:
                 lock_connection,
                 agent,
                 project,
+                model,
                 run_id=str(uuid4()),
                 worker_id=self.runtime.worker_id,
             )
@@ -191,6 +213,7 @@ class ExecutionService:
         *,
         lock_connection: AsyncConnection | None = None,
         agent: Any,
+        model: ResolvedModel,
         project: dict[str, Any],
     ) -> PreparedExecution:
         storage = self.runtime.require_ready()
@@ -251,6 +274,7 @@ class ExecutionService:
                 context,
                 assistant,
                 agent,
+                model,
                 project,
             )
         if lock_connection is not None:
@@ -261,6 +285,7 @@ class ExecutionService:
             context,
             assistant,
             agent,
+            model,
             project,
         )
 
@@ -270,6 +295,7 @@ class ExecutionService:
         context: UserContext,
         assistant: dict[str, Any],
         agent: Any,
+        model: ResolvedModel,
         project: dict[str, Any],
     ) -> PreparedExecution:
         return PreparedExecution(
@@ -288,6 +314,7 @@ class ExecutionService:
             config=self.runtime.conversation_config(conversation_id),
             assistant_message_id=UUID(assistant["id"]),
             agent=agent,
+            model=model,
             replay_message=assistant,
         )
 
@@ -299,6 +326,7 @@ class ExecutionService:
         lock_connection: AsyncConnection,
         agent: Any,
         project: dict[str, Any],
+        model: ResolvedModel,
         *,
         run_id: str,
         worker_id: str,
@@ -319,6 +347,7 @@ class ExecutionService:
             config=ChatRuntime.conversation_config(conversation_id),
             assistant_message_id=UUID(pair.assistant_message["id"]),
             agent=agent,
+            model=model,
             user_message_id=UUID(pair.user_message["id"]),
             content=pair.user_message["content"],
             lock_connection=lock_connection,
@@ -342,19 +371,20 @@ class ExecutionService:
             conversation,
             context,
         )
-        agent = await self.runtime.agent_for_project(project)
-        pending = await aget_pending_approval(
-            agent,
-            self.runtime.conversation_config(conversation_id),
-        )
-        if pending is None:
-            raise ValueError("当前没有等待处理的审批请求。")
         assistant = await storage.get_incomplete_assistant(
             conversation_id,
             context.user_id,
         )
         if assistant is None:
             raise ValueError("找不到等待审批的业务消息记录。")
+        model = self.runtime.model_for_message(assistant)
+        agent = await self.runtime.agent_for_project(project, model)
+        pending = await aget_pending_approval(
+            agent,
+            self.runtime.conversation_config(conversation_id),
+        )
+        if pending is None:
+            raise ValueError("当前没有等待处理的审批请求。")
         lock_connection = await storage.try_advisory_lock(conversation_id)
         if lock_connection is None:
             raise ConversationBusyError("当前会话正在处理另一条消息，请稍候。")
@@ -380,6 +410,7 @@ class ExecutionService:
                 config=self.runtime.conversation_config(conversation_id),
                 assistant_message_id=UUID(assistant["id"]),
                 agent=agent,
+                model=model,
                 lock_connection=lock_connection,
                 content=assistant["content"],
                 resuming=True,
@@ -433,6 +464,7 @@ class ExecutionService:
                 ),
                 "message_id": str(execution.assistant_message_id),
                 "resuming": execution.resuming,
+                "model": execution.model.public_dict(),
             }
             if execution.replay_message is not None:
                 replay = execution.replay_message
@@ -484,6 +516,8 @@ class ExecutionService:
                     worker_id=execution.worker_id,
                     tenant_role=execution.tenant_role,
                     tenant_status=execution.tenant_status,
+                    model_id=execution.model.profile_id,
+                    model_spec=execution.model.model_spec,
                     memory_enabled=True,
                 ),
             ):

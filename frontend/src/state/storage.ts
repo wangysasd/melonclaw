@@ -11,6 +11,10 @@ export const conversationStorageKey = (userId: string): string =>
 export const projectStorageKey = (userId: string): string =>
   `melonclaw.project_id.${userId}`;
 
+/** 模型选择按用户+租户隔离，避免切换开发上下文后带入错误模型。 */
+export const modelStorageKey = (userId: string, tenantId: string): string =>
+  `melonclaw.model_id.${userId}.${tenantId}`;
+
 export function readStorage(key: string): string | null {
   try {
     return localStorage.getItem(key);

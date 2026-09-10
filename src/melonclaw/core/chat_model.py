@@ -4,21 +4,25 @@ from __future__ import annotations
 
 from langchain_openai import ChatOpenAI
 
-from melonclaw.core.config import Settings
+from melonclaw.core.model_catalog import ResolvedModel
 
 
-def build_chat_model(settings: Settings) -> ChatOpenAI:
-    """按项目配置创建模型实例，不在这里打印任何凭据。"""
+def build_chat_model(model: ResolvedModel) -> ChatOpenAI:
+    """按一次运行解析出的模型配置创建 ChatModel，不打印凭据。"""
 
-    settings.validate()
-
-    if settings.provider in {"deepseek", "openai"}:
-        # DeepSeek 也使用 OpenAI 兼容接口；默认通过 DEEPSEEK_BASE_URL 访问 DeepSeek 的 OpenAI API。
-        return ChatOpenAI(
-            model=settings.model_name,
-            api_key=settings.api_key,
-            base_url=settings.base_url,
-            temperature=0,
+    if model.adapter_type != "openai_compatible":
+        raise ValueError(
+            f"没有为 adapter_type={model.adapter_type!r} 配置模型工厂。"
         )
 
-    raise ValueError(f"没有为 provider={settings.provider!r} 配置模型工厂。")
+    if model.provider not in {"deepseek", "minimax", "openai"}:
+        raise ValueError(f"没有为 provider={model.provider!r} 配置模型工厂。")
+
+    # DeepSeek、MiniMax 和 OpenAI 均通过 OpenAI 兼容 ChatModel 接入；实际
+    # Base URL 和 Key 已在 ResolvedModel 中按系统模型槽位解析完成。
+    return ChatOpenAI(
+        model=model.model_name,
+        api_key=model.api_key,
+        base_url=model.base_url,
+        temperature=0,
+    )

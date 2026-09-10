@@ -154,7 +154,16 @@ class ConversationService:
             conversation,
             context,
         )
-        agent = await self.runtime.agent_for_project(project)
+        incomplete = await storage.get_incomplete_assistant(
+            conversation_id,
+            context.user_id,
+        )
+        model = (
+            self.runtime.model_for_message(incomplete)
+            if incomplete is not None
+            else self.runtime.resolve_model()
+        )
+        agent = await self.runtime.agent_for_project(project, model)
         pending = await aget_pending_approval(
             agent,
             self.runtime.conversation_config(conversation_id),

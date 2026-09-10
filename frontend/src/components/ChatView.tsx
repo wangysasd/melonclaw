@@ -143,6 +143,9 @@ const MessageBubble = memo(function MessageBubble({
       <div className="message-content">
         <div className="message-meta">
           <span className="message-author">{metaLabel}</span>
+          {message.role === "assistant" && message.model?.model ? (
+            <span className="message-model">{message.model.model}</span>
+          ) : null}
           {metaDetail ? <span className="message-time">{metaDetail}</span> : null}
         </div>
         {message.role === "assistant" ? <ToolTimeline events={message.events} messageStatus={message.status} /> : null}

@@ -44,6 +44,8 @@ SHELL_ENV_DENYLIST: frozenset[str] = frozenset(
     {
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_BASE_URL",
+        "MINIMAX_API_KEY",
+        "MINIMAX_BASE_URL",
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
         "TAVILY_API_KEY",
@@ -124,7 +126,15 @@ def resolve_agent_env(
 # 模型默认选择
 # ---------------------------------------------------------------------------
 
-# load_settings() 的兜底默认：.env 未指定 provider/model 时使用。
-# 与 core/config.py 中 DEEPAGENTS_PROVIDER 的既有默认保持一致。
-DEFAULT_PROVIDER = "deepseek"
+# load_settings() 的兜底默认：.env 未指定默认模型键时使用。
+# DEEPAGENTS_PROVIDER 的推荐值是具体模型配置键，而不是供应商名称。
+DEFAULT_PROVIDER = "DEEPSEEK_MODEL_FLASH"
 DEFAULT_MODEL = "deepseek-chat"
+
+# 系统模型目录使用的稳定 ID。配置值仍然来自 .env，这些 ID 只表示
+# 平台维护的模型槽位，不表示用户可以任意传入 provider 或模型名。
+DEEPSEEK_FLASH_MODEL_ID = "system:deepseek:flash"
+DEEPSEEK_PRO_MODEL_ID = "system:deepseek:pro"
+MINIMAX_M3_MODEL_ID = "system:minimax:m3"
+MINIMAX_M27_MODEL_ID = "system:minimax:m27"
+OPENAI_MODEL_ID = "system:openai:default"

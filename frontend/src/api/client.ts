@@ -6,6 +6,7 @@ import type {
   DevUser,
   ListConversationsInput,
   ListMessagesInput,
+  ModelCatalog,
   Project,
   ServiceStatus,
 } from "../types/api";
@@ -104,6 +105,16 @@ export async function apiRequest<T>(
 
 export function getStatus(signal?: AbortSignal): Promise<ServiceStatus> {
   return apiRequest<ServiceStatus>("/api/status", { signal });
+}
+
+export function listModels(
+  input: { userId: string; tenantId?: string | null },
+  signal?: AbortSignal,
+): Promise<ModelCatalog> {
+  return apiRequest<ModelCatalog>("/api/models", {
+    query: { user_id: input.userId, tenant_id: input.tenantId },
+    signal,
+  });
 }
 
 export function listDevUsers(

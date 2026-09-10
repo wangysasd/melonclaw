@@ -25,6 +25,7 @@ export function sendMessageStream(
       tenant_id: input.tenantId ?? null,
       request_id: input.requestId,
       content: input.content,
+      model_id: input.modelId ?? null,
     },
     handlers,
   );

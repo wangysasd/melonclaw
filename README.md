@@ -15,6 +15,7 @@ MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。通过 Web 界面处
 - 🧮 **安全计算** — QuickJS Interpreter 完成纯计算，无文件、网络和 Shell 权限
 - ✅ **可控副作用** — 写文件、删文件和执行 Shell 前需人工批准、编辑参数或拒绝
 - 💾 **长期记忆与恢复** — PostgreSQL 保存业务数据、对话 Checkpoint 和多级 Memory
+- 🎛️ **系统模型选择** — 发送按钮旁可选择当前轮使用的系统模型；模型目录由代码维护，运行参数由 `.env` 提供
 - ⚡ **流式反馈** — 实时展示回答、工具调用、子 Agent 状态和审批过程
 
 ## 📋 环境要求
@@ -37,10 +38,16 @@ cp .env.example .env
 在 `.env` 中填写模型和数据库配置（数据库需提前创建）：
 
 ```dotenv
-DEEPAGENTS_PROVIDER=deepseek
+DEEPAGENTS_PROVIDER=DEEPSEEK_MODEL_FLASH
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=你的 DeepSeek API Key
-DEEPSEEK_MODEL=你的 DeepSeek 模型名
+DEEPSEEK_MODEL_FLASH=你的 DeepSeek Flash 模型名
+DEEPSEEK_MODEL_PRO=你的 DeepSeek Pro 模型名
+
+MINIMAX_BASE_URL=https://api.minimax.cn/v1
+MINIMAX_API_KEY=你的 MiniMax API Key
+MINIMAX_MODEL_M3=你的 MiniMax M3 模型名
+MINIMAX_MODEL_M27=你的 MiniMax M2.7 模型名
 
 DATABASE_URL=postgresql+asyncpg://用户名:密码@127.0.0.1:5432/melonclaw
 TAVILY_API_KEY=你的 Tavily API Key
@@ -68,8 +75,9 @@ scripts/shutdown.sh   # 一键停止
 ## 💬 如何使用
 
 1. 选择开发用模拟用户，创建或选择一个 Project，新建会话后直接描述任务。
-2. Agent 会自动决定是否搜索资料、读写项目文件、调用 MCP、委派子 Agent 或使用 Interpreter。
-3. 涉及写文件或执行 Shell 时，审批卡片会展示工具和参数，逐项选择「允许本次」「编辑参数」或「拒绝」后提交。
+2. 在发送按钮左侧的模型下拉框选择本轮要使用的模型；当前提供 DeepSeek Flash、DeepSeek Pro、MiniMax M3 和 MiniMax M2.7，选项只显示模型名（实际可用项取决于 `.env` 配置）。
+3. Agent 会自动决定是否搜索资料、读写项目文件、调用 MCP、委派子 Agent 或使用 Interpreter。
+4. 涉及写文件或执行 Shell 时，审批卡片会展示工具和参数，逐项选择「允许本次」「编辑参数」或「拒绝」后提交。
 
 常用玩法：
 
@@ -81,8 +89,12 @@ scripts/shutdown.sh   # 一键停止
 
 | 变量 | 用途 |
 | --- | --- |
-| `DEEPAGENTS_PROVIDER` | 模型 provider，默认 `deepseek`，可切 `openai` |
-| `DEEPSEEK_*` / `OPENAI_*` | 模型接口配置（模型名缺省取 `core/defaults.py` 的 `DEFAULT_MODEL`） |
+| `DEEPAGENTS_PROVIDER` | 启动时的默认模型键；使用 `DEEPSEEK_MODEL_FLASH`、`DEEPSEEK_MODEL_PRO`、`MINIMAX_MODEL_M3` 或 `MINIMAX_MODEL_M27` |
+| `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY` | DeepSeek 兼容接口地址和凭据 |
+| `DEEPSEEK_MODEL_FLASH` / `DEEPSEEK_MODEL_PRO` | DeepSeek 的 Flash / Pro 模型名 |
+| `MINIMAX_BASE_URL` / `MINIMAX_API_KEY` | MiniMax 兼容接口地址和凭据 |
+| `MINIMAX_MODEL_M3` / `MINIMAX_MODEL_M27` | MiniMax M3 / M2.7 模型名 |
+| `OPENAI_*` | OpenAI 兼容接口的单模型配置 |
 | `TAVILY_API_KEY` | 启用联网搜索 |
 | `DATABASE_URL` | PostgreSQL 连接串 |
 | `TUSHARE_MCP_TOKEN` | Tushare 取数 Skill（`tushare-fetcher`）的访问 Token |
@@ -93,6 +105,14 @@ scripts/shutdown.sh   # 一键停止
 | `MELONCLAW_ALLOWED_ORIGINS` | 独立前端跨域部署时放行的 origin |
 
 MCP 服务定义放在根目录 `mcp.json`（可为 `{}` 留空）；`.env` 中的 Token 用于替换其中 `${VARIABLE_NAME}` 占位符。
+
+模型选择说明：模型目录定义在 `src/melonclaw/core/model_catalog.py`，稳定的模型 ID 和
+展示名由代码分配；供应商连接信息及各模型的实际名称从 `.env` 读取。`GET /api/models`
+返回当前用户和租户上下文可用的 DeepSeek/MiniMax 模型，发送接口通过 `model_id` 指定
+本轮模型，下拉框只显示实际模型名。`DEEPAGENTS_PROVIDER` 仍然用于指定启动时的默认
+模型，例如 `DEEPAGENTS_PROVIDER=DEEPSEEK_MODEL_PRO`。模型选择会随本地用户/租户上下文
+保存，但每次请求仍由后端重新校验，消息历史保存实际使用的非敏感模型快照。当前阶段
+不提供用户模型配置入口。
 
 ### Skill 脚本的凭据注入（三层配置）
 
