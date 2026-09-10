@@ -42,6 +42,10 @@ describe("composer", () => {
     render(<Composer value="draft" onChange={onChange} onSend={onSend} disabled />);
     const input = screen.getByRole("textbox") as HTMLTextAreaElement;
     expect(input.disabled).toBe(false);
+    const picker = screen.getByRole("combobox", { name: "选择模型" }) as HTMLSelectElement;
+    expect(picker.disabled).toBe(false);
+    fireEvent.change(picker, { target: { value: "system:deepseek:pro" } });
+    expect(session.selectModel).toHaveBeenCalledWith("system:deepseek:pro");
     fireEvent.change(input, { target: { value: "next draft" } });
     expect(onChange).toHaveBeenCalledWith("next draft");
     fireEvent.keyDown(input, { key: "Enter" }); expect(onSend).not.toHaveBeenCalled();

@@ -141,13 +141,23 @@ describe("chat run lifecycle", () => {
   });
   it("an old stream cannot detach the new conversation's controller", async () => {
     const first = deferred<void>(); const second = deferred<void>();
-    vi.mocked(sendMessageStream).mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise);
+    let emitFirst!: (event: StreamEvent) => void;
+    vi.mocked(sendMessageStream).mockImplementationOnce((_id, _input, { onEvent }) => {
+      emitFirst = onEvent;
+      return first.promise;
+    }).mockImplementationOnce(() => second.promise);
     const { result, rerender } = renderHook(() => useChatStream({ scroll }));
     await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
     let firstTask!: Promise<void>; act(() => { firstTask = result.current.sendMessage("one"); });
-    mocks.session = { ...mocks.session, conversationId: "c2", epoch: 2, busy: false };
+    mocks.session = { ...mocks.session, conversationId: "c2", epoch: 2, selectedModelId: "system:deepseek:pro" };
     rerender(); await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    expect(mocks.session.busy).toBe(false);
     let secondTask!: Promise<void>; act(() => { secondTask = result.current.sendMessage("two"); });
+    expect(vi.mocked(sendMessageStream).mock.calls[0]?.[1].modelId).toBe("system:deepseek:flash");
+    expect(vi.mocked(sendMessageStream).mock.calls[1]?.[1].modelId).toBe("system:deepseek:pro");
+    act(() => emitFirst({ type: "completed", message_id: "old", content: "old answer" }));
+    expect(mocks.session.busy).toBe(true);
+    expect(result.current.state.messages.map((item) => item.content)).toEqual(["two", ""]);
     const calls = vi.mocked(mocks.session.attachStream).mock.calls.length;
     await act(async () => { first.resolve(); await firstTask; });
     expect(vi.mocked(mocks.session.attachStream).mock.calls).toHaveLength(calls);
@@ -191,6 +201,11 @@ describe("chat run lifecycle", () => {
       rerender();
     });
     expect(streamSignal.aborted).toBe(false);
+    await waitFor(() => expect(mocks.session.busy).toBe(false));
+    act(() => emit({ type: "approval_required", request: { id: "background", actions: [] } }));
+    expect(mocks.session.busy).toBe(false);
+    expect(mocks.session.runStatus).toBeNull();
+    expect(result.current.state.approval).toBeNull();
     act(() => {
       mocks.session = { ...mocks.session, conversationId: "c1", epoch: 3 };
       rerender();

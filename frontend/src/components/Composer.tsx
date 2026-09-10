@@ -96,7 +96,8 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
               <select
                 aria-label="选择模型"
                 value={selectedModelId}
-                disabled={inputDisabled || disabled || session.busy}
+                disabled={inputDisabled || session.conversationCreating}
+                title="模型选择从下一条消息生效"
                 onChange={(event) => session.selectModel?.(event.currentTarget.value)}
               >
                 {modelOptions.map((option) => (

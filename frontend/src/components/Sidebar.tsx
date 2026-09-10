@@ -74,7 +74,6 @@ export function SidebarContent({
   const canCreate =
     session.contextReady &&
     session.status?.status === "ready" &&
-    !session.busy &&
     !session.conversationCreating;
 
   const conversationClick = (id: string) => {

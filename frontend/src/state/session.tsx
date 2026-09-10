@@ -550,7 +550,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   /** 创建会话：守卫链与默认项目兜底对齐旧 createConversation。 */
   const newConversation = useCallback(async () => {
     const snapshot = stateRef.current;
-    if (snapshot.busy || snapshot.conversationCreating) return null;
+    if (snapshot.conversationCreating) return null;
     if (
       !snapshot.contextReady ||
       snapshot.status?.status !== "ready" ||

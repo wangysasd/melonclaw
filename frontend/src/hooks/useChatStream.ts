@@ -431,62 +431,13 @@ export function useChatStream({
             if (event.type === "message_started") started = true;
             if (event.type === "error") failed = true;
             if (TERMINAL_HINT.has(event.type)) terminal = true;
-            if (
-              !matchesContext(context) &&
-              activeRunRef.current?.controller === controller
-            ) {
-              switch (event.type) {
-                case "text":
-                case "tool_call":
-                case "tool_result":
-                case "subagent_started":
-                case "subagent_text":
-                case "subagent_tool_call":
-                case "subagent_tool_result":
-                case "subagent_completed":
-                case "subagent_failed":
-                  sessionRef.current.setRunStatus("processing");
-                  break;
-                case "completed":
-                case "done":
-                  sessionRef.current.setBusy(false);
-                  sessionRef.current.setRunStatus(null);
-                  if (event.type === "done") {
-                    void sessionRef.current.refreshConversations();
-                  }
-                  break;
-                case "approval_required":
-                  sessionRef.current.setBusy(true);
-                  sessionRef.current.setRunStatus("waiting");
-                  break;
-                case "error":
-                  sessionRef.current.setBusy(false);
-                  sessionRef.current.setRunStatus("failed");
-                  break;
-                case "message_status":
-                  sessionRef.current.setBusy(false);
-                  sessionRef.current.setRunStatus(
-                    event.status === "interrupted"
-                      ? "waiting"
-                      : event.status === "failed"
-                        ? "failed"
-                        : null,
-                  );
-                  break;
-                default:
-                  break;
-              }
-            }
+            // 后台会话的事件不能改变当前会话的发送、审批或运行状态。
             handleEvent(event, context);
           },
         });
         if (!terminal) {
           if (matchesContext(context)) {
             throw new Error("连接意外结束，回复可能不完整。请重新同步会话以确认执行结果。");
-          }
-          if (activeRunRef.current?.controller === controller) {
-            sessionRef.current.setBusy(false);
-            sessionRef.current.setRunStatus("failed");
           }
           return false;
         }
@@ -506,7 +457,7 @@ export function useChatStream({
         }
         return false;
       } finally {
-        selectorTextBufferRef.current = "";
+        if (matchesContext(context)) selectorTextBufferRef.current = "";
         if (activeRunRef.current?.controller === controller) {
           activeRunRef.current = null;
           if (matchesContext(context)) sessionRef.current.attachStream(null);
@@ -665,6 +616,7 @@ export function useChatStream({
         return;
       }
       dispatch({ type: "historyLoading", conversationId: snapshot.conversationId });
+      selectorTextBufferRef.current = "";
       try {
         const data = await getConversationHistory(
           {
@@ -713,7 +665,7 @@ export function useChatStream({
         if (data.pending_approval) {
           sessionRef.current.setBusy(true);
           sessionRef.current.setRunStatus("waiting");
-        } else if (!activeStream) {
+        } else if (!activeForSnapshot) {
           sessionRef.current.setBusy(false);
           const pending = messages.some((item) => item.status === "pending");
           sessionRef.current.setRunStatus(pending ? "processing" : null);
