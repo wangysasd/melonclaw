@@ -16,11 +16,30 @@ from deepagents.backends import (
 from deepagents.backends.protocol import BackendProtocol
 from langgraph.store.base import BaseStore
 
+from melonclaw.core.defaults import resolve_agent_env
 from melonclaw.memory.service import namespace_for_context
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PROJECT_SKILLS_DIR = PROJECT_ROOT / "skills"
 SKILLS_ROUTE = "/skills/"
+
+
+def _build_shell_env() -> dict[str, str]:
+    """构造 Shell 子进程环境：PATH 加代码默认层解析出的变量。
+
+    变量名与合并逻辑见 ``core/defaults.py``：代码默认凭据名取值于
+    部署者 ``.env``，平台自身凭据被硬黑名单剔除。未来多租户时在
+    ``resolve_agent_env`` 的 ``overrides`` 参数接入用户级配置。
+    """
+
+    env = resolve_agent_env()
+    env["PATH"] = os.pathsep.join(
+        [
+            str(Path(sys.executable).parent),
+            os.environ.get("PATH", "/usr/bin:/bin"),
+        ]
+    )
+    return env
 
 
 def build_agent_backend(
@@ -40,20 +59,16 @@ def build_agent_backend(
 
     ``LocalShellBackend`` 的 Shell 能力没有沙箱隔离，Web 入口因此只适合本机
     开发，并默认只监听 127.0.0.1。文件写入和 Shell 执行仍由 HITL 保护。
+    Shell 子进程环境由 ``_build_shell_env()`` 按代码默认层构造，Skill 脚本
+    可读取 ``core/defaults.py`` 默认集合中声明的凭据变量（值来自 ``.env``），
+    模型与数据库凭据不透传。
     """
 
     workspace_dir.mkdir(parents=True, exist_ok=True)
     runtime_backend: BackendProtocol = default_backend or LocalShellBackend(
         root_dir=workspace_dir,
         virtual_mode=True,
-        env={
-            "PATH": os.pathsep.join(
-                [
-                    str(Path(sys.executable).parent),
-                    os.environ.get("PATH", "/usr/bin:/bin"),
-                ]
-            )
-        },
+        env=_build_shell_env(),
     )
 
     routes: dict[str, BackendProtocol] = {}

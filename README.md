@@ -82,15 +82,26 @@ scripts/shutdown.sh   # 一键停止
 | 变量 | 用途 |
 | --- | --- |
 | `DEEPAGENTS_PROVIDER` | 模型 provider，默认 `deepseek`，可切 `openai` |
-| `DEEPSEEK_*` / `OPENAI_*` | 模型接口配置 |
+| `DEEPSEEK_*` / `OPENAI_*` | 模型接口配置（模型名缺省取 `core/defaults.py` 的 `DEFAULT_MODEL`） |
 | `TAVILY_API_KEY` | 启用联网搜索 |
 | `DATABASE_URL` | PostgreSQL 连接串 |
+| `TUSHARE_MCP_TOKEN` | Tushare 取数 Skill（`tushare-fetcher`）的访问 Token |
+| `MELONCLAW_SHELL_ENV_ALLOWLIST` | 额外放行给 Agent Shell 环境的变量白名单，逗号分隔，支持 `NAME` 精确与 `PREFIX_*` 前缀匹配 |
 | `MELONCLAW_WORKSPACE_DIR` | Project 工作区根目录 |
 | `MELONCLAW_HOST` / `MELONCLAW_PORT` | 后端监听地址和端口 |
 | `MELONCLAW_FRONTEND_HOST` / `MELONCLAW_FRONTEND_PORT` | 前端开发服务器监听地址和端口 |
 | `MELONCLAW_ALLOWED_ORIGINS` | 独立前端跨域部署时放行的 origin |
 
-MCP 服务定义放在根目录 `mcp.json`（可为 `{}` 留空）；`.env` 中的 Token 只用于替换其中 `${VARIABLE_NAME}` 占位符。
+MCP 服务定义放在根目录 `mcp.json`（可为 `{}` 留空）；`.env` 中的 Token 用于替换其中 `${VARIABLE_NAME}` 占位符。
+
+### Skill 脚本的凭据注入（三层配置）
+
+melonclaw 的配置分三层：**代码默认层**（`src/melonclaw/core/defaults.py`，所有用户共享的凭据变量名、默认模型）→ **部署者层**（`.env`，凭据的值）→ **用户层**（未来多租户的数据库配置，规划中）。
+
+- Agent Shell 子进程默认注入 `HOME`、`LANG`、`LC_*`、`TZ` 等基础变量，加上 `core/defaults.py` 中 `DEFAULT_AGENT_ENV_VARS` 集合声明的凭据变量（当前含 `TUSHARE_MCP_TOKEN`、`TUSHARE_TOKEN`、`APP_ID`、`APP_SECRET`、`YUJIAN_MCP_TOKEN`），值取自 `.env`；
+- 新增仓库内 Skill 依赖新凭据：提交代码时把变量名加进该集合，部署者在 `.env` 填值，重启生效——代码里永远只有名字，没有值；
+- 临时放行未收录的变量：`.env` 配 `MELONCLAW_SHELL_ENV_ALLOWLIST=NAME,PREFIX_*`；
+- `DEEPSEEK_API_KEY`、`DATABASE_URL`、`TAVILY_API_KEY` 等应用自身凭据受硬黑名单保护，任何配置层都不能注入给 Agent 执行的命令。
 
 ## 🖥️ 前端独立开发与部署
 

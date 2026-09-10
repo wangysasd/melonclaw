@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from melonclaw.core.defaults import DEFAULT_MODEL, DEFAULT_PROVIDER
 from melonclaw.core.mcp_config import (
     load_agent_mcp_servers,
     load_mcp_tool_allowlists,
@@ -87,7 +88,7 @@ class Settings:
 def load_settings(provider: str | None = None) -> Settings:
     """加载项目 ``.env``，默认使用项目约定的 DeepSeek 配置。"""
 
-    selected_provider = (provider or os.getenv("DEEPAGENTS_PROVIDER", "deepseek")).lower()
+    selected_provider = (provider or os.getenv("DEEPAGENTS_PROVIDER", DEFAULT_PROVIDER)).lower()
     mcp_servers = load_agent_mcp_servers()
     mcp_tool_allowlists = load_mcp_tool_allowlists(mcp_servers)
 
@@ -95,7 +96,7 @@ def load_settings(provider: str | None = None) -> Settings:
         base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         return Settings(
             provider=selected_provider,
-            model_name=os.getenv("DEEPSEEK_MODEL", ""),
+            model_name=os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL),
             api_key=os.getenv("DEEPSEEK_API_KEY", ""),
             base_url=base_url,
             workspace_root=_create_workspace_root(),
@@ -108,7 +109,7 @@ def load_settings(provider: str | None = None) -> Settings:
     if selected_provider == "openai":
         return Settings(
             provider=selected_provider,
-            model_name=os.getenv("OPENAI_MODEL", ""),
+            model_name=os.getenv("OPENAI_MODEL", DEFAULT_MODEL),
             api_key=os.getenv("OPENAI_API_KEY", ""),
             base_url=os.getenv("OPENAI_BASE_URL"),
             workspace_root=_create_workspace_root(),
