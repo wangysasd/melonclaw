@@ -83,23 +83,11 @@
   object-fit: contain;
 }
 
-.welcome-kicker {
-  margin-top: 12px;
-  font-size: 14px;
-  color: var(--brand-primary);
-  font-weight: 600;
-}
-
 .welcome h1 {
   margin: 8px 0 6px;
   font-size: var(--text-title);
   font-weight: 700;
   letter-spacing: -0.02em;
-}
-
-.welcome-copy {
-  margin: 0 0 24px;
-  color: var(--muted);
 }
 
 .prompt-grid {
@@ -456,7 +444,19 @@
 .reasoning-summary-chevron { margin-left: auto; transition: transform var(--duration-fast) var(--ease-apple); }
 .reasoning-summary[open] .reasoning-summary-chevron { transform: rotate(90deg); }
 .reasoning-summary-body { padding: 12px 11px 11px; border-top: 1px solid rgba(0, 0, 0, 0.06); }
-.reasoning-step-label { color: var(--ink); font-weight: 600; }
+.reasoning-step-label {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 400;
+}
+.tool-thought-chain .ant-thought-chain-node-title {
+  font-size: var(--text-md);
+  font-weight: 400;
+}
+.tool-thought-chain .ant-thought-chain-node-content-box {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
 .reasoning-summary .message-tools { margin-top: 12px; }
 .reasoning-summary-footnote { margin: 12px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
 

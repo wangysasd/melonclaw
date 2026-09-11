@@ -264,9 +264,7 @@ export function ChatView() {
             <div className="welcome-mark">
               <img src="/assets/brand/melonclaw-mark.png" alt="" />
             </div>
-            <div className="welcome-kicker">你好，我是 MelonClaw</div>
             <h1>今天，有什么想一起搞定的？</h1>
-            <p className="welcome-copy">查资料、理思路、做计划，瓜爪来帮你。</p>
             <Prompts
               className="prompt-grid"
               wrap
