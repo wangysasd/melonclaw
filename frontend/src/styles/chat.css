@@ -178,6 +178,10 @@
   max-width: calc(100% - 44px);
 }
 
+.message.assistant .message-content {
+  max-width: 680px;
+}
+
 .message.user .message-content {
   text-align: right;
 }
@@ -216,6 +220,12 @@
   color: inherit;
   background: transparent;
 }
+.message.assistant .message-body .ant-bubble-content {
+  width: 100%;
+}
+.message.assistant .message-body .ant-bubble-body {
+  width: 100%;
+}
 .message.user .message-body .ant-bubble {
   display: inline-flex;
   padding: 0;
@@ -230,7 +240,7 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 .melon-markdown { min-width: 0; overflow-wrap: anywhere; }
-.markdown-code { max-width: 100%; overflow: hidden; border: 1px solid var(--brand-primary); border-radius: 12px; background: var(--brand-primary); }
+.markdown-code { width: 100%; max-width: 100%; overflow: hidden; border: 1px solid var(--brand-primary); border-radius: 12px; background: var(--brand-primary); }
 .markdown-code-head { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; color: #fff; background: var(--brand-primary); font: 12px var(--font-mono); border-bottom: 1px solid rgba(255, 255, 255, 0.24); }
 .markdown-code-head button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: #fff; cursor: pointer; font: inherit; }
 .markdown-code pre, .markdown-code .ant-codeHighlighter { max-width: 100%; overflow-x: auto; margin: 0; }
@@ -420,6 +430,7 @@
 /* 工具时间线（对齐旧 .message-tools / .tool-card / .subagent-card 系列） */
 
 .reasoning-summary {
+  width: 100%;
   max-width: 680px;
   margin: 0 0 12px;
   overflow: hidden;
@@ -444,7 +455,7 @@
 .reasoning-summary-note { color: var(--muted); font-size: var(--text-xs); }
 .reasoning-summary-chevron { margin-left: auto; transition: transform var(--duration-fast) var(--ease-apple); }
 .reasoning-summary[open] .reasoning-summary-chevron { transform: rotate(90deg); }
-.reasoning-summary-body { padding: 0 11px 11px; border-top: 1px solid rgba(0, 0, 0, 0.06); }
+.reasoning-summary-body { padding: 12px 11px 11px; border-top: 1px solid rgba(0, 0, 0, 0.06); }
 .reasoning-step-label { color: var(--ink); font-weight: 600; }
 .reasoning-summary .message-tools { margin-top: 12px; }
 .reasoning-summary-footnote { margin: 12px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.5; }
