@@ -5,6 +5,26 @@
       "headers": {
         "token": "${YUJIAN_MCP_TOKEN}"
       }
+    },
+    "timing": {
+      "url": "http://101.133.169.44/api/timing/mcp",
+      "headers": { "Authorization": "${DONGWU_MCP_TOKEN}" },
+      "timeout": 600
+  },
+    "sentiment": {
+      "url": "http://101.133.169.44/api/sentiment/mcp",
+      "headers": { "Authorization": "${DONGWU_MCP_TOKEN}" },
+      "timeout": 600
+    },
+    "money": {
+      "url": "http://101.133.169.44/api/money/mcp",
+      "headers": { "Authorization": "${DONGWU_MCP_TOKEN}" },
+      "timeout": 600
+    },
+    "youzi": {
+      "url": "http://101.133.169.44/api/youzi/mcp",
+      "headers": { "Authorization": "${DONGWU_MCP_TOKEN}" },
+      "timeout": 600
     }
   }
 }
