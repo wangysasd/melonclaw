@@ -10,14 +10,14 @@
 }
 
 .topbar {
-  min-height: 51px;
+  min-height: 41px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
   gap: 20px;
   padding: 8px clamp(20px, 6vw, 96px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  background: rgba(251, 251, 253, 0.75);
+  background: #F5F5F7;
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   flex-shrink: 0;
@@ -961,8 +961,8 @@
 
 @media (max-width: 768px) {
   .topbar {
-    min-height: 51px;
-    padding: 8px 16px;
+    min-height: 41px;
+    padding: 4px 16px;
   }
 
   .topbar .mobile-menu {

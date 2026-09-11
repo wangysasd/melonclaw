@@ -20,11 +20,6 @@ export function UserPicker() {
           <span className="user-option-name">
             {user.display_name || user.username || user.user_id}
           </span>
-          {user.tenant_ids.length > 1 ? (
-            <span className="user-option-tenants">
-              {user.tenant_ids.length} 个租户
-            </span>
-          ) : null}
         </span>
       </span>
     ),
