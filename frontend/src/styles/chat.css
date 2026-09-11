@@ -867,6 +867,7 @@
 .model-picker.ant-select .ant-select-selector { min-height: 27px; padding: 2px 9px !important; border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 8px; background: transparent; }
 .model-picker.ant-select .ant-select-content,
 .model-picker.ant-select .ant-select-selection-item { font-size: var(--text-md); line-height: 21px; }
+.ant-select-dropdown .ant-select-item-option-content { font-size: var(--text-md); }
 .model-picker.ant-select-disabled { cursor: not-allowed; opacity: 0.55; }
 .model-picker.ant-select:focus-visible { outline: 2px solid rgba(0, 113, 227, 0.35); outline-offset: 2px; }
 
