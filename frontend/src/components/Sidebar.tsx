@@ -112,10 +112,11 @@ export function SidebarContent({
             src="/assets/brand/melonclaw-mark.png"
             alt=""
           />
-          <div className="brand-copy">
-            <div className="brand-name">MelonClaw</div>
-            <div className="brand-subtitle">瓜爪助手</div>
-          </div>
+          <img
+            className="brand-wordmark"
+            src="/assets/brand/melonclaw-word.png"
+            alt="MelonClaw"
+          />
         </div>
         <button
           type="button"
