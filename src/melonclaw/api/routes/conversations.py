@@ -40,7 +40,7 @@ async def list_conversations(
     request: Request,
     user_id: str,
     tenant_id: str | None = None,
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=10, ge=1, le=100),
     cursor: str | None = None,
     project_id: UUID | None = None,
 ) -> JSONResponse:

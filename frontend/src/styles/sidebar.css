@@ -1,10 +1,12 @@
-/* 侧栏样式：浅绿侧栏 + 项目/会话分组。 */
+/* 侧栏样式：macOS 磨砂侧栏 + 项目/会话分组。 */
 
 .sidebar {
   display: flex;
   flex-direction: column;
   background: var(--sidebar);
-  border-right: 1px solid var(--line);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
   flex: 0 0 var(--sidebar-width);
   min-width: var(--sidebar-width);
   width: var(--sidebar-width);
@@ -47,15 +49,17 @@
   width: 32px;
   height: 32px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-apple),
+    color var(--duration-fast) var(--ease-apple);
 }
 
 .icon-button:hover:not(:disabled) {
-  background: var(--brand-soft);
-  color: var(--brand-primary);
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .icon-button:disabled {
@@ -90,6 +94,7 @@
 
 .brand-name {
   font-weight: 700;
+  letter-spacing: -0.01em;
   line-height: 1.2;
 }
 
@@ -103,16 +108,22 @@
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid var(--brand-primary);
+  border: none;
   border-radius: var(--radius-control);
   background: var(--brand-primary);
   color: #fff;
+  font-size: var(--text-md);
   font-weight: 600;
+  letter-spacing: -0.01em;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: background var(--duration-fast) var(--ease-apple),
+    box-shadow var(--duration-fast) var(--ease-apple);
 }
 
 .new-session:hover:not(:disabled) {
   background: var(--brand-primary-hover);
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.28);
 }
 
 .new-session:disabled {
@@ -164,10 +175,11 @@
   cursor: pointer;
   padding: 4px 6px;
   border-radius: 8px;
+  transition: background var(--duration-fast) var(--ease-apple);
 }
 
 .new-project:hover {
-  background: var(--brand-soft);
+  background: var(--hover);
 }
 
 .project-list,
@@ -185,17 +197,18 @@
   width: 100%;
   padding: 8px 10px;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--ink);
   text-align: left;
   cursor: pointer;
   font-size: 14px;
+  transition: background var(--duration-fast) var(--ease-apple);
 }
 
 .project-item:hover,
 .conversation-item:hover {
-  background: var(--brand-soft);
+  background: var(--hover);
 }
 
 .project-item.is-active,
@@ -215,7 +228,7 @@
 }
 
 .project-item-badge {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--brand-primary);
   background: var(--brand-soft);
   border-radius: 999px;
@@ -230,11 +243,11 @@
 
 /* Conversations 只替换会话数据列表，保持侧栏原有密度和中文时间信息。 */
 .conversation-list.ant-conversations { display: flex; flex-direction: column; gap: 2px; overflow: visible; padding: 0; margin: 0; background: transparent; }
-.conversation-list.ant-conversations .ant-conversations-item { min-height: 36px; padding: 8px 10px; border-radius: 10px; color: var(--ink); }
-.conversation-list.ant-conversations .ant-conversations-item:hover { background: var(--brand-soft); }
+.conversation-list.ant-conversations .ant-conversations-item { min-height: 36px; padding: 8px 10px; border-radius: 8px; color: var(--ink); font-size: var(--text-md); transition: background var(--duration-fast) var(--ease-apple); }
+.conversation-list.ant-conversations .ant-conversations-item:hover { background: var(--hover); }
 .conversation-list.ant-conversations .ant-conversations-item-active { background: var(--brand-soft); color: var(--brand-primary); font-weight: 600; }
 .conversation-list.ant-conversations .ant-conversations-label { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
-.conversation-list.ant-conversations .conversation-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-list.ant-conversations .conversation-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); }
 
 .conversation-empty {
   font-size: 13px;
@@ -244,6 +257,10 @@
 
 .load-more {
   margin-top: 4px;
+}
+
+.load-more.ant-btn {
+  font-size: var(--text-md);
 }
 
 .current-project-name {
@@ -259,7 +276,7 @@
 
 .sidebar-footer {
   flex: 0 0 auto;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
   padding-top: 14px;
 }
 
@@ -281,6 +298,7 @@
   cursor: pointer;
   font-size: 14px;
   color: var(--ink);
+  transition: border-color var(--duration-fast) var(--ease-apple);
 }
 
 .user-trigger:hover {
@@ -303,7 +321,7 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
   flex-shrink: 0;
   background: var(--brand-soft);
@@ -341,6 +359,8 @@
   border-radius: 8px;
   font-size: 12px;
   list-style: none;
+  transition: background var(--duration-fast) var(--ease-apple),
+    color var(--duration-fast) var(--ease-apple);
 }
 
 .runtime-summary::-webkit-details-marker {
@@ -348,8 +368,8 @@
 }
 
 .runtime-summary:hover {
-  color: var(--brand-primary);
-  background: rgba(255, 255, 255, 0.5);
+  color: var(--ink);
+  background: var(--hover);
 }
 
 .runtime-summary > .icon:first-child {
@@ -361,7 +381,7 @@
   width: 15px;
   height: 15px;
   margin-left: auto;
-  transition: transform 160ms ease;
+  transition: transform var(--duration-fast) var(--ease-apple);
 }
 
 .runtime-details[open] .runtime-chevron {
@@ -371,9 +391,9 @@
 .runtime-card {
   margin-top: 4px;
   padding: 11px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.72);
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -393,7 +413,7 @@
   overflow: hidden;
   color: var(--brand-primary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -401,7 +421,7 @@
 .runtime-detail {
   margin-top: 6px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.45;
 }
 
@@ -418,12 +438,12 @@
 }
 
 .status-dot.is-loading {
-  background: var(--status-warning);
+  background: #ff9500;
   animation: mc-pulse 1.2s ease-in-out infinite;
 }
 
 .status-dot.is-error {
-  background: var(--status-error);
+  background: #ff3b30;
 }
 
 @keyframes mc-pulse {
@@ -452,7 +472,7 @@
 
 .sidebar-drawer .ant-drawer-body {
   padding: 0;
-  background: var(--sidebar);
+  background: var(--canvas);
 }
 
 @media (max-width: 768px) {

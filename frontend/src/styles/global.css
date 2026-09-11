@@ -1,37 +1,61 @@
-/* MelonClaw React 前端设计 token。 */
+/* MelonClaw React 前端设计 token —— Apple 设计语言。 */
 :root {
   color-scheme: light;
 
-  /* 颜色 */
-  --canvas: #f8faf6;
+  /* 颜色：Apple 中性灰 + 系统蓝 */
+  --canvas: #f5f5f7;
   --panel: #ffffff;
-  --sidebar: #f2f6f0;
-  --ink: #20392e;
-  --muted: #607266;
-  --line: #dce5dc;
-  --brand-primary: #176b4a;
-  --brand-primary-hover: #12553b;
-  --brand-soft: #e8f4ea;
-  --brand-coral: #f56b70;
-  --brand-coral-soft: #fff0ed;
-  --brand-seed: #403329;
-  --status-success: #176b4a;
-  --status-warning: #855c18;
-  --status-warning-bg: #fff7e7;
-  --status-error: #b93848;
-  --status-error-bg: #fff1f2;
+  --sidebar: rgba(246, 246, 248, 0.82);
+  --ink: #1d1d1f;
+  --muted: #6e6e73;
+  --line: #d2d2d7;
+  --hover: rgba(0, 0, 0, 0.05);
+  --fill-active: rgba(0, 0, 0, 0.08);
+  --brand-primary: #0071e3;
+  --brand-primary-hover: #0077ed;
+  --brand-soft: rgba(0, 113, 227, 0.1);
+  --brand-coral: #ff375f;
+  --brand-coral-soft: rgba(255, 55, 95, 0.08);
+  --brand-seed: #1d1d1f;
+  --status-success: #34c759;
+  --status-warning: #b25000;
+  --status-warning-bg: #fff4e5;
+  --status-error: #d70015;
+  --status-error-bg: #fff0f0;
+
+  /* 阴影：中性黑、低存在感 */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.05);
+  --shadow-composer: 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.12);
 
   /* 布局 */
   --sidebar-width: 260px;
   --sidebar-collapsed-width: 64px;
   --content-max-width: 800px;
-  --radius-control: 12px;
-  --radius-composer: 18px;
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-composer: 24px;
 
-  /* 字体 */
-  --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  /* 动效 */
+  --ease-apple: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --duration-fast: 200ms;
+
+  /* 字体：优先 SF 系列，中文回落苹方 */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei",
+    ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco,
+    Consolas, monospace;
+
+  /* 字号阶梯：对齐主流 AI 产品（ChatGPT / Claude / Gemini）的阅读层级。
+     最小正文辅助字号 12px，不再使用 11px。 */
+  --text-xs: 12px; /* 辅助说明、徽章、时间戳、状态 */
+  --text-sm: 13px; /* 次级信息、表单标签 */
+  --text-md: 14px; /* 侧栏条目、按钮、表格 */
+  --text-base: 15px; /* 介于正文与次级之间的过渡档 */
+  --text-lg: 16px; /* 正文 */
+  --text-xl: 17px; /* 顶栏品牌 */
+  --text-title: 28px; /* 欢迎页主标题 */
 }
 
 * {
@@ -49,7 +73,10 @@ body,
 body {
   font-family: var(--font-ui);
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   color: var(--ink);
   background: var(--canvas);
   min-width: 320px;

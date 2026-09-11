@@ -3,7 +3,7 @@ import Bubble from "@ant-design/x/es/bubble";
 import Prompts from "@ant-design/x/es/prompts";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
-import { Icon, type IconName } from "./Icon";
+import { Icon } from "./Icon";
 import { Composer } from "./Composer";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { Markdown } from "./Markdown";
@@ -32,17 +32,6 @@ const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   processing: "处理中",
   waiting: "等待确认",
   failed: "失败",
-};
-
-const RUN_STATUS_ICONS: Record<RunStatus, IconName> = {
-  starting: "loader-circle",
-  ready: "circle-check",
-  selecting_tools: "loader-circle",
-  thinking: "loader-circle",
-  responding: "loader-circle",
-  processing: "loader-circle",
-  waiting: "shield-check",
-  failed: "circle-alert",
 };
 
 /** 审批面板重挂载 key：interrupt ID 组合变化时重置面板内部表单状态。 */
@@ -238,13 +227,9 @@ export function ChatView() {
   };
 
   const hasMessages = chat.state.messages.length > 0;
-  const projectName =
-    session.projects.find((project) => project.id === session.projectId)?.name ??
-    "未选择项目";
   const userName =
     session.users.find((user) => user.user_id === session.userId)?.display_name ??
     (session.userId || "用户");
-  const statusIcon = RUN_STATUS_ICONS[runStatus];
 
   return (
     <div className="chat-view">
@@ -261,29 +246,9 @@ export function ChatView() {
           >
             <Icon name="menu" size={18} />
           </button>
-          <div>
-            <div className="topbar-brand">MelonClaw</div>
-            <div className="topbar-context">
-              瓜爪助手 · <span>{projectName}</span>
-            </div>
-          </div>
-        </div>
-        <div className="topbar-meta">
-          <span className="session-label">
+          <div className="topbar-session-name">
             {chat.state.conversationTitle || "准备开始"}
-          </span>
-          <span className="run-status-pill" data-status={runStatus}>
-            <Icon
-              name={statusIcon}
-              size={15}
-              className={
-                runStatus === "starting" || runStatus === "selecting_tools" || runStatus === "thinking" || runStatus === "responding" || runStatus === "processing"
-                  ? "mc-icon-spin"
-                  : undefined
-              }
-            />
-            <span>{RUN_STATUS_LABELS[runStatus]}</span>
-          </span>
+          </div>
         </div>
       </header>
 

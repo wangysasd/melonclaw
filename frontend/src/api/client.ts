@@ -156,7 +156,7 @@ export function listConversations(
       user_id: input.userId,
       tenant_id: input.tenantId,
       project_id: input.projectId,
-      limit: input.limit ?? 20,
+      limit: input.limit ?? 10,
       cursor: input.cursor,
     },
     signal,

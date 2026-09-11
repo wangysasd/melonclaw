@@ -10,7 +10,7 @@ MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。通过 Web 界面处
 
 - 🧠 **通用任务处理** — 问答、总结、翻译、分析、研究和计划制定
 - 🔍 **联网搜索** — 配置 Tavily 后即可获取实时资料并核验来源
-- 📁 **多会话工作区** — Project 下的会话共享持久文件目录，对话状态彼此隔离
+- 📁 **多会话工作区** — Project 下的会话共享持久文件目录，对话状态彼此隔离；侧栏会话名称与“新建对话”保持 14px 的阅读层级
 - 🤝 **子 Agent 协作** — 独立工作委派给子 Agent，主 Agent 汇总结果
 - 🧮 **安全计算** — QuickJS Interpreter 完成纯计算，无文件、网络和 Shell 权限
 - ✅ **可控副作用** — 写文件、删文件和执行 Shell 前需人工批准、编辑参数或拒绝
@@ -112,7 +112,7 @@ scripts/shutdown.sh   # 一键停止
 | `MELONCLAW_FRONTEND_HOST` / `MELONCLAW_FRONTEND_PORT` | 前端开发服务器监听地址和端口 |
 | `MELONCLAW_ALLOWED_ORIGINS` | 独立前端跨域部署时放行的 origin |
 
-MCP 服务定义放在根目录 `mcp.json`（可为 `{}` 留空）；`.env` 中的 Token 用于替换其中 `${VARIABLE_NAME}` 占位符。
+MCP 服务定义放在根目录 `mcp.json`（可为 `{}` 留空）；`.env` 中的 Token 用于替换其中 `${VARIABLE_NAME}` 占位符。多个 MCP 服务会并行发现工具，单个服务连接失败或返回 401 时会被跳过，其他服务和内置能力仍可用；运行时只读工具 `list_mcp_tools` 会报告每个服务的 `status`、可用工具和脱敏错误摘要。
 
 模型选择说明：模型目录定义在 `src/melonclaw/core/model_catalog.py`，稳定的模型 ID 和
 展示名由代码分配；供应商连接信息及各模型的实际名称从 `.env` 读取。`GET /api/models`
@@ -145,6 +145,8 @@ npm run build                     # 构建产物输出到 frontend/dist/
 聊天输入支持 Enter 发送、Shift + Enter 换行；回复生成或等待审批时仍可编辑下一条草稿，但发送会暂时锁定。发送按钮左侧的模型选择会从下一条消息生效。回复中的 Markdown 使用 Ant Design X Markdown，支持嵌套列表、表格、代码复制、公式和安全 Mermaid 图表；工具与子 Agent 活动在可展开的执行摘要中显示，失败、等待审批和未收到结果会分别标注。
 
 生产部署时由 Nginx 或 Node 静态服务托管 `dist/`，并将 `/api` 反向代理到 FastAPI（SSE 需关闭缓冲）；跨域直连时用 `VITE_API_BASE_URL` 指定后端地址。
+
+会话侧栏首次显示最近 10 条记录，点击“加载更多会话”继续分页；顶栏只显示靠左的当前会话名称，字号为 16px 且不加粗。聊天回复中的代码块使用系统蓝色标题和边框，代码正文采用 14px 等宽字体，并与聊天正文保持一致的相对行高。
 
 ## ⚠️ 使用边界
 

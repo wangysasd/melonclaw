@@ -338,7 +338,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       dataControllerRef.current = controller;
       try {
         const data = await listConversations(
-          { userId, tenantId, projectId, limit: 20, cursor },
+          { userId, tenantId, projectId, limit: 10, cursor },
           controller.signal,
         );
         if (
