@@ -264,12 +264,17 @@ interface SendContext {
   tenantId: string;
   projectId: string;
   modelId: string;
+  skillId: string | null;
   draft: string;
 }
 
 export interface ChatStreamHandle {
   state: ChatState;
-  sendMessage: (content: string, onAccepted?: () => void) => Promise<void>;
+  sendMessage: (
+    content: string,
+    skillId?: string | null,
+    onAccepted?: () => void,
+  ) => Promise<void>;
   submitApproval: (
     decisions:
       | ApprovalDecision[]
@@ -499,7 +504,11 @@ export function useChatStream({
   );
 
   const sendMessage = useCallback(
-    async (content: string, onAccepted?: () => void) => {
+    async (
+      content: string,
+      skillId: string | null = null,
+      onAccepted?: () => void,
+    ) => {
       const snapshot = sessionRef.current;
       const cleanText = content.trim();
       if (!cleanText || snapshot.busy || snapshot.conversationCreating) return;
@@ -537,6 +546,7 @@ export function useChatStream({
         tenantId: sessionRef.current.tenantId,
         projectId: sessionRef.current.projectId,
         modelId: startModelId,
+        skillId,
         draft: cleanText,
       };
       const requestId = crypto.randomUUID();
@@ -584,6 +594,7 @@ export function useChatStream({
               requestId,
               content: cleanText,
               modelId: context.modelId || null,
+              skillId: context.skillId,
             },
             handlers,
           ),
@@ -611,6 +622,7 @@ export function useChatStream({
         tenantId: snapshot.tenantId,
         projectId: snapshot.projectId,
         modelId: snapshot.selectedModelId || "",
+        skillId: null,
         draft: "",
       };
       const succeeded = await runStream(

@@ -30,6 +30,7 @@ from melonclaw.database import (
 from melonclaw.memory import MemoryService
 from melonclaw.output.formatting import sanitize_text
 from melonclaw.repository import BusinessRepository
+from melonclaw.services.skills import SkillCatalog, skill_catalog
 
 
 @dataclass
@@ -47,6 +48,7 @@ class ChatRuntime:
     project_agents: dict[tuple[str, tuple[str, int, str, str, str]], Any] | None = None
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
+    skills_catalog: SkillCatalog = field(default_factory=lambda: skill_catalog)
 
     async def initialize(self) -> None:
         """打开连接池并校验数据库、Memory 和模型配置。"""
@@ -151,6 +153,16 @@ class ChatRuntime:
             items[0]["id"] if items else "",
         )
         return {"items": items, "default_model_id": default_model_id}
+
+    def skills(self) -> dict[str, Any]:
+        """返回当前项目可供前端选择的 Skill 元数据。"""
+
+        return {"items": self.skills_catalog.public_items()}
+
+    def skill(self, skill_id: str | None):
+        """解析一个已发现的 Skill，供消息执行服务做白名单校验。"""
+
+        return self.skills_catalog.get(skill_id)
 
     def resolve_model(
         self,

@@ -223,6 +223,7 @@ class ConversationRepositoryMixin:
         model_provider: str,
         model_name: str,
         model_display_name: str,
+        user_display_metadata: dict[str, Any] | None = None,
     ) -> PreparedMessagePair:
         timestamp = _now()
         user_message_id = uuid4()
@@ -259,7 +260,7 @@ class ConversationRepositoryMixin:
                         "role": "user",
                         "content": content,
                         "status": "completed",
-                        "display_metadata": {},
+                        "display_metadata": user_display_metadata or {},
                         "error_code": None,
                         "model_id": None,
                         "model_provider": None,
@@ -300,7 +301,7 @@ class ConversationRepositoryMixin:
             "role": "user",
             "content": content,
             "status": "completed",
-            "display_metadata": {},
+            "display_metadata": user_display_metadata or {},
             "error_code": None,
             "model": None,
             "created_at": _as_iso(timestamp),
@@ -313,6 +314,7 @@ class ConversationRepositoryMixin:
             "role": "assistant",
             "content": "",
             "status": "pending",
+            "display_metadata": {},
             "model": {
                 "id": model_id,
                 "display_name": model_display_name,

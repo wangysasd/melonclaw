@@ -26,6 +26,7 @@ export function sendMessageStream(
       request_id: input.requestId,
       content: input.content,
       model_id: input.modelId ?? null,
+      skill_id: input.skillId ?? null,
     },
     handlers,
   );

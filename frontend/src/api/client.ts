@@ -8,6 +8,7 @@ import type {
   ListMessagesInput,
   ModelCatalog,
   Project,
+  SkillOption,
   ServiceStatus,
 } from "../types/api";
 
@@ -115,6 +116,12 @@ export function listModels(
     query: { user_id: input.userId, tenant_id: input.tenantId },
     signal,
   });
+}
+
+export function listSkills(
+  signal?: AbortSignal,
+): Promise<{ items: SkillOption[] }> {
+  return apiRequest<{ items: SkillOption[] }>("/api/skills", { signal });
 }
 
 export function listDevUsers(

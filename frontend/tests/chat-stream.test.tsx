@@ -50,9 +50,10 @@ describe("chat run lifecycle", () => {
     });
     const { result } = renderHook(() => useChatStream({ scroll }));
     await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
-    await act(() => result.current.sendMessage("test"));
+    await act(() => result.current.sendMessage("test", "tushare-fetcher"));
     expect(vi.mocked(sendMessageStream).mock.calls[0]?.[1]).toMatchObject({
       modelId: "system:deepseek:flash",
+      skillId: "tushare-fetcher",
     });
     expect(result.current.state.messages[1]).toMatchObject({
       content: "你好",

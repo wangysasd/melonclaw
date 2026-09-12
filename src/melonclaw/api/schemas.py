@@ -32,6 +32,7 @@ class MessageRequest(BaseModel):
     request_id: UUID
     content: str = Field(min_length=1, max_length=12000)
     model_id: str | None = Field(default=None, min_length=1, max_length=160)
+    skill_id: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class ApprovalRequest(BaseModel):

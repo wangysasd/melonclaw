@@ -222,8 +222,12 @@ export function ChatView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.state.restoreDraft]);
 
-  const handleSend = (value: string) => {
-    void chat.sendMessage(value, () => setDraft((current) => current === value ? "" : current));
+  const handleSend = (value: string, skillId?: string | null) => {
+    void chat.sendMessage(
+      value,
+      skillId,
+      () => setDraft((current) => current === value ? "" : current),
+    );
   };
 
   const hasMessages = chat.state.messages.length > 0;

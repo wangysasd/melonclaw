@@ -14,6 +14,7 @@ import {
   createConversation as apiCreateConversation,
   createProject as apiCreateProject,
   getStatus,
+  listSkills,
   listModels,
   listConversations,
   listDevUsers,
@@ -24,6 +25,7 @@ import type {
   DevUser,
   ModelOption,
   Project,
+  SkillOption,
   ServiceStatus,
 } from "../types/api";
 import {
@@ -57,6 +59,9 @@ export interface SessionState {
   conversations: ConversationSummary[];
   modelOptions: ModelOption[];
   selectedModelId: string;
+  skills: SkillOption[];
+  skillsLoading: boolean;
+  skillsError: string | null;
   conversationCursor: string | null;
   userId: string;
   tenantId: string;
@@ -95,6 +100,9 @@ type SessionAction =
       selectedModelId: string;
     }
   | { type: "modelsCleared" }
+  | { type: "skillsLoading"; loading: boolean }
+  | { type: "skillsLoaded"; items: SkillOption[] }
+  | { type: "skillsFailed"; error: string }
   | { type: "contextCleared" }
   | { type: "projectSelected"; projectId: string }
   | { type: "conversationSelected"; conversationId: string | null }
@@ -114,6 +122,9 @@ const INITIAL_STATE: SessionState = {
   conversations: [],
   modelOptions: [],
   selectedModelId: "",
+  skills: [],
+  skillsLoading: false,
+  skillsError: null,
   conversationCursor: null,
   userId: readStorage(USER_STORAGE_KEY) ?? "",
   tenantId: readStorage(TENANT_STORAGE_KEY) ?? "",
@@ -165,6 +176,22 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       };
     case "modelsCleared":
       return { ...state, modelOptions: [], selectedModelId: "" };
+    case "skillsLoading":
+      return { ...state, skillsLoading: action.loading };
+    case "skillsLoaded":
+      return {
+        ...state,
+        skills: action.items,
+        skillsLoading: false,
+        skillsError: null,
+      };
+    case "skillsFailed":
+      return {
+        ...state,
+        skills: [],
+        skillsLoading: false,
+        skillsError: action.error,
+      };
     case "contextCleared":
       // 关闭项目：清空项目与会话选择（contextReady 不变，对齐旧 closeProject）。
       return {
@@ -432,6 +459,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [contextMatches, dispatchSync, message]);
 
+  const loadSkillsInternal = useCallback(async () => {
+    dispatchSync({ type: "skillsLoading", loading: true });
+    try {
+      const data = await listSkills();
+      dispatchSync({ type: "skillsLoaded", items: data.items });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      dispatchSync({
+        type: "skillsFailed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [dispatchSync]);
+
   const changeUser = useCallback(
     async (userId: string) => {
       const snapshot = stateRef.current;
@@ -681,7 +722,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         writeStorage(TENANT_STORAGE_KEY, tenantId);
         dispatchSync({ type: "bootstrapUsers", users, userId, tenantId });
 
-        await Promise.all([loadModelsInternal(), loadProjectsInternal()]);
+        await Promise.all([
+          loadModelsInternal(),
+          loadProjectsInternal(),
+          loadSkillsInternal(),
+        ]);
         if (cancelled) return;
         await loadConversationsInternal({
           append: false,

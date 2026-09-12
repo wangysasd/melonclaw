@@ -41,6 +41,13 @@ export interface ModelCatalog {
   default_model_id: string;
 }
 
+/** GET /api/skills 返回的项目 Skill 摘要；正文仍只由 Agent 通过 /skills/ 读取。 */
+export interface SkillOption {
+  id: string;
+  display_name: string;
+  description: string;
+}
+
 /* ---------- 开发用户 ---------- */
 
 /** GET /api/dev/users 响应项（开发模拟用户，非生产认证）。 */
@@ -97,7 +104,10 @@ export interface Message {
   created_at?: string;
   error_code?: string | null;
   model?: MessageModel | null;
-  display_metadata?: { events?: DisplayEvent[] } | null;
+  display_metadata?: {
+    events?: DisplayEvent[];
+    skill?: { id: string; display_name: string };
+  } | null;
 }
 
 /** 消息历史和 SSE 中使用的非敏感模型快照。 */
@@ -187,6 +197,7 @@ export interface SendMessageInput {
   requestId: string;
   content: string;
   modelId?: string | null;
+  skillId?: string | null;
 }
 
 export interface SendApprovalInput {

@@ -61,6 +61,7 @@ class PreparedExecution:
     lock_connection: AsyncConnection | None = None
     user_message_id: UUID | None = None
     content: str = ""
+    skill_id: str | None = None
     resuming: bool = False
     replay_message: dict[str, Any] | None = None
     released: bool = False
@@ -81,6 +82,7 @@ class ExecutionService:
         content: str,
         model_id: str | None = None,
         tenant_id: str | None = None,
+        skill_id: str | None = None,
     ) -> PreparedExecution:
         """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。"""
 
@@ -90,6 +92,9 @@ class ExecutionService:
             raise ValueError("消息不能为空。")
         if len(clean_content) > 12000:
             raise ValueError("消息不能超过 12000 个字符。")
+        selected_skill = self.runtime.skill(skill_id)
+        if skill_id and selected_skill is None:
+            raise ValueError("选择的技能不存在或已被移除。")
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
@@ -117,6 +122,7 @@ class ExecutionService:
                 request_id,
                 clean_content,
                 existing,
+                skill_id=skill_id,
                 agent=agent,
                 project=project,
                 model=model,
@@ -148,6 +154,7 @@ class ExecutionService:
                     request_id,
                     clean_content,
                     existing,
+                    skill_id=skill_id,
                     lock_connection=lock_connection,
                     agent=stored_agent,
                     project=project,
@@ -188,6 +195,16 @@ class ExecutionService:
                 model_provider=model.provider,
                 model_name=model.model_name,
                 model_display_name=model.display_name,
+                user_display_metadata=(
+                    {
+                        "skill": {
+                            "id": selected_skill.id,
+                            "display_name": selected_skill.display_name,
+                        }
+                    }
+                    if selected_skill is not None
+                    else None
+                ),
             )
             return self._execution_from_pair(
                 conversation_id,
@@ -199,6 +216,7 @@ class ExecutionService:
                 model,
                 run_id=str(uuid4()),
                 worker_id=self.runtime.worker_id,
+                skill_id=selected_skill.id if selected_skill is not None else None,
             )
         except Exception:
             await storage.release_advisory_lock(lock_connection, conversation_id)
@@ -212,17 +230,21 @@ class ExecutionService:
         content: str,
         existing: RequestRecord,
         *,
+        skill_id: str | None,
         lock_connection: AsyncConnection | None = None,
         agent: Any,
         model: ResolvedModel,
         project: dict[str, Any],
     ) -> PreparedExecution:
         storage = self.runtime.require_ready()
-        if existing.content != content:
+        if (
+            existing.content != content
+            or self._stored_skill_id(existing.user_message) != skill_id
+        ):
             if lock_connection is not None:
                 await storage.release_advisory_lock(lock_connection, conversation_id)
             raise RequestConflictError(
-                "相同 request_id 已存在，但消息正文与首次请求不同。"
+                "相同 request_id 已存在，但消息正文或技能选择与首次请求不同。"
             )
         assistant = existing.assistant_message
         status = assistant["status"]
@@ -241,9 +263,12 @@ class ExecutionService:
                 )
                 if latest is None:
                     raise ConversationNotFoundError
-                if latest.content != content:
+                if (
+                    latest.content != content
+                    or self._stored_skill_id(latest.user_message) != skill_id
+                ):
                     raise RequestConflictError(
-                        "相同 request_id 已存在，但消息正文与首次请求不同。"
+                        "相同 request_id 已存在，但消息正文或技能选择与首次请求不同。"
                     )
                 assistant = latest.assistant_message
                 status = assistant["status"]
@@ -277,6 +302,7 @@ class ExecutionService:
                 agent,
                 model,
                 project,
+                skill_id=skill_id,
             )
         if lock_connection is not None:
             # 已完成/失败/取消的幂等重试不需要占用会话锁。
@@ -288,7 +314,19 @@ class ExecutionService:
             agent,
             model,
             project,
+            skill_id=skill_id,
         )
+
+    @staticmethod
+    def _stored_skill_id(user_message: dict[str, Any]) -> str | None:
+        metadata = user_message.get("display_metadata")
+        if not isinstance(metadata, dict):
+            return None
+        selected = metadata.get("skill")
+        if not isinstance(selected, dict):
+            return None
+        value = selected.get("id")
+        return value if isinstance(value, str) and value else None
 
     def _replay_execution(
         self,
@@ -298,6 +336,8 @@ class ExecutionService:
         agent: Any,
         model: ResolvedModel,
         project: dict[str, Any],
+        *,
+        skill_id: str | None,
     ) -> PreparedExecution:
         return PreparedExecution(
             conversation_id=conversation_id,
@@ -316,6 +356,7 @@ class ExecutionService:
             assistant_message_id=UUID(assistant["id"]),
             agent=agent,
             model=model,
+            skill_id=skill_id,
             replay_message=assistant,
         )
 
@@ -331,6 +372,7 @@ class ExecutionService:
         *,
         run_id: str,
         worker_id: str,
+        skill_id: str | None,
     ) -> PreparedExecution:
         return PreparedExecution(
             conversation_id=conversation_id,
@@ -351,6 +393,7 @@ class ExecutionService:
             model=model,
             user_message_id=UUID(pair.user_message["id"]),
             content=pair.user_message["content"],
+            skill_id=skill_id,
             lock_connection=lock_connection,
         )
 
@@ -491,15 +534,30 @@ class ExecutionService:
                 return
 
             if agent_input is None:
-                agent_input = {
-                    "messages": [
+                messages: list[dict[str, str]] = []
+                if execution.skill_id:
+                    skill = self.runtime.skill(execution.skill_id)
+                    if skill is None:
+                        raise AgentExecutionError(
+                            "选择的技能已不可用，请重新选择技能后重试。"
+                        )
+                    messages.append(
                         {
-                            "id": str(execution.user_message_id),
-                            "role": "user",
-                            "content": execution.content,
+                            "role": "system",
+                            "content": (
+                                "本轮用户通过技能选择器明确选择了一个技能。请优先读取并遵守 "
+                                f"{skill.virtual_path} 中的 SKILL.md；不要向用户暴露该内部路径。"
+                            ),
                         }
-                    ]
-                }
+                    )
+                messages.append(
+                    {
+                        "id": str(execution.user_message_id),
+                        "role": "user",
+                        "content": execution.content,
+                    }
+                )
+                agent_input = {"messages": messages}
 
             async for event in iter_research_events(
                 agent,

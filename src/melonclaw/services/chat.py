@@ -120,6 +120,11 @@ class ChatService:
         await self.conversations.resolve_user(user_id, tenant_id)
         return self.runtime.models()
 
+    def skills(self) -> dict[str, Any]:
+        """返回只读的项目 Skill 目录。"""
+
+        return self.runtime.skills()
+
     def _require_ready(self) -> BusinessRepository:
         return self.runtime.require_ready()
 
@@ -202,6 +207,7 @@ class ChatService:
         content: str,
         model_id: str | None = None,
         tenant_id: str | None = None,
+        skill_id: str | None = None,
     ) -> PreparedExecution:
         return await self.execution.prepare_message(
             conversation_id,
@@ -210,6 +216,7 @@ class ChatService:
             content,
             model_id=model_id,
             tenant_id=tenant_id,
+            skill_id=skill_id,
         )
 
     async def prepare_approval(

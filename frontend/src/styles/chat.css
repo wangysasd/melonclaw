@@ -792,10 +792,11 @@
 }
 
 .composer {
+  position: relative;
   min-height: 120px;
   display: flex;
   flex-direction: column;
-  padding: 12px 14px 10px;
+  padding: 8px 14px;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: var(--radius-composer);
   background: rgba(255, 255, 255, 0.86);
@@ -806,13 +807,140 @@
     box-shadow var(--duration-fast) var(--ease-apple);
 }
 
+.skill-picker {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  bottom: calc(100% + 10px);
+  width: min(280px, 100%);
+  max-height: min(60vh, 330px);
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.skill-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.skill-picker-list {
+  max-height: 282px;
+  padding: 0 8px 8px;
+  overflow-y: auto;
+}
+
+.skill-picker-item {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: flex-start;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--ink);
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  text-align: left;
+  transition: background var(--duration-fast) var(--ease-apple);
+}
+
+.skill-picker-item:hover,
+.skill-picker-item.is-active {
+  background: #e9e9ee;
+}
+
+.skill-picker-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.skill-picker-title {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-picker-description {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-picker-state {
+  padding: 24px 12px;
+  color: var(--muted);
+  font-size: var(--text-md);
+  text-align: center;
+}
+
+.selected-skill {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  color: #6e56cf;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.selected-skill > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-logo {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
 .composer .melon-sender {
   min-height: 94px;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   border: 0;
   box-shadow: none;
   background: transparent;
 }
 .composer .melon-sender:focus-within { border: 0; box-shadow: none; }
+.composer .melon-sender .ant-sender-content {
+  position: relative;
+  align-items: center;
+  padding-block: 0;
+}
+.composer .melon-sender .ant-sender-prefix {
+  position: absolute;
+  z-index: 1;
+  top: 3px;
+  left: 8px;
+  pointer-events: none;
+}
 .composer .melon-sender textarea { min-height: 38px; max-height: 180px; padding: 3px 2px; color: var(--ink); font-family: var(--font-ui); font-size: 16px; line-height: 1.5; resize: none; }
 .composer .melon-sender textarea::placeholder { color: #86868b; }
 .composer .melon-sender .ant-sender-footer { padding: 0; }
