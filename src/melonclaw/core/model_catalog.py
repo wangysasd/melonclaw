@@ -39,6 +39,7 @@ class SystemModelDefinition:
     source: MODEL_SOURCE = "system"
     adapter_type: str = "openai_compatible"
     visible_in_catalog: bool = True
+    input_modalities: frozenset[str] = frozenset({"text"})
 
 
 # 第一阶段的系统模型目录。后续增加系统模型时，在这里增加代码条目，
@@ -49,6 +50,7 @@ SYSTEM_MODEL_CATALOG: tuple[SystemModelDefinition, ...] = (
         display_name="DeepSeek Flash",
         provider="deepseek",
         model_key="flash",
+        input_modalities=frozenset({"text", "image"}),
     ),
     SystemModelDefinition(
         model_id=DEEPSEEK_PRO_MODEL_ID,
@@ -61,6 +63,7 @@ SYSTEM_MODEL_CATALOG: tuple[SystemModelDefinition, ...] = (
         display_name="MiniMax M3",
         provider="minimax",
         model_key="m3",
+        input_modalities=frozenset({"text", "image"}),
     ),
     SystemModelDefinition(
         model_id=MINIMAX_M27_MODEL_ID,
@@ -75,6 +78,7 @@ SYSTEM_MODEL_CATALOG: tuple[SystemModelDefinition, ...] = (
         model_key="default",
         # 保留 OpenAI 兼容适配器给旧部署使用，但第一阶段不放进模型下拉框。
         visible_in_catalog=False,
+        input_modalities=frozenset({"text", "image"}),
     ),
 )
 
@@ -91,6 +95,7 @@ class ResolvedModel:
     model_name: str
     base_url: str | None
     api_key: str = field(repr=False)
+    input_modalities: frozenset[str] = frozenset({"text"})
     config_version: int = 1
 
     @property
@@ -194,4 +199,5 @@ def resolve_system_model(
         model_name=selected_model_name,
         base_url=config.base_url,
         api_key=config.api_key,
+        input_modalities=item.input_modalities,
     )

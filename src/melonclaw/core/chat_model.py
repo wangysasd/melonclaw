@@ -20,9 +20,14 @@ def build_chat_model(model: ResolvedModel) -> ChatOpenAI:
 
     # DeepSeek、MiniMax 和 OpenAI 均通过 OpenAI 兼容 ChatModel 接入；实际
     # Base URL 和 Key 已在 ResolvedModel 中按系统模型槽位解析完成。
-    return ChatOpenAI(
+    chat_model = ChatOpenAI(
         model=model.model_name,
         api_key=model.api_key,
         base_url=model.base_url,
         temperature=0,
     )
+    profile = {
+        "image_inputs": "image" in model.input_modalities,
+        "pdf_inputs": "file" in model.input_modalities,
+    }
+    return chat_model.model_copy(update={"profile": profile})
