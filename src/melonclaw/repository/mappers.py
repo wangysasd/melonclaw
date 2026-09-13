@@ -12,6 +12,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from melonclaw.database.constants import DEFAULT_PROJECT_NAME
 from melonclaw.repository.constants import DEFAULT_SIMULATED_USER_ID
 
+
 def _now() -> datetime:
     return datetime.now(UTC)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+
 @dataclass(frozen=True)
 class UserContext:
     """经过数据库校验的用户和租户上下文。"""

@@ -11,10 +11,10 @@ from melonclaw.api.lifespan import lifespan
 from melonclaw.api.routes.approvals import router as approvals_router
 from melonclaw.api.routes.chat import router as chat_router
 from melonclaw.api.routes.conversations import router as conversations_router
-from melonclaw.api.routes.projects import router as projects_router
-from melonclaw.api.routes.status import router as status_router
 from melonclaw.api.routes.models import router as models_router
+from melonclaw.api.routes.projects import router as projects_router
 from melonclaw.api.routes.skills import router as skills_router
+from melonclaw.api.routes.status import router as status_router
 
 DEFAULT_ALLOWED_ORIGINS = (
     "http://localhost:8001",

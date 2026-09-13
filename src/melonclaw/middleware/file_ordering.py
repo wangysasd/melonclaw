@@ -10,7 +10,6 @@ from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 
-
 _MUTATING_FILE_TOOLS = frozenset({"write_file", "edit_file", "delete"})
 ToolResult = ToolMessage | Command[Any]
 

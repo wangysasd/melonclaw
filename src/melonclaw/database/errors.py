@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 class DatabaseConfigurationError(RuntimeError):
     """DATABASE_URL 缺失或驱动配置不符合当前应用要求。"""
 

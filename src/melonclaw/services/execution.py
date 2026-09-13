@@ -18,9 +18,9 @@ from melonclaw.core.hitl import (
 )
 from melonclaw.core.model_catalog import ResolvedModel
 from melonclaw.output.content import content_to_text
-from melonclaw.output.visible_text import visible_text
 from melonclaw.output.events import DISPLAY_EVENT_TYPES, iter_research_events
 from melonclaw.output.formatting import _preview, sanitize_text
+from melonclaw.output.visible_text import visible_text
 from melonclaw.repository import (
     AssistantStateConflictError,
     ConversationBusyError,
@@ -30,12 +30,12 @@ from melonclaw.repository import (
     RequestRecord,
     UserContext,
 )
+from melonclaw.services.conversations import ConversationService
 from melonclaw.services.errors import (
     AgentExecutionError,
     RequestInProgressError,
 )
 from melonclaw.services.runtime import ChatRuntime
-from melonclaw.services.conversations import ConversationService
 
 
 @dataclass

@@ -14,6 +14,7 @@ from melonclaw.database.errors import (
     DatabaseUnavailableError,
 )
 
+
 def normalize_async_database_url(raw_url: str) -> str:
     """校验业务连接使用 asyncpg，并保留 URL 中的其余配置。"""
 

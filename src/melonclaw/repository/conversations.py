@@ -9,12 +9,11 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, insert, or_, select, update
 
 from melonclaw.database.errors import DatabaseSchemaError
+from melonclaw.database.schema import chat_conversations, chat_messages, projects
 from melonclaw.repository.errors import (
     AssistantStateConflictError,
     ConversationNotFoundError,
 )
-from melonclaw.repository.models import PreparedMessagePair, RequestRecord
-from melonclaw.database.schema import chat_conversations, chat_messages, projects
 from melonclaw.repository.mappers import (
     _as_iso,
     _conversation_dict,
@@ -24,6 +23,7 @@ from melonclaw.repository.mappers import (
     decode_conversation_cursor,
     encode_conversation_cursor,
 )
+from melonclaw.repository.models import PreparedMessagePair, RequestRecord
 
 
 class ConversationRepositoryMixin:

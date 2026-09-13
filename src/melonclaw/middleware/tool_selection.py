@@ -15,9 +15,8 @@ from langchain.agents.middleware.types import (
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from melonclaw.output.content import content_to_text
 from melonclaw.core.prompts import build_tool_selection_prompt
-
+from melonclaw.output.content import content_to_text
 
 _JSON_CODE_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 

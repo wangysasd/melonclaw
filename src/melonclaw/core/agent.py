@@ -13,22 +13,22 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 
+from melonclaw.backend import build_agent_backend
+from melonclaw.core.chat_model import build_chat_model
 from melonclaw.core.config import Settings
 from melonclaw.core.hitl import SENSITIVE_TOOL_INTERRUPTS
-from melonclaw.core.model_catalog import (
-    ResolvedModel,
-    SYSTEM_DEFAULT_MODEL_ID,
-    resolve_system_model,
-)
 from melonclaw.core.interpreter import (
     INTERPRETER_MAX_PTC_CALLS,
     INTERPRETER_PTC_TOOLS,
     build_interpreter_middleware,
 )
-from melonclaw.memory import MemoryScopeMiddleware, MemoryService
-from melonclaw.core.chat_model import build_chat_model
+from melonclaw.core.model_catalog import (
+    SYSTEM_DEFAULT_MODEL_ID,
+    ResolvedModel,
+    resolve_system_model,
+)
 from melonclaw.core.prompts import build_system_prompt
-from melonclaw.backend import build_agent_backend
+from melonclaw.memory import MemoryScopeMiddleware, MemoryService
 from melonclaw.middleware import FileOperationOrderingMiddleware
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools

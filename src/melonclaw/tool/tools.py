@@ -14,7 +14,6 @@ from melonclaw.core.config import Settings
 from melonclaw.core.mcp_config import redact_mcp_sensitive_text
 from melonclaw.tool.search import internet_search
 
-
 ToolDefinition = Callable[..., Any] | dict[str, Any]
 MCP_CATALOG_TOOL_NAME = "list_mcp_tools"
 

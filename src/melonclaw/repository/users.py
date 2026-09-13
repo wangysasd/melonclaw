@@ -6,10 +6,10 @@ from typing import Any
 
 from sqlalchemy import case, select
 
+from melonclaw.database.schema import tenants, user_tenants, users
 from melonclaw.repository.constants import DEFAULT_SIMULATED_USER_ID
 from melonclaw.repository.mappers import _user_dict
 from melonclaw.repository.models import UserContext
-from melonclaw.database.schema import tenants, user_tenants, users
 
 
 class UserRepositoryMixin:

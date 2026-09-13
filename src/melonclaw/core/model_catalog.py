@@ -14,8 +14,8 @@ from melonclaw.core.config import ProviderConfig, Settings
 from melonclaw.core.defaults import (
     DEEPSEEK_FLASH_MODEL_ID,
     DEEPSEEK_PRO_MODEL_ID,
-    MINIMAX_M27_MODEL_ID,
     MINIMAX_M3_MODEL_ID,
+    MINIMAX_M27_MODEL_ID,
     OPENAI_MODEL_ID,
 )
 

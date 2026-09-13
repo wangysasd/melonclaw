@@ -6,7 +6,12 @@ from typing import Any
 from uuid import UUID
 
 from melonclaw.core.hitl import aget_pending_approval, serialize_pending_approval
-from melonclaw.repository import BusinessRepository, ConversationNotFoundError, ProjectNotFoundError, UserContext
+from melonclaw.repository import (
+    BusinessRepository,
+    ConversationNotFoundError,
+    ProjectNotFoundError,
+    UserContext,
+)
 from melonclaw.services.errors import InvalidUserError
 from melonclaw.services.runtime import ChatRuntime
 

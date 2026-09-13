@@ -10,12 +10,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 from melonclaw.core.defaults import (
-    DEFAULT_MODEL,
-    DEFAULT_PROVIDER,
     DEEPSEEK_FLASH_MODEL_ID,
     DEEPSEEK_PRO_MODEL_ID,
-    MINIMAX_M27_MODEL_ID,
+    DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
     MINIMAX_M3_MODEL_ID,
+    MINIMAX_M27_MODEL_ID,
     OPENAI_MODEL_ID,
 )
 from melonclaw.core.mcp_config import (

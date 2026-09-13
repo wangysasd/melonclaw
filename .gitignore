@@ -26,7 +26,7 @@ dist/
 
 # 本地部署配置与开发设计记录，不纳入远程版本控制。
 /deploy/
-/note.md
+/note/
 /todo.md
 
 # 本地导入的 CICC Skills，不纳入项目版本控制。

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from langchain_quickjs import CodeInterpreterMiddleware
 
-
 INTERPRETER_MEMORY_LIMIT = 64 * 1024 * 1024
 INTERPRETER_TIMEOUT_SECONDS = 15.0
 INTERPRETER_MAX_RESULT_CHARS = 4_000

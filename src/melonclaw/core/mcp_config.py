@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MCP_CONFIG_PATH = PROJECT_ROOT / "mcp.json"
 DEFAULT_TUSHARE_SERVER_NAME = "tushare_mcp"

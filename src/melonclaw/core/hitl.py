@@ -11,7 +11,6 @@ from langgraph.types import Command
 
 from melonclaw.output.formatting import sanitize_text
 
-
 _SENSITIVE_DECISIONS = ["approve", "edit", "reject"]
 
 

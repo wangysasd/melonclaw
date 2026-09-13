@@ -13,13 +13,13 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from melonclaw.output.content import content_to_text
-from melonclaw.output.visible_text import VisibleTextFilter, visible_text
 from melonclaw.output.formatting import (
     _call_key,
     _decode_tool_args,
     _preview,
     sanitize_text,
 )
+from melonclaw.output.visible_text import VisibleTextFilter, visible_text
 
 DISPLAY_EVENT_TYPES = frozenset(
     {
