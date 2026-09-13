@@ -154,6 +154,14 @@ class ConversationService:
             limit=limit,
             before_seq=before_seq,
         )
+        attachments_by_message = await storage.list_attachments_for_messages(
+            [UUID(message["id"]) for message in messages if message["role"] == "user"]
+        )
+        for message in messages:
+            if message["role"] == "user":
+                message["attachments"] = attachments_by_message.get(
+                    UUID(message["id"]), []
+                )
         project = await self.project_for_conversation(
             storage,
             conversation,

@@ -8,6 +8,7 @@ from melonclaw.database.connection import (
     open_memory_store,
 )
 from melonclaw.database.constants import (
+    ATTACHMENT_SCHEMA_VERSION,
     BUSINESS_TABLES,
     CHECKPOINT_TABLES,
     CONVERSATION_SCHEMA_VERSION,
@@ -25,7 +26,9 @@ from melonclaw.database.errors import (
     DatabaseUnavailableError,
 )
 from melonclaw.database.schema import (
+    chat_attachments,
     chat_conversations,
+    chat_message_attachments,
     chat_messages,
     memory_events,
     metadata,
@@ -40,6 +43,7 @@ __all__ = [
     "BUSINESS_TABLES",
     "CHECKPOINT_TABLES",
     "CONVERSATION_SCHEMA_VERSION",
+    "ATTACHMENT_SCHEMA_VERSION",
     "DEFAULT_PROJECT_NAME",
     "DEFAULT_PROJECT_SCHEMA_VERSION",
     "MEMORY_SCHEMA_VERSION",
@@ -51,6 +55,8 @@ __all__ = [
     "DatabaseSchemaError",
     "DatabaseUnavailableError",
     "chat_conversations",
+    "chat_attachments",
+    "chat_message_attachments",
     "chat_messages",
     "close_memory_store",
     "derive_psycopg_database_url",

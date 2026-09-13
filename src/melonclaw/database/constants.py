@@ -13,6 +13,8 @@ BUSINESS_TABLES = (
     "projects",
     "chat_conversations",
     "chat_messages",
+    "chat_attachments",
+    "chat_message_attachments",
     "memory_events",
 )
 CHECKPOINT_TABLES = (
@@ -30,3 +32,4 @@ PROJECT_SCHEMA_VERSION = "2026-09-07-project-workspaces"
 MEMORY_SCHEMA_VERSION = "2026-09-07-memory-scopes-v2-operation-id"
 CONVERSATION_SCHEMA_VERSION = "2026-09-07-conversation-user-owned-v1"
 MODEL_SELECTION_SCHEMA_VERSION = "2026-09-10-system-model-selection-v1"
+ATTACHMENT_SCHEMA_VERSION = "2026-09-13-chat-attachments-v1"

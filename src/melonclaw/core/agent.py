@@ -29,7 +29,11 @@ from melonclaw.core.model_catalog import (
 )
 from melonclaw.core.prompts import build_system_prompt
 from melonclaw.memory import MemoryScopeMiddleware, MemoryService
-from melonclaw.middleware import FileOperationOrderingMiddleware
+from melonclaw.middleware import (
+    AttachmentHydrationMiddleware,
+    AttachmentHydrationProvider,
+    FileOperationOrderingMiddleware,
+)
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
 
@@ -132,6 +136,7 @@ async def build_research_agent(
     model: ResolvedModel | None = None,
     runtime_backend: BackendProtocol | None = None,
     memory_service: MemoryService | None = None,
+    attachment_hydration_provider: AttachmentHydrationProvider | None = None,
 ) -> CompiledStateGraph:
     """异步发现工具并构建绑定到指定工作区的通用助手。
 
@@ -198,6 +203,8 @@ async def build_research_agent(
     if memory_service is not None:
         middleware.insert(0, MemoryScopeMiddleware(memory_service))
         print("已启用 Global/Tenant/User Memory（Store 持久化，主 Agent 受控工具）")
+    if attachment_hydration_provider is not None:
+        middleware.insert(0, AttachmentHydrationMiddleware(attachment_hydration_provider))
 
     return create_deep_agent(
         name="quickstart-research-agent",

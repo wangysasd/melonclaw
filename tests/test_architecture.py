@@ -42,7 +42,37 @@ FORBIDDEN_IMPORTS: dict[str, frozenset[str]] = {
     "middleware": frozenset(
         {"database", "repository", "services", "api", "tool", "backend"}
     ),
+    "parsers": frozenset(
+        {
+            "core",
+            "database",
+            "repository",
+            "services",
+            "api",
+            "output",
+            "memory",
+            "tool",
+            "middleware",
+            "backend",
+            "storage",
+        }
+    ),
     "services": frozenset({"api"}),
+    "storage": frozenset(
+        {
+            "core",
+            "database",
+            "repository",
+            "services",
+            "api",
+            "output",
+            "memory",
+            "tool",
+            "middleware",
+            "backend",
+            "parsers",
+        }
+    ),
 }
 
 # 允许在任意位置被依赖的包（基础件与 Web 层）。

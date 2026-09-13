@@ -3,6 +3,12 @@
 from melonclaw.repository.bootstrap import seed_demo_data
 from melonclaw.repository.errors import (
     AssistantStateConflictError,
+    AttachmentConflictError,
+    AttachmentError,
+    AttachmentInUseError,
+    AttachmentNotFoundError,
+    AttachmentQuotaError,
+    AttachmentStateError,
     ConversationBusyError,
     ConversationNotFoundError,
     ProjectNotFoundError,
@@ -17,6 +23,12 @@ from melonclaw.repository.repository import BusinessRepository
 
 __all__ = [
     "AssistantStateConflictError",
+    "AttachmentConflictError",
+    "AttachmentError",
+    "AttachmentInUseError",
+    "AttachmentNotFoundError",
+    "AttachmentQuotaError",
+    "AttachmentStateError",
     "BusinessRepository",
     "ConversationBusyError",
     "ConversationNotFoundError",
@@ -29,4 +41,3 @@ __all__ = [
     "encode_conversation_cursor",
     "seed_demo_data",
 ]
-

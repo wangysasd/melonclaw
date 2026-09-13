@@ -9,6 +9,7 @@ from sqlalchemy import insert, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from melonclaw.database.constants import (
+    ATTACHMENT_SCHEMA_VERSION,
     BUSINESS_TABLES,
     CHECKPOINT_TABLES,
     CONVERSATION_SCHEMA_VERSION,
@@ -22,7 +23,9 @@ from melonclaw.database.constants import (
 )
 from melonclaw.database.errors import DatabaseSchemaError
 from melonclaw.database.schema import (
+    chat_attachments,
     chat_conversations,
+    chat_message_attachments,
     chat_messages,
     memory_events,
     metadata,
@@ -140,7 +143,14 @@ class SchemaMigrationMixin:
             await connection.run_sync(
                 lambda sync_connection: metadata.create_all(
                     sync_connection,
-                    tables=[projects, chat_conversations, chat_messages, memory_events],
+                    tables=[
+                        projects,
+                        chat_conversations,
+                        chat_messages,
+                        chat_attachments,
+                        chat_message_attachments,
+                        memory_events,
+                    ],
                 )
             )
             # ``create_all`` 不会给已有 chat_messages 增加新列，显式补齐模型
@@ -151,6 +161,19 @@ class SchemaMigrationMixin:
                     "model_id VARCHAR(160)"
                 )
             )
+            attachment_migration_exists = await connection.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = :version)"
+                ),
+                {"version": ATTACHMENT_SCHEMA_VERSION},
+            )
+            if not attachment_migration_exists.scalar():
+                await connection.execute(
+                    insert(schema_migrations).values(
+                        version=ATTACHMENT_SCHEMA_VERSION,
+                        applied_at=_now(),
+                    )
+                )
             await connection.execute(
                 text(
                     "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "

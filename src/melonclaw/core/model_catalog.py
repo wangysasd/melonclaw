@@ -124,6 +124,7 @@ class ResolvedModel:
             "provider": self.provider,
             "model": self.model_name,
             "config_version": self.config_version,
+            "input_modalities": sorted(self.input_modalities),
         }
 
 
@@ -168,6 +169,7 @@ def list_system_models(settings: Settings) -> list[dict[str, Any]]:
                 "model": model_name,
                 "available": True,
                 "is_default": item.model_id == settings.default_model_id,
+                "input_modalities": sorted(item.input_modalities),
             }
         )
     return items

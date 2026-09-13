@@ -8,18 +8,24 @@
 浏览器（frontend/，React + Vite）
         │  POST /api/conversations/{id}/messages  (JSON)
         ▼
-api/            FastAPI 路由、请求校验、SSE 编码
+api/            FastAPI 路由、请求校验、附件 multipart 上传、SSE 编码
         ▼
-services/       归属校验、request_id 幂等、会话锁、消息落库、执行编排
         ▼
 core/agent.py   用 create_deep_agent 组装 Agent（模型 + 工具 + middleware + backend）
         ▼
 runtime.py      按 Project 解析工作区，按 (project_id, model) 缓存 Agent
         ▼
-backend/        CompositeBackend：默认 LocalShellBackend(Project 工作区) + /skills/ 路由
+backend/        CompositeBackend：默认 LocalShellBackend(Project 工作区) + 受保护目录与 /skills/ 路由
         ▼
 output/         把 LangGraph 消息流转成 SSE 事件（text / tool_call / approval 等）
 ```
+
+附件采用独立的两阶段数据流：浏览器先向 `api/routes/attachments.py` 上传到
+Project 的受控 `.attachments/` 目录，`services/attachments.py` 完成校验和后台解析；
+发送消息时只提交附件 ID，由 `repository/attachments.py` 在消息事务中绑定。文档由
+`parsers/` 生成派生 Markdown，图片由注入式 hydration middleware 在模型出站前转换为
+标准 image content block；出站图片经 `services/attachment_images.py` 按文件版本缓存并
+等比缩放，已失效的附件在 hydration 阶段降级为提示而不是让整轮执行失败。
 
 持久化分两块，职责不重叠：
 
@@ -32,7 +38,9 @@ output/         把 LangGraph 消息流转成 SSE 事件（text / tool_call / ap
 |---|---|---|
 | `core/` | 配置、模型目录、模型工厂、提示词、Agent 组装、HITL 审批清单、PTC Interpreter、MCP 配置与脱敏 | `config.py`、`model_catalog.py`、`chat_model.py`、`agent.py`、`hitl.py` |
 | `database/` | 连接、表结构定义、迁移与 schema 版本、常量 | `schema.py`、`migrations.py`、`constants.py` |
-| `repository/` | 业务数据的读写、事务边界、会话锁、上下文与用户解析 | `repository.py`、`conversations.py`、`locks.py`、`bootstrap.py` |
+| `repository/` | 业务数据的读写、事务边界、会话锁、上下文与用户解析 | `repository.py`、`conversations.py`、`attachments.py`、`locks.py`、`bootstrap.py` |
+| `parsers/` | 附件扩展名/MIME/容器安全校验，以及受控文档到 Markdown 派生文件的解析 | `validation.py`、`documents.py` |
+| `storage/` | Project 工作区内附件原文、派生文件与临时文件的受控路径映射和发布 | `attachments.py` |
 | `services/` | 用例编排：执行、会话、技能、运行时资源管理 | `execution.py`、`runtime.py`、`chat.py`、`skills.py` |
 | `api/` | HTTP 边界：路由、Schema、错误映射、SSE 编码、应用生命周期 | `app.py`、`routes/*`、`schemas.py`、`sse.py` |
 | `output/` | 从 LangGraph 消息/事件里提取模型可见文本与前端展示事件 | `events.py`、`visible_text.py`、`formatting.py` |
@@ -55,7 +63,9 @@ output/         把 LangGraph 消息流转成 SSE 事件（text / tool_call / ap
 | `memory/` | `core/`、`database/`、`repository/` | `services/`、`api/`、`output/`、`tool/`、`middleware/`、`backend/` |
 | `backend/` | `core/`、`memory/` | `database/`、`repository/`、`services/`、`api/`、`output/`、`tool/`、`middleware/` |
 | `middleware/` | `core/`、`memory/`、`output/` | `database/`、`repository/`、`services/`、`api/`、`tool/`、`backend/` |
-| `services/` | `core/`、`database/`、`repository/`、`output/`、`memory/`、`backend/`、`middleware/`、`tool/` | `api/` |
+| `parsers/` | 无业务包 | `core/`、`database/`、`repository/`、`services/`、`api/`、`output/`、`memory/`、`tool/`、`middleware/`、`backend/`、`storage/` |
+| `services/` | `core/`、`database/`、`repository/`、`output/`、`memory/`、`backend/`、`middleware/`、`tool/`、`parsers/`、`storage/` | `api/` |
+| `storage/` | 无业务包 | `core/`、`database/`、`repository/`、`services/`、`api/`、`output/`、`memory/`、`tool/`、`middleware/`、`backend/`、`parsers/` |
 | `api/` | 以上全部 | 无 |
 | `main_web.py`、`main_db_init.py`（入口） | 任意包 | 无 |
 
@@ -81,6 +91,7 @@ output/         把 LangGraph 消息流转成 SSE 事件（text / tool_call / ap
 | 长期记忆 | `memory/` 的 `MemoryService` | 写入必须经过它的固定工具与审计，不直接写 Store |
 | HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission` | 写文件、删文件、Shell 等有副作用的操作必须走审批或权限边界 |
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
+| 请求身份 | `api/identity.py` 的 `resolve_request_user_id()` | 决定 `user_id` 从哪里读（查询/表单，或部署方配置的受信任请求头）；**不做身份校验**，成员关系与归属仍由服务层重新校验 |
 
 凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`TAVILY_API_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；给 Agent 的变量名集中在 `core/defaults.py` 声明，值只来自 `.env`。
 
@@ -89,6 +100,12 @@ output/         把 LangGraph 消息流转成 SSE 事件（text / tool_call / ap
 ### 5.1 `LocalShellBackend` 不是安全沙箱
 
 默认后端允许本地文件和 Shell 能力，只适合本机开发。面向共享或不受信任用户部署前，必须替换为受控 SandboxBackend 或独立解析服务。这一条在 README 的“使用边界”里也对用户可见。
+
+Deep Agents 0.7 对带 `execute` 能力的 backend 不支持默认路径上的
+`FilesystemPermission`。因此 `/.attachments/` 和 `/.artifacts/` 被路由到不提供
+Shell 执行的 `FilesystemBackend`，附件原文、派生目录和运行时 artifacts 的工具权限
+可以继续生效；`execute` 始终只委托给默认工作区 backend，并继续由 HITL 审批。这个
+路由不能把本机 Shell 变成沙箱，生产部署仍需替换默认 backend。
 
 ### 5.2 不要依赖上游框架按类型推断能力
 

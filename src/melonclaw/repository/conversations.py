@@ -205,11 +205,14 @@ class ConversationRepositoryMixin:
         assistant_message = by_role.get("assistant")
         if user_message is None or assistant_message is None:
             raise DatabaseSchemaError("请求消息对不完整，请检查 chat_messages 数据。")
+        attachments = await self.list_attachments_for_message(UUID(user_message["id"]))
         return RequestRecord(
             request_id=request_id,
             content=user_message["content"],
             user_message=user_message,
             assistant_message=assistant_message,
+            attachment_ids=tuple(item["attachment_id"] for item in attachments),
+            attachments=tuple(attachments),
         )
 
     async def create_message_pair(

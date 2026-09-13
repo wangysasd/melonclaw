@@ -15,6 +15,7 @@ import type {
   DisplayEvent,
   MessageStatus,
   MessageModel,
+  AttachmentSummary,
   PendingApproval,
   StreamEvent,
 } from "../types/api";
@@ -46,6 +47,7 @@ export interface ChatMessage {
   /** 安全的阶段摘要，不保存或展示原始模型思维链。 */
   phases: ReasoningPhase[];
   model?: MessageModel | null;
+  attachments?: AttachmentSummary[];
   /** 乐观渲染的临时消息（未收到 message_started 前）。 */
   optimistic?: boolean;
 }
@@ -79,6 +81,7 @@ type ChatAction =
       userMessageId: string | null;
       resuming?: boolean;
       model?: MessageModel;
+      attachments?: AttachmentSummary[];
     }
   | { type: "text"; text: string }
   | { type: "runPhase"; phase: ReasoningPhase }
@@ -170,6 +173,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
               id: action.assistantMessageId,
               status: "streaming",
               model: action.model ?? message.model,
+              attachments: action.attachments ?? message.attachments,
               optimistic: false,
             };
           }
@@ -266,6 +270,8 @@ interface SendContext {
   modelId: string;
   skillId: string | null;
   draft: string;
+  attachmentIds: string[];
+  onAccepted?: () => void;
 }
 
 export interface ChatStreamHandle {
@@ -274,6 +280,7 @@ export interface ChatStreamHandle {
     content: string,
     skillId?: string | null,
     onAccepted?: () => void,
+    attachmentIds?: string[],
   ) => Promise<void>;
   submitApproval: (
     decisions:
@@ -354,12 +361,15 @@ export function useChatStream({
           sessionRef.current.setRunStatus(event.phase);
           break;
         case "message_started":
+          if (context.epoch === sessionRef.current.epoch) context.onAccepted?.();
+          context.onAccepted = undefined;
           dispatch({
             type: "messageStarted",
             assistantMessageId: event.message_id,
             userMessageId: event.user_message_id,
             resuming: event.resuming,
             model: event.model,
+            attachments: event.attachments,
           });
           break;
         case "text":
@@ -508,10 +518,11 @@ export function useChatStream({
       content: string,
       skillId: string | null = null,
       onAccepted?: () => void,
+      attachmentIds: string[] = [],
     ) => {
       const snapshot = sessionRef.current;
       const cleanText = content.trim();
-      if (!cleanText || snapshot.busy || snapshot.conversationCreating) return;
+      if ((!cleanText && attachmentIds.length === 0) || snapshot.busy || snapshot.conversationCreating) return;
       if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return;
       if (!snapshot.contextReady || snapshot.status?.status !== "ready") {
         message.error("服务仍在准备中，请稍候再发送。");
@@ -548,6 +559,8 @@ export function useChatStream({
         modelId: startModelId,
         skillId,
         draft: cleanText,
+        attachmentIds,
+        onAccepted,
       };
       const requestId = crypto.randomUUID();
       const optimisticIds = [
@@ -556,7 +569,6 @@ export function useChatStream({
       ];
       // 新会话历史与首次发送可能并发；迟到的历史不能覆盖本次乐观消息。
       historyControllerRef.current?.abort();
-      onAccepted?.();
       dispatch({
         type: "optimistic",
         conversationId,
@@ -595,6 +607,7 @@ export function useChatStream({
               content: cleanText,
               modelId: context.modelId || null,
               skillId: context.skillId,
+              attachmentIds: context.attachmentIds,
             },
             handlers,
           ),
@@ -624,6 +637,7 @@ export function useChatStream({
         modelId: snapshot.selectedModelId || "",
         skillId: null,
         draft: "",
+        attachmentIds: [],
       };
       const succeeded = await runStream(
         (handlers) =>
@@ -694,6 +708,7 @@ export function useChatStream({
             events: item.display_metadata?.events ?? [],
             phases: [],
             model: item.model ?? null,
+            attachments: item.attachments ?? [],
           };
         });
         dispatch({

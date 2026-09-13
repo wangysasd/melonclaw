@@ -945,6 +945,145 @@
 .composer .melon-sender textarea::placeholder { color: #86868b; }
 .composer .melon-sender .ant-sender-footer { padding: 0; }
 
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 0 8px;
+}
+
+.composer-attachment,
+.message-attachment {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  background: rgba(245, 245, 247, 0.8);
+  font-size: 12px;
+}
+
+.composer-attachment-name,
+.message-attachment-info {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment-preview { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; display: block; }
+.composer-attachment-body { display: grid; gap: 2px; min-width: 0; }
+.composer-attachment-thumb,
+.message-attachment-thumb { padding: 0; border: 0; background: transparent; cursor: zoom-in; line-height: 0; }
+
+.attachment-file-icon { position: relative; display: inline-flex; flex: none; color: var(--muted); }
+.attachment-badge {
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  transform: translateX(-50%);
+  padding: 0 2px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.66);
+  color: #fff;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 10px;
+  letter-spacing: 0.02em;
+}
+
+.composer-attachment-status,
+.message-attachment-info span {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.composer-attachment-progress {
+  display: block;
+  width: 100%;
+  min-width: 72px;
+  height: 3px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+.composer-attachment-progress span { display: block; height: 100%; background: var(--brand-primary); transition: width 0.2s ease; }
+
+.composer-attachment button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand-primary);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.composer-attachment.has-error { border-color: rgba(209, 52, 56, 0.35); }
+.attachment-button {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.attachment-button:hover:not(:disabled) { color: var(--brand-primary); background: rgba(0, 113, 227, 0.08); }
+.attachment-button:disabled { cursor: not-allowed; opacity: 0.45; }
+.attachment-input { display: none; }
+.composer-attachment-warning { margin-top: 6px; color: #b42318; font-size: 12px; text-align: center; }
+.message-attachments { display: grid; gap: 7px; margin: 0 0 8px; }
+.message-attachment { width: fit-content; max-width: 100%; background: rgba(245, 245, 247, 0.8); }
+.message-attachment img { width: 72px; height: 72px; object-fit: cover; border-radius: 7px; display: block; }
+.message-attachment-info { display: grid; gap: 2px; }
+.message-attachment-info a { overflow: hidden; color: var(--brand-primary); text-overflow: ellipsis; white-space: nowrap; }
+
+.composer-dropzone {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px dashed var(--brand-primary);
+  border-radius: inherit;
+  background: rgba(0, 113, 227, 0.08);
+  color: var(--brand-primary);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.composer-attachment button.composer-attachment-remove { color: var(--muted); }
+.composer-attachment button.composer-attachment-remove:hover { color: #b42318; }
+
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: zoom-out;
+}
+.image-lightbox img {
+  max-width: min(92vw, 1200px);
+  max-height: 88vh;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  cursor: default;
+}
+
 .composer:focus-within {
   border-color: var(--brand-primary);
   box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12),

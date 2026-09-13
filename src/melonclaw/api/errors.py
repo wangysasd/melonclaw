@@ -23,6 +23,7 @@ from melonclaw.services.errors import InvalidUserError, RequestInProgressError
 def error_response(exc: Exception) -> JSONResponse:
     """把业务异常转换为不泄露内部细节的 JSON 错误。"""
 
+    custom_status = getattr(exc, "status_code", None)
     if isinstance(exc, (ConversationNotFoundError, ProjectNotFoundError)):
         status_code = 404
     elif isinstance(exc, InvalidUserError):
@@ -46,7 +47,13 @@ def error_response(exc: Exception) -> JSONResponse:
         status_code = 400
     else:
         status_code = 500
+    if isinstance(custom_status, int):
+        status_code = custom_status
+    error_code = getattr(exc, "error_code", None)
+    body = {"error": sanitize_text(str(exc)) or "请求处理失败。"}
+    if isinstance(error_code, str) and error_code:
+        body["error_code"] = error_code
     return JSONResponse(
-        {"error": sanitize_text(str(exc)) or "请求处理失败。"},
+        body,
         status_code=status_code,
     )

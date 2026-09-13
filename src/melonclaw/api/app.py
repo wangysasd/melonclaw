@@ -7,8 +7,10 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from melonclaw.api.identity import identity_header_name
 from melonclaw.api.lifespan import lifespan
 from melonclaw.api.routes.approvals import router as approvals_router
+from melonclaw.api.routes.attachments import router as attachments_router
 from melonclaw.api.routes.chat import router as chat_router
 from melonclaw.api.routes.conversations import router as conversations_router
 from melonclaw.api.routes.models import router as models_router
@@ -36,6 +38,16 @@ def allowed_origins() -> list[str]:
     return list(DEFAULT_ALLOWED_ORIGINS)
 
 
+def allowed_headers() -> list[str]:
+    """跨域前端需要显式放行自定义身份请求头（仅在部署方配置时）。"""
+
+    headers = ["Content-Type"]
+    identity_header = identity_header_name()
+    if identity_header:
+        headers.append(identity_header)
+    return headers
+
+
 def create_app() -> FastAPI:
     """创建并配置 FastAPI 应用。"""
 
@@ -49,13 +61,14 @@ def create_app() -> FastAPI:
     application.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins(),
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=allowed_headers(),
     )
     application.include_router(status_router)
     application.include_router(models_router)
     application.include_router(skills_router)
     application.include_router(projects_router)
+    application.include_router(attachments_router)
     application.include_router(conversations_router)
     application.include_router(chat_router)
     application.include_router(approvals_router)

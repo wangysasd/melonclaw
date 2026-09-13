@@ -10,6 +10,8 @@ import type {
   Project,
   SkillOption,
   ServiceStatus,
+  AttachmentCapabilities,
+  AttachmentSummary,
 } from "../types/api";
 
 /**
@@ -25,16 +27,18 @@ export const API_BASE_URL = (
 /** 后端错误响应统一为 { "error": "<脱敏文案>" }；503 未就绪时可能返回 status 对象。 */
 export class ApiError extends Error {
   readonly status: number;
+  readonly errorCode?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, errorCode?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.errorCode = errorCode;
   }
 }
 
 interface ApiRequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "DELETE";
   query?: Record<string, string | number | undefined | null>;
   body?: unknown;
   signal?: AbortSignal;
@@ -42,6 +46,7 @@ interface ApiRequestOptions {
 
 export async function parseErrorResponse(response: Response): Promise<ApiError> {
   let message = `请求失败（${response.status}）。`;
+  let errorCode: string | undefined;
   try {
     const body: unknown = await response.json();
     if (body && typeof body === "object") {
@@ -50,11 +55,12 @@ export async function parseErrorResponse(response: Response): Promise<ApiError> 
       if (typeof text === "string" && text.trim()) {
         message = text;
       }
+      if (typeof record.error_code === "string") errorCode = record.error_code;
     }
   } catch {
     // 响应体不是 JSON 时保留默认文案。
   }
-  return new ApiError(response.status, message);
+  return new ApiError(response.status, message, errorCode);
 }
 
 function buildQuery(
@@ -199,4 +205,146 @@ export function getConversationHistory(
       signal,
     },
   );
+}
+
+export interface UploadedAttachment extends AttachmentSummary {
+  derived_size_bytes?: number;
+}
+
+/** GET /api/attachments/capabilities：类型与限制的单一来源。 */
+export function getAttachmentCapabilities(
+  signal?: AbortSignal,
+): Promise<AttachmentCapabilities> {
+  return apiRequest<AttachmentCapabilities>("/api/attachments/capabilities", {
+    signal,
+  });
+}
+
+function abortError(): DOMException {
+  return new DOMException("请求已取消。", "AbortError");
+}
+
+function parseXhrError(request: XMLHttpRequest): ApiError {
+  let message = `请求失败（${request.status}）。`;
+  let errorCode: string | undefined;
+  try {
+    const body: unknown = JSON.parse(request.responseText);
+    if (body && typeof body === "object") {
+      const record = body as Record<string, unknown>;
+      const text = record.error ?? record.message;
+      if (typeof text === "string" && text.trim()) message = text;
+      if (typeof record.error_code === "string") errorCode = record.error_code;
+    }
+  } catch {
+    // 响应体不是 JSON 时保留默认文案。
+  }
+  return new ApiError(request.status, message, errorCode);
+}
+
+/**
+ * 上传附件。使用 XMLHttpRequest 而不是 fetch，因为只有 XHR 能上报
+ * 上传进度（fetch 至今没有上传方向的进度事件）。
+ */
+export function uploadAttachment(
+  projectId: string,
+  input: {
+    userId: string;
+    tenantId?: string | null;
+    file: File;
+    clientRequestId: string;
+    onProgress?: (percent: number) => void;
+  },
+  signal?: AbortSignal,
+): Promise<UploadedAttachment> {
+  const form = new FormData();
+  form.append("file", input.file);
+  form.append("user_id", input.userId);
+  if (input.tenantId) form.append("tenant_id", input.tenantId);
+  form.append("client_request_id", input.clientRequestId);
+  const url = `${API_BASE_URL}/api/projects/${encodeURIComponent(projectId)}/attachments`;
+  return new Promise<UploadedAttachment>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    const request = new XMLHttpRequest();
+    request.open("POST", url);
+    const handleAbort = () => request.abort();
+    signal?.addEventListener("abort", handleAbort, { once: true });
+    const detach = () => signal?.removeEventListener("abort", handleAbort);
+    request.upload.onprogress = (event) => {
+      if (!input.onProgress || !event.lengthComputable || event.total <= 0) return;
+      input.onProgress(
+        Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100))),
+      );
+    };
+    request.onload = () => {
+      detach();
+      if (request.status >= 200 && request.status < 300) {
+        try {
+          resolve(JSON.parse(request.responseText) as UploadedAttachment);
+        } catch {
+          reject(new ApiError(request.status, "附件上传响应无法解析。"));
+        }
+        return;
+      }
+      reject(parseXhrError(request));
+    };
+    request.onerror = () => {
+      detach();
+      reject(new ApiError(0, "无法连接到 MelonClaw 服务，请检查网络或服务状态。"));
+    };
+    request.onabort = () => {
+      detach();
+      reject(abortError());
+    };
+    request.send(form);
+  });
+}
+
+/** POST /api/attachments/{id}/parse：重置解析失败的 staged 附件并重新排队。 */
+export function retryAttachmentParse(
+  attachmentId: string,
+  input: { userId: string; tenantId?: string | null },
+): Promise<UploadedAttachment> {
+  return apiRequest<UploadedAttachment>(
+    `/api/attachments/${encodeURIComponent(attachmentId)}/parse`,
+    {
+      method: "POST",
+      query: { user_id: input.userId, tenant_id: input.tenantId },
+    },
+  );
+}
+
+export function getAttachment(
+  attachmentId: string,
+  input: { userId: string; tenantId?: string | null },
+  signal?: AbortSignal,
+): Promise<UploadedAttachment> {
+  return apiRequest<UploadedAttachment>(
+    `/api/attachments/${encodeURIComponent(attachmentId)}`,
+    { query: { user_id: input.userId, tenant_id: input.tenantId }, signal },
+  );
+}
+
+export function deleteAttachment(
+  attachmentId: string,
+  input: { userId: string; tenantId?: string | null },
+): Promise<UploadedAttachment> {
+  return apiRequest<UploadedAttachment>(
+    `/api/attachments/${encodeURIComponent(attachmentId)}`,
+    {
+      method: "DELETE",
+      query: { user_id: input.userId, tenant_id: input.tenantId },
+    },
+  );
+}
+
+export function attachmentContentUrl(
+  attachmentId: string,
+  input: { userId: string; tenantId?: string | null },
+): string {
+  const params = new URLSearchParams({ user_id: input.userId });
+  if (input.tenantId) params.set("tenant_id", input.tenantId);
+  return `${API_BASE_URL}/api/attachments/${encodeURIComponent(attachmentId)}/content?${params.toString()}`;
 }

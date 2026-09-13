@@ -7,6 +7,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+# 传输层护栏，防止超大 JSON 体进入业务层；真正的业务上限来自
+# ``Settings.attachment_max_per_message``，由 ExecutionService / Repository 校验。
+MAX_ATTACHMENT_IDS_PER_MESSAGE = 200
+
 
 class ConversationRequest(BaseModel):
     """创建会话时的开发用户和当前租户运行上下文；会话本身不绑定租户。"""
@@ -30,9 +34,12 @@ class MessageRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=64)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     request_id: UUID
-    content: str = Field(min_length=1, max_length=12000)
+    content: str = Field(default="", max_length=12000)
     model_id: str | None = Field(default=None, min_length=1, max_length=160)
     skill_id: str | None = Field(default=None, min_length=1, max_length=120)
+    attachment_ids: list[UUID] = Field(
+        default_factory=list, max_length=MAX_ATTACHMENT_IDS_PER_MESSAGE
+    )
 
 
 class ApprovalRequest(BaseModel):

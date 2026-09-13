@@ -27,6 +27,7 @@ export function sendMessageStream(
       content: input.content,
       model_id: input.modelId ?? null,
       skill_id: input.skillId ?? null,
+      attachment_ids: input.attachmentIds ?? [],
     },
     handlers,
   );

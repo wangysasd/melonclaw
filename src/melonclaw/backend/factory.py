@@ -72,7 +72,45 @@ def build_agent_backend(
     )
 
     routes: dict[str, BackendProtocol] = {}
-    permissions: list[FilesystemPermission] = []
+    # Deep Agents 0.7 不支持对带 execute 能力的默认 backend 应用权限规则，
+    # 但允许权限规则全部落在 CompositeBackend 的非执行路由上。附件和
+    # artifacts 不能让 Agent 通过 Shell 绕过文件工具权限，因此单独使用
+    # 不提供 execute 的 FilesystemBackend；Shell 仍固定委托给默认 backend。
+    attachments_dir = workspace_dir / ".attachments"
+    artifacts_dir = workspace_dir / ".artifacts"
+    attachments_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    routes.update(
+        {
+            "/.attachments/": FilesystemBackend(
+                root_dir=attachments_dir,
+                virtual_mode=True,
+            ),
+            "/.artifacts/": FilesystemBackend(
+                root_dir=artifacts_dir,
+                virtual_mode=True,
+            ),
+        }
+    )
+    permissions: list[FilesystemPermission] = [
+        # 附件由服务层写入和删除，Agent 工具只能看到派生目录。
+        FilesystemPermission(
+            operations=["write"],
+            paths=["/.attachments/**"],
+            mode="deny",
+        ),
+        FilesystemPermission(
+            operations=["read"],
+            paths=["/.attachments/**/original/**"],
+            mode="deny",
+        ),
+        # 摘要中间件通过 backend API 写入，不经过工具权限检查。
+        FilesystemPermission(
+            operations=["write"],
+            paths=["/.artifacts/**"],
+            mode="deny",
+        ),
+    ]
 
     if memory_store is not None:
         routes.update(
@@ -138,6 +176,7 @@ def build_agent_backend(
     backend = CompositeBackend(
         default=runtime_backend,
         routes=routes,
+        artifacts_root="/.artifacts",
     )
     return backend, ([SKILLS_ROUTE] if PROJECT_SKILLS_DIR.is_dir() else []), permissions
 

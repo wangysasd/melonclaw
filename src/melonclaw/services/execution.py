@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -23,6 +23,7 @@ from melonclaw.output.formatting import _preview, sanitize_text
 from melonclaw.output.visible_text import visible_text
 from melonclaw.repository import (
     AssistantStateConflictError,
+    AttachmentStateError,
     ConversationBusyError,
     ConversationNotFoundError,
     PreparedMessagePair,
@@ -30,6 +31,7 @@ from melonclaw.repository import (
     RequestRecord,
     UserContext,
 )
+from melonclaw.services.attachments import AttachmentService
 from melonclaw.services.conversations import ConversationService
 from melonclaw.services.errors import (
     AgentExecutionError,
@@ -64,15 +66,23 @@ class PreparedExecution:
     skill_id: str | None = None
     resuming: bool = False
     replay_message: dict[str, Any] | None = None
+    attachments: list[dict[str, Any]] = field(default_factory=list)
     released: bool = False
 
 
 class ExecutionService:
     """处理消息幂等、会话锁、Agent 执行和最终状态落库。"""
 
-    def __init__(self, runtime: ChatRuntime, conversations: ConversationService) -> None:
+    def __init__(
+        self,
+        runtime: ChatRuntime,
+        conversations: ConversationService,
+        *,
+        attachments: AttachmentService | None = None,
+    ) -> None:
         self.runtime = runtime
         self.conversations = conversations
+        self.attachments = attachments or AttachmentService(runtime, conversations)
 
     async def prepare_message(
         self,
@@ -83,13 +93,18 @@ class ExecutionService:
         model_id: str | None = None,
         tenant_id: str | None = None,
         skill_id: str | None = None,
+        attachment_ids: list[UUID] | None = None,
     ) -> PreparedExecution:
         """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。"""
 
         storage = self.runtime.require_ready()
         clean_content = content.strip()
-        if not clean_content:
-            raise ValueError("消息不能为空。")
+        try:
+            normalized_attachment_ids = [UUID(str(item)) for item in (attachment_ids or [])]
+        except (TypeError, ValueError) as exc:
+            raise AttachmentStateError("附件 ID 无效。", "invalid_attachment_id") from exc
+        if not clean_content and not normalized_attachment_ids:
+            raise AttachmentStateError("消息正文和附件不能同时为空。", "message_empty")
         if len(clean_content) > 12000:
             raise ValueError("消息不能超过 12000 个字符。")
         selected_skill = self.runtime.skill(skill_id)
@@ -123,6 +138,7 @@ class ExecutionService:
                 clean_content,
                 existing,
                 skill_id=skill_id,
+                attachment_ids=normalized_attachment_ids,
                 agent=agent,
                 project=project,
                 model=model,
@@ -155,6 +171,7 @@ class ExecutionService:
                     clean_content,
                     existing,
                     skill_id=skill_id,
+                    attachment_ids=normalized_attachment_ids,
                     lock_connection=lock_connection,
                     agent=stored_agent,
                     project=project,
@@ -186,26 +203,47 @@ class ExecutionService:
                 except AssistantStateConflictError:
                     # 状态已经由持锁执行收敛；不要用旧快照覆盖它。
                     pass
-            pair = await storage.create_message_pair(
-                conversation_id,
-                context.user_id,
-                request_id,
-                clean_content,
-                model_id=model.profile_id,
-                model_provider=model.provider,
-                model_name=model.model_name,
-                model_display_name=model.display_name,
-                user_display_metadata=(
-                    {
-                        "skill": {
-                            "id": selected_skill.id,
-                            "display_name": selected_skill.display_name,
-                        }
+            display_metadata = (
+                {
+                    "skill": {
+                        "id": selected_skill.id,
+                        "display_name": selected_skill.display_name,
                     }
-                    if selected_skill is not None
-                    else None
-                ),
+                }
+                if selected_skill is not None
+                else None
             )
+            if normalized_attachment_ids:
+                if self.runtime.settings is None:
+                    raise RuntimeError("运行配置尚未加载。")
+                pair = await storage.create_message_pair_with_attachments(
+                    conversation_id,
+                    context.user_id,
+                    UUID(project["id"]),
+                    request_id,
+                    clean_content,
+                    attachment_ids=normalized_attachment_ids,
+                    model_id=model.profile_id,
+                    model_provider=model.provider,
+                    model_name=model.model_name,
+                    model_display_name=model.display_name,
+                    model_supports_image="image" in model.input_modalities,
+                    max_attachment_count=self.runtime.settings.attachment_max_per_message,
+                    max_total_bytes=self.runtime.settings.attachment_max_total_bytes,
+                    user_display_metadata=display_metadata,
+                )
+            else:
+                pair = await storage.create_message_pair(
+                    conversation_id,
+                    context.user_id,
+                    request_id,
+                    clean_content,
+                    model_id=model.profile_id,
+                    model_provider=model.provider,
+                    model_name=model.model_name,
+                    model_display_name=model.display_name,
+                    user_display_metadata=display_metadata,
+                )
             return self._execution_from_pair(
                 conversation_id,
                 context,
@@ -217,6 +255,7 @@ class ExecutionService:
                 run_id=str(uuid4()),
                 worker_id=self.runtime.worker_id,
                 skill_id=selected_skill.id if selected_skill is not None else None,
+                attachments=list(pair.attachments),
             )
         except Exception:
             await storage.release_advisory_lock(lock_connection, conversation_id)
@@ -231,6 +270,7 @@ class ExecutionService:
         existing: RequestRecord,
         *,
         skill_id: str | None,
+        attachment_ids: list[UUID],
         lock_connection: AsyncConnection | None = None,
         agent: Any,
         model: ResolvedModel,
@@ -240,11 +280,12 @@ class ExecutionService:
         if (
             existing.content != content
             or self._stored_skill_id(existing.user_message) != skill_id
+            or tuple(str(item) for item in attachment_ids) != existing.attachment_ids
         ):
             if lock_connection is not None:
                 await storage.release_advisory_lock(lock_connection, conversation_id)
             raise RequestConflictError(
-                "相同 request_id 已存在，但消息正文或技能选择与首次请求不同。"
+                "相同 request_id 已存在，但消息正文、技能或附件选择与首次请求不同。"
             )
         assistant = existing.assistant_message
         status = assistant["status"]
@@ -266,9 +307,10 @@ class ExecutionService:
                 if (
                     latest.content != content
                     or self._stored_skill_id(latest.user_message) != skill_id
+                    or tuple(str(item) for item in attachment_ids) != latest.attachment_ids
                 ):
                     raise RequestConflictError(
-                        "相同 request_id 已存在，但消息正文或技能选择与首次请求不同。"
+                        "相同 request_id 已存在，但消息正文、技能或附件选择与首次请求不同。"
                     )
                 assistant = latest.assistant_message
                 status = assistant["status"]
@@ -303,6 +345,7 @@ class ExecutionService:
                 model,
                 project,
                 skill_id=skill_id,
+                attachments=list(existing.attachments),
             )
         if lock_connection is not None:
             # 已完成/失败/取消的幂等重试不需要占用会话锁。
@@ -315,6 +358,7 @@ class ExecutionService:
             model,
             project,
             skill_id=skill_id,
+            attachments=list(existing.attachments),
         )
 
     @staticmethod
@@ -338,6 +382,7 @@ class ExecutionService:
         project: dict[str, Any],
         *,
         skill_id: str | None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> PreparedExecution:
         return PreparedExecution(
             conversation_id=conversation_id,
@@ -358,6 +403,7 @@ class ExecutionService:
             model=model,
             skill_id=skill_id,
             replay_message=assistant,
+            attachments=attachments or [],
         )
 
     @staticmethod
@@ -373,6 +419,7 @@ class ExecutionService:
         run_id: str,
         worker_id: str,
         skill_id: str | None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> PreparedExecution:
         return PreparedExecution(
             conversation_id=conversation_id,
@@ -395,6 +442,7 @@ class ExecutionService:
             content=pair.user_message["content"],
             skill_id=skill_id,
             lock_connection=lock_connection,
+            attachments=attachments or [],
         )
 
     async def prepare_approval(
@@ -421,6 +469,11 @@ class ExecutionService:
         )
         if assistant is None:
             raise ValueError("找不到等待审批的业务消息记录。")
+        request_record = await storage.find_request(
+            conversation_id,
+            context.user_id,
+            assistant["request_id"],
+        )
         model = self.runtime.model_for_message(assistant)
         agent = await self.runtime.agent_for_project(project, model)
         pending = await aget_pending_approval(
@@ -458,6 +511,11 @@ class ExecutionService:
                 lock_connection=lock_connection,
                 content=assistant["content"],
                 resuming=True,
+                attachments=(
+                    list(request_record.attachments)
+                    if request_record is not None
+                    else []
+                ),
             ),
             command,
         )
@@ -509,6 +567,7 @@ class ExecutionService:
                 "message_id": str(execution.assistant_message_id),
                 "resuming": execution.resuming,
                 "model": execution.model.public_dict(),
+                "attachments": execution.attachments,
             }
             if execution.replay_message is not None:
                 replay = execution.replay_message

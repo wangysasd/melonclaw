@@ -6,13 +6,16 @@ import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "re
 import { Icon } from "./Icon";
 import { Composer } from "./Composer";
 import { ApprovalPanel } from "./ApprovalPanel";
+import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 import { ReasoningSummary } from "./ReasoningSummary";
 import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
 import { useServiceStatus } from "../hooks/useServiceStatus";
+import { attachmentBadge } from "../lib/attachmentFiles";
 import { copyText } from "../lib/clipboard";
 import { formatMessageTime } from "../lib/format";
 import { useSession, type RunStatus } from "../state/session";
+import { attachmentContentUrl } from "../api/client";
 import type { PendingApproval } from "../types/api";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -66,6 +69,55 @@ const WELCOME_PROMPTS = [
   },
 ];
 
+function MessageAttachments({
+  attachments,
+  userId,
+  tenantId,
+}: {
+  attachments: NonNullable<ChatMessage["attachments"]>;
+  userId: string;
+  tenantId: string;
+}) {
+  const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
+  if (attachments.length === 0) return null;
+  return (
+    <>
+      <div className="message-attachments" aria-label="消息附件">
+        {attachments.map((attachment) => {
+          const url = attachmentContentUrl(attachment.attachment_id, { userId, tenantId });
+          const isImage = attachment.kind === "image";
+          return (
+            <div className="message-attachment" key={attachment.attachment_id}>
+              {isImage ? (
+                <button
+                  type="button"
+                  className="message-attachment-thumb"
+                  aria-label={`预览 ${attachment.file_name}`}
+                  onClick={() => setPreview({ url, name: attachment.file_name })}
+                >
+                  <img src={url} alt={attachment.file_name} />
+                </button>
+              ) : (
+                <span className="attachment-file-icon" aria-hidden="true">
+                  <Icon name="file-text" size={18} />
+                  <span className="attachment-badge">{attachmentBadge(attachment.file_name)}</span>
+                </span>
+              )}
+              <div className="message-attachment-info">
+                <a href={url} target="_blank" rel="noreferrer" download={attachment.file_name}>{attachment.file_name}</a>
+                <span>{attachment.parse_status === "failed" ? "解析失败" : isImage ? "图片" : "文档"}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {preview ? (
+        <ImageLightbox src={preview.url} alt={preview.name} onClose={() => setPreview(null)} />
+      ) : null}
+    </>
+  );
+}
+
 /** 助手消息的复制按钮：复制原始 Markdown 文本，带成功/失败反馈（对齐旧 handleCopyClick）。 */
 function CopyButton({ message }: { message: ChatMessage }) {
   const [feedback, setFeedback] = useState<"idle" | "ok" | "fail">("idle");
@@ -107,10 +159,14 @@ const MessageBubble = memo(function MessageBubble({
   message,
   userName,
   runStatus,
+  userId,
+  tenantId,
 }: {
   message: ChatMessage;
   userName: string;
   runStatus: RunStatus;
+  userId: string;
+  tenantId: string;
 }) {
   const status =
     message.status === "streaming"
@@ -146,6 +202,7 @@ const MessageBubble = memo(function MessageBubble({
         {message.role === "assistant" ? (
           <ReasoningSummary phases={message.phases} events={message.events} status={message.status} />
         ) : null}
+        <MessageAttachments attachments={message.attachments ?? []} userId={userId} tenantId={tenantId} />
         <div className="message-body">
           {message.role === "user" || message.content ? (
             <Bubble
@@ -222,11 +279,20 @@ export function ChatView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.state.restoreDraft]);
 
-  const handleSend = (value: string, skillId?: string | null) => {
+  const handleSend = (
+    value: string,
+    skillId?: string | null,
+    attachmentIds?: string[],
+    onAccepted?: () => void,
+  ) => {
     void chat.sendMessage(
       value,
       skillId,
-      () => setDraft((current) => current === value ? "" : current),
+      () => {
+        setDraft((current) => current === value ? "" : current);
+        onAccepted?.();
+      },
+      attachmentIds,
     );
   };
 
@@ -287,6 +353,8 @@ export function ChatView() {
                 message={message}
                 userName={userName}
                 runStatus={runStatus}
+                userId={session.userId}
+                tenantId={session.tenantId}
               />
             ))}
           </div>

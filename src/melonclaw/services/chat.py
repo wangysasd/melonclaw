@@ -23,6 +23,7 @@ from melonclaw.repository import (
     RequestRecord,
     UserContext,
 )
+from melonclaw.services.attachments import AttachmentService
 from melonclaw.services.conversations import ConversationService
 from melonclaw.services.errors import (
     AgentExecutionError,
@@ -39,7 +40,13 @@ class ChatService:
     def __init__(self, runtime: ChatRuntime | None = None) -> None:
         self.runtime = runtime or ChatRuntime()
         self.conversations = ConversationService(self.runtime)
-        self.execution = ExecutionService(self.runtime, self.conversations)
+        self.attachments = AttachmentService(self.runtime, self.conversations)
+        self.runtime.attachment_hydration_provider = self.attachments.hydration_provider
+        self.execution = ExecutionService(
+            self.runtime,
+            self.conversations,
+            attachments=self.attachments,
+        )
 
     @property
     def settings(self) -> Settings | None:
@@ -89,8 +96,10 @@ class ChatService:
 
     async def initialize(self) -> None:
         await self.runtime.initialize()
+        await self.attachments.start()
 
     async def close(self) -> None:
+        await self.attachments.close()
         await self.runtime.close()
 
     @property
@@ -124,6 +133,11 @@ class ChatService:
         """返回只读的项目 Skill 目录。"""
 
         return self.runtime.skills()
+
+    def attachment_capabilities(self) -> dict[str, Any]:
+        """返回附件支持类型与限制清单，供前端做上传前预校验。"""
+
+        return self.attachments.capabilities()
 
     def _require_ready(self) -> BusinessRepository:
         return self.runtime.require_ready()
@@ -208,6 +222,7 @@ class ChatService:
         model_id: str | None = None,
         tenant_id: str | None = None,
         skill_id: str | None = None,
+        attachment_ids: list[UUID] | None = None,
     ) -> PreparedExecution:
         return await self.execution.prepare_message(
             conversation_id,
@@ -217,6 +232,7 @@ class ChatService:
             model_id=model_id,
             tenant_id=tenant_id,
             skill_id=skill_id,
+            attachment_ids=attachment_ids,
         )
 
     async def prepare_approval(

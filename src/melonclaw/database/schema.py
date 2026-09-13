@@ -163,6 +163,96 @@ chat_messages = Table(
     Index("ix_chat_messages_conversation_seq", "conversation_id", "seq"),
 )
 
+chat_attachments = Table(
+    "chat_attachments",
+    metadata,
+    Column("id", PGUUID(as_uuid=True), primary_key=True),
+    Column(
+        "user_id",
+        String(64),
+        ForeignKey("users.user_id", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column("project_id", PGUUID(as_uuid=True), nullable=False),
+    Column("original_name", String(255), nullable=False),
+    Column("media_type", String(120), nullable=False),
+    Column("kind", String(16), nullable=False),
+    Column("size_bytes", Integer, nullable=False),
+    Column("derived_size_bytes", Integer, nullable=False, server_default="0"),
+    Column("sha256", String(64), nullable=False),
+    Column("storage_key", String(320), nullable=False, unique=True),
+    Column("status", String(16), nullable=False, server_default="staged"),
+    Column("parse_status", String(16), nullable=False),
+    Column("parse_error_code", String(80), nullable=True),
+    Column("parse_worker_id", String(120), nullable=True),
+    Column("parse_lease_expires_at", DateTime(timezone=True), nullable=True),
+    Column("parse_attempts", Integer, nullable=False, server_default="0"),
+    Column("client_request_id", String(36), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("storage_purged_at", DateTime(timezone=True), nullable=True),
+    ForeignKeyConstraint(
+        ["project_id", "user_id"],
+        ["projects.id", "projects.user_id"],
+        name="fk_chat_attachments_project_user",
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint(
+        "kind IN ('image', 'pdf', 'text', 'document')",
+        name="ck_chat_attachments_kind",
+    ),
+    CheckConstraint(
+        "status IN ('staged', 'attached', 'expired', 'deleted')",
+        name="ck_chat_attachments_status",
+    ),
+    CheckConstraint(
+        "parse_status IN ('not_required', 'pending', 'processing', 'processed', 'failed')",
+        name="ck_chat_attachments_parse_status",
+    ),
+    Index("ix_chat_attachments_project", "project_id"),
+    Index("ix_chat_attachments_user_project", "user_id", "project_id"),
+    Index("ix_chat_attachments_status_expires", "status", "expires_at"),
+    Index(
+        "ix_chat_attachments_parse_claim",
+        "parse_status",
+        "parse_lease_expires_at",
+    ),
+    Index(
+        "uq_chat_attachments_upload_request",
+        "user_id",
+        "project_id",
+        "client_request_id",
+        unique=True,
+        postgresql_where=text("client_request_id IS NOT NULL"),
+    ),
+)
+
+chat_message_attachments = Table(
+    "chat_message_attachments",
+    metadata,
+    Column(
+        "message_id",
+        PGUUID(as_uuid=True),
+        ForeignKey("chat_messages.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "attachment_id",
+        PGUUID(as_uuid=True),
+        ForeignKey("chat_attachments.id", ondelete="RESTRICT"),
+        primary_key=True,
+    ),
+    Column("ordinal", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "message_id",
+        "ordinal",
+        name="uq_chat_message_attachments_message_ordinal",
+    ),
+    Index("ix_chat_message_attachments_attachment", "attachment_id"),
+)
+
 memory_events = Table(
     "memory_events",
     metadata,

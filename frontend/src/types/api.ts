@@ -34,6 +34,7 @@ export interface ModelOption {
   available: boolean;
   is_default: boolean;
   config_version?: number;
+  input_modalities?: string[];
 }
 
 export interface ModelCatalog {
@@ -108,6 +109,41 @@ export interface Message {
     events?: DisplayEvent[];
     skill?: { id: string; display_name: string };
   } | null;
+  attachments?: AttachmentSummary[];
+}
+
+export interface AttachmentSummary {
+  attachment_id: string;
+  file_name: string;
+  media_type: string;
+  kind: "image" | "pdf" | "text" | "document";
+  size_bytes: number;
+  parse_status: "not_required" | "pending" | "processing" | "processed" | "failed";
+  parse_error_code?: string | null;
+  status?: "staged" | "attached" | "expired" | "deleted";
+  sha256?: string;
+  expires_at?: string | null;
+}
+
+/** GET /api/attachments/capabilities 中的单个类型。 */
+export interface AttachmentTypeSpec {
+  extension: string;
+  media_type: string;
+  kind: AttachmentSummary["kind"];
+}
+
+/**
+ * GET /api/attachments/capabilities 响应：附件类型与限制的唯一来源。
+ * 前端只做上传前预校验，服务端仍会重新校验。
+ */
+export interface AttachmentCapabilities {
+  items: AttachmentTypeSpec[];
+  max_file_bytes: number;
+  max_total_bytes: number;
+  max_per_message: number;
+  project_max_bytes: number;
+  image_max_pixels: number;
+  pdf_max_pages: number;
 }
 
 /** 消息历史和 SSE 中使用的非敏感模型快照。 */
@@ -196,6 +232,7 @@ export interface SendMessageInput {
   /** 每次发送生成新的 UUID，用于服务端幂等。 */
   requestId: string;
   content: string;
+  attachmentIds?: string[];
   modelId?: string | null;
   skillId?: string | null;
 }
@@ -218,6 +255,7 @@ export type StreamEvent =
       message_id: string;
       resuming?: boolean;
       model?: MessageModel;
+      attachments?: AttachmentSummary[];
     }
   | { type: "text"; text: string }
   | {

@@ -45,6 +45,7 @@ class ChatRuntime:
     memory_store_context: Any | None = None
     memory_store: Any | None = None
     memory_service: MemoryService | None = None
+    attachment_hydration_provider: Any | None = None
     project_agents: dict[tuple[str, tuple[str, int, str, str, str]], Any] | None = None
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
@@ -235,6 +236,7 @@ class ChatRuntime:
             workspace_dir=self.project_workspace_dir(project),
             model=resolved_model,
             memory_service=self.memory_service,
+            attachment_hydration_provider=self.attachment_hydration_provider,
         )
         self.project_agents[key] = agent
         return agent

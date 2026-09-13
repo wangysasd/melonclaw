@@ -16,6 +16,7 @@ MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。通过 Web 界面处
 - ✅ **可控副作用** — 写文件、删文件和执行 Shell 前需人工批准、编辑参数或拒绝
 - 💾 **长期记忆与恢复** — PostgreSQL 保存业务数据、对话 Checkpoint 和多级 Memory
 - 🎛️ **系统模型选择** — 发送按钮旁可选择当前轮使用的系统模型；模型目录由代码维护，运行参数由 `.env` 提供
+- 📎 **聊天附件** — 支持图片、PDF、文本和 DOCX/XLSX/PPTX；可多选、拖拽或粘贴上传，带进度与解析重试，历史消息展示附件状态与下载入口
 - 🧩 **Skill 快速选择** — 在聊天框输入 `/` 浏览已安装技能，支持关键词过滤和键盘选择
 - ⚡ **流式反馈** — 实时展示回答、工具调用、子 Agent 状态和审批过程
 
@@ -86,8 +87,9 @@ scripts/shutdown.sh   # 一键停止
 1. 选择开发用模拟用户，创建或选择一个 Project，新建会话后直接描述任务。
 2. 在发送按钮左侧的模型下拉框选择本轮要使用的模型；当前提供 DeepSeek Flash、DeepSeek Pro、MiniMax M3 和 MiniMax M2.7，选项只显示模型名（实际可用项取决于 `.env` 配置）。
 3. 在聊天输入框输入 `/` 打开 Skill 目录；继续输入关键词可以过滤，使用方向键和 Enter 选择。选中的 Skill 会以标签显示，并从本轮消息中生效。
-4. Agent 会自动决定是否搜索资料、读写项目文件、调用 MCP、委派子 Agent 或使用 Interpreter。
-5. 涉及写文件或执行 Shell 时，审批卡片会展示工具和参数，逐项选择「允许本次」「编辑参数」或「拒绝」后提交。
+4. 点击输入框左下角的「+」多选上传图片、PDF、TXT/Markdown/CSV/JSON 或 DOCX/XLSX/PPTX，也可以直接把文件拖到输入区或粘贴剪贴板图片；上传前会按后端能力清单做类型、大小和数量预校验。等待文档解析完成后即可发送，解析失败或超时可点「重新解析」；图片在输入区和历史消息里都能点开预览，历史消息会展示附件状态与下载入口。
+5. Agent 会自动决定是否搜索资料、读写项目文件、调用 MCP、委派子 Agent 或使用 Interpreter。
+6. 涉及写文件或执行 Shell 时，审批卡片会展示工具和参数，逐项选择「允许本次」「编辑参数」或「拒绝」后提交。
 
 常用玩法：
 
@@ -113,6 +115,18 @@ scripts/shutdown.sh   # 一键停止
 | `MELONCLAW_HOST` / `MELONCLAW_PORT` | 后端监听地址和端口 |
 | `MELONCLAW_FRONTEND_HOST` / `MELONCLAW_FRONTEND_PORT` | 前端开发服务器监听地址和端口 |
 | `MELONCLAW_ALLOWED_ORIGINS` | 独立前端跨域部署时放行的 origin |
+| `MELONCLAW_ATTACHMENT_MAX_FILE_MB` / `MELONCLAW_ATTACHMENT_MAX_PER_MESSAGE` | 单个附件大小（默认 20 MB）和单条消息附件数量（默认 10） |
+| `MELONCLAW_ATTACHMENT_MAX_TOTAL_MB` / `MELONCLAW_ATTACHMENT_PROJECT_MAX_MB` | 单条消息总大小（默认 50 MB）和 Project 附件原文+派生文件总配额（默认 1024 MB） |
+| `MELONCLAW_ATTACHMENT_IMAGE_MAX_PIXELS` / `MELONCLAW_ATTACHMENT_PDF_MAX_PAGES` | 图片像素上限（默认 30000000）和 PDF 页数上限（默认 500） |
+| `MELONCLAW_ATTACHMENT_PARSE_MAX_CHARS` | 单附件派生文本字符上限（默认 2000000） |
+| `MELONCLAW_ATTACHMENT_ARCHIVE_MAX_ENTRIES` / `MELONCLAW_ATTACHMENT_ARCHIVE_MAX_UNCOMPRESSED_MB` / `MELONCLAW_ATTACHMENT_ARCHIVE_MAX_ENTRY_MB` | OOXML 容器条目数、总解压大小和单条目大小限制 |
+| `MELONCLAW_ATTACHMENT_ARCHIVE_MAX_COMPRESSION_RATIO` | OOXML 总解压/压缩大小最大比值（默认 50） |
+| `MELONCLAW_ATTACHMENT_STAGED_TTL_HOURS` / `MELONCLAW_ATTACHMENT_PARSE_CONCURRENCY` | 未发送附件保留时长（默认 24 小时）和后台解析并发数（默认 2） |
+| `MELONCLAW_ATTACHMENT_VALIDATE_TIMEOUT_SECONDS` / `MELONCLAW_ATTACHMENT_PARSE_TIMEOUT_SECONDS` | 校验和解析超时配置；解析超时会将附件标记为失败 |
+| `MELONCLAW_ATTACHMENT_PARSE_LEASE_SECONDS` / `MELONCLAW_ATTACHMENT_PARSE_MAX_ATTEMPTS` | 解析租约和失效重试次数 |
+| `MELONCLAW_ATTACHMENT_IMAGE_MAX_EDGE` / `MELONCLAW_ATTACHMENT_IMAGE_JPEG_QUALITY` | 图片出站最长边（默认 1568）和 JPEG 重编码质量（默认 85）；超限图片等比缩放后再发给模型 |
+| `MELONCLAW_ATTACHMENT_IMAGE_CACHE_ENTRIES` | 图片出站编码的内存缓存条数（默认 32） |
+| `MELONCLAW_IDENTITY_HEADER` | 可选：受信任网关注入 user_id 的请求头名；留空时仍使用页面提交的 user_id（开发模拟用户） |
 
 MCP 服务定义放在根目录 `mcp.json`（可为 `{}` 留空）；`.env` 中的 Token 用于替换其中 `${VARIABLE_NAME}` 占位符。多个 MCP 服务会并行发现工具，单个服务连接失败或返回 401 时会被跳过，其他服务和内置能力仍可用；运行时只读工具 `list_mcp_tools` 会报告每个服务的 `status`、可用工具和脱敏错误摘要。
 
@@ -150,9 +164,20 @@ npm run build                     # 构建产物输出到 frontend/dist/
 
 界面结构与视觉约定（侧栏分页、字号与配色、消息区版式等实现细节）集中维护在 [docs/FRONTEND.md](docs/FRONTEND.md)；本文件只保留使用者需要知道的信息。
 
+附件 API 由后端提供：`POST /api/projects/{project_id}/attachments` 上传，
+`GET /api/attachments/capabilities` 获取支持类型与限制，`GET /api/attachments/{attachment_id}`
+查询状态，`POST /api/attachments/{attachment_id}/parse` 重新解析失败的附件，
+`GET /api/attachments/{attachment_id}/content` 下载原文件（响应带 `nosniff` 与
+`Content-Security-Policy`），`DELETE /api/attachments/{attachment_id}` 删除尚未绑定消息的
+staged 附件。发送消息时在 `POST /api/conversations/{conversation_id}/messages` 的 JSON 中提交
+`attachment_ids`；正文和附件可以二选一。首版不接受 `.ppt`、普通 ZIP 或扫描型/无文本层 PDF，
+也不会对图片调用 OCR；不支持图片输入的模型会在发送前拒绝图片附件。超过最长边的图片在
+发往模型前会等比缩放，历史消息里已不可用的附件只降级为提示，不会让整轮执行失败。
+
 ## ⚠️ 使用边界
 
 - `.env` 中的 API Key、Token 和数据库密码只保存在本地，不要提交到 Git。
 - 页面中的用户和租户是开发入口，不代表生产环境的身份认证。
 - `LocalShellBackend` 不是安全沙箱，不要在不受信任的环境中直接开放服务。
+- 附件原文存放在 Project 工作区的 `.attachments/` 受控目录，Agent 只能读取解析后的派生文本，不能通过工具读取原图或写入附件目录；当前解析使用本机进程，不是生产级隔离沙箱。
 - 联网搜索、MCP 和模型调用依赖相应外部服务；未配置时其他能力仍可使用。

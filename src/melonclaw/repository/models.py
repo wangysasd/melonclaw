@@ -25,6 +25,8 @@ class RequestRecord:
     content: str
     user_message: dict[str, Any]
     assistant_message: dict[str, Any]
+    attachment_ids: tuple[str, ...] = ()
+    attachments: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -34,5 +36,5 @@ class PreparedMessagePair:
     request_id: str
     user_message: dict[str, Any]
     assistant_message: dict[str, Any]
-
+    attachments: tuple[dict[str, Any], ...] = ()
 
