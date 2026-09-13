@@ -40,3 +40,4 @@ dist/
 .idea/
 .vscode/
 .DS_Store
+.playwright-cli/
