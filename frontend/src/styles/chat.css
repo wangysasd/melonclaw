@@ -1000,7 +1000,7 @@
   white-space: nowrap;
 }
 
-.composer-attachment-progress {
+.attachment-dialog-progress {
   display: block;
   width: 100%;
   min-width: 72px;
@@ -1010,7 +1010,7 @@
   background: rgba(0, 0, 0, 0.1);
   overflow: hidden;
 }
-.composer-attachment-progress span { display: block; height: 100%; background: var(--brand-primary); transition: width 0.2s ease; }
+.attachment-dialog-progress span { display: block; height: 100%; background: var(--brand-primary); transition: width 0.2s ease; }
 
 .composer-attachment button {
   padding: 0;
@@ -1084,6 +1084,84 @@
   cursor: default;
 }
 
+/* 附件弹窗：拖拽/点选上传、逐项移除、统一确认 */
+.attachment-dialog .ant-modal-body { display: grid; gap: 12px; }
+
+.attachment-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 22px 18px;
+  border: 1px dashed rgba(0, 0, 0, 0.22);
+  border-radius: 10px;
+  background: rgba(245, 245, 247, 0.7);
+  color: var(--muted);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-apple),
+    background var(--duration-fast) var(--ease-apple);
+}
+.attachment-dropzone:hover,
+.attachment-dropzone:focus-visible,
+.attachment-dropzone.is-dragging {
+  outline: none;
+  border-color: var(--brand-primary);
+  background: rgba(0, 113, 227, 0.06);
+}
+.attachment-dropzone .dropzone-icon { color: var(--brand-primary); }
+.attachment-dropzone .dropzone-title { margin: 0; color: var(--ink); font-size: 14px; font-weight: 600; }
+.attachment-dropzone .dropzone-desc { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.attachment-dialog-alert { margin: 0; color: #b42318; font-size: 12px; }
+
+.attachment-dialog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.attachment-dialog-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: rgba(245, 245, 247, 0.7);
+}
+.attachment-dialog-item.has-error { border-color: rgba(209, 52, 56, 0.35); }
+.attachment-dialog-body { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.attachment-dialog-name {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-dialog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.attachment-dialog-status.has-error,
+.attachment-dialog-error { color: #b42318; }
+.attachment-dialog-remove {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.attachment-dialog-remove:hover { color: #b42318; }
+
 .composer:focus-within {
   border-color: var(--brand-primary);
   box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12),
@@ -1120,10 +1198,22 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
   margin-top: 4px;
 }
+
+.composer-bottom-left,
+.composer-bottom-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 加号固定在聊天框左下角，模型选择与发送按钮留在右下角。 */
+.composer-bottom-left { flex: 0 0 auto; }
+.composer-bottom-right { flex: 1 1 auto; justify-content: flex-end; }
 
 .model-picker {
   position: relative;

@@ -11,18 +11,13 @@ import { App as AntdApp } from "antd";
 import { Select } from "antd";
 import Sender, { type SenderRef } from "@ant-design/x/es/sender";
 
+import { AttachmentDialog, type StagedAttachment } from "./AttachmentDialog";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { SkillPicker } from "./SkillPicker";
 import { SkillLogo } from "./SkillLogo";
 import { findSkillTrigger, type SkillTrigger } from "../lib/skillTrigger";
-import {
-  attachmentBadge,
-  attachmentKindOf,
-  extensionOf,
-  formatBytes,
-  validateAttachmentFile,
-} from "../lib/attachmentFiles";
+import { attachmentBadge, formatBytes } from "../lib/attachmentFiles";
 import { useAttachmentCapabilities } from "../hooks/useAttachmentCapabilities";
 import { useSession } from "../state/session";
 import {
@@ -30,7 +25,6 @@ import {
   deleteAttachment,
   getAttachment,
   retryAttachmentParse,
-  uploadAttachment,
 } from "../api/client";
 import type { AttachmentSummary, SkillOption } from "../types/api";
 
@@ -52,20 +46,17 @@ export interface ComposerProps {
   disabled: boolean;
 }
 
+/** 已通过弹窗确认、进入输入区等待随消息发送的附件。 */
 type ComposerAttachment = AttachmentSummary & {
   source: "upload";
   file?: File;
   clientRequestId?: string;
-  uploading?: boolean;
-  uploadError?: string | null;
-  /** 上传进度百分比（0-100）。 */
-  progress?: number;
   /** 轮询超过上限仍未完成解析。 */
   parseTimedOut?: boolean;
 };
 
 function isReady(attachment: ComposerAttachment): boolean {
-  if (attachment.uploading || attachment.parseTimedOut) return false;
+  if (attachment.parseTimedOut) return false;
   return attachment.kind === "image"
     ? attachment.parse_status === "not_required"
     : attachment.parse_status === "processed";
@@ -74,18 +65,12 @@ function isReady(attachment: ComposerAttachment): boolean {
 function isPolling(attachment: ComposerAttachment): boolean {
   return (
     attachment.source === "upload" &&
-    !attachment.uploading &&
-    !attachment.uploadError &&
     !attachment.parseTimedOut &&
     (attachment.parse_status === "pending" || attachment.parse_status === "processing")
   );
 }
 
 function statusText(attachment: ComposerAttachment): string {
-  if (attachment.uploading) {
-    return attachment.progress ? `上传中 ${attachment.progress}%` : "上传中…";
-  }
-  if (attachment.uploadError) return "上传失败";
   if (attachment.parseTimedOut) return "解析超时";
   if (attachment.parse_status === "failed") return "解析失败";
   if (attachment.parse_status === "processed" || attachment.parse_status === "not_required") {
@@ -108,12 +93,12 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
   const [selectedSkill, setSelectedSkill] = useState<SkillOption | null>(null);
   const [skillPrefixWidth, setSkillPrefixWidth] = useState(0);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [fileError, setFileError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<ComposerAttachment | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogFiles, setDialogFiles] = useState<File[]>([]);
+  const [dialogSessionId, setDialogSessionId] = useState(0);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
-  const uploadControllersRef = useRef(new Map<string, AbortController>());
   const dragDepthRef = useRef(0);
   const notifiedParseFailureRef = useRef(new Set<string>());
   const capabilities = useAttachmentCapabilities();
@@ -175,16 +160,13 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
 
   useEffect(() => {
     setAttachments([]);
-    setFileError(null);
     setPreview(null);
     setDragging(false);
+    setDialogOpen(false);
     dragDepthRef.current = 0;
-    const uploadControllers = uploadControllersRef.current;
     return () => {
-      for (const controller of uploadControllers.values()) controller.abort();
-      uploadControllers.clear();
       for (const attachment of attachmentsRef.current) {
-        if (attachment.source === "upload" && attachment.status === "staged" && !attachment.attachment_id.startsWith("uploading-")) {
+        if (attachment.source === "upload" && attachment.status === "staged") {
           void deleteAttachment(attachment.attachment_id, { userId: session.userId, tenantId: session.tenantId }).catch(() => undefined);
         }
       }
@@ -308,7 +290,14 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     : session.runStatus === "waiting"
       ? "shield-check"
       : "arrow-up";
-  const acceptExtensions = capabilities.items.map((item) => item.extension).join(",");
+
+  /** 打开附件弹窗；带 files 表示由输入区的拖拽/粘贴进入，弹窗会立刻上传。 */
+  const openAttachmentDialog = (files: File[] = []) => {
+    if (!canAttach) return;
+    setDialogFiles(files);
+    setDialogSessionId((current) => current + 1);
+    setDialogOpen(true);
+  };
 
   const submit = () => {
     if (sendDisabled || composingRef.current || submittingRef.current) return;
@@ -329,108 +318,20 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     }
   };
 
-  const startUpload = (file: File) => {
-    if (!session.projectId || !session.userId) return;
-    const extension = extensionOf(file.name);
-    const clientRequestId = crypto.randomUUID();
-    const temporaryId = `uploading-${clientRequestId}`;
-    const placeholder: ComposerAttachment = {
-      attachment_id: temporaryId,
-      file_name: file.name,
-      media_type: file.type || "application/octet-stream",
-      kind: attachmentKindOf(extension),
-      size_bytes: file.size,
-      parse_status: "pending",
-      source: "upload",
-      file,
-      clientRequestId,
-      uploading: true,
-      progress: 0,
-    };
-    setAttachments((current) => [...current, placeholder]);
-    const controller = new AbortController();
-    uploadControllersRef.current.set(temporaryId, controller);
-    void uploadAttachment(
-      session.projectId,
-      {
-        userId: session.userId,
-        tenantId: session.tenantId,
-        file,
-        clientRequestId,
-        onProgress: (percent) => {
-          setAttachments((current) =>
-            current.map((item) =>
-              item.attachment_id === temporaryId ? { ...item, progress: percent } : item,
-            ),
-          );
-        },
-      },
-      controller.signal,
-    )
-      .then((uploaded) => {
-        setAttachments((current) =>
-          current.map((item) =>
-            item.attachment_id === temporaryId
-              ? { ...uploaded, source: "upload", file, clientRequestId, uploading: false, progress: 100 }
-              : item,
-          ),
-        );
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        const text = error instanceof Error ? error.message : "上传失败，请重试。";
-        setAttachments((current) =>
-          current.map((item) =>
-            item.attachment_id === temporaryId ? { ...item, uploading: false, uploadError: text } : item,
-          ),
-        );
-        message.error(text);
-      })
-      .finally(() => {
-        uploadControllersRef.current.delete(temporaryId);
-      });
-  };
-
-  /** 批量添加：先做一次客户端预校验（类型/大小/数量），再逐个上传。 */
-  const addFiles = (files: File[]) => {
-    if (!canAttach || files.length === 0) return;
-    const accepted: File[] = [];
-    let lastError: string | null = null;
-    let count = attachmentsRef.current.length;
-    let totalBytes = attachmentsRef.current.reduce((sum, item) => sum + item.size_bytes, 0);
-    for (const file of files) {
-      const error = validateAttachmentFile(file, capabilities, {
-        currentCount: count,
-        currentTotalBytes: totalBytes,
-      });
-      if (error) {
-        lastError = error;
-        message.warning(error);
-        continue;
-      }
-      accepted.push(file);
-      count += 1;
-      totalBytes += file.size;
-    }
-    // 部分文件被拒时也要把原因留在输入区，不能因为其他文件成功就清掉提示。
-    setFileError(lastError);
-    for (const file of accepted) startUpload(file);
+  const handleDialogConfirm = (items: StagedAttachment[]) => {
+    if (items.length === 0) return;
+    setAttachments((current) => [
+      ...current,
+      ...items.map((item) => ({ ...item, source: "upload" as const })),
+    ]);
   };
 
   const removeAttachment = (attachment: ComposerAttachment) => {
-    uploadControllersRef.current.get(attachment.attachment_id)?.abort();
-    uploadControllersRef.current.delete(attachment.attachment_id);
     if (preview?.attachment_id === attachment.attachment_id) setPreview(null);
     setAttachments((current) => current.filter((item) => item.attachment_id !== attachment.attachment_id));
-    if (attachment.source === "upload" && !attachment.attachment_id.startsWith("uploading-") && attachment.status === "staged") {
+    if (attachment.source === "upload" && attachment.status === "staged") {
       void deleteAttachment(attachment.attachment_id, { userId: session.userId, tenantId: session.tenantId }).catch(() => undefined);
     }
-  };
-
-  const retryUpload = (attachment: ComposerAttachment) => {
-    if (!attachment.file) return;
-    removeAttachment(attachment);
-    addFiles([attachment.file]);
   };
 
   const retryParse = (attachment: ComposerAttachment) => {
@@ -484,7 +385,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     dragDepthRef.current = 0;
     setDragging(false);
     const files = Array.from(event.dataTransfer?.files ?? []);
-    if (files.length > 0) addFiles(files);
+    if (files.length > 0) openAttachmentDialog(files);
   };
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -492,7 +393,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     const files = Array.from(event.clipboardData?.files ?? []);
     if (files.length === 0) return;
     event.preventDefault();
-    addFiles(files);
+    openAttachmentDialog(files);
   };
 
   const selectSkill = (skill: SkillOption) => {
@@ -525,7 +426,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
       >
         {dragging ? (
           <div className="composer-dropzone" aria-hidden="true">
-            <Icon name="plus" size={18} />松开即可添加附件
+            <Icon name="plus" size={18} />松开后添加附件
           </div>
         ) : null}
         {skillTrigger ? (
@@ -541,17 +442,14 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
         {attachments.length > 0 ? (
           <div className="composer-attachments" aria-label="当前消息附件">
             {attachments.map((attachment) => {
-              const remote = !attachment.attachment_id.startsWith("uploading-");
-              const url = remote
-                ? attachmentContentUrl(attachment.attachment_id, {
-                    userId: session.userId,
-                    tenantId: session.tenantId,
-                  })
-                : "";
-              const failed = Boolean(attachment.uploadError) || attachment.parse_status === "failed" || attachment.parseTimedOut;
+              const url = attachmentContentUrl(attachment.attachment_id, {
+                userId: session.userId,
+                tenantId: session.tenantId,
+              });
+              const failed = attachment.parse_status === "failed" || attachment.parseTimedOut;
               return (
                 <div className={`composer-attachment ${failed ? "has-error" : ""}`} key={attachment.attachment_id}>
-                  {attachment.kind === "image" && url ? (
+                  {attachment.kind === "image" ? (
                     <button
                       type="button"
                       className="composer-attachment-thumb"
@@ -563,31 +461,14 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
                   ) : (
                     <span className="attachment-file-icon" aria-hidden="true">
                       <Icon name="file-text" size={15} />
-                      <span className="attachment-badge">
-                        {attachment.kind === "image" ? "IMG" : attachmentBadge(attachment.file_name)}
-                      </span>
+                      <span className="attachment-badge">{attachmentBadge(attachment.file_name)}</span>
                     </span>
                   )}
                   <span className="composer-attachment-body">
                     <span className="composer-attachment-name" title={attachment.file_name}>{attachment.file_name}</span>
                     <span className="composer-attachment-status">{statusText(attachment)}</span>
-                    {attachment.uploading && attachment.progress ? (
-                      <span
-                        className="composer-attachment-progress"
-                        role="progressbar"
-                        aria-label={`${attachment.file_name} 上传进度`}
-                        aria-valuenow={attachment.progress}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                      >
-                        <span style={{ width: `${attachment.progress}%` }} />
-                      </span>
-                    ) : null}
                   </span>
-                  {attachment.uploadError ? (
-                    <button type="button" onClick={() => retryUpload(attachment)}>重试</button>
-                  ) : null}
-                  {remote && !attachment.uploading && (attachment.parse_status === "failed" || attachment.parseTimedOut) ? (
+                  {attachment.parse_status === "failed" || attachment.parseTimedOut ? (
                     <button type="button" onClick={() => retryParse(attachment)}>重新解析</button>
                   ) : null}
                   <button
@@ -694,66 +575,56 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
           }}
           footer={
             <div className="composer-bottom">
-              <button
-                type="button"
-                className="attachment-button"
-                aria-label="添加附件"
-                title="添加附件，也可拖拽文件或粘贴图片"
-                disabled={!canAttach}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Icon name="plus" size={18} />
-              </button>
-              <input
-                ref={fileInputRef}
-                className="attachment-input"
-                type="file"
-                multiple
-                accept={acceptExtensions}
-                aria-label="选择附件"
-                onChange={(event) => {
-                  const files = Array.from(event.target.files ?? []);
-                  event.target.value = "";
-                  if (files.length > 0) addFiles(files);
-                }}
-              />
-              {modelOptions.length > 0 ? (
-                <Select
-                  className="model-picker"
-                  aria-label="选择模型"
-                  value={selectedModelId || undefined}
-                  disabled={inputDisabled || session.conversationCreating}
-                  title="模型选择从下一条消息生效"
-                  options={modelOptions.map((option) => ({
-                    key: option.id,
-                    value: option.id,
-                    label: option.model,
-                    disabled: !option.available,
-                  }))}
-                  onChange={(modelId) => session.selectModel?.(modelId)}
-                />
-              ) : null}
-              <button
-                className="send-button"
-                type="button"
-                onClick={submit}
-                disabled={sendDisabled}
-                aria-label={sendLabel}
-                aria-busy={session.busy || session.conversationCreating}
-                title={sendLabel}
-              >
-                <Icon
-                  name={sendIcon}
-                  size={18}
-                  className={sendIcon === "loader-circle" ? "send-arrow mc-icon-spin" : "send-arrow"}
-                />
-              </button>
+              <div className="composer-bottom-left">
+                <button
+                  type="button"
+                  className="attachment-button"
+                  aria-label="添加附件"
+                  title="添加附件，也可拖拽文件或粘贴图片"
+                  disabled={!canAttach}
+                  onClick={() => openAttachmentDialog()}
+                >
+                  <Icon name="plus" size={18} />
+                </button>
+              </div>
+              <div className="composer-bottom-right">
+                {modelOptions.length > 0 ? (
+                  <Select
+                    className="model-picker"
+                    aria-label="选择模型"
+                    value={selectedModelId || undefined}
+                    disabled={inputDisabled || session.conversationCreating}
+                    title="模型选择从下一条消息生效"
+                    options={modelOptions.map((option) => ({
+                      key: option.id,
+                      value: option.id,
+                      label: option.model,
+                      disabled: !option.available,
+                    }))}
+                    onChange={(modelId) => session.selectModel?.(modelId)}
+                  />
+                ) : null}
+                <button
+                  className="send-button"
+                  type="button"
+                  onClick={submit}
+                  disabled={sendDisabled}
+                  aria-label={sendLabel}
+                  aria-busy={session.busy || session.conversationCreating}
+                  title={sendLabel}
+                >
+                  <Icon
+                    name={sendIcon}
+                    size={18}
+                    className={sendIcon === "loader-circle" ? "send-arrow mc-icon-spin" : "send-arrow"}
+                  />
+                </button>
+              </div>
             </div>
           }
         />
       </div>
       {hasUnsupportedImage ? <div className="composer-attachment-warning" role="alert">当前模型不支持图片附件，请切换模型。</div> : null}
-      {fileError ? <div className="composer-attachment-warning" role="alert">{fileError}</div> : null}
       <div className="composer-meta">
         <div className="composer-hint" id="composer-hint">
           <Icon name="message-circle" size={15} /> Enter 发送 · Shift + Enter 换行 · 支持拖拽或粘贴附件
@@ -770,6 +641,19 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
           onClose={() => setPreview(null)}
         />
       ) : null}
+      <AttachmentDialog
+        open={dialogOpen}
+        sessionId={dialogSessionId}
+        initialFiles={dialogFiles}
+        capabilities={capabilities}
+        userId={session.userId}
+        tenantId={session.tenantId}
+        projectId={session.projectId}
+        existingCount={attachments.length}
+        existingTotalBytes={attachments.reduce((sum, item) => sum + item.size_bytes, 0)}
+        onClose={() => setDialogOpen(false)}
+        onConfirm={handleDialogConfirm}
+      />
     </div>
   );
 }

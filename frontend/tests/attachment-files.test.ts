@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   attachmentBadge,
   attachmentKindOf,
+  describeAttachmentLimits,
   extensionOf,
   formatBytes,
   validateAttachmentFile,
@@ -37,7 +38,19 @@ describe("attachment file helpers", () => {
     expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2 KB");
-    expect(formatBytes(3 * 1024 * 1024)).toBe("3.0 MB");
+    expect(formatBytes(3 * 1024 * 1024)).toBe("3 MB");
+    expect(formatBytes(1.5 * 1024 * 1024)).toBe("1.5 MB");
+  });
+
+  it("describes upload requirements from capabilities", () => {
+    const text = describeAttachmentLimits({
+      ...capabilities,
+      max_file_bytes: 10 * 1024 * 1024,
+      max_total_bytes: 25 * 1024 * 1024,
+    });
+    expect(text).toContain("支持 PNG / TXT");
+    expect(text).toContain("单个文件不超过 10 MB");
+    expect(text).toContain("单条消息最多 2 个、合计不超过 25 MB");
   });
 
   it("maps extensions to attachment kinds", () => {

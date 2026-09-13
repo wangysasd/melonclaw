@@ -11,7 +11,8 @@ export function formatBytes(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "0 B";
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  const megabytes = value / (1024 * 1024);
+  return `${Number.isInteger(megabytes) ? megabytes : megabytes.toFixed(1)} MB`;
 }
 
 /**
@@ -48,6 +49,20 @@ export function validateAttachmentFile(
 export function attachmentBadge(name: string): string {
   const label = extensionOf(name).replace(".", "").toUpperCase();
   return label.slice(0, 4) || "FILE";
+}
+
+/** 上传要求文案：类型、单文件大小、单条消息数量与总大小限制。 */
+export function describeAttachmentLimits(
+  capabilities: AttachmentCapabilities,
+): string {
+  const extensions = capabilities.items
+    .map((item) => item.extension.replace(".", "").toUpperCase())
+    .join(" / ");
+  return [
+    `支持 ${extensions}`,
+    `单个文件不超过 ${formatBytes(capabilities.max_file_bytes)}`,
+    `单条消息最多 ${capabilities.max_per_message} 个、合计不超过 ${formatBytes(capabilities.max_total_bytes)}`,
+  ].join("；") + "。";
 }
 
 export function attachmentKindOf(extension: string): AttachmentSummary["kind"] {

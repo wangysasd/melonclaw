@@ -104,10 +104,12 @@ function makeFile(name: string, size: number, type = "application/octet-stream")
   return new File([new Uint8Array(size)], name, { type });
 }
 
-async function flush(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
+async function flush(times = 3): Promise<void> {
+  for (let index = 0; index < times; index += 1) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
 }
 
 async function renderComposer(
@@ -129,6 +131,16 @@ async function renderComposer(
 
 function composerElement(view: ReturnType<typeof render>): HTMLElement {
   return view.container.querySelector(".composer") as HTMLElement;
+}
+
+/** 走完整弹窗流程：打开 → 选择文件 → 等上传完成 → 确认添加。 */
+async function addViaDialog(files: File[]): Promise<void> {
+  fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+  fireEvent.change(screen.getByLabelText("选择附件"), { target: { files } });
+  await flush();
+  expect(screen.getAllByText("已上传")).toHaveLength(files.length);
+  fireEvent.click(screen.getByRole("button", { name: "确认添加附件" }));
+  await flush();
 }
 
 beforeEach(() => {
@@ -232,76 +244,69 @@ describe("composer", () => {
     view.unmount();
   });
 
-  it("uploads every file from a multi-select", async () => {
+  it("opens the attachment dialog from the plus button", async () => {
     const view = await renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+    expect(screen.getByText("点击选择文件，或把文件拖到这里")).toBeTruthy();
+    expect(screen.getByText(/支持 PNG \/ TXT/)).toBeTruthy();
+    view.unmount();
+  });
+
+  it("adds attachments only after the dialog is confirmed", async () => {
+    const view = await renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
     fireEvent.change(screen.getByLabelText("选择附件"), {
-      target: { files: [makeFile("a.png", 1, "image/png"), makeFile("b.txt", 1, "text/plain")] },
+      target: { files: [makeFile("a.txt", 5, "text/plain"), makeFile("b.png", 4, "image/png")] },
     });
     await flush();
-    expect(client.uploadAttachment).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("a.png")).toBeTruthy();
-    expect(screen.getByText("b.txt")).toBeTruthy();
+    expect(screen.queryByText("a.txt")).toBeTruthy();
+    // 确认前输入区不应出现附件卡片。
+    expect(view.container.querySelector(".composer-attachments")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "确认添加附件" }));
+    await flush();
+    const chips = view.container.querySelector(".composer-attachments") as HTMLElement;
+    expect(chips).not.toBeNull();
+    expect(chips.textContent).toContain("a.txt");
+    expect(chips.textContent).toContain("b.png");
     view.unmount();
   });
 
-  it("rejects unsupported files before uploading", async () => {
-    const view = await renderComposer();
-    fireEvent.change(screen.getByLabelText("选择附件"), {
-      target: { files: [makeFile("tool.exe", 1)] },
-    });
-    await flush();
-    expect(client.uploadAttachment).not.toHaveBeenCalled();
-    expect(screen.getByText(/暂不支持/)).toBeTruthy();
-    view.unmount();
-  });
-
-  it("rejects files above the per-file size limit", async () => {
-    const view = await renderComposer();
-    fireEvent.change(screen.getByLabelText("选择附件"), {
-      target: { files: [makeFile("big.txt", 11, "text/plain")] },
-    });
-    await flush();
-    expect(client.uploadAttachment).not.toHaveBeenCalled();
-    expect(screen.getByText(/单个附件上限/)).toBeTruthy();
-    view.unmount();
-  });
-
-  it("caps the number of attachments per message", async () => {
-    const view = await renderComposer();
-    fireEvent.change(screen.getByLabelText("选择附件"), {
-      target: {
-        files: [
-          makeFile("a.txt", 1, "text/plain"),
-          makeFile("b.txt", 1, "text/plain"),
-          makeFile("c.txt", 1, "text/plain"),
-        ],
-      },
-    });
-    await flush();
-    expect(client.uploadAttachment).toHaveBeenCalledTimes(2);
-    expect(screen.getByText(/最多添加 2 个附件/)).toBeTruthy();
-    view.unmount();
-  });
-
-  it("adds attachments pasted from the clipboard", async () => {
-    const view = await renderComposer();
-    fireEvent.paste(composerElement(view), {
-      clipboardData: { files: [makeFile("pasted.png", 1, "image/png")] },
-    });
-    await flush();
-    expect(client.uploadAttachment).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(client.uploadAttachment).mock.calls[0][1].file.name).toBe("pasted.png");
-    view.unmount();
-  });
-
-  it("adds attachments dropped onto the composer", async () => {
+  it("opens the dialog with files dropped onto the composer", async () => {
     const view = await renderComposer();
     fireEvent.drop(composerElement(view), {
       dataTransfer: { files: [makeFile("dropped.txt", 1, "text/plain")] },
     });
     await flush();
-    expect(client.uploadAttachment).toHaveBeenCalledTimes(1);
     expect(vi.mocked(client.uploadAttachment).mock.calls[0][1].file.name).toBe("dropped.txt");
+    expect(screen.getAllByText("已上传")).toHaveLength(1);
+    view.unmount();
+  });
+
+  it("opens the dialog with pasted images", async () => {
+    const view = await renderComposer();
+    fireEvent.paste(composerElement(view), {
+      clipboardData: { files: [makeFile("pasted.png", 1, "image/png")] },
+    });
+    await flush();
+    expect(vi.mocked(client.uploadAttachment).mock.calls[0][1].file.name).toBe("pasted.png");
+    view.unmount();
+  });
+
+  it("drops staged uploads when the dialog is cancelled", async () => {
+    const view = await renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+    fireEvent.change(screen.getByLabelText("选择附件"), {
+      target: { files: [makeFile("a.txt", 5, "text/plain")] },
+    });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    await flush();
+    expect(client.deleteAttachment).toHaveBeenCalledWith("a-a.txt", {
+      userId: "u1",
+      tenantId: "t1",
+    });
+    expect(view.container.querySelector(".composer-attachments")).toBeNull();
     view.unmount();
   });
 
@@ -310,9 +315,7 @@ describe("composer", () => {
       uploadedAttachment({ attachment_id: "a1", file_name: "doc.txt", parse_status: "failed" }),
     );
     const view = await renderComposer();
-    fireEvent.change(screen.getByLabelText("选择附件"), {
-      target: { files: [makeFile("doc.txt", 5, "text/plain")] },
-    });
+    await addViaDialog([makeFile("doc.txt", 5, "text/plain")]);
     fireEvent.click(await screen.findByRole("button", { name: "重新解析" }));
     await flush();
     expect(client.retryAttachmentParse).toHaveBeenCalledWith("a1", {
@@ -323,11 +326,17 @@ describe("composer", () => {
   });
 
   it("opens an image preview from the attachment chip", async () => {
+    vi.mocked(client.uploadAttachment).mockResolvedValue(
+      uploadedAttachment({
+        attachment_id: "img1",
+        file_name: "shot.png",
+        kind: "image",
+        media_type: "image/png",
+        parse_status: "not_required",
+      }),
+    );
     const view = await renderComposer();
-    fireEvent.change(screen.getByLabelText("选择附件"), {
-      target: { files: [makeFile("shot.png", 1, "image/png")] },
-    });
-    await flush();
+    await addViaDialog([makeFile("shot.png", 1, "image/png")]);
     fireEvent.click(screen.getByRole("button", { name: "预览 shot.png" }));
     expect(screen.getByRole("dialog", { name: "shot.png" })).toBeTruthy();
     view.unmount();
