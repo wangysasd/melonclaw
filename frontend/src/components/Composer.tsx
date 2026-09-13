@@ -14,6 +14,7 @@ import Sender, { type SenderRef } from "@ant-design/x/es/sender";
 import { AttachmentDialog, type StagedAttachment } from "./AttachmentDialog";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
+import { PlusMenu } from "./PlusMenu";
 import { SkillPicker } from "./SkillPicker";
 import { SkillLogo } from "./SkillLogo";
 import { findSkillTrigger, type SkillTrigger } from "../lib/skillTrigger";
@@ -98,6 +99,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogFiles, setDialogFiles] = useState<File[]>([]);
   const [dialogSessionId, setDialogSessionId] = useState(0);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const dragDepthRef = useRef(0);
   const notifiedParseFailureRef = useRef(new Set<string>());
@@ -146,10 +148,18 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     const handlePointerDown = (event: PointerEvent) => {
       if (!composerRef.current?.contains(event.target as Node)) {
         setSkillTrigger(null);
+        setPlusMenuOpen(false);
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPlusMenuOpen(false);
+    };
     document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, []);
 
   useEffect(() => {
@@ -163,6 +173,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     setPreview(null);
     setDragging(false);
     setDialogOpen(false);
+    setPlusMenuOpen(false);
     dragDepthRef.current = 0;
     return () => {
       for (const attachment of attachmentsRef.current) {
@@ -294,6 +305,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
   /** 打开附件弹窗；带 files 表示由输入区的拖拽/粘贴进入，弹窗会立刻上传。 */
   const openAttachmentDialog = (files: File[] = []) => {
     if (!canAttach) return;
+    setPlusMenuOpen(false);
     setDialogFiles(files);
     setDialogSessionId((current) => current + 1);
     setDialogOpen(true);
@@ -411,6 +423,17 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
     });
   };
 
+  /** 从加号二级目录选择技能：没有 `/` 触发词需要清理，只挂上技能标签。 */
+  const applySkill = (skill: SkillOption) => {
+    setPlusMenuOpen(false);
+    setSkillTrigger(null);
+    setSelectedSkill(skill);
+    window.requestAnimationFrame(() => {
+      const input = senderRef.current?.inputElement as HTMLTextAreaElement | undefined;
+      input?.focus();
+    });
+  };
+
   return (
     <div className="composer-wrap">
       <div
@@ -437,6 +460,15 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
             error={session.skillsError ?? null}
             onSelect={selectSkill}
             onHover={setActiveSkillIndex}
+          />
+        ) : null}
+        {plusMenuOpen ? (
+          <PlusMenu
+            skills={skills}
+            skillsLoading={session.skillsLoading ?? false}
+            skillsError={session.skillsError ?? null}
+            onPickFiles={() => openAttachmentDialog()}
+            onPickSkill={applySkill}
           />
         ) : null}
         {attachments.length > 0 ? (
@@ -580,9 +612,11 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
                   type="button"
                   className="attachment-button"
                   aria-label="添加附件"
-                  title="添加附件，也可拖拽文件或粘贴图片"
+                  title="添加内容：图片和文件，或调用技能"
                   disabled={!canAttach}
-                  onClick={() => openAttachmentDialog()}
+                  aria-haspopup="menu"
+                  aria-expanded={plusMenuOpen}
+                  onClick={() => setPlusMenuOpen((current) => !current)}
                 >
                   <Icon name="plus" size={18} />
                 </button>

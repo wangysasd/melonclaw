@@ -69,6 +69,12 @@ const session = {
   ],
   selectedModelId: "system:deepseek:flash",
   selectModel: vi.fn(),
+  skills: [
+    { id: "deep-research", display_name: "深度研究", description: "研究并总结一个主题" },
+    { id: "image-gen", display_name: "生成图片", description: "根据描述生成图片" },
+  ],
+  skillsLoading: false,
+  skillsError: null,
 };
 vi.mock("../src/state/session", () => ({ useSession: () => session }));
 
@@ -133,9 +139,20 @@ function composerElement(view: ReturnType<typeof render>): HTMLElement {
   return view.container.querySelector(".composer") as HTMLElement;
 }
 
+/** 打开左下角加号的二级目录。 */
+function openPlusMenu(): void {
+  fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+}
+
+/** 经二级目录的「图片和文件」打开添加附件弹窗。 */
+function openFilesDialog(): void {
+  openPlusMenu();
+  fireEvent.click(screen.getByRole("menuitem", { name: "图片和文件" }));
+}
+
 /** 走完整弹窗流程：打开 → 选择文件 → 等上传完成 → 确认添加。 */
 async function addViaDialog(files: File[]): Promise<void> {
-  fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+  openFilesDialog();
   fireEvent.change(screen.getByLabelText("选择附件"), { target: { files } });
   await flush();
   expect(screen.getAllByText("已上传")).toHaveLength(files.length);
@@ -244,17 +261,81 @@ describe("composer", () => {
     view.unmount();
   });
 
-  it("opens the attachment dialog from the plus button", async () => {
+  it("opens a two-level menu from the plus button", async () => {
     const view = await renderComposer();
-    fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+    openPlusMenu();
+    expect(screen.getByRole("menu", { name: "添加内容" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "图片和文件" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "技能" })).toBeTruthy();
+    view.unmount();
+  });
+
+  it("reveals the skill list on hover and applies the chosen skill", async () => {
+    const view = await renderComposer();
+    openPlusMenu();
+    expect(screen.queryByRole("listbox", { name: "技能列表" })).toBeNull();
+
+    fireEvent.pointerOver(screen.getByRole("menuitem", { name: "技能" }));
+    expect(screen.getByRole("listbox", { name: "技能列表" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: /深度研究/ }));
+
+    expect(screen.queryByRole("menu", { name: "添加内容" })).toBeNull();
+    expect(screen.getByText("深度研究")).toBeTruthy();
+    view.unmount();
+  });
+
+  it("keeps the skill list open when the pointer leaves the skills row", async () => {
+    const view = await renderComposer();
+    openPlusMenu();
+    const skillsItem = screen.getByRole("menuitem", { name: "技能" });
+    fireEvent.pointerOver(skillsItem);
+    expect(screen.getByRole("listbox", { name: "技能列表" })).toBeTruthy();
+
+    // 鼠标从「技能」移向飞出的二级目录时，会先离开这一行；此时目录必须留着。
+    fireEvent.pointerOut(skillsItem, { relatedTarget: document.body });
+    expect(screen.getByRole("listbox", { name: "技能列表" })).toBeTruthy();
+
+    // 直接落在二级目录的某一项上也要保持展开。
+    fireEvent.pointerOver(screen.getByRole("option", { name: /生成图片/ }));
+    expect(screen.getByRole("listbox", { name: "技能列表" })).toBeTruthy();
+    view.unmount();
+  });
+
+  it("closes the skill list only after another top-level entry is hovered", async () => {
+    const view = await renderComposer();
+    openPlusMenu();
+    fireEvent.pointerOver(screen.getByRole("menuitem", { name: "技能" }));
+    expect(screen.getByRole("listbox", { name: "技能列表" })).toBeTruthy();
+
+    fireEvent.pointerOver(screen.getByRole("menuitem", { name: "图片和文件" }));
+    expect(screen.queryByRole("listbox", { name: "技能列表" })).toBeNull();
+    view.unmount();
+  });
+
+  it("closes the plus menu when clicking outside or pressing Escape", async () => {
+    const view = await renderComposer();
+    openPlusMenu();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu", { name: "添加内容" })).toBeNull();
+
+    openPlusMenu();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "添加内容" })).toBeNull();
+    view.unmount();
+  });
+
+  it("opens the attachment dialog from the plus menu", async () => {
+    const view = await renderComposer();
+    openFilesDialog();
     expect(screen.getByText("点击选择文件，或把文件拖到这里")).toBeTruthy();
     expect(screen.getByText(/支持 PNG \/ TXT/)).toBeTruthy();
+    expect(screen.queryByRole("menu", { name: "添加内容" })).toBeNull();
     view.unmount();
   });
 
   it("adds attachments only after the dialog is confirmed", async () => {
     const view = await renderComposer();
-    fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+    openFilesDialog();
     fireEvent.change(screen.getByLabelText("选择附件"), {
       target: { files: [makeFile("a.txt", 5, "text/plain"), makeFile("b.png", 4, "image/png")] },
     });
@@ -295,7 +376,7 @@ describe("composer", () => {
 
   it("drops staged uploads when the dialog is cancelled", async () => {
     const view = await renderComposer();
-    fireEvent.click(screen.getByRole("button", { name: "添加附件" }));
+    openFilesDialog();
     fireEvent.change(screen.getByLabelText("选择附件"), {
       target: { files: [makeFile("a.txt", 5, "text/plain")] },
     });

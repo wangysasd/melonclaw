@@ -43,7 +43,8 @@ Agent 通过受控虚拟路径按需读取。出站图片经 `services/attachmen
 
 ## 数据与事件流
 
-`Composer` 左下角「+」（或输入区拖拽/粘贴）打开 `AttachmentDialog` → 弹窗内拖拽/多选文件，
+`Composer` 左下角「+」展开二级目录（1 图片和文件 / 2 技能，悬停展开技能列表）；
+选「图片和文件」打开 `AttachmentDialog`（输入区拖拽/粘贴则跳过目录直接进入弹窗）→ 弹窗内拖拽/多选文件，
 按 `capabilities` 预校验后上传（XHR 上报进度）→ `AttachmentService` 校验/原子落盘 →
 点「确认添加附件」把 staged 附件交给输入区（「取消」删除本次暂存）→ 后台解析 →
 Composer 按附件 ID 轮询 `parse_status`（指数退避，超过上限标记超时）→ 发送 JSON
@@ -88,7 +89,7 @@ scripts/start.sh
 ## 验证记录与当前边界
 
 已通过 `scripts/check.sh`（compileall、33 项后端测试、Ruff、锁文件校验、ESLint、
-TypeScript、61 项前端测试）和前端生产构建；附件校验、文本/JSON 前移校验、图片出站缩放
-与缓存、能力清单、附件弹窗与前端预校验、Markdown 派生输出、独立解析进程、本地存储路径和
-API 路由有专项测试/导入检查。真实 PostgreSQL 迁移、真实模型视觉请求、大文件资源压测、
+TypeScript、66 项前端测试）和前端生产构建；附件校验、文本/JSON 前移校验、图片出站缩放
+与缓存、能力清单、加号二级目录、附件弹窗与前端预校验、Markdown 派生输出、独立解析进程、
+本地存储路径和 API 路由有专项测试/导入检查。真实 PostgreSQL 迁移、真实模型视觉请求、大文件资源压测、
 病毒扫描、内存/CPU/打开文件数硬限制、对象存储和生产隔离沙箱仍需在部署环境单独验证。
