@@ -796,7 +796,7 @@
   min-height: 120px;
   display: flex;
   flex-direction: column;
-  padding: 8px 14px;
+  padding: 6px 12px;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: var(--radius-composer);
   background: rgba(255, 255, 255, 0.86);
@@ -955,7 +955,8 @@
 
 .plus-menu-panel {
   width: min(300px, 60vw);
-  max-height: min(60vh, 330px);
+  /* 默认展示五项完整技能，第六项通过滚动查看。 */
+  max-height: min(60vh, 290px);
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 20px;
@@ -964,7 +965,7 @@
 }
 
 .plus-menu-skills {
-  max-height: min(60vh, 330px);
+  max-height: min(60vh, 290px);
   padding: 8px;
   overflow-y: auto;
 }
@@ -1021,7 +1022,7 @@
   left: 8px;
   pointer-events: none;
 }
-.composer .melon-sender textarea { min-height: 38px; max-height: 180px; padding: 3px 2px; color: var(--ink); font-family: var(--font-ui); font-size: 16px; line-height: 1.5; resize: none; }
+.composer .melon-sender textarea { min-height: 38px; max-height: 180px; padding: 3px 0; color: var(--ink); font-family: var(--font-ui); font-size: 16px; line-height: 1.5; resize: none; }
 .composer .melon-sender textarea::placeholder { color: #86868b; }
 .composer .melon-sender .ant-sender-footer { padding: 0; }
 
@@ -1254,7 +1255,7 @@
   flex: 1 1 auto;
   max-height: 180px;
   display: block;
-  padding: 3px 2px;
+  padding: 3px 0;
   color: var(--ink);
   border: 0;
   outline: 0;

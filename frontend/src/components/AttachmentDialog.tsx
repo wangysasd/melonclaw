@@ -272,7 +272,7 @@ export function AttachmentDialog({
     <Modal
       open={open}
       title="添加附件"
-      okText="确认添加附件"
+      okText="确认"
       cancelText="取消"
       centered
       width={520}
