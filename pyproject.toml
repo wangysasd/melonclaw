@@ -36,3 +36,21 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/melonclaw"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# 显式钉住规则集：否则 lint 结果会随 ruff 版本的默认值变化（0.16 的默认集比旧版更宽，
+# 会让检查突然失败）。
+# E4/E7/E9/F 是经典安全集，I 是导入顺序（23 个文件已整理）。
+# TRY（7 处）与 BLE（1 处）尚未启用，告警清单见
+# docs/exec-plans/tech-debt-tracker.md 的 D3。
+select = ["E4", "E7", "E9", "F", "I"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.7",
+]
