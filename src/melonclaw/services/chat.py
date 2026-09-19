@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
@@ -32,6 +33,9 @@ from melonclaw.services.errors import (
 )
 from melonclaw.services.execution import ExecutionService, PreparedExecution
 from melonclaw.services.runtime import ChatRuntime
+from melonclaw.services.user_input_execution import UserInputExecutionService
+
+logger = logging.getLogger(__name__)
 
 
 class ChatService:
@@ -47,6 +51,7 @@ class ChatService:
             self.conversations,
             attachments=self.attachments,
         )
+        self.user_input = UserInputExecutionService(self.execution)
 
     @property
     def settings(self) -> Settings | None:
@@ -223,7 +228,9 @@ class ChatService:
         tenant_id: str | None = None,
         skill_id: str | None = None,
         attachment_ids: list[UUID] | None = None,
+        capabilities: list[str] | None = None,
     ) -> PreparedExecution:
+        await self._release_stale_user_interaction(conversation_id, user_id, tenant_id)
         return await self.execution.prepare_message(
             conversation_id,
             user_id,
@@ -233,7 +240,29 @@ class ChatService:
             tenant_id=tenant_id,
             skill_id=skill_id,
             attachment_ids=attachment_ids,
+            capabilities=capabilities,
         )
+
+    async def _release_stale_user_interaction(
+        self,
+        conversation_id: UUID,
+        user_id: str,
+        tenant_id: str | None,
+    ) -> None:
+        """发新消息前一次判断并收尾过期问题或待人工结束的失败轮次。"""
+
+        try:
+            await self.user_input.cancel_before_new_message(
+                conversation_id,
+                user_id,
+                tenant_id,
+            )
+        except Exception:  # noqa: BLE001 - 自动解锁失败不应阻塞新消息
+            logger.warning(
+                "自动收尾用户问题失败：conversation_id=%s",
+                conversation_id,
+                exc_info=True,
+            )
 
     async def prepare_approval(
         self,
@@ -241,11 +270,36 @@ class ChatService:
         user_id: str,
         decisions: Any,
         tenant_id: str | None = None,
+        *,
+        approval_batch_id: UUID | None = None,
+        assistant_message_id: UUID | None = None,
     ) -> tuple[PreparedExecution, Any]:
         return await self.execution.prepare_approval(
             conversation_id,
             user_id,
             decisions,
+            tenant_id,
+            approval_batch_id=approval_batch_id,
+            assistant_message_id=assistant_message_id,
+        )
+
+    async def prepare_user_input(
+        self,
+        conversation_id: UUID,
+        user_id: str,
+        interaction_id: UUID,
+        assistant_message_id: UUID,
+        decision_request_id: str,
+        answer: Any,
+        tenant_id: str | None = None,
+    ):
+        return await self.user_input.prepare(
+            conversation_id,
+            user_id,
+            interaction_id,
+            assistant_message_id,
+            decision_request_id,
+            answer,
             tenant_id,
         )
 

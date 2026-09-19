@@ -9,7 +9,7 @@ import {
 import { App as AntdApp } from "antd";
 
 import { getConversationHistory } from "../api/client";
-import { sendApprovalStream, sendMessageStream } from "../api/stream";
+import { sendApprovalStream, sendMessageStream, sendUserInputStream } from "../api/stream";
 import type {
   ApprovalDecision,
   DisplayEvent,
@@ -17,10 +17,18 @@ import type {
   MessageModel,
   AttachmentSummary,
   PendingApproval,
+  UserInputAnswer,
+  UserQuestionRequest,
   StreamEvent,
 } from "../types/api";
 import { classifyToolSelectorText, visibleAssistantText } from "../lib/toolSelection";
+import { isUserQuestionExpired } from "../lib/userQuestionExpiry";
 import { useSession } from "../state/session";
+
+/** 与后端 `core/user_input.py` 的同名错误码保持一致。 */
+const USER_INPUT_RECOVERY_REQUIRED = "user_input_recovery_required";
+const RECOVERY_REQUIRED_NOTICE =
+  "这一轮的回答已经收到，但 Agent 没能继续跑完。为了避免把可能带副作用的操作再执行一遍，系统不会自动重放这一轮：请直接发新消息开始新一轮。";
 
 /** 展示给用户的安全执行阶段；不包含模型的隐藏推理文本。 */
 export type ReasoningPhase =
@@ -57,6 +65,7 @@ interface ChatState {
   conversationTitle: string | null;
   messages: ChatMessage[];
   approval: PendingApproval | null;
+  userQuestion: UserQuestionRequest | null;
   historyLoading: boolean;
   /** 失败时需要回填的草稿（仅当输入框为空时生效，对齐旧 restoreDraft）。 */
   restoreDraft: string | null;
@@ -72,6 +81,7 @@ type ChatAction =
       title: string | null;
       messages: ChatMessage[];
       approval: PendingApproval | null;
+      userQuestion: UserQuestionRequest | null;
     }
   | { type: "optimistic"; conversationId: string; user: ChatMessage; assistant: ChatMessage }
   | { type: "removeOptimistic"; ids: string[] }
@@ -91,6 +101,8 @@ type ChatAction =
   | { type: "streamFailed"; messageId?: string; message?: string; error?: string }
   | { type: "historyFailed"; error: string }
   | { type: "approvalRequired"; request: PendingApproval }
+  | { type: "userInputRequired"; request: UserQuestionRequest }
+  | { type: "userInputAccepted" }
   | { type: "approvalCleared" }
   | { type: "draftRestored" };
 
@@ -99,6 +111,7 @@ export const INITIAL_CHAT_STATE: ChatState = {
   conversationTitle: null,
   messages: [],
   approval: null,
+  userQuestion: null,
   historyLoading: false,
   restoreDraft: null,
   error: null,
@@ -142,6 +155,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         conversationTitle: action.title,
         messages: action.messages,
         approval: action.approval,
+        userQuestion: action.userQuestion,
         historyLoading: false,
         restoreDraft: null,
         error: null,
@@ -150,6 +164,8 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         conversationId: action.conversationId,
+        approval: null,
+        userQuestion: null,
         historyLoading: false,
         error: null,
         messages: [...state.messages, action.user, action.assistant],
@@ -165,6 +181,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         approval: action.resuming ? null : state.approval,
+        userQuestion: action.resuming ? null : state.userQuestion,
         error: null,
         messages: state.messages.map((message) => {
           if (message.role === "assistant" && (message.optimistic || message.id === action.assistantMessageId)) {
@@ -252,8 +269,12 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, historyLoading: false, error: action.error };
     case "approvalRequired":
       return { ...state, approval: action.request, messages: upsertLastAssistant(state, (message) => ({ ...appendPhase(message, "waiting"), status: "interrupted", markdown: true })) };
+    case "userInputRequired":
+      return { ...state, userQuestion: action.request, approval: null, messages: upsertLastAssistant(state, (message) => ({ ...appendPhase(message, "waiting"), status: "interrupted", markdown: true })) };
+    case "userInputAccepted":
+      return { ...state, userQuestion: null };
     case "approvalCleared":
-      return { ...state, approval: null };
+      return { ...state, approval: null, userQuestion: null };
     case "draftRestored":
       return { ...state, restoreDraft: null };
     default:
@@ -282,6 +303,7 @@ export interface ChatStreamHandle {
     onAccepted?: () => void,
     attachmentIds?: string[],
   ) => Promise<void>;
+  submitUserInput: (answer: UserInputAnswer) => Promise<void>;
   submitApproval: (
     decisions:
       | ApprovalDecision[]
@@ -414,9 +436,23 @@ export function useChatStream({
           dispatch({ type: "runPhase", phase: "waiting" });
           dispatch({ type: "approvalRequired", request: event.request });
           break;
+        case "user_input_required":
+          sessionRef.current.setBusy(true);
+          sessionRef.current.setRunStatus("waiting");
+          dispatch({ type: "runPhase", phase: "waiting" });
+          dispatch({ type: "userInputRequired", request: event.request });
+          break;
+        case "user_input_accepted":
+          sessionRef.current.setBusy(true);
+          sessionRef.current.setRunStatus("processing");
+          dispatch({ type: "userInputAccepted" });
+          break;
         case "done":
           sessionRef.current.setBusy(false);
           void sessionRef.current.refreshConversations();
+          // 回执型响应（同幂等键重试）背后没有继续执行：如果不回到服务端对账，
+          // 用户只会看到卡片消失、然后什么都没发生。
+          if (event.terminal_reason === "already_accepted") reloadHistory();
           break;
         case "error":
           sessionRef.current.setBusy(false);
@@ -447,7 +483,7 @@ export function useChatStream({
         scroll.scrollToBottom();
       }
     },
-    [appendStreamText, matchesContext, message, scroll],
+    [appendStreamText, matchesContext, message, reloadHistory, scroll],
   );
 
   const runStream = useCallback(
@@ -522,7 +558,15 @@ export function useChatStream({
     ) => {
       const snapshot = sessionRef.current;
       const cleanText = content.trim();
-      if ((!cleanText && attachmentIds.length === 0) || snapshot.busy || snapshot.conversationCreating) return;
+      const pendingQuestion = chatStateRef.current.userQuestion;
+      const canReplaceExpiredQuestion = Boolean(
+        pendingQuestion && isUserQuestionExpired(pendingQuestion.expires_at),
+      );
+      if (
+        (!cleanText && attachmentIds.length === 0) ||
+        (snapshot.busy && !canReplaceExpiredQuestion) ||
+        snapshot.conversationCreating
+      ) return;
       if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return;
       if (!snapshot.contextReady || snapshot.status?.status !== "ready") {
         message.error("服务仍在准备中，请稍候再发送。");
@@ -625,8 +669,16 @@ export function useChatStream({
         | { interrupt_id: string; decisions: ApprovalDecision[] }[],
     ) => {
       const snapshot = sessionRef.current;
+      const approval = chatStateRef.current.approval;
       const conversationId = snapshot.conversationId;
       if (!conversationId) return;
+      if (!approval?.approval_batch_id || !approval.assistant_message_id) {
+        throw new Error(
+          "审批提交必须绑定 approval_batch_id 和 assistant_message_id，请刷新后重试。",
+        );
+      }
+      const approvalBatchId = approval.approval_batch_id;
+      const assistantMessageId = approval.assistant_message_id;
       historyControllerRef.current?.abort();
       const context: SendContext = {
         epoch: snapshot.epoch,
@@ -641,7 +693,17 @@ export function useChatStream({
       };
       const succeeded = await runStream(
         (handlers) =>
-          sendApprovalStream(conversationId, { userId: context.userId, tenantId: context.tenantId, decisions }, handlers),
+          sendApprovalStream(
+            conversationId,
+            {
+              userId: context.userId,
+              tenantId: context.tenantId,
+              approvalBatchId,
+              assistantMessageId,
+              decisions,
+            },
+            handlers,
+          ),
         context,
         [],
       );
@@ -654,7 +716,49 @@ export function useChatStream({
     [runStream, matchesContext],
   );
 
-  // 切换会话/用户/项目时加载历史消息（含 pending_approval 恢复）。
+  const submitUserInput = useCallback(
+    async (answer: UserInputAnswer) => {
+      const snapshot = sessionRef.current;
+      const question = chatStateRef.current.userQuestion;
+      const conversationId = snapshot.conversationId;
+      if (!conversationId || !question) return;
+      historyControllerRef.current?.abort();
+      const context: SendContext = {
+        epoch: snapshot.epoch,
+        conversationId,
+        userId: snapshot.userId,
+        tenantId: snapshot.tenantId,
+        projectId: snapshot.projectId,
+        modelId: snapshot.selectedModelId || "",
+        skillId: null,
+        draft: "",
+        attachmentIds: [],
+      };
+      const succeeded = await runStream(
+        (handlers) =>
+          sendUserInputStream(
+            conversationId,
+            {
+              userId: context.userId,
+              tenantId: context.tenantId,
+              interactionId: question.interaction_id,
+              assistantMessageId: question.assistant_message_id,
+              decisionRequestId: crypto.randomUUID(),
+              answer,
+            },
+            handlers,
+          ),
+        context,
+        [],
+      );
+      if (!succeeded && matchesContext(context)) {
+        throw new Error("回答未能提交或运行已中断。请重新同步会话后重试。");
+      }
+    },
+    [matchesContext, runStream],
+  );
+
+  // 切换会话/用户/项目时加载历史消息（含审批和用户问题恢复）。
   useEffect(() => {
     const snapshot = session;
     const controller = new AbortController();
@@ -694,9 +798,14 @@ export function useChatStream({
           return;
         }
         const messages: ChatMessage[] = data.items.flatMap((item) => {
-          const content = item.role === "user" ? item.content || "" : visibleAssistantText(item.content || "");
+          let content = item.role === "user" ? item.content || "" : visibleAssistantText(item.content || "");
           if (item.role !== "user" && classifyToolSelectorText(content) === "selector") {
             return [];
+          }
+          // 答案已收但这一轮没跑完：服务端不再给卡片，这里补一句人话，顺便告诉
+          // 用户唯一的出口——发新消息即可解锁这一轮。
+          if (item.role !== "user" && item.error_code === USER_INPUT_RECOVERY_REQUIRED && !content.trim()) {
+            content = RECOVERY_REQUIRED_NOTICE;
           }
           return {
             id: item.id,
@@ -717,13 +826,14 @@ export function useChatStream({
           title: data.conversation?.title ?? null,
           messages,
           approval: data.pending_approval,
+          userQuestion: data.pending_interaction ?? null,
         });
         const currentActiveRun = activeRunRef.current;
         const activeStream =
           currentActiveRun && !currentActiveRun.controller.signal.aborted;
         const activeForSnapshot =
           activeStream && matchesContext(currentActiveRun.context);
-        if (data.pending_approval) {
+        if (data.pending_approval || data.pending_interaction) {
           sessionRef.current.setBusy(true);
           sessionRef.current.setRunStatus("waiting");
         } else if (!activeForSnapshot) {
@@ -758,10 +868,11 @@ export function useChatStream({
       state,
       sendMessage,
       submitApproval,
+      submitUserInput,
       clearRestoreDraft: () => dispatch({ type: "draftRestored" }),
       reloadHistory,
     }),
-    [state, reloadHistory, sendMessage, submitApproval],
+    [state, reloadHistory, sendMessage, submitApproval, submitUserInput],
   );
 
   return handle;
@@ -771,6 +882,8 @@ const TERMINAL_HINT = new Set([
   "completed",
   "error",
   "approval_required",
+  "user_input_required",
+  "user_input_accepted",
   "message_status",
 ]);
 

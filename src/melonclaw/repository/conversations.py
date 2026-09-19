@@ -353,6 +353,30 @@ class ConversationRepositoryMixin:
             row = (await connection.execute(query)).mappings().first()
         return _message_dict(row) if row else None
 
+    async def get_latest_assistant(
+        self,
+        conversation_id: UUID,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        """读取会话最新助手消息，用于恢复业务状态落后于 Checkpoint 的情况。"""
+
+        if await self.get_conversation(conversation_id, user_id) is None:
+            raise ConversationNotFoundError
+        query = (
+            select(chat_messages)
+            .where(
+                and_(
+                    chat_messages.c.conversation_id == conversation_id,
+                    chat_messages.c.role == "assistant",
+                )
+            )
+            .order_by(chat_messages.c.seq.desc())
+            .limit(1)
+        )
+        async with self.engine.connect() as connection:
+            row = (await connection.execute(query)).mappings().first()
+        return _message_dict(row) if row else None
+
     async def update_assistant(
         self,
         conversation_id: UUID,

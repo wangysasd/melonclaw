@@ -6,6 +6,7 @@ import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "re
 import { Icon } from "./Icon";
 import { Composer } from "./Composer";
 import { ApprovalPanel } from "./ApprovalPanel";
+import { UserQuestionPanel } from "./UserQuestionPanel";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 import { ReasoningSummary } from "./ReasoningSummary";
@@ -14,16 +15,17 @@ import { useServiceStatus } from "../hooks/useServiceStatus";
 import { attachmentBadge } from "../lib/attachmentFiles";
 import { copyText } from "../lib/clipboard";
 import { formatMessageTime } from "../lib/format";
+import { useUserQuestionExpired } from "../lib/userQuestionExpiry";
 import { useSession, type RunStatus } from "../state/session";
 import { attachmentContentUrl } from "../api/client";
-import type { PendingApproval } from "../types/api";
+import type { PendingApproval, UserQuestionRequest } from "../types/api";
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "处理中",
   completed: "已完成",
   failed: "失败",
   cancelled: "已取消",
-  interrupted: "等待确认",
+  interrupted: "等待交互",
 };
 
 const RUN_STATUS_LABELS: Record<RunStatus, string> = {
@@ -39,10 +41,24 @@ const RUN_STATUS_LABELS: Record<RunStatus, string> = {
 
 /** 审批面板重挂载 key：interrupt ID 组合变化时重置面板内部表单状态。 */
 function approvalKey(approval: PendingApproval): string {
+  const binding = `${approval.approval_batch_id ?? ""}:${approval.assistant_message_id ?? ""}`;
   if (Array.isArray(approval.interrupts) && approval.interrupts.length > 0) {
-    return approval.interrupts.map((item) => item.id).join(",");
+    return `${binding}:${approval.interrupts.map((item) => item.id).join(",")}`;
   }
-  return approval.id ?? "single";
+  return `${binding}:${approval.id ?? "single"}`;
+}
+
+/**
+ * 问题卡片重挂载 key：interaction ID 或题目变化时重置卡片内部表单状态。
+ *
+ * 只认 interaction_id 不够：助手连续提问时账本可能被复用，题目换了但 ID 不变，
+ * 卡片不重建就会把上一道题的选择留给下一道题。
+ */
+function questionKey(question: UserQuestionRequest): string {
+  const digest = question.questions
+    .map((item) => `${item.id}:${item.question}`)
+    .join(",");
+  return `${question.interaction_id}:${digest}`;
 }
 
 const WELCOME_PROMPTS = [
@@ -262,6 +278,12 @@ export function ChatView() {
   );
 
   const chat = useChatStream({ scroll });
+  const userQuestionExpired = useUserQuestionExpired(
+    chat.state.userQuestion?.expires_at,
+  );
+  const expiredQuestionCanStartNewMessage = Boolean(
+    chat.state.userQuestion && userQuestionExpired,
+  );
   useEffect(() => () => {
     if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
   }, []);
@@ -360,7 +382,14 @@ export function ChatView() {
           </div>
         )}
       <div className="approval-inline" ref={approvalRef}>
-        {chat.state.approval ? (
+        {chat.state.userQuestion ? (
+          <UserQuestionPanel
+            key={questionKey(chat.state.userQuestion)}
+            question={chat.state.userQuestion}
+            onSubmit={chat.submitUserInput}
+            expired={userQuestionExpired}
+          />
+        ) : chat.state.approval ? (
           <ApprovalPanel
             key={approvalKey(chat.state.approval)}
             approval={chat.state.approval}
@@ -376,13 +405,14 @@ export function ChatView() {
       ) : null}
       </div>
 
-      {chat.state.approval ? (
+      {chat.state.userQuestion || chat.state.approval ? (
         <div className="chat-attention" role="status">
-          <Icon name="shield-check" size={16} />助手已暂停，等待你的决定
+          <Icon name={chat.state.userQuestion ? "message-circle" : "shield-check"} size={16} />
+          助手已暂停，等待你的{chat.state.userQuestion ? "回答" : "决定"}
           <button type="button" onClick={() => {
             approvalRef.current?.scrollIntoView({ block: "start" });
             approvalRef.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
-          }}>查看待确认操作</button>
+          }}>{chat.state.userQuestion ? "查看待处理问题" : "查看待确认操作"}</button>
         </div>
       ) : awayFromBottom ? (
         <button type="button" className="jump-to-latest" onClick={() => scroll.scrollToBottom(true)}>回到最新消息<Icon name="chevron-down" size={15} /></button>
@@ -392,7 +422,14 @@ export function ChatView() {
         value={draft}
         onChange={setDraft}
         onSend={handleSend}
-        disabled={session.busy || session.conversationCreating || chat.state.historyLoading || Boolean(chat.state.approval) || Boolean(chat.state.error)}
+        disabled={
+          session.conversationCreating ||
+          chat.state.historyLoading ||
+          Boolean(chat.state.approval) ||
+          Boolean(chat.state.userQuestion && !userQuestionExpired) ||
+          ((session.busy || Boolean(chat.state.error)) &&
+            !expiredQuestionCanStartNewMessage)
+        }
       />
     </div>
   );

@@ -2,6 +2,7 @@
 
 from melonclaw.repository.bootstrap import seed_demo_data
 from melonclaw.repository.errors import (
+    ApprovalBindingError,
     AssistantStateConflictError,
     AttachmentConflictError,
     AttachmentError,
@@ -13,6 +14,11 @@ from melonclaw.repository.errors import (
     ConversationNotFoundError,
     ProjectNotFoundError,
     RequestConflictError,
+    UserInteractionAnswerError,
+    UserInteractionConflictError,
+    UserInteractionError,
+    UserInteractionExpiredError,
+    UserInteractionNotFoundError,
 )
 from melonclaw.repository.mappers import (
     decode_conversation_cursor,
@@ -22,6 +28,7 @@ from melonclaw.repository.models import PreparedMessagePair, RequestRecord, User
 from melonclaw.repository.repository import BusinessRepository
 
 __all__ = [
+    "ApprovalBindingError",
     "AssistantStateConflictError",
     "AttachmentConflictError",
     "AttachmentError",
@@ -35,6 +42,11 @@ __all__ = [
     "PreparedMessagePair",
     "ProjectNotFoundError",
     "RequestConflictError",
+    "UserInteractionAnswerError",
+    "UserInteractionError",
+    "UserInteractionConflictError",
+    "UserInteractionExpiredError",
+    "UserInteractionNotFoundError",
     "RequestRecord",
     "UserContext",
     "decode_conversation_cursor",

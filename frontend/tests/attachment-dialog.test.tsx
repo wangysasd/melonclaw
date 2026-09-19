@@ -104,13 +104,13 @@ describe("attachment dialog", () => {
 
   it("keeps confirm disabled until something is uploaded", async () => {
     renderDialog();
-    const ok = screen.getByRole("button", { name: "确认添加附件" }) as HTMLButtonElement;
+    const ok = screen.getByRole("button", { name: "确认" }) as HTMLButtonElement;
     expect(ok.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("选择附件"), {
       target: { files: [makeFile("a.txt", 5, "text/plain")] },
     });
     await flush();
-    expect((screen.getByRole("button", { name: "确认添加附件" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "确认" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("rejects unsupported, oversized, and over-quota files", async () => {
@@ -158,7 +158,7 @@ describe("attachment dialog", () => {
       target: { files: [makeFile("a.txt", 5, "text/plain")] },
     });
     await flush();
-    fireEvent.click(screen.getByRole("button", { name: "确认添加附件" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认" }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onConfirm.mock.calls[0][0][0].file_name).toBe("a.txt");
     expect(client.deleteAttachment).not.toHaveBeenCalled();

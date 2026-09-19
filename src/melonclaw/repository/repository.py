@@ -10,6 +10,7 @@ from melonclaw.repository.conversations import ConversationRepositoryMixin
 from melonclaw.repository.locks import ConcurrencyMixin
 from melonclaw.repository.memory_events import MemoryEventRepositoryMixin
 from melonclaw.repository.projects import ProjectRepositoryMixin
+from melonclaw.repository.user_interactions import UserInteractionRepositoryMixin
 from melonclaw.repository.users import UserRepositoryMixin
 
 
@@ -18,6 +19,7 @@ class BusinessRepository(
     ProjectRepositoryMixin,
     ConversationRepositoryMixin,
     AttachmentRepositoryMixin,
+    UserInteractionRepositoryMixin,
     ConcurrencyMixin,
     MemoryEventRepositoryMixin,
 ):

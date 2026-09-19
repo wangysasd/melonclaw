@@ -156,7 +156,7 @@ async function addViaDialog(files: File[]): Promise<void> {
   fireEvent.change(screen.getByLabelText("选择附件"), { target: { files } });
   await flush();
   expect(screen.getAllByText("已上传")).toHaveLength(files.length);
-  fireEvent.click(screen.getByRole("button", { name: "确认添加附件" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认" }));
   await flush();
 }
 
@@ -344,7 +344,7 @@ describe("composer", () => {
     // 确认前输入区不应出现附件卡片。
     expect(view.container.querySelector(".composer-attachments")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "确认添加附件" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认" }));
     await flush();
     const chips = view.container.querySelector(".composer-attachments") as HTMLElement;
     expect(chips).not.toBeNull();

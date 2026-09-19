@@ -17,7 +17,7 @@ runtime.py      按 Project 解析工作区，按 (project_id, model) 缓存 Age
         ▼
 backend/        CompositeBackend：默认 LocalShellBackend(Project 工作区) + 受保护目录与 /skills/ 路由
         ▼
-output/         把 LangGraph 消息流转成 SSE 事件（text / tool_call / approval 等）
+output/         把 LangGraph 消息流转成 SSE 事件（text / tool_call / approval / user_input 等）
 ```
 
 附件采用独立的两阶段数据流：浏览器先向 `api/routes/attachments.py` 上传到
@@ -29,23 +29,23 @@ Project 的受控 `.attachments/` 目录，`services/attachments.py` 完成校�
 
 持久化分两块，职责不重叠：
 
-- `database/` + `repository/`：业务数据（用户、Project、Conversation、消息、审批、Memory 事件），由 `melonclaw-db-init` 建表。
+- `database/` + `repository/`：业务数据（用户、Project、Conversation、消息、审批、用户问题交互、Memory 事件），由 `melonclaw-db-init` 建表。
 - LangGraph Checkpointer：Agent 图状态，与业务表分离。
 
 ## 2. 模块职责
 
 | 包 | 职责 | 典型文件 |
 |---|---|---|
-| `core/` | 配置、模型目录、模型工厂、提示词、Agent 组装、HITL 审批清单、PTC Interpreter、MCP 配置与脱敏 | `config.py`、`model_catalog.py`、`chat_model.py`、`agent.py`、`hitl.py` |
+| `core/` | 配置、模型目录、模型工厂、提示词、Agent 组装、HITL 审批与用户问题、PTC Interpreter、MCP 配置与脱敏 | `config.py`、`model_catalog.py`、`chat_model.py`、`agent.py`、`hitl.py`、`user_input.py` |
 | `database/` | 连接、表结构定义、迁移与 schema 版本、常量 | `schema.py`、`migrations.py`、`constants.py` |
-| `repository/` | 业务数据的读写、事务边界、会话锁、上下文与用户解析 | `repository.py`、`conversations.py`、`attachments.py`、`locks.py`、`bootstrap.py` |
+| `repository/` | 业务数据的读写、事务边界、会话锁、上下文与用户解析 | `repository.py`、`conversations.py`、`attachments.py`、`user_interactions.py`、`locks.py`、`bootstrap.py` |
 | `parsers/` | 附件扩展名/MIME/容器安全校验，以及受控文档到 Markdown 派生文件的解析 | `validation.py`、`documents.py` |
 | `storage/` | Project 工作区内附件原文、派生文件与临时文件的受控路径映射和发布 | `attachments.py` |
-| `services/` | 用例编排：执行、会话、技能、运行时资源管理 | `execution.py`、`runtime.py`、`chat.py`、`skills.py` |
-| `api/` | HTTP 边界：路由、Schema、错误映射、SSE 编码、应用生命周期 | `app.py`、`routes/*`、`schemas.py`、`sse.py` |
+| `services/` | 用例编排：执行、执行收尾、用户问题恢复、会话、技能、运行时资源管理 | `execution.py`、`execution_finalize.py`、`user_input_execution.py`、`runtime.py`、`chat.py`、`skills.py` |
+| `api/` | HTTP 边界：路由、Schema、错误映射、SSE 编码、应用生命周期 | `app.py`、`routes/*`（含 `user_input.py`）、`schemas.py`、`sse.py` |
 | `output/` | 从 LangGraph 消息/事件里提取模型可见文本与前端展示事件 | `events.py`、`visible_text.py`、`formatting.py` |
 | `memory/` | Global / Tenant / User 三级长期记忆的中间件、工具与服务 | `service.py`、`middleware.py`、`tools.py` |
-| `middleware/` | Agent 中间件：文件操作顺序、工具动态选择 | `file_ordering.py`、`tool_selection.py` |
+| `middleware/` | Agent 中间件：文件操作顺序、工具动态选择、用户提问批次护栏 | `file_ordering.py`、`tool_selection.py`、`user_input_guard.py` |
 | `backend/` | Deep Agents Backend 的构造与路径路由 | `factory.py` |
 | `tool/` | 注入 Agent 的工具（联网搜索、MCP 目录工具） | `tools.py`、`search.py` |
 
@@ -89,7 +89,7 @@ Project 的受控 `.attachments/` 目录，`services/attachments.py` 完成校�
 | 模型实例 | `core/chat_model.py` 的 `build_chat_model()` | 所有 provider 统一经此构造 |
 | MCP 服务定义 | `core/mcp_config.py` + 根目录 `mcp.json` | 无 MCP 时必须能正常启动 |
 | 长期记忆 | `memory/` 的 `MemoryService` | 写入必须经过它的固定工具与审计，不直接写 Store |
-| HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission` | 写文件、删文件、Shell 等有副作用的操作必须走审批或权限边界 |
+| HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission`；用户问题由 `core/user_input.py` 的 `interrupt()` 进入同一 Checkpoint | 写文件、删文件、Shell 等有副作用的操作必须走审批或权限边界；缺少关键用户决策时 Agent 可暂停等待回答；审批恢复必须绑定当前 `approval_batch_id` 与 `assistant_message_id`；用户问题的唯一出口是一次真正的 `Command(resume=...)`，答案可以是选项/文本，也可以是 `{"type": "cancelled"}`（用户跳过或 TTL 过期后由 `services/user_input_execution.py` 代答），只改 `user_interactions` 状态不会解除 Checkpoint 挂起；答案已收但本轮没跑完时账本会被标成 `recovery_required` 并且**禁止自动重放**（不知道副作用执行到哪一步），此时历史表现为失败，唯一的解锁入口是用户发新消息——那时服务层会先代答取消、把 Checkpoint 叫醒收尾 |
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
 | 请求身份 | `api/identity.py` 的 `resolve_request_user_id()` | 决定 `user_id` 从哪里读（查询/表单，或部署方配置的受信任请求头）；**不做身份校验**，成员关系与归属仍由服务层重新校验 |
 

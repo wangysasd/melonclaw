@@ -13,6 +13,7 @@ BUSINESS_TABLES = (
     "projects",
     "chat_conversations",
     "chat_messages",
+    "user_interactions",
     "chat_attachments",
     "chat_message_attachments",
     "memory_events",
@@ -33,3 +34,6 @@ MEMORY_SCHEMA_VERSION = "2026-09-07-memory-scopes-v2-operation-id"
 CONVERSATION_SCHEMA_VERSION = "2026-09-07-conversation-user-owned-v1"
 MODEL_SELECTION_SCHEMA_VERSION = "2026-09-10-system-model-selection-v1"
 ATTACHMENT_SCHEMA_VERSION = "2026-09-13-chat-attachments-v1"
+USER_INPUT_SCHEMA_VERSION = "2026-09-17-user-input-v1"
+USER_INPUT_USER_ID_SCHEMA_VERSION = "2026-09-18-user-input-user-id-v1"
+USER_INPUT_LIFECYCLE_SCHEMA_VERSION = "2026-09-18-user-input-lifecycle-v1"

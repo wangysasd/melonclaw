@@ -34,6 +34,8 @@ async def submit_approval(
             payload.user_id,
             payload.decisions,
             payload.tenant_id,
+            approval_batch_id=payload.approval_batch_id,
+            assistant_message_id=payload.assistant_message_id,
         )
     except Exception as exc:  # noqa: BLE001 - 准备阶段需要真实 HTTP 状态码
         return error_response(exc)

@@ -161,6 +161,7 @@ export interface ConversationHistory {
   items: Message[];
   next_before_seq?: number | null;
   pending_approval: PendingApproval | null;
+  pending_interaction?: UserQuestionRequest | null;
 }
 
 /* ---------- HITL 审批 ---------- */
@@ -185,10 +186,49 @@ export interface ApprovalInterrupt {
  * 单 interrupt 时为顶层 actions；多 interrupt 时为 interrupts 数组。
  */
 export interface PendingApproval {
+  approval_batch_id?: string;
+  assistant_message_id?: string;
   id?: string;
   actions?: ApprovalAction[];
   interrupts?: ApprovalInterrupt[];
 }
+
+export interface UserQuestionOption {
+  id: string;
+  label: string;
+  description?: string | null;
+}
+
+export interface UserQuestionItem {
+  id: string;
+  question: string;
+  options: UserQuestionOption[];
+  allow_custom_answer: boolean;
+  multi_select: boolean;
+}
+
+export interface UserQuestionRequest {
+  kind: "user_question";
+  schema_version: 2;
+  interaction_id: string;
+  interrupt_id: string;
+  assistant_message_id: string;
+  /** 一张卡片里的全部独立问题；单题就是长度为一的数组。 */
+  questions: UserQuestionItem[];
+  expires_at: string;
+}
+
+export type SingleUserInputAnswer =
+  | { type: "option"; option_id: string }
+  | { type: "options"; option_ids: string[]; text?: string }
+  | { type: "text"; text: string }
+  | { type: "cancelled" };
+
+/* cancelled 表示用户跳过：Agent 会被唤醒并自行决定后续步骤。 */
+export type UserInputAnswer =
+  | SingleUserInputAnswer
+  | { type: "batch"; answers: Record<string, SingleUserInputAnswer> }
+  | { type: "cancelled" };
 
 export interface ApprovalDecision {
   type: DecisionType;
@@ -240,7 +280,18 @@ export interface SendMessageInput {
 export interface SendApprovalInput {
   userId: string;
   tenantId?: string | null;
+  approvalBatchId: string;
+  assistantMessageId: string;
   decisions: ApprovalDecision[] | { interrupt_id: string; decisions: ApprovalDecision[] }[];
+}
+
+export interface SendUserInputInput {
+  userId: string;
+  tenantId?: string | null;
+  interactionId: string;
+  assistantMessageId: string;
+  decisionRequestId: string;
+  answer: UserInputAnswer;
 }
 
 /* ---------- SSE 流事件 ---------- */
@@ -299,6 +350,13 @@ export type StreamEvent =
   | { type: "subagent_completed"; subagent_id: string; status?: string }
   | { type: "subagent_failed"; subagent_id: string; error?: string; status?: string }
   | { type: "approval_required"; request: PendingApproval }
+  | { type: "user_input_required"; request: UserQuestionRequest }
+  | {
+      type: "user_input_accepted";
+      interaction_id: string;
+      decision_request_id: string;
+      assistant_message_id: string;
+    }
   | {
       type: "message_status";
       message_id: string;

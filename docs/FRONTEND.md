@@ -26,7 +26,7 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 | `src/api/` | HTTP 与 SSE 客户端：`client.ts`（JSON 请求封装与错误归一化）、`stream.ts`（fetch + ReadableStream 手动解析 SSE 帧） |
 | `src/state/` | 会话级全局状态（`session.tsx`）：用户、租户、Project、Conversation、当前流、`epoch` 失效机制 |
 | `src/hooks/` | 流式消息 reducer 与副作用：`useChatStream.ts` 处理 optimistic 消息、增量文本、审批、断线重同步 |
-| `src/components/` | 展示与交互组件（Composer、ChatView、侧栏、审批卡、技能选择等） |
+| `src/components/` | 展示与交互组件（Composer、ChatView、审批卡、用户问题卡、技能选择等） |
 | `src/types/` | 与后端契约对应的类型：`api.ts` 里的 `Message`、`SendMessageInput`、`StreamEvent` 判别联合 |
 | `src/styles/` | 分文件维护的样式：`global.css`、`sidebar.css`、`chat.css` |
 | `src/theme/` | antd 主题配置 |
@@ -37,7 +37,7 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 
 - 请求：`POST /api/conversations/{conversation_id}/messages`，JSON 请求体，字段见 `src/types/api.ts` 的 `SendMessageInput`。
 - 响应：`text/event-stream`，由 `src/api/stream.ts` 手动分帧解析（按空行切帧，逐帧解析 `data:` 行）。
-- 事件类型以 `src/types/api.ts` 的 `StreamEvent` 判别联合为准（`message_started`、`text`、`tool_call`、`approval_required`、`completed` 等）。**新增事件类型必须同时改后端 `output/events.py`、`api/sse.py` 和前端这个联合类型**，否则前端会静默丢弃。
+- 事件类型以 `src/types/api.ts` 的 `StreamEvent` 判别联合为准（`message_started`、`text`、`tool_call`、`approval_required`、`user_input_required`、`completed` 等）。用户问题事件由执行服务直接进入统一 SSE 编码器；如果新增需要从 Agent 原始流投影出的事件，仍必须同步修改后端 `output/events.py`、`api/sse.py` 和前端联合类型。
 - 断线重连：不依赖 SSE 缓存，而是靠会话重新同步；`session.tsx` 的 `epoch` 用来丢弃切换会话后迟到的响应。
 
 ## 4. UI 约定
@@ -79,6 +79,7 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 - **输入区附件卡片**：确认前不占用输入区；确认后显示文件名与解析状态，解析失败或超过轮询上限显示「重新解析」。解析状态按附件 ID 单独轮询并指数退避，最长约 5.5 分钟后停止并标记超时，不会因为每秒回写状态而重建定时器。
 - 图片附件在输入区和历史消息里都能点开全屏预览（Esc 或点击空白关闭）；非图片附件显示类型角标（PDF / XLSX / PPTX 等）便于区分。
 - **执行摘要**：工具与子 Agent 活动在可展开的摘要面板中显示；失败、等待审批、未收到结果会分别标注。
+- **用户问题卡**：当 Agent 通过 `ask_user` 等待关键决策时，页面显示一张可包含多个独立问题的卡片；每个问题支持单选/多选项和可选的「其他」文本输入，全部完成后一次提交。提交按钮在未全部作答或提交中时不可用，普通消息发送会锁定。刷新会话后，问题卡从历史接口恢复；过期答案由服务端拒绝。卡片额外提供次要按钮「跳过，让 AI 自己决定」（批量卡片为「全部跳过，让 AI 自己决定」），提交 `{ type: "cancelled" }` 后由 Agent 自行收尾。`expires_at` 已过时禁用两个按钮并提示「发送新消息时会自动跳过」，真正的解锁由后端在收到新消息前代答取消完成。
 
 ## 6. 部署
 

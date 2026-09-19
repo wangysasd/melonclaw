@@ -40,6 +40,9 @@ class MessageRequest(BaseModel):
     attachment_ids: list[UUID] = Field(
         default_factory=list, max_length=MAX_ATTACHMENT_IDS_PER_MESSAGE
     )
+    # 客户端能力协商：未声明 user_input_v1 的客户端不会拿到 ask_user 工具，
+    # 避免旧前端收到一张渲染不出来的问题卡片。未知能力一律忽略。
+    capabilities: list[str] = Field(default_factory=list, max_length=32)
 
 
 class ApprovalRequest(BaseModel):
@@ -47,4 +50,18 @@ class ApprovalRequest(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=64)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
+    # 审批恢复必须绑定当前展示给用户的批次和助手消息，避免刷新后提交旧卡片。
+    approval_batch_id: UUID | None = None
+    assistant_message_id: UUID | None = None
     decisions: list[dict[str, Any]]
+
+
+class UserInputRequest(BaseModel):
+    """浏览器提交的结构化用户问题答案。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
+    interaction_id: UUID
+    assistant_message_id: UUID
+    decision_request_id: UUID
+    answer: dict[str, Any]

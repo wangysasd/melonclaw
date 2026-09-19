@@ -18,6 +18,7 @@ from melonclaw.core.model_catalog import (
     list_system_models,
     resolve_system_model,
 )
+from melonclaw.core.user_input import normalize_capabilities
 from melonclaw.database import (
     Database,
     DatabaseConfigurationError,
@@ -46,7 +47,7 @@ class ChatRuntime:
     memory_store: Any | None = None
     memory_service: MemoryService | None = None
     attachment_hydration_provider: Any | None = None
-    project_agents: dict[tuple[str, tuple[str, int, str, str, str]], Any] | None = None
+    project_agents: dict[tuple[str, tuple[str, int, str, str, str], tuple[str, ...]], Any] | None = None
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
     skills_catalog: SkillCatalog = field(default_factory=lambda: skill_catalog)
@@ -215,8 +216,13 @@ class ChatRuntime:
         self,
         project: dict[str, Any],
         model: ResolvedModel | None = None,
+        capabilities: object = None,
     ) -> Any:
-        """按 Project + 模型版本缓存 Agent，共享同一 Project 文件后端。"""
+        """按 Project + 模型版本 + 客户端能力缓存 Agent。
+
+        能力必须进缓存键：同一个 Project 上，声明了提问能力的客户端和没声明的
+        客户端拿到的是两个不同的 Agent（工具集不同），不能互相复用。
+        """
 
         self.require_ready()
         if self.settings is None or self.checkpointer is None:
@@ -226,7 +232,8 @@ class ChatRuntime:
         if self.project_agents is None:
             self.project_agents = {}
         resolved_model = model or self.resolve_model()
-        key = (str(project["id"]), resolved_model.cache_key)
+        normalized_capabilities = normalize_capabilities(capabilities)
+        key = (str(project["id"]), resolved_model.cache_key, normalized_capabilities)
         cached = self.project_agents.get(key)
         if cached is not None:
             return cached
@@ -237,9 +244,25 @@ class ChatRuntime:
             model=resolved_model,
             memory_service=self.memory_service,
             attachment_hydration_provider=self.attachment_hydration_provider,
+            client_capabilities=normalized_capabilities,
         )
         self.project_agents[key] = agent
         return agent
+
+    @staticmethod
+    def capabilities_for_message(message: dict[str, Any] | None) -> tuple[str, ...]:
+        """读回某一轮消息落库时记录的客户端能力。
+
+        恢复执行必须沿用原消息声明的能力，否则恢复用的 Agent 工具集和提问时
+        不一致，可能出现“提问时有 ask_user、恢复后没有”的错位。
+        """
+
+        if not isinstance(message, dict):
+            return ()
+        metadata = message.get("display_metadata")
+        if not isinstance(metadata, dict):
+            return ()
+        return normalize_capabilities(metadata.get("capabilities"))
 
     @staticmethod
     def conversation_config(conversation_id: UUID) -> dict[str, Any]:

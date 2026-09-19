@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({ session: {} as SessionContextValue, message: {
 vi.mock("../src/state/session", () => ({ useSession: () => mocks.session }));
 vi.mock("antd", () => ({ App: { useApp: () => ({ message: mocks.message }) } }));
 vi.mock("../src/api/client", () => ({ getConversationHistory: vi.fn() }));
-vi.mock("../src/api/stream", () => ({ sendMessageStream: vi.fn(), sendApprovalStream: vi.fn() }));
+vi.mock("../src/api/stream", () => ({ sendMessageStream: vi.fn(), sendApprovalStream: vi.fn(), sendUserInputStream: vi.fn() }));
 const scroll = { isNearBottom: () => true, scrollToBottom: vi.fn() };
 const emptyHistory: ConversationHistory = { conversation: { id: "c1", title: "Test" }, items: [], pending_approval: null };
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; }
@@ -59,6 +59,93 @@ describe("chat run lifecycle", () => {
       content: "你好",
       model: { id: "system:deepseek:flash", model: "deepseek-v4-flash" },
     });
+  });
+
+  it("re-syncs history only when the reply is a receipt without further execution", async () => {
+    // 正常跑完的流自己会推进 UI，不需要额外拉取历史。
+    vi.mocked(sendMessageStream).mockImplementation(async (_id, _input, { onEvent }) => {
+      onEvent({ type: "completed", message_id: "a1", content: "你好" });
+      onEvent({ type: "done", terminal_reason: "completed" });
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    const baseline = vi.mocked(getConversationHistory).mock.calls.length;
+    await act(() => result.current.sendMessage("test"));
+    await waitFor(() => expect(mocks.session.busy).toBe(false));
+    expect(vi.mocked(getConversationHistory).mock.calls.length).toBe(baseline);
+
+    // 幂等重试的回执流不会继续执行：必须回到服务端对账，否则用户只看到卡片
+    // 消失、然后什么都没发生。
+    vi.mocked(sendMessageStream).mockImplementation(async (_id, _input, { onEvent }) => {
+      onEvent({ type: "user_input_accepted", interaction_id: "i1", assistant_message_id: "a2" });
+      onEvent({ type: "done", terminal_reason: "already_accepted" });
+    });
+    await act(() => result.current.sendMessage("再提一次"));
+    await waitFor(() =>
+      expect(vi.mocked(getConversationHistory).mock.calls.length).toBeGreaterThan(baseline),
+    );
+  });
+
+  it("explains an unresolved round instead of leaving it blank", async () => {
+    // 答案已收但这一轮没跑完：历史里必须说清楚发生了什么、下一步怎么做，
+    // 而不是留一条空消息让用户干等。
+    vi.mocked(getConversationHistory).mockResolvedValue({
+      ...emptyHistory,
+      items: [
+        {
+          role: "assistant",
+          id: "a1",
+          status: "failed",
+          error_code: "user_input_recovery_required",
+          content: "",
+          display_metadata: {},
+        },
+      ],
+      pending_interaction: null,
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.messages[0]?.content).toContain("发新消息"));
+    expect(result.current.state.userQuestion).toBeNull();
+  });
+
+  it("allows a new message to replace an expired question", async () => {
+    mocks.session.busy = true;
+    vi.mocked(getConversationHistory).mockResolvedValue({
+      ...emptyHistory,
+      pending_interaction: {
+        kind: "user_question",
+        schema_version: 2,
+        interaction_id: "i-expired",
+        interrupt_id: "interrupt-expired",
+        assistant_message_id: "a-expired",
+        questions: [
+          {
+            id: "q1",
+            question: "已经过期的问题",
+            options: [],
+            allow_custom_answer: true,
+            multi_select: false,
+          },
+        ],
+        expires_at: "2020-01-01T00:00:00Z",
+      },
+    });
+    vi.mocked(sendMessageStream).mockImplementation(async (_id, _input, { onEvent }) => {
+      onEvent({
+        type: "message_started",
+        conversation_id: "c1",
+        request_id: "r-new",
+        user_message_id: "u-new",
+        message_id: "a-new",
+      });
+      onEvent({ type: "completed", message_id: "a-new", content: "新一轮" });
+      onEvent({ type: "done", terminal_reason: "completed" });
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.userQuestion).not.toBeNull());
+    await act(() => result.current.sendMessage("开始新一轮"));
+    expect(sendMessageStream).toHaveBeenCalledOnce();
+    expect(result.current.state.userQuestion).toBeNull();
   });
 
   it("ignores a late history response after sending", async () => {
@@ -130,7 +217,12 @@ describe("chat run lifecycle", () => {
     expect(result.current.state.messages[1].content).toBe("");
   });
   it("clears approval only after resume is accepted and can show a subsequent interrupt", async () => {
-    const approval = { id: "first", actions: [] };
+    const approval = {
+      id: "first",
+      approval_batch_id: "batch-first",
+      assistant_message_id: "a1",
+      actions: [],
+    };
     vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, pending_approval: approval, items: [{ id: "a1", role: "assistant", content: "", status: "interrupted" }] });
     const stream = deferred<void>(); let emit!: (event: StreamEvent) => void;
     vi.mocked(sendApprovalStream).mockImplementation((_id, _input, { onEvent }) => { emit = onEvent; return stream.promise; });
@@ -142,6 +234,10 @@ describe("chat run lifecycle", () => {
     expect(result.current.state.approval).toBeNull(); expect(result.current.state.messages[0].status).toBe("streaming");
     await act(async () => { emit({ type: "approval_required", request: { id: "second", actions: [] } }); stream.resolve(); await task; });
     expect(result.current.state.approval?.id).toBe("second");
+    expect(vi.mocked(sendApprovalStream).mock.calls[0]?.[1]).toMatchObject({
+      approvalBatchId: "batch-first",
+      assistantMessageId: "a1",
+    });
   });
   it("does not mark an old completed answer as failed when a new request fails before starting", () => {
     const state = { ...INITIAL_CHAT_STATE, messages: [{ id: "old", role: "assistant" as const, content: "done", status: "completed" as const, markdown: true, events: [], phases: [] }] };

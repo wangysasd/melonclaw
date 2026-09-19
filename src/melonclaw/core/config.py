@@ -134,6 +134,7 @@ class Settings:
     attachment_image_outbound_max_edge: int = 1568
     attachment_image_outbound_jpeg_quality: int = 85
     attachment_image_cache_entries: int = 32
+    user_input_ttl_seconds: int = 24 * 60 * 60
 
     @property
     def model_spec(self) -> str:
@@ -358,5 +359,8 @@ def load_settings(provider: str | None = None) -> Settings:
         ),
         attachment_image_cache_entries=_int_setting(
             "MELONCLAW_ATTACHMENT_IMAGE_CACHE_ENTRIES", 32
+        ),
+        user_input_ttl_seconds=_int_setting(
+            "MELONCLAW_USER_INPUT_TTL_SECONDS", 24 * 60 * 60
         ),
     )

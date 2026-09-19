@@ -1,11 +1,17 @@
-"""Project、Conversation 和历史消息业务。"""
+"""Project、Conversation、历史消息和待处理交互业务。"""
 
 from __future__ import annotations
 
 from typing import Any
 from uuid import UUID
 
-from melonclaw.core.hitl import aget_pending_approval, serialize_pending_approval
+from melonclaw.core.hitl import (
+    aget_pending_interaction,
+    approval_batch_id_for,
+    serialize_pending_approval,
+    serialize_pending_user_question,
+)
+from melonclaw.core.user_input import USER_INPUT_RECOVERY_REQUIRED
 from melonclaw.repository import (
     BusinessRepository,
     ConversationNotFoundError,
@@ -171,19 +177,150 @@ class ConversationService:
             conversation_id,
             context.user_id,
         )
+        # 答案已经收下、但这一轮没能跑完的账本：这一轮只能由用户显式结束，
+        # 历史里必须表现为失败，不能再亮出一张"等你回答"的卡片。
+        unresolved = await storage.get_recovery_required_interaction(
+            conversation_id,
+            context.user_id,
+        )
+        unresolved_assistant_id = (
+            str(unresolved["assistant_message_id"]) if unresolved is not None else None
+        )
+        recovery_assistant = None
+        if incomplete is None:
+            candidate = await storage.get_latest_assistant(
+                conversation_id,
+                context.user_id,
+            )
+            # 旧版本在保存 user_interactions 失败时会把 assistant 标为 failed，
+            # 但 LangGraph Checkpoint 仍保留待处理 interrupt。只有在确认仍有
+            # pending interaction 后，下面才会把这个候选消息恢复为 interrupted。
+            # 已标记 recovery_required 的那一轮例外：它不能再被复活。
+            if (
+                candidate is not None
+                and candidate["status"] == "failed"
+                and unresolved_assistant_id != str(candidate["id"])
+            ):
+                incomplete = candidate
+                recovery_assistant = candidate
         model = (
             self.runtime.model_for_message(incomplete)
             if incomplete is not None
             else self.runtime.resolve_model()
         )
-        agent = await self.runtime.agent_for_project(project, model)
-        pending = await aget_pending_approval(
+        # 恢复待处理交互必须沿用提问那一轮声明的能力，否则拿到的 Agent 可能
+        # 没有 ask_user，读出来的 pending 与浏览器看到的卡片对不上。
+        capabilities: tuple[str, ...] = ()
+        if incomplete is not None:
+            request_record = await storage.find_request(
+                conversation_id,
+                context.user_id,
+                incomplete["request_id"],
+            )
+            capabilities = self.runtime.capabilities_for_message(
+                request_record.user_message if request_record is not None else None
+            )
+        agent = await self.runtime.agent_for_project(project, model, capabilities)
+        pending = await aget_pending_interaction(
             agent,
             self.runtime.conversation_config(conversation_id),
         )
+        approvals = [item for item in pending or [] if item.get("kind") == "tool_approval"]
+        questions = [item for item in pending or [] if item.get("kind") == "user_question"]
+        # recovery_required 的那一轮不再给卡片：用户点提交只会换来"这一轮已经
+        # 变了"的报错，卡片本身就是误导。
+        if (
+            questions
+            and incomplete is not None
+            and unresolved_assistant_id == str(incomplete["id"])
+        ):
+            questions = []
+        pending_interaction = None
+        pending_approval = None
+        if approvals:
+            if incomplete is None:
+                raise RuntimeError("审批请求缺少助手消息记录。")
+            approval_batch_id = approval_batch_id_for(
+                approvals,
+                assistant_message_id=str(incomplete["id"]),
+            )
+            pending_approval = serialize_pending_approval(
+                approvals,
+                approval_batch_id=approval_batch_id,
+                assistant_message_id=str(incomplete["id"]),
+            )
+            if recovery_assistant is not None:
+                display_metadata = dict(recovery_assistant.get("display_metadata") or {})
+                display_metadata["pending_approval"] = {
+                    "approval_batch_id": approval_batch_id,
+                    "assistant_message_id": str(incomplete["id"]),
+                }
+                await storage.update_assistant(
+                    conversation_id,
+                    UUID(recovery_assistant["id"]),
+                    status="interrupted",
+                    display_metadata=display_metadata,
+                    error_code=None,
+                    expected_status="failed",
+                )
+        if len(questions) == 1 and len(pending or []) == 1:
+            if incomplete is None:
+                raise RuntimeError("用户问题缺少助手消息记录。")
+            settings = self.runtime.settings
+            if settings is None:
+                raise RuntimeError("运行配置尚未加载。")
+            interaction = await storage.create_or_get_user_interaction(
+                conversation_id,
+                UUID(incomplete["id"]),
+                context.user_id,
+                str(questions[0]["id"]),
+                questions[0],
+                settings.user_input_ttl_seconds,
+            )
+            pending_interaction = serialize_pending_user_question(
+                questions[0],
+                interaction_id=interaction["id"],
+                assistant_message_id=interaction["assistant_message_id"],
+                expires_at=interaction["expires_at"],
+            )
+            if recovery_assistant is not None:
+                display_metadata = dict(recovery_assistant.get("display_metadata") or {})
+                display_metadata["pending_interaction"] = pending_interaction
+                await storage.update_assistant(
+                    conversation_id,
+                    UUID(recovery_assistant["id"]),
+                    status="interrupted",
+                    display_metadata=display_metadata,
+                    error_code=None,
+                    expected_status="failed",
+                )
+        if unresolved_assistant_id is not None:
+            _mark_recovery_required_failure(messages, unresolved_assistant_id)
         return {
             "conversation": conversation,
             "items": messages,
             "next_before_seq": next_before_seq,
-            "pending_approval": serialize_pending_approval(pending) if pending else None,
+            "pending_approval": pending_approval,
+            "pending_interaction": pending_interaction,
         }
+
+
+def _mark_recovery_required_failure(
+    messages: list[dict[str, Any]],
+    assistant_message_id: str,
+) -> None:
+    """把"答案已收但没跑完"的那一轮在历史里标成明确失败。
+
+    只改这一份返回给浏览器的副本：数据库里的助手状态由 Mark 流程负责，
+    历史查询不应该偷偷写库。这样用户在界面上看到的是"这一轮没能继续"，
+    而不是一张永远在等他、点了还报错的问题卡片。
+    """
+
+    for message in messages:
+        if str(message.get("id")) != assistant_message_id:
+            continue
+        if message.get("role") != "assistant":
+            continue
+        message["status"] = "failed"
+        message["error_code"] = USER_INPUT_RECOVERY_REQUIRED
+        return

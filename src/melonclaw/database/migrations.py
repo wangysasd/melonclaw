@@ -20,6 +20,9 @@ from melonclaw.database.constants import (
     MULTITENANT_SCHEMA_VERSION,
     PROJECT_SCHEMA_VERSION,
     STORE_TABLES,
+    USER_INPUT_LIFECYCLE_SCHEMA_VERSION,
+    USER_INPUT_SCHEMA_VERSION,
+    USER_INPUT_USER_ID_SCHEMA_VERSION,
 )
 from melonclaw.database.errors import DatabaseSchemaError
 from melonclaw.database.schema import (
@@ -32,6 +35,7 @@ from melonclaw.database.schema import (
     projects,
     schema_migrations,
     tenants,
+    user_interactions,
     user_tenants,
     users,
 )
@@ -147,12 +151,14 @@ class SchemaMigrationMixin:
                         projects,
                         chat_conversations,
                         chat_messages,
+                        user_interactions,
                         chat_attachments,
                         chat_message_attachments,
                         memory_events,
                     ],
                 )
             )
+            await self._migrate_user_interactions_user_id(connection)
             # ``create_all`` 不会给已有 chat_messages 增加新列，显式补齐模型
             # 快照字段以兼容第一阶段上线前创建的数据库。
             await connection.execute(
@@ -191,6 +197,38 @@ class SchemaMigrationMixin:
                     "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "
                     "model_display_name VARCHAR(120)"
                 )
+            )
+
+    @staticmethod
+    async def _collapse_duplicate_waiting_interactions(
+        connection: AsyncConnection,
+    ) -> None:
+        """把同一会话里多出来的 waiting 账本收掉，只保留最新的一本。
+
+        账本是审计记录，不能删；这里改成 discarded 并写明原因，既不丢证据，
+        也让下面的部分唯一索引能建起来。
+        """
+
+        stale = await connection.execute(
+            text(
+                "SELECT id FROM user_interactions AS interactions "
+                "WHERE status = 'waiting' AND id <> ("
+                "  SELECT id FROM user_interactions AS latest "
+                "  WHERE latest.conversation_id = interactions.conversation_id "
+                "  AND latest.status = 'waiting' "
+                "  ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)"
+            )
+        )
+        stale_ids = [row[0] for row in stale]
+        if not stale_ids:
+            return
+        for interaction_id in stale_ids:
+            await connection.execute(
+                text(
+                    "UPDATE user_interactions SET status = 'discarded', "
+                    "reason_code = 'duplicate_waiting_archived' WHERE id = :id"
+                ),
+                {"id": interaction_id},
             )
 
     @staticmethod
@@ -236,6 +274,185 @@ class SchemaMigrationMixin:
             {"name": constraint_name},
         )
         return bool(result.scalar())
+
+    async def _migrate_user_interactions_user_id(
+        self,
+        connection: AsyncConnection,
+    ) -> None:
+        """为已存在的用户问题账本补齐归属用户列。
+
+        ``metadata.create_all`` 只处理不存在的表。用户问题功能早期版本已经
+        创建过 ``user_interactions``，但没有 ``user_id``；这里从会话归属回填，
+        避免把旧账本删除重建，也让后续服务层的用户隔离查询可以正常工作。
+        """
+
+        if not await self._table_exists(connection, "user_interactions"):
+            return
+        if not await self._column_exists(
+            connection,
+            table_name="user_interactions",
+            column_name="user_id",
+        ):
+            await connection.execute(
+                text(
+                    "ALTER TABLE user_interactions "
+                    "ADD COLUMN user_id VARCHAR(64)"
+                )
+            )
+        await connection.execute(
+            text(
+                "UPDATE user_interactions AS interactions "
+                "SET user_id = conversations.user_id "
+                "FROM chat_conversations AS conversations "
+                "WHERE interactions.conversation_id = conversations.id "
+                "AND interactions.user_id IS NULL"
+            )
+        )
+        missing_user_id = await connection.execute(
+            text(
+                "SELECT COUNT(*) FROM user_interactions "
+                "WHERE user_id IS NULL"
+            )
+        )
+        if int(missing_user_id.scalar() or 0) > 0:
+            raise DatabaseSchemaError(
+                "user_interactions 中存在无法匹配会话用户的历史记录，"
+                "请先修复 conversation_id 后再初始化数据库。"
+            )
+        await connection.execute(
+            text(
+                "ALTER TABLE user_interactions "
+                "ALTER COLUMN user_id SET NOT NULL"
+            )
+        )
+        # 旧版账本没有完整的生命周期字段。每次初始化都使用 IF NOT EXISTS
+        # 对齐已有表，避免仅依赖 schema_migrations 记录导致迁移半完成。
+        await connection.execute(
+            text(
+                "ALTER TABLE user_interactions "
+                "ADD COLUMN IF NOT EXISTS decision_request_id VARCHAR(36)"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE user_interactions "
+                "ADD COLUMN IF NOT EXISTS answer JSONB"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE user_interactions "
+                "ADD COLUMN IF NOT EXISTS answer_digest VARCHAR(64)"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE user_interactions "
+                "ADD COLUMN IF NOT EXISTS reason_code VARCHAR(80)"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE user_interactions "
+                "ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        await connection.execute(
+            text(
+                "UPDATE user_interactions "
+                "SET expires_at = created_at + INTERVAL '1 day' "
+                "WHERE expires_at IS NULL"
+            )
+        )
+        missing_expiry = await connection.execute(
+            text(
+                "SELECT COUNT(*) FROM user_interactions "
+                "WHERE expires_at IS NULL"
+            )
+        )
+        if int(missing_expiry.scalar() or 0) > 0:
+            raise DatabaseSchemaError(
+                "user_interactions 中存在无法计算 expires_at 的历史记录，"
+                "请先修复 created_at 后再初始化数据库。"
+            )
+        await connection.execute(
+            text(
+                "ALTER TABLE user_interactions "
+                "ALTER COLUMN expires_at SET NOT NULL"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE user_interactions "
+                "ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE user_interactions "
+                "ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE"
+            )
+        )
+        duplicate_interaction = await connection.execute(
+            text(
+                "SELECT conversation_id, interrupt_id "
+                "FROM user_interactions "
+                "GROUP BY conversation_id, interrupt_id "
+                "HAVING COUNT(*) > 1 LIMIT 1"
+            )
+        )
+        duplicate_key = duplicate_interaction.first()
+        if duplicate_key is not None:
+            raise DatabaseSchemaError(
+                "user_interactions 中存在重复的 conversation_id + interrupt_id，"
+                "请先清理重复记录后再初始化数据库。"
+            )
+        if not await self._constraint_exists(
+            connection,
+            "uq_user_interactions_conversation_interrupt",
+        ):
+            await connection.execute(
+                text(
+                    "ALTER TABLE user_interactions "
+                    "ADD CONSTRAINT uq_user_interactions_conversation_interrupt "
+                    "UNIQUE (conversation_id, interrupt_id)"
+                )
+            )
+        # 同一会话最多一张等待中的卡片。部分唯一索引在已有重复 waiting 的数据库上
+        # 会创建失败，所以先收掉历史上多出来的那些。
+        await self._collapse_duplicate_waiting_interactions(connection)
+        await connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_interactions_active "
+                "ON user_interactions (conversation_id) WHERE status = 'waiting'"
+            )
+        )
+        migration_exists = await connection.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = :version)"
+            ),
+            {"version": USER_INPUT_USER_ID_SCHEMA_VERSION},
+        )
+        if not migration_exists.scalar():
+            await connection.execute(
+                insert(schema_migrations).values(
+                    version=USER_INPUT_USER_ID_SCHEMA_VERSION,
+                    applied_at=_now(),
+                )
+            )
+        lifecycle_migration_exists = await connection.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = :version)"
+            ),
+            {"version": USER_INPUT_LIFECYCLE_SCHEMA_VERSION},
+        )
+        if not lifecycle_migration_exists.scalar():
+            await connection.execute(
+                insert(schema_migrations).values(
+                    version=USER_INPUT_LIFECYCLE_SCHEMA_VERSION,
+                    applied_at=_now(),
+                )
+            )
 
     @staticmethod
     async def _ensure_default_projects(connection: AsyncConnection) -> None:
@@ -484,6 +701,20 @@ class SchemaMigrationMixin:
             await connection.execute(
                 insert(schema_migrations).values(
                     version=MODEL_SELECTION_SCHEMA_VERSION,
+                    applied_at=_now(),
+                )
+            )
+
+        user_input_migration_exists = await connection.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = :version)"
+            ),
+            {"version": USER_INPUT_SCHEMA_VERSION},
+        )
+        if not user_input_migration_exists.scalar():
+            await connection.execute(
+                insert(schema_migrations).values(
+                    version=USER_INPUT_SCHEMA_VERSION,
                     applied_at=_now(),
                 )
             )

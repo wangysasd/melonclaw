@@ -13,15 +13,20 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from melonclaw.core.agent import AgentContext
 from melonclaw.core.hitl import (
     aget_pending_approval,
+    aget_pending_interaction,
+    approval_batch_id_for,
     build_resume_command,
     serialize_pending_approval,
+    serialize_pending_user_question,
 )
 from melonclaw.core.model_catalog import ResolvedModel
+from melonclaw.core.user_input import normalize_capabilities
 from melonclaw.output.content import content_to_text
 from melonclaw.output.events import DISPLAY_EVENT_TYPES, iter_research_events
 from melonclaw.output.formatting import _preview, sanitize_text
 from melonclaw.output.visible_text import visible_text
 from melonclaw.repository import (
+    ApprovalBindingError,
     AssistantStateConflictError,
     AttachmentStateError,
     ConversationBusyError,
@@ -36,6 +41,11 @@ from melonclaw.services.conversations import ConversationService
 from melonclaw.services.errors import (
     AgentExecutionError,
     RequestInProgressError,
+)
+from melonclaw.services.execution_finalize import (
+    mark_execution_status,
+    mark_interaction_recovery_required,
+    release_execution,
 )
 from melonclaw.services.runtime import ChatRuntime
 
@@ -64,6 +74,7 @@ class PreparedExecution:
     user_message_id: UUID | None = None
     content: str = ""
     skill_id: str | None = None
+    user_interaction_id: UUID | None = None
     resuming: bool = False
     replay_message: dict[str, Any] | None = None
     attachments: list[dict[str, Any]] = field(default_factory=list)
@@ -94,10 +105,16 @@ class ExecutionService:
         tenant_id: str | None = None,
         skill_id: str | None = None,
         attachment_ids: list[UUID] | None = None,
+        capabilities: list[str] | None = None,
     ) -> PreparedExecution:
-        """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。"""
+        """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。
+
+        ``capabilities`` 是浏览器声明的能力清单；它会随消息一起落库，恢复执行
+        时沿用同一份，避免提问和恢复拿到工具集不同的 Agent。
+        """
 
         storage = self.runtime.require_ready()
+        normalized_capabilities = normalize_capabilities(capabilities)
         clean_content = content.strip()
         try:
             normalized_attachment_ids = [UUID(str(item)) for item in (attachment_ids or [])]
@@ -129,8 +146,13 @@ class ExecutionService:
         if existing is not None:
             # 幂等重试沿用第一次请求实际绑定的模型，即使前端下拉框已经
             # 切换到了另一个选项。
+            # 幂等重试沿用第一次请求落库的能力，就像沿用第一次绑定的模型。
             model = self.runtime.model_for_message(existing.assistant_message)
-            agent = await self.runtime.agent_for_project(project, model)
+            agent = await self.runtime.agent_for_project(
+                project,
+                model,
+                self.runtime.capabilities_for_message(existing.user_message),
+            )
             return await self._prepare_existing_request(
                 conversation_id,
                 context,
@@ -145,7 +167,9 @@ class ExecutionService:
             )
 
         model = self.runtime.resolve_model(model_id)
-        agent = await self.runtime.agent_for_project(project, model)
+        agent = await self.runtime.agent_for_project(
+            project, model, normalized_capabilities
+        )
         lock_connection = await storage.try_advisory_lock(conversation_id)
         if lock_connection is None:
             raise ConversationBusyError("当前会话正在处理另一条消息，请稍候。")
@@ -163,6 +187,7 @@ class ExecutionService:
                 stored_agent = await self.runtime.agent_for_project(
                     project,
                     stored_model,
+                    self.runtime.capabilities_for_message(existing.user_message),
                 )
                 return await self._prepare_existing_request(
                     conversation_id,
@@ -177,11 +202,11 @@ class ExecutionService:
                     project=project,
                     model=stored_model,
                 )
-            if await aget_pending_approval(
+            if await aget_pending_interaction(
                 agent,
                 self.runtime.conversation_config(conversation_id),
             ):
-                raise ValueError("当前对话正在等待人工审批，请先处理审批请求。")
+                raise ValueError("当前对话正在等待人工交互，请先处理待处理请求。")
             stale = await storage.get_incomplete_assistant(
                 conversation_id,
                 context.user_id,
@@ -203,16 +228,18 @@ class ExecutionService:
                 except AssistantStateConflictError:
                     # 状态已经由持锁执行收敛；不要用旧快照覆盖它。
                     pass
-            display_metadata = (
-                {
+            display_metadata: dict[str, Any] | None = None
+            if selected_skill is not None:
+                display_metadata = {
                     "skill": {
                         "id": selected_skill.id,
                         "display_name": selected_skill.display_name,
                     }
                 }
-                if selected_skill is not None
-                else None
-            )
+            if normalized_capabilities:
+                # 能力随消息落库：恢复执行要沿用提问那一轮的同一份能力。
+                display_metadata = display_metadata or {}
+                display_metadata["capabilities"] = list(normalized_capabilities)
             if normalized_attachment_ids:
                 if self.runtime.settings is None:
                     raise RuntimeError("运行配置尚未加载。")
@@ -451,6 +478,9 @@ class ExecutionService:
         user_id: str,
         decisions: Any,
         tenant_id: str | None = None,
+        *,
+        approval_batch_id: UUID | None = None,
+        assistant_message_id: UUID | None = None,
     ) -> tuple[PreparedExecution, Any]:
         storage = self.runtime.require_ready()
         conversation = await storage.get_conversation(conversation_id, user_id)
@@ -469,19 +499,37 @@ class ExecutionService:
         )
         if assistant is None:
             raise ValueError("找不到等待审批的业务消息记录。")
+        if (
+            approval_batch_id is None
+            or assistant_message_id is None
+            or str(assistant["id"]) != str(assistant_message_id)
+        ):
+            raise ApprovalBindingError
         request_record = await storage.find_request(
             conversation_id,
             context.user_id,
             assistant["request_id"],
         )
         model = self.runtime.model_for_message(assistant)
-        agent = await self.runtime.agent_for_project(project, model)
+        agent = await self.runtime.agent_for_project(
+            project,
+            model,
+            self.runtime.capabilities_for_message(
+                request_record.user_message if request_record is not None else None
+            ),
+        )
         pending = await aget_pending_approval(
             agent,
             self.runtime.conversation_config(conversation_id),
         )
         if pending is None:
             raise ValueError("当前没有等待处理的审批请求。")
+        expected_batch_id = approval_batch_id_for(
+            pending,
+            assistant_message_id=str(assistant["id"]),
+        )
+        if str(approval_batch_id) != expected_batch_id:
+            raise ApprovalBindingError
         lock_connection = await storage.try_advisory_lock(conversation_id)
         if lock_connection is None:
             raise ConversationBusyError("当前会话正在处理另一条消息，请稍候。")
@@ -644,9 +692,61 @@ class ExecutionService:
                 remember_display_event(event)
                 yield event
 
-            pending = await aget_pending_approval(agent, execution.config)
+            pending = await aget_pending_interaction(agent, execution.config)
             display_metadata = {"events": display_events} if display_events else {}
+            if execution.user_interaction_id is not None:
+                await storage.resolve_user_interaction(
+                    execution.conversation_id,
+                    execution.user_interaction_id,
+                )
             if pending:
+                user_questions = [
+                    item for item in pending if item.get("kind") == "user_question"
+                ]
+                if user_questions:
+                    if len(pending) != 1:
+                        raise AgentExecutionError("一次执行只能等待一张用户问题卡片。")
+                    settings = self.runtime.settings
+                    if settings is None:
+                        raise AgentExecutionError("运行配置尚未加载。")
+                    interaction = await storage.create_or_get_user_interaction(
+                        execution.conversation_id,
+                        execution.assistant_message_id,
+                        execution.user_id,
+                        str(user_questions[0]["id"]),
+                        user_questions[0],
+                        settings.user_input_ttl_seconds,
+                    )
+                    question = serialize_pending_user_question(
+                        user_questions[0],
+                        interaction_id=interaction["id"],
+                        assistant_message_id=str(execution.assistant_message_id),
+                        expires_at=interaction["expires_at"],
+                    )
+                    display_metadata["pending_interaction"] = question
+                    await storage.update_assistant(
+                        execution.conversation_id,
+                        execution.assistant_message_id,
+                        status="interrupted",
+                        display_metadata=display_metadata,
+                        expected_status=self._expected_assistant_status(execution),
+                    )
+                    yield {"type": "user_input_required", "request": question}
+                    finished = True
+                    return
+                approval_batch_id = approval_batch_id_for(
+                    pending,
+                    assistant_message_id=str(execution.assistant_message_id),
+                )
+                approval = serialize_pending_approval(
+                    pending,
+                    approval_batch_id=approval_batch_id,
+                    assistant_message_id=str(execution.assistant_message_id),
+                )
+                display_metadata["pending_approval"] = {
+                    "approval_batch_id": approval_batch_id,
+                    "assistant_message_id": str(execution.assistant_message_id),
+                }
                 await storage.update_assistant(
                     execution.conversation_id,
                     execution.assistant_message_id,
@@ -656,7 +756,7 @@ class ExecutionService:
                 )
                 yield {
                     "type": "approval_required",
-                    "request": serialize_pending_approval(pending),
+                    "request": approval,
                 }
                 finished = True
                 return
@@ -686,16 +786,30 @@ class ExecutionService:
             yield {"type": "done", "message_id": saved["id"]}
             finished = True
         except asyncio.CancelledError:
-            await self._mark_execution(
+            await mark_interaction_recovery_required(
+                self.runtime.storage,
+                execution.conversation_id,
+                execution.user_interaction_id,
+            )
+            await mark_execution_status(
+                self.runtime.storage,
                 execution,
+                expected_status=self._expected_assistant_status(execution),
                 status="cancelled",
                 error_code="request_cancelled",
                 display_metadata=display_events,
             )
             raise
         except Exception as exc:  # noqa: BLE001 - 保存失败状态后发送安全错误
-            await self._mark_execution(
+            await mark_interaction_recovery_required(
+                self.runtime.storage,
+                execution.conversation_id,
+                execution.user_interaction_id,
+            )
+            await mark_execution_status(
+                self.runtime.storage,
                 execution,
+                expected_status=self._expected_assistant_status(execution),
                 status="failed",
                 error_code="agent_execution_failed",
                 display_metadata=display_events,
@@ -709,43 +823,7 @@ class ExecutionService:
             if not finished and execution.replay_message is None:
                 # 连接在未完成流的异常路径也必须释放；状态已在上面的异常分支处理。
                 pass
-            await self._release_execution(execution)
-
-    async def _mark_execution(
-        self,
-        execution: PreparedExecution,
-        *,
-        status: str,
-        error_code: str,
-        display_metadata: list[dict[str, Any]],
-    ) -> None:
-        storage = self.runtime.storage
-        if storage is None:
-            return
-        try:
-            await storage.update_assistant(
-                execution.conversation_id,
-                execution.assistant_message_id,
-                status=status,
-                display_metadata={"events": display_metadata} if display_metadata else {},
-                error_code=error_code,
-                expected_status=self._expected_assistant_status(execution),
-            )
-        except Exception:  # noqa: BLE001 - 不覆盖原始 Agent/取消错误
-            # 原始 Agent/取消错误优先；下一次历史查询仍会显示已存在的业务状态。
-            return
-
-    async def _release_execution(self, execution: PreparedExecution) -> None:
-        if execution.released or execution.lock_connection is None:
-            execution.released = True
-            return
-        execution.released = True
-        storage = self.runtime.storage
-        if storage is not None:
-            await storage.release_advisory_lock(
-                execution.lock_connection,
-                execution.conversation_id,
-            )
+            await release_execution(self.runtime.storage, execution)
 
     @staticmethod
     def _expected_assistant_status(execution: PreparedExecution) -> str:

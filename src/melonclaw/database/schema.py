@@ -163,6 +163,64 @@ chat_messages = Table(
     Index("ix_chat_messages_conversation_seq", "conversation_id", "seq"),
 )
 
+user_interactions = Table(
+    "user_interactions",
+    metadata,
+    Column("id", PGUUID(as_uuid=True), primary_key=True),
+    Column(
+        "conversation_id",
+        PGUUID(as_uuid=True),
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column(
+        "assistant_message_id",
+        PGUUID(as_uuid=True),
+        ForeignKey("chat_messages.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("user_id", String(64), nullable=False),
+    Column("interrupt_id", String(160), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("status", String(24), nullable=False, server_default="waiting"),
+    Column("decision_request_id", String(36), nullable=True),
+    Column("answer", JSONB, nullable=True),
+    Column("answer_digest", String(64), nullable=True),
+    Column("reason_code", String(80), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("accepted_at", DateTime(timezone=True), nullable=True),
+    Column("resolved_at", DateTime(timezone=True), nullable=True),
+    UniqueConstraint(
+        "conversation_id",
+        "interrupt_id",
+        name="uq_user_interactions_conversation_interrupt",
+    ),
+    CheckConstraint(
+        "kind = 'user_question'",
+        name="ck_user_interactions_kind",
+    ),
+    CheckConstraint(
+        "status IN ('waiting', 'accepted', 'resolved', 'expired', 'discarded', 'recovery_required')",
+        name="ck_user_interactions_status",
+    ),
+    Index(
+        "ix_user_interactions_conversation_status",
+        "conversation_id",
+        "status",
+    ),
+    # 同一会话最多一张仍在等待回答的卡片。服务层已经强制一次只有一道题，
+    # 这里补数据库兜底：将来放开多题或并发恢复时，重复卡片不会因为插入成功
+    # 而静默出现两张。
+    Index(
+        "uq_user_interactions_active",
+        "conversation_id",
+        unique=True,
+        postgresql_where=text("status = 'waiting'"),
+    ),
+)
+
 chat_attachments = Table(
     "chat_attachments",
     metadata,

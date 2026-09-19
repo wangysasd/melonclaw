@@ -1,5 +1,10 @@
 import { API_BASE_URL, ApiError, parseErrorResponse } from "./client";
-import type { SendApprovalInput, SendMessageInput, StreamEvent } from "../types/api";
+import type {
+  SendApprovalInput,
+  SendMessageInput,
+  SendUserInputInput,
+  StreamEvent,
+} from "../types/api";
 
 /**
  * SSE 流客户端：POST + fetch ReadableStream 手工解析。
@@ -12,6 +17,14 @@ export interface StreamHandlers {
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
+
+/**
+ * 浏览器声明的能力清单，随每条消息一起发送。
+ *
+ * 服务端只给声明了 `user_input_v1` 的客户端注入 ask_user 工具：旧客户端渲染
+ * 不出问题卡片，拿到提问工具只会把会话挂死在一张看不见的卡片上。
+ */
+export const CLIENT_CAPABILITIES = ["user_input_v1"];
 
 export function sendMessageStream(
   conversationId: string,
@@ -28,6 +41,7 @@ export function sendMessageStream(
       model_id: input.modelId ?? null,
       skill_id: input.skillId ?? null,
       attachment_ids: input.attachmentIds ?? [],
+      capabilities: CLIENT_CAPABILITIES,
     },
     handlers,
   );
@@ -43,7 +57,28 @@ export function sendApprovalStream(
     {
       user_id: input.userId,
       tenant_id: input.tenantId ?? null,
+      approval_batch_id: input.approvalBatchId,
+      assistant_message_id: input.assistantMessageId,
       decisions: input.decisions,
+    },
+    handlers,
+  );
+}
+
+export function sendUserInputStream(
+  conversationId: string,
+  input: SendUserInputInput,
+  handlers: StreamHandlers,
+): Promise<void> {
+  return streamRequest(
+    `/api/conversations/${encodeURIComponent(conversationId)}/user-input`,
+    {
+      user_id: input.userId,
+      tenant_id: input.tenantId ?? null,
+      interaction_id: input.interactionId,
+      assistant_message_id: input.assistantMessageId,
+      decision_request_id: input.decisionRequestId,
+      answer: input.answer,
     },
     handlers,
   );

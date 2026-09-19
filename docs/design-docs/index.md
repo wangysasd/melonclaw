@@ -7,6 +7,7 @@
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | [聊天附件上传设计](chat-attachments.md) | 已实现 | 首版支持图片、文本、带文本层 PDF 和 DOCX/XLSX/PPTX；包含两阶段上传、消息原子绑定、解析、hydration、权限边界和清理任务。详细讨论稿仍保留在本地 `note/上传附件技术设计.md` |
+| [用户决策 HITL](user-input-hitl.md) | 已实现 | Agent 在关键决策不确定时通过 `ask_user` 暂停，前端展示选项，服务端校验并从原 Checkpoint 恢复；包含幂等、TTL、历史恢复和当前边界 |
 
 ## 状态取值
 

@@ -28,14 +28,17 @@ from melonclaw.core.model_catalog import (
     resolve_system_model,
 )
 from melonclaw.core.prompts import build_system_prompt
+from melonclaw.core.user_input import UserInputMiddleware, supports_user_input
 from melonclaw.memory import MemoryScopeMiddleware, MemoryService
 from melonclaw.middleware import (
     AttachmentHydrationMiddleware,
     AttachmentHydrationProvider,
     FileOperationOrderingMiddleware,
+    UserInputGuardMiddleware,
 )
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
+from melonclaw.tool.user_input import USER_INPUT_TOOL_NAME
 
 TOOL_NAMES_PREVIEW_LIMIT = 12
 MAX_SELECTED_TOOLS_PER_MODEL_CALL = 16
@@ -88,8 +91,14 @@ def _build_tool_selector_middleware(
     provider: str,
     model: BaseChatModel,
     tools: list[object],
+    *,
+    include_user_input: bool,
 ) -> AgentMiddleware:
-    """按实际模型 provider 选择动态工具选择器。"""
+    """按实际模型 provider 选择动态工具选择器。
+
+    ``include_user_input`` 为 False 时不能把 ``ask_user`` 写进 ``always_include``：
+    未注入该工具时，选择器会去挑选一个根本不存在的工具。
+    """
 
     if provider == "openai":
         # 官方 selector 的内部结构化输出也会进入 LangGraph 消息流。只给它使用
@@ -106,6 +115,7 @@ def _build_tool_selector_middleware(
         return LLMToolSelectorMiddleware(
             model=selector_model,
             max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
+            always_include=[USER_INPUT_TOOL_NAME] if include_user_input else [],
         )
 
     if provider in {"deepseek", "minimax"}:
@@ -137,11 +147,16 @@ async def build_research_agent(
     runtime_backend: BackendProtocol | None = None,
     memory_service: MemoryService | None = None,
     attachment_hydration_provider: AttachmentHydrationProvider | None = None,
+    client_capabilities: object = None,
 ) -> CompiledStateGraph:
     """异步发现工具并构建绑定到指定工作区的通用助手。
 
     Deep Agents 自带文件系统和 task/subagent 能力；这里注入模型、provider
     Tavily 搜索、自定义工具、可选 MCP 工具、通用助手提示词和统一的本地文件后端。
+
+    ``client_capabilities`` 是浏览器声明的能力清单。只有声明 ``user_input_v1``
+    的客户端才会拿到 ``ask_user``：旧客户端渲染不出问题卡片，注入只会让它收到
+    一张自己看不懂的卡片，进而把会话挂死。
     """
 
     if checkpointer is None:
@@ -153,10 +168,12 @@ async def build_research_agent(
     resolved_model = model or resolve_system_model(settings)
     chat_model: BaseChatModel = build_chat_model(resolved_model)
     tools = await build_agent_tools(settings)
+    user_input_enabled = supports_user_input(client_capabilities)
     tool_selector = _build_tool_selector_middleware(
         resolved_model.provider,
         chat_model,
         tools,
+        include_user_input=user_input_enabled,
     )
     interpreter = build_interpreter_middleware()
     backend, skill_sources, skill_permissions = build_agent_backend(
@@ -200,6 +217,10 @@ async def build_research_agent(
         FileOperationOrderingMiddleware(),
         interpreter,
     ]
+    if user_input_enabled:
+        # 提问工具和它的批次护栏必须成对出现：有工具没护栏，模型就能把
+        # ask_user 和副作用工具放在同一批里执行。
+        middleware[1:1] = [UserInputMiddleware(), UserInputGuardMiddleware()]
     if memory_service is not None:
         middleware.insert(0, MemoryScopeMiddleware(memory_service))
         print("已启用 Global/Tenant/User Memory（Store 持久化，主 Agent 受控工具）")

@@ -16,6 +16,7 @@ from melonclaw.repository import (
     ConversationNotFoundError,
     ProjectNotFoundError,
     RequestConflictError,
+    UserInteractionAnswerError,
 )
 from melonclaw.services.errors import InvalidUserError, RequestInProgressError
 
@@ -43,6 +44,9 @@ def error_response(exc: Exception) -> JSONResponse:
         (DatabaseConfigurationError, DatabaseSchemaError, DatabaseUnavailableError),
     ):
         status_code = 503
+    elif isinstance(exc, UserInteractionAnswerError):
+        # 答案填错方案/选项是 422，要在 ValueError 的 400 之前拦住。
+        status_code = 422
     elif isinstance(exc, ValueError):
         status_code = 400
     else:
