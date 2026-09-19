@@ -64,7 +64,8 @@ class ChatRuntime:
             self.memory_store_context, self.memory_store = await open_memory_store(
                 self.settings.database_url
             )
-            # 初始化和迁移由 melonclaw-db-init 独立执行，服务启动只检查状态。
+            # 建表和演示数据初始化由 melonclaw-db-init 独立执行，
+            # 服务启动只检查当前结构，不修补旧表。
             await self.database.verify_schema(
                 require_checkpointer=True,
                 require_store=True,
@@ -181,7 +182,7 @@ class ChatRuntime:
         )
 
     def model_for_message(self, message: dict[str, Any]) -> ResolvedModel:
-        """从消息中恢复模型绑定；兼容第一阶段迁移前的旧消息。"""
+        """从消息的模型快照恢复模型绑定；快照为空时回落到当前默认模型。"""
 
         return self.resolve_model(
             message.get("model", {}).get("id") if message.get("model") else None,

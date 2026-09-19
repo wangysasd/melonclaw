@@ -184,7 +184,7 @@ export function createConversation(
     body: {
       user_id: input.userId,
       tenant_id: input.tenantId ?? null,
-      project_id: input.projectId ?? null,
+      project_id: input.projectId,
     },
   });
 }

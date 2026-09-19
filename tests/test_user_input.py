@@ -289,6 +289,11 @@ def test_pending_question_keeps_real_interrupt_id_and_builds_resume_command():
     assert "multi_select" not in serialized
     assert answer["answers"]["question-1"]["option_id"] == "local"
 
+    with pytest.raises(ValueError, match="缺少真实 ID"):
+        _pending_from_snapshot(
+            SimpleNamespace(interrupts=[SimpleNamespace(value=pending)])
+        )
+
     multi_pending = {
         **question_payload(),
         "questions": [{**question_payload()["questions"][0], "multi_select": True}],
@@ -390,8 +395,10 @@ def test_expired_helper_reads_iso_timestamps():
     future = (datetime.now(UTC) + timedelta(minutes=1)).isoformat()
     assert _is_expired(past) is True
     assert _is_expired(future) is False
-    assert _is_expired(None) is False
-    assert _is_expired("not-a-timestamp") is False
+    with pytest.raises(ValueError):
+        _is_expired("not-a-timestamp")
+    with pytest.raises(ValueError, match="必须包含时区"):
+        _is_expired("2030-01-01T00:00:00")
 
 
 def _cancel_question() -> dict[str, Any]:
@@ -991,9 +998,8 @@ def test_lifecycle_transition_sources_match_expected_edges():
     assert transition_sources(UserInteractionStatus.RECOVERY_REQUIRED) == frozenset(
         {UserInteractionStatus.ACCEPTED}
     )
-    # waiting -> discarded 只属于数据库迁移的历史清理，运行时不允许。
     assert transition_sources(UserInteractionStatus.DISCARDED) == frozenset(
-        {UserInteractionStatus.WAITING, UserInteractionStatus.RECOVERY_REQUIRED}
+        {UserInteractionStatus.RECOVERY_REQUIRED}
     )
     # waiting 是唯一起点，没有状态能变回 waiting。
     assert transition_sources(UserInteractionStatus.WAITING) == frozenset()

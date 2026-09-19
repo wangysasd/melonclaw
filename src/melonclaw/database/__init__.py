@@ -8,15 +8,9 @@ from melonclaw.database.connection import (
     open_memory_store,
 )
 from melonclaw.database.constants import (
-    ATTACHMENT_SCHEMA_VERSION,
     BUSINESS_TABLES,
     CHECKPOINT_TABLES,
-    CONVERSATION_SCHEMA_VERSION,
     DEFAULT_PROJECT_NAME,
-    DEFAULT_PROJECT_SCHEMA_VERSION,
-    MEMORY_SCHEMA_VERSION,
-    MULTITENANT_SCHEMA_VERSION,
-    PROJECT_SCHEMA_VERSION,
     STORE_TABLES,
 )
 from melonclaw.database.database import Database
@@ -33,7 +27,6 @@ from melonclaw.database.schema import (
     memory_events,
     metadata,
     projects,
-    schema_migrations,
     tenants,
     user_tenants,
     users,
@@ -42,13 +35,7 @@ from melonclaw.database.schema import (
 __all__ = [
     "BUSINESS_TABLES",
     "CHECKPOINT_TABLES",
-    "CONVERSATION_SCHEMA_VERSION",
-    "ATTACHMENT_SCHEMA_VERSION",
     "DEFAULT_PROJECT_NAME",
-    "DEFAULT_PROJECT_SCHEMA_VERSION",
-    "MEMORY_SCHEMA_VERSION",
-    "MULTITENANT_SCHEMA_VERSION",
-    "PROJECT_SCHEMA_VERSION",
     "STORE_TABLES",
     "Database",
     "DatabaseConfigurationError",
@@ -66,7 +53,6 @@ __all__ = [
     "open_checkpoint_pool",
     "open_memory_store",
     "projects",
-    "schema_migrations",
     "tenants",
     "user_tenants",
     "users",

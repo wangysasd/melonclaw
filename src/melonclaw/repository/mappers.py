@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from melonclaw.database.constants import DEFAULT_PROJECT_NAME
 from melonclaw.repository.constants import DEFAULT_SIMULATED_USER_ID
 
 
@@ -24,14 +23,12 @@ def _as_iso(value: datetime) -> str:
 
 
 def _conversation_dict(row: Mapping[str, Any]) -> dict[str, Any]:
-    project_name = row.get("project_name") if hasattr(row, "get") else None
-    workdir_path = row.get("workdir_path") if hasattr(row, "get") else None
     return {
         "id": str(row["id"]),
         "user_id": str(row["user_id"]),
         "project_id": str(row["project_id"]),
-        "project_name": str(project_name or DEFAULT_PROJECT_NAME),
-        "workdir_path": str(workdir_path or ""),
+        "project_name": str(row["project_name"]),
+        "workdir_path": str(row["workdir_path"]),
         "title": str(row["title"]),
         "agent_id": str(row["agent_id"]),
         "created_at": _as_iso(row["created_at"]),
@@ -42,13 +39,13 @@ def _conversation_dict(row: Mapping[str, Any]) -> dict[str, Any]:
 def _user_dict(
     row: Mapping[str, Any],
     *,
-    tenant_ids: list[str] | None = None,
-    tenant_names: list[str] | None = None,
-    tenant_memberships: list[dict[str, Any]] | None = None,
+    tenant_ids: list[str],
+    tenant_names: list[str],
+    tenant_memberships: list[dict[str, Any]],
 ) -> dict[str, Any]:
     user_name = str(row["user_name_zh"])
-    normalized_tenant_ids = tenant_ids or [str(row["tenant_id"])]
-    normalized_tenant_names = tenant_names or [str(row["tenant_name_zh"])]
+    normalized_tenant_ids = tenant_ids
+    normalized_tenant_names = tenant_names
     tenant_name = "、".join(normalized_tenant_names)
     default_tenant_id = normalized_tenant_ids[0]
     return {
@@ -63,16 +60,9 @@ def _user_dict(
         "tenant_names": normalized_tenant_names,
         "tenant_name": tenant_name,
         "tenant_name_zh": tenant_name,
-        "tenant_role": str(row.get("role") or "member"),
-        "tenant_status": str(row.get("status") or "active"),
-        "tenant_memberships": tenant_memberships or [
-            {
-                "tenant_id": normalized_tenant_ids[0],
-                "tenant_name": normalized_tenant_names[0],
-                "role": str(row.get("role") or "member"),
-                "status": str(row.get("status") or "active"),
-            }
-        ],
+        "tenant_role": str(row["role"]),
+        "tenant_status": str(row["status"]),
+        "tenant_memberships": tenant_memberships,
         "is_default": str(row["user_id"]) == DEFAULT_SIMULATED_USER_ID,
         "display_name": f"{user_name}-{tenant_name}",
     }
@@ -92,13 +82,13 @@ def _project_dict(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _message_dict(row: Mapping[str, Any]) -> dict[str, Any]:
-    model_id = row.get("model_id") if hasattr(row, "get") else None
+    model_id = row["model_id"]
     model = (
         {
             "id": str(model_id),
-            "display_name": str(row.get("model_display_name") or ""),
-            "provider": str(row.get("model_provider") or ""),
-            "model": str(row.get("model_name") or ""),
+            "display_name": str(row["model_display_name"] or ""),
+            "provider": str(row["model_provider"] or ""),
+            "model": str(row["model_name"] or ""),
         }
         if model_id
         else None
@@ -109,9 +99,9 @@ def _message_dict(row: Mapping[str, Any]) -> dict[str, Any]:
         "seq": int(row["seq"]),
         "request_id": str(row["request_id"]),
         "role": str(row["role"]),
-        "content": str(row["content"] or ""),
+        "content": str(row["content"]),
         "status": str(row["status"]),
-        "display_metadata": row["display_metadata"] or {},
+        "display_metadata": row["display_metadata"],
         "error_code": row["error_code"],
         "model": model,
         "created_at": _as_iso(row["created_at"]),
@@ -130,15 +120,6 @@ def _default_project_id(user_id: str) -> UUID:
     return uuid5(
         NAMESPACE_URL,
         f"melonclaw:default-project:{user_id}",
-    )
-
-
-def _user_tenant_id(user_id: str, tenant_id: str) -> UUID:
-    """为演示环境的用户租户关系生成稳定的代理主键。"""
-
-    return uuid5(
-        NAMESPACE_URL,
-        f"melonclaw:user-tenant:{user_id}:{tenant_id}",
     )
 
 
@@ -162,4 +143,3 @@ def decode_conversation_cursor(cursor: str) -> tuple[datetime, UUID]:
     if updated_at.tzinfo is None:
         updated_at = updated_at.replace(tzinfo=UTC)
     return updated_at, conversation_id
-

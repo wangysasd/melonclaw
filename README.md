@@ -71,8 +71,10 @@ uv sync --locked
 uv run melonclaw-db-init
 ```
 
-已有数据库升级也要重新执行 `uv run melonclaw-db-init`。如果提问功能报
-`user_interactions.user_id`、`user_interactions.expires_at` 或幂等冲突约束不存在，说明旧表尚未完成用户归属和生命周期迁移；执行该命令后再重启 Web 服务即可，历史交互会按所属 Conversation 自动回填，过期时间按默认 24 小时补齐。
+数据库按“可清空重建”维护，不为历史数据做兼容迁移。表结构只定义在
+`src/melonclaw/database/schema.py`，改动表结构后重建/清空数据库并重新执行
+`uv run melonclaw-db-init` 即可。初始化命令和服务启动会校验业务表及列是否
+与当前 schema 一致；不一致时提示清空重建，不会自动迁移或补列。
 
 ### 3️⃣ 启动 / 重启 / 停止
 

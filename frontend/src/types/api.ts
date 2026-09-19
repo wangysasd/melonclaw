@@ -255,7 +255,7 @@ export interface ListConversationsInput {
 export interface CreateConversationInput {
   userId: string;
   tenantId?: string | null;
-  projectId?: string | null;
+  projectId: string;
 }
 
 export interface ListMessagesInput {

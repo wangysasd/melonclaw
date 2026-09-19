@@ -1,7 +1,7 @@
 """Project 工作区内的附件存储。
 
-数据库保存 ``storage_key``，本模块负责把受控的 Project 工作区路径映射到
-物理文件。文件名不参与路径拼接，原文和派生目录也不会作为静态资源暴露。
+附件路径由 Project 工作区和 ``attachment_id`` 唯一推导。文件名不参与路径拼接，
+原文和派生目录也不会作为静态资源暴露。
 """
 
 from __future__ import annotations
@@ -20,10 +20,6 @@ class LocalAttachmentStorage:
         self.workspace_dir = workspace_dir.resolve()
         self.root = self.workspace_dir / ".attachments"
         self.root.mkdir(parents=True, exist_ok=True)
-
-    @staticmethod
-    def storage_key(attachment_id: UUID | str) -> str:
-        return f".attachments/{UUID(str(attachment_id))}"
 
     def attachment_dir(self, attachment_id: UUID | str) -> Path:
         candidate = (self.root / str(UUID(str(attachment_id)))).resolve()
@@ -78,4 +74,3 @@ class LocalAttachmentStorage:
             shutil.rmtree(path)
         elif path.exists():
             path.unlink()
-

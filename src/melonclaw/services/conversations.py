@@ -97,18 +97,14 @@ class ConversationService:
     async def create_conversation(
         self,
         user_id: str,
-        project_id: UUID | None = None,
+        project_id: UUID,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
         storage = self.runtime.require_ready()
         context = await self.resolve_user(user_id, tenant_id)
-        if project_id is None:
-            # 兼容旧 API：未选择 Project 时，自动使用用户唯一的临时会话。
-            project = await storage.ensure_default_project(context.user_id)
-        else:
-            project = await storage.get_project(project_id, context.user_id)
-            if project is None:
-                raise ProjectNotFoundError
+        project = await storage.get_project(project_id, context.user_id)
+        if project is None:
+            raise ProjectNotFoundError
         self.runtime.project_workspace_dir(project)
         return await storage.create_conversation(
             context.user_id,
@@ -192,8 +188,8 @@ class ConversationService:
                 conversation_id,
                 context.user_id,
             )
-            # 旧版本在保存 user_interactions 失败时会把 assistant 标为 failed，
-            # 但 LangGraph Checkpoint 仍保留待处理 interrupt。只有在确认仍有
+            # 业务账本与 Checkpointer 不共享事务：账本保存失败时 assistant
+            # 会落到 failed，但 LangGraph Checkpoint 仍可能保留待处理 interrupt。只有在确认仍有
             # pending interaction 后，下面才会把这个候选消息恢复为 interrupted。
             # 已标记 recovery_required 的那一轮例外：它不能再被复活。
             if (
@@ -250,7 +246,7 @@ class ConversationService:
                 assistant_message_id=str(incomplete["id"]),
             )
             if recovery_assistant is not None:
-                display_metadata = dict(recovery_assistant.get("display_metadata") or {})
+                display_metadata = dict(recovery_assistant["display_metadata"])
                 display_metadata["pending_approval"] = {
                     "approval_batch_id": approval_batch_id,
                     "assistant_message_id": str(incomplete["id"]),
@@ -284,7 +280,7 @@ class ConversationService:
                 expires_at=interaction["expires_at"],
             )
             if recovery_assistant is not None:
-                display_metadata = dict(recovery_assistant.get("display_metadata") or {})
+                display_metadata = dict(recovery_assistant["display_metadata"])
                 display_metadata["pending_interaction"] = pending_interaction
                 await storage.update_assistant(
                     conversation_id,

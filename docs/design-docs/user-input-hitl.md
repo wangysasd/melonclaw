@@ -10,7 +10,7 @@
 
 - `core/user_input.py` 注册主 Agent 专用的 `ask_user` 工具。工具只接受 `questions` 数组，一次 `interrupt()` 交出一张卡片；只问一个问题时就是长度为一的数组，协议里不再有单题专用的字段布局。
 - `core/hitl.py` 读取 Checkpoint 的真实 interrupt ID，区分工具审批和用户问题，并只把安全字段序列化给浏览器。
-- `user_interactions` 记录问题、Checkpoint interrupt ID、有效期、答案摘要和恢复状态；`services/user_input_execution.py` 重新校验归属、当前问题和答案后构造 `Command(resume={interrupt_id: answer})`。
+- `user_interactions` 记录问题 payload、Checkpoint interrupt ID、有效期、答案摘要和恢复状态；表只承载用户问题，因此不重复保存固定为 `user_question` 的类型列。`services/user_input_execution.py` 重新校验归属、当前问题和答案后构造 `Command(resume={interrupt_id: answer})`。
 - 账本的六个状态（waiting / accepted / resolved / expired / recovery_required / discarded）与允许的转换只在一处定义：`repository/user_interaction_lifecycle.py`。repository 写库时的 where 与 CAS 条件由转换表反向生成（`transition_sources`），services 只用常量与语义分组（`OPEN_STATUSES` 等），不再手写字面量；schema 的 CHECK 约束与常量的对齐由测试强制。
 - `POST /api/conversations/{conversation_id}/user-input` 接受答案并复用现有 Conversation advisory lock、SSE 和执行状态。
 - 前端接收 `user_input_required`，显示 `UserQuestionPanel`；刷新历史时从 `pending_interaction` 恢复问题卡。
@@ -64,7 +64,7 @@ Agent 调用 ask_user(questions=[...])
 - 过期答案返回 410；答案冲突返回 409（并发提交、抢不到会话锁时是 409 会话忙）；答案本身不合法（选项不存在、不允许自定义）返回 422 且带 `error_code = user_answer_invalid`，和“这一轮已经变了”区分开。服务端不会接受客户端附带的模型问题文本或选项标签作为可信来源。
 - 过期问题不会永久阻塞会话：收到新消息前，服务端会以取消答案代答一次来解锁 Checkpoint；代答失败只记日志，原错误照旧返回，不会比不代答更糟。
 - 幂等重试命中同键已接受账本时返回回执流（`done` 事件 `terminal_reason = already_accepted`），浏览器据此重新拉取一次历史对账，而不是把卡片清掉就什么都不做。
-- 数据库层保证同一 Conversation 至多一个等待中的问题（`user_interactions` 上的部分唯一索引）；已有的历史重复 waiting 记录会在迁移阶段被收成 `discarded`。
+- 数据库层保证同一 Conversation 至多一个等待中的问题（`user_interactions` 上的部分唯一索引）；服务层也强制一次只有一道题。
 - 当前尚未支持同一轮多个用户问题、子 Agent 问题冒泡、独立的恢复任务和生产级身份认证。
 
 ## 运行与验证
@@ -75,4 +75,4 @@ Agent 调用 ask_user(questions=[...])
 uv run melonclaw-db-init
 ```
 
-验证记录：`tests/test_user_input.py`、`tests/test_architecture.py`、`frontend/tests/user-question.test.tsx`、`frontend/tests/chat-stream.test.tsx`、`frontend/tests/approval.test.tsx` 和 `frontend/tests/stream-capabilities.test.ts` 已覆盖规范化、答案防伪、取消与过期解锁、interrupt/resume 负载、批次护栏、能力协商与缓存键、待恢复账本封账、锁外不写库、422 错误码、回执流对账、组件交互和既有审批兼容性；真实 PostgreSQL Checkpointer、模型 API、迁移脚本（`uv run melonclaw-db-init`）和生产部署仍需在目标环境做 smoke test。
+验证记录：`tests/test_user_input.py`、`tests/test_architecture.py`、`frontend/tests/user-question.test.tsx`、`frontend/tests/chat-stream.test.tsx`、`frontend/tests/approval.test.tsx` 和 `frontend/tests/stream-capabilities.test.ts` 已覆盖规范化、答案防伪、取消与过期解锁、interrupt/resume 负载、批次护栏、能力协商与缓存键、待恢复账本封账、锁外不写库、422 错误码、回执流对账、组件交互和既有审批兼容性；真实 PostgreSQL Checkpointer、模型 API、数据库初始化（`uv run melonclaw-db-init`）和生产部署仍需在目标环境做 smoke test。

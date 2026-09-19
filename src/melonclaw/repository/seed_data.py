@@ -3,40 +3,20 @@
 from __future__ import annotations
 
 TENANT_SEEDS: tuple[dict[str, str], ...] = (
-    {"tenant_id": "research", "tenant_name_zh": "研究"},
-    {"tenant_id": "investment", "tenant_name_zh": "投资"},
-    {"tenant_id": "trading", "tenant_name_zh": "交易"},
+    {"tenant_id": "wei", "tenant_name_zh": "魏"},
+    {"tenant_id": "shu", "tenant_name_zh": "蜀"},
+    {"tenant_id": "wu", "tenant_name_zh": "吴"},
 )
 
 USER_SEEDS: tuple[dict[str, str], ...] = (
-    {"user_id": "zhangsan", "user_name_zh": "张三"},
-    {"user_id": "lisi", "user_name_zh": "李四"},
-    {"user_id": "wangwu", "user_name_zh": "王五"},
-    {"user_id": "zhaoliu", "user_name_zh": "赵六"},
-    {"user_id": "sunqi", "user_name_zh": "孙琪"},
-    {"user_id": "qianning", "user_name_zh": "钱宁"},
-    {"user_id": "wujing", "user_name_zh": "吴静"},
-    {"user_id": "zhoumei", "user_name_zh": "周梅"},
-    {"user_id": "yangfan", "user_name_zh": "杨帆"},
-    {"user_id": "heyu", "user_name_zh": "何宇"},
-    {"user_id": "linan", "user_name_zh": "林安"},
-    {"user_id": "chenxi", "user_name_zh": "陈希"},
+    {"user_id": "caocao", "user_name_zh": "曹操"},
+    {"user_id": "liubei", "user_name_zh": "刘备"},
+    {"user_id": "sunquan", "user_name_zh": "孙权"},
 )
 
 USER_TENANT_SEEDS: tuple[dict[str, str], ...] = (
-    {"user_id": "zhangsan", "tenant_id": "research"},
-    {"user_id": "zhangsan", "tenant_id": "investment"},
-    {"user_id": "wangwu", "tenant_id": "research"},
-    {"user_id": "wujing", "tenant_id": "research"},
-    {"user_id": "yangfan", "tenant_id": "research"},
-    {"user_id": "lisi", "tenant_id": "investment"},
-    {"user_id": "zhaoliu", "tenant_id": "investment"},
-    {"user_id": "zhoumei", "tenant_id": "investment"},
-    {"user_id": "heyu", "tenant_id": "investment"},
-    {"user_id": "sunqi", "tenant_id": "trading"},
-    {"user_id": "qianning", "tenant_id": "trading"},
-    {"user_id": "linan", "tenant_id": "trading"},
-    {"user_id": "chenxi", "tenant_id": "trading"},
+    {"user_id": "caocao", "tenant_id": "wei"},
+    {"user_id": "liubei", "tenant_id": "shu"},
+    {"user_id": "sunquan", "tenant_id": "wu"},
 )
-
 

@@ -50,8 +50,7 @@ def _interaction_dict(row: Any) -> dict[str, Any]:
         "assistant_message_id": str(row["assistant_message_id"]),
         "user_id": str(row["user_id"]),
         "interrupt_id": str(row["interrupt_id"]),
-        "kind": str(row["kind"]),
-        "payload": row["payload"] or {},
+        "payload": row["payload"],
         "status": str(row["status"]),
         "decision_request_id": row["decision_request_id"],
         "answer": row["answer"],
@@ -123,7 +122,6 @@ class UserInteractionRepositoryMixin:
                     assistant_message_id=assistant_message_id,
                     user_id=user_id,
                     interrupt_id=interrupt_id,
-                    kind="user_question",
                     payload=payload,
                     status=UserInteractionStatus.WAITING,
                     created_at=created_at,
@@ -437,10 +435,8 @@ class UserInteractionRepositoryMixin:
     ) -> None:
         """开始取消恢复后关闭旧失败账本，避免它永久遮住后续状态。
 
-        这里只用常量精确匹配 recovery_required，而不是转换表反向生成的
-        ``transition_sources(DISCARDED)``：后者还包含 waiting，而运行时代码
-        不允许把未过期的 waiting 卡片直接丢弃（那条转换只属于数据库迁移
-        的历史清理）。
+        这里只用常量精确匹配 recovery_required：未过期的 waiting
+        卡片不能被运行时路径直接丢弃。
         """
 
         async with self.engine.begin() as connection:

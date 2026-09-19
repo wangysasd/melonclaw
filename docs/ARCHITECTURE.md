@@ -37,7 +37,7 @@ Project 的受控 `.attachments/` 目录，`services/attachments.py` 完成校�
 | 包 | 职责 | 典型文件 |
 |---|---|---|
 | `core/` | 配置、模型目录、模型工厂、提示词、Agent 组装、HITL 审批与用户问题、PTC Interpreter、MCP 配置与脱敏 | `config.py`、`model_catalog.py`、`chat_model.py`、`agent.py`、`hitl.py`、`user_input.py` |
-| `database/` | 连接、表结构定义、迁移与 schema 版本、常量 | `schema.py`、`migrations.py`、`constants.py` |
+| `database/` | 连接、表结构定义、建表与完整性校验、常量 | `schema.py`、`migrations.py`、`constants.py` |
 | `repository/` | 业务数据的读写、事务边界、会话锁、上下文与用户解析 | `repository.py`、`conversations.py`、`attachments.py`、`user_interactions.py`、`locks.py`、`bootstrap.py` |
 | `parsers/` | 附件扩展名/MIME/容器安全校验，以及受控文档到 Markdown 派生文件的解析 | `validation.py`、`documents.py` |
 | `storage/` | Project 工作区内附件原文、派生文件与临时文件的受控路径映射和发布 | `attachments.py` |
@@ -124,7 +124,8 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 
 ## 6. 数据库变更流程
 
-1. 改 `database/schema.py` 的表定义；
-2. 在 `database/migrations.py` 增加幂等迁移（`ADD COLUMN IF NOT EXISTS` 风格）并提升 `database/constants.py` 中的 schema 版本；
-3. 执行 `uv run melonclaw-db-init` 应用迁移；
-4. 服务启动时 `verify_schema` 只做校验，**不会**自动迁移。
+数据库按“可清空重建”维护，`database/schema.py` 是唯一事实来源，不为历史数据写兼容迁移。
+
+1. 改 `database/schema.py` 的表定义（列、约束、部分唯一索引都写在这里）；
+2. 清空/重建数据库后执行 `uv run melonclaw-db-init`：`create_schema` 只做一次 `metadata.create_all`，`seed_demo_data` 写入演示数据；
+3. 服务启动时 `verify_schema` 只做校验，**不会**自动迁移，也不会补列。

@@ -36,17 +36,12 @@ from melonclaw.tool.user_input import (
 CANCEL_ANSWER: dict[str, Any] = {"type": USER_INPUT_ANSWER_CANCELLED}
 
 
-def _is_expired(expires_at: str | None) -> bool:
-    """判断问题账本是否已经过期；缺失或非法值按未过期处理。"""
+def _is_expired(expires_at: str) -> bool:
+    """判断问题账本是否已经过期；非法数据直接失败。"""
 
-    if not expires_at:
-        return False
-    try:
-        parsed = datetime.fromisoformat(expires_at)
-    except ValueError:
-        return False
+    parsed = datetime.fromisoformat(expires_at)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
+        raise ValueError("用户问题的 expires_at 必须包含时区。")
     return parsed <= datetime.now(UTC)
 
 
@@ -97,7 +92,7 @@ def _cancel_reason(candidate: dict[str, Any] | None) -> CancelReason | None:
 
     if candidate is None:
         return None
-    status = candidate.get("status")
+    status = candidate["status"]
     if status == UserInteractionStatus.RECOVERY_REQUIRED:
         return CancelReason.RECOVERY_REQUIRED
     if status in UNANSWERED_STATUSES:
@@ -440,7 +435,7 @@ class UserInputExecutionService:
                 conversation_id,
                 UUID(assistant["id"]),
                 status="interrupted",
-                display_metadata=dict(assistant.get("display_metadata") or {}),
+                display_metadata=dict(assistant["display_metadata"]),
                 error_code=None,
                 expected_status=("failed", "cancelled"),
             )

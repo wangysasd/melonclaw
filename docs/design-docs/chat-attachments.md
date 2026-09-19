@@ -28,6 +28,8 @@ Agent 通过受控虚拟路径按需读取。出站图片经 `services/attachmen
 
 - `chat_attachments` 保存生命周期、解析租约、哈希、派生大小和清理标记；
   `chat_message_attachments` 保存消息关系和顺序。
+- 附件物理路径由 Project 工作区和 `attachment_id` 唯一推导，不在数据库重复保存
+  `storage_key`。
 - Project 配额判断使用 PostgreSQL transaction advisory lock；消息绑定、附件状态迁移
   和 request_id 幂等比较由 Repository 完成，避免服务层先查后写的竞态。
 - 图片是否可发送由 `core/model_catalog.py` 的静态 `input_modalities` 决定；不支持图片
@@ -91,5 +93,5 @@ scripts/start.sh
 已通过 `scripts/check.sh`（compileall、33 项后端测试、Ruff、锁文件校验、ESLint、
 TypeScript、66 项前端测试）和前端生产构建；附件校验、文本/JSON 前移校验、图片出站缩放
 与缓存、能力清单、加号二级目录、附件弹窗与前端预校验、Markdown 派生输出、独立解析进程、
-本地存储路径和 API 路由有专项测试/导入检查。真实 PostgreSQL 迁移、真实模型视觉请求、大文件资源压测、
+本地存储路径和 API 路由有专项测试/导入检查。真实 PostgreSQL 建表与初始化、真实模型视觉请求、大文件资源压测、
 病毒扫描、内存/CPU/打开文件数硬限制、对象存储和生产隔离沙箱仍需在部署环境单独验证。

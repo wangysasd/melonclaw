@@ -62,8 +62,8 @@ class UserRepositoryMixin:
                 {
                     "tenant_id": str(row["tenant_id"]),
                     "tenant_name": str(row["tenant_name_zh"]),
-                    "role": str(row.get("role") or "member"),
-                    "status": str(row.get("status") or "active"),
+                    "role": str(row["role"]),
+                    "status": str(row["status"]),
                 }
             )
         return [
@@ -114,7 +114,7 @@ class UserRepositoryMixin:
             user_name_zh=str(row["user_name_zh"]),
             tenant_id=str(row["tenant_id"]),
             tenant_name_zh=str(row["tenant_name_zh"]),
-            tenant_role=str(row.get("role") or "member"),
-            tenant_status=str(row.get("status") or "active"),
+            tenant_role=str(row["role"]),
+            tenant_status=str(row["status"]),
         )
 

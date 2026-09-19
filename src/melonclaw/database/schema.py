@@ -24,13 +24,6 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 metadata = MetaData()
 
-schema_migrations = Table(
-    "schema_migrations",
-    metadata,
-    Column("version", String(120), primary_key=True),
-    Column("applied_at", DateTime(timezone=True), nullable=False),
-)
-
 tenants = Table(
     "tenants",
     metadata,
@@ -50,27 +43,23 @@ users = Table(
 user_tenants = Table(
     "user_tenants",
     metadata,
-    Column("id", PGUUID(as_uuid=True), primary_key=True),
     Column(
         "user_id",
         String(64),
         ForeignKey("users.user_id", ondelete="CASCADE"),
         nullable=False,
+        primary_key=True,
     ),
     Column(
         "tenant_id",
         String(64),
         ForeignKey("tenants.tenant_id", ondelete="RESTRICT"),
         nullable=False,
+        primary_key=True,
     ),
     Column("status", String(16), nullable=False, server_default="active"),
     Column("role", String(32), nullable=False, server_default="member"),
     Column("created_at", DateTime(timezone=True), nullable=False),
-    UniqueConstraint(
-        "user_id",
-        "tenant_id",
-        name="uq_user_tenants_user_tenant",
-    ),
 )
 
 projects = Table(
@@ -181,7 +170,6 @@ user_interactions = Table(
     ),
     Column("user_id", String(64), nullable=False),
     Column("interrupt_id", String(160), nullable=False),
-    Column("kind", String(32), nullable=False),
     Column("payload", JSONB, nullable=False),
     Column("status", String(24), nullable=False, server_default="waiting"),
     Column("decision_request_id", String(36), nullable=True),
@@ -196,10 +184,6 @@ user_interactions = Table(
         "conversation_id",
         "interrupt_id",
         name="uq_user_interactions_conversation_interrupt",
-    ),
-    CheckConstraint(
-        "kind = 'user_question'",
-        name="ck_user_interactions_kind",
     ),
     CheckConstraint(
         "status IN ('waiting', 'accepted', 'resolved', 'expired', 'discarded', 'recovery_required')",
@@ -238,7 +222,6 @@ chat_attachments = Table(
     Column("size_bytes", Integer, nullable=False),
     Column("derived_size_bytes", Integer, nullable=False, server_default="0"),
     Column("sha256", String(64), nullable=False),
-    Column("storage_key", String(320), nullable=False, unique=True),
     Column("status", String(16), nullable=False, server_default="staged"),
     Column("parse_status", String(16), nullable=False),
     Column("parse_error_code", String(80), nullable=True),

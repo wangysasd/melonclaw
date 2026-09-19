@@ -9,7 +9,7 @@
 | 领域 | 评分 | 现状（实测） | 主要差距 |
 |---|---|---|---|
 | 架构约束 | 中 | 包职责边界清晰；`tests/test_architecture.py` 强制 8 组禁止依赖、入口独占、规则表完整性、源文件长度上限 | 只覆盖包级 import，未覆盖同一包内的模块粒度，也未约束横切入口的单一性 |
-| 后端测试 | 低 | `tests/` 5 个文件、22 个用例全部通过；其中 7 个是结构/文档校验，业务用例仍只有 15 个。`src/melonclaw/` 共 72 个 py 文件、约 8300 行 | 执行链路（`services/execution.py` 717 行）、仓储事务、迁移、SSE 事件序列均无测试 |
+| 后端测试 | 低 | `tests/` 5 个文件、22 个用例全部通过；其中 7 个是结构/文档校验，业务用例仍只有 15 个。`src/melonclaw/` 共 72 个 py 文件、约 8300 行 | 执行链路（`services/execution.py` 717 行）、仓储事务、SSE 事件序列均无测试 |
 | 前端测试 | 中 | `frontend/tests/` 10 个用例文件，覆盖聊天流、审批、Markdown、技能选择；`npm test` 通过 | 无 E2E / 集成测试，SSE 契约靠单元测试手工维护 |
 | 静态检查 | 中 | 后端 ruff 已显式配置（`pyproject.toml` 的 `[tool.ruff]`，规则集钉死为 `E4/E7/E9/F/I`），`uv run ruff check src tests` 通过；前端 eslint + tsc 通过 | TRY（7 处）与 BLE（1 处）规则尚未启用（见 D3） |
 | 依赖环境 | 良 | `pyproject.toml` + `uv.lock` 固定版本，`uv lock --check` 通过；`pytest`、`ruff` 已在 `[dependency-groups] dev` 中声明 | `npm ci` 依赖前端锁文件；无其它缺口 |
@@ -32,7 +32,7 @@
 ## 环境陷阱（会误导判断）
 
 1. **不要裸跑 `pytest` / `ruff`**。两者已声明为 dev 依赖，统一用 `uv run pytest` / `uv run ruff`；直接敲 `pytest` 可能命中 PATH 上其它项目的同名工具，产生假通过。
-2. **服务启动不迁移数据库**。`verify_schema` 只做校验，建表和迁移必须显式执行 `uv run melonclaw-db-init`。
+2. **服务启动既不建表也不迁移**。`verify_schema` 只做校验，建表必须显式执行 `uv run melonclaw-db-init`（数据库按可清空重建维护，没有增量迁移）。
 3. **lint 规则集写在 `pyproject.toml`**。不要在没有配置的情况下直接跑 `uvx ruff check`，不同 ruff 版本的默认集不同（0.16 的默认集包含 I / TRY / BLE）。
 
 ## 改进优先级

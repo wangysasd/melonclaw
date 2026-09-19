@@ -35,6 +35,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 - **依赖方向由 `tests/test_architecture.py` 强制**，各包允许依赖谁见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 第 3 节。新增包时先在该测试的 `FORBIDDEN_IMPORTS` 里声明规则，再写实现。
 - 横切关注点只从固定入口进入：配置走 `core/config.py`，模型目录走 `core/model_catalog.py`，模型实例走 `core/chat_model.py`，MCP 走 `core/mcp_config.py`，长期记忆走 `memory/MemoryService`，业务数据读写走 `repository/`。不要另开旁路。
 - 依赖以 `pyproject.toml` 和 `uv.lock` 为准，使用 `uv sync` 管理环境；`requirements.txt` 仅作为 pip 兼容清单维护。
+- **不为数据库历史数据写兼容代码。** 这是开发期项目，允许清空存量数据库：能通过清空数据库简化设计时，就清空数据库并简化设计。表结构只改 `database/schema.py`，由 `uv run melonclaw-db-init` 的 `metadata.create_all` 一次性建表；不写 `ADD COLUMN IF NOT EXISTS` 迁移、不维护 `schema_migrations` 版本常量、不在读取路径上为“老数据可能没有这个字段”写 `or` / `hasattr` 兜底。发现这类代码应直接删除，而不是继续扩展它。
 
 ## 配置与可移植性
 
@@ -57,7 +58,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 
 - 新功能的设计分析先写入 `note/note.md`，可长期复用的结论搬进 `docs/design-docs/` 并更新索引；至少包含背景与目标、方案概览、关键设计选择、数据/事件流、失败与安全边界、运行步骤、预期结果和验证记录。
 - 新增命令、环境变量、API、MCP 服务或用户可见行为时，同步更新 README.md；架构、依赖边界或横切入口变化时，同步更新 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-- 修改依赖、数据库结构或运行入口后，给出简洁的迁移/运行命令和验证结果。服务启动不会自动迁移数据库，建表与迁移必须执行 `uv run melonclaw-db-init`。
+- 修改依赖、数据库结构或运行入口后，给出简洁的初始化/运行命令和验证结果。服务启动不会建表也不会迁移，建表必须执行 `uv run melonclaw-db-init`。
 - 提交前运行 `scripts/check.sh`（后端编译、测试、lint，前端 lint、类型检查、测试，文档链接校验）。前端依赖未安装时脚本会跳过前端部分。
 - 需要真实外部 API、数据库或 MCP 服务的验证，应明确依赖和观察点；不要在日志或回复中暴露凭据。
 

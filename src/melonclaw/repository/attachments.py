@@ -37,12 +37,12 @@ def _attachment_dict(row: Any) -> dict[str, Any]:
         "media_type": str(row["media_type"]),
         "kind": str(row["kind"]),
         "size_bytes": int(row["size_bytes"]),
-        "derived_size_bytes": int(row.get("derived_size_bytes") or 0),
+        "derived_size_bytes": int(row["derived_size_bytes"]),
         "sha256": str(row["sha256"]),
         "status": str(row["status"]),
         "parse_status": str(row["parse_status"]),
-        "parse_error_code": row.get("parse_error_code"),
-        "expires_at": _as_iso(row["expires_at"]) if row.get("expires_at") else None,
+        "parse_error_code": row["parse_error_code"],
+        "expires_at": _as_iso(row["expires_at"]) if row["expires_at"] else None,
         "created_at": _as_iso(row["created_at"]),
     }
 
@@ -77,7 +77,6 @@ class AttachmentRepositoryMixin:
         kind: str,
         size_bytes: int,
         sha256: str,
-        storage_key: str,
         client_request_id: str | None,
         expires_at: datetime,
         project_max_bytes: int,
@@ -117,7 +116,6 @@ class AttachmentRepositoryMixin:
                         size_bytes=size_bytes,
                         derived_size_bytes=0,
                         sha256=sha256,
-                        storage_key=storage_key,
                         status="staged",
                         parse_status=parse_status,
                         parse_attempts=0,
@@ -433,7 +431,7 @@ class AttachmentRepositoryMixin:
             )
             if not eligible:
                 return None
-            attempts = int(row["parse_attempts"] or 0)
+            attempts = int(row["parse_attempts"])
             if attempts >= max_attempts:
                 await connection.execute(
                     update(chat_attachments)
@@ -496,7 +494,7 @@ class AttachmentRepositoryMixin:
                     )
                 )
             )
-            current_derived = int(row["derived_size_bytes"] or 0)
+            current_derived = int(row["derived_size_bytes"])
             if int(total or 0) - current_derived + derived_size_bytes > project_max_bytes:
                 await connection.execute(
                     update(chat_attachments)

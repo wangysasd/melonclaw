@@ -8,8 +8,8 @@
 2. 写库时的 ``where(status=...)`` / CAS 条件由 :func:`transition_sources`
    从转换表反向生成，不各自手写集合。
 
-加一个新状态时：改这里的常量与转换表、改 schema.py 的 CHECK 约束、加一次
-数据库迁移，三处都在同一张表上对齐。
+加一个新状态时：改这里的常量与转换表，并同步 schema.py 的
+CHECK 约束。开发期数据库按当前 schema 清空重建，不维护历史迁移。
 """
 
 from __future__ import annotations
@@ -34,8 +34,6 @@ ALL_STATUSES: Final = frozenset(UserInteractionStatus)
 
 # 允许的状态转换：source -> 允许到达的目标集合。
 #
-# - waiting -> discarded 只发生在数据库迁移的历史清理（把同一会话多余的
-#   waiting 账本收档）；运行时代码不允许把未过期的 waiting 卡片直接丢弃。
 # - expired -> accepted 只用于服务端代答取消：过期账本必须被 Agent 真正
 #   恢复一次才能解锁会话，因此原地接收，而不是归档后另开新账本。
 # - resolved / discarded 是终态：账本是审计记录，关闭后只归档、不回滚。
@@ -45,7 +43,6 @@ _TRANSITIONS: Final[Mapping[UserInteractionStatus, frozenset[UserInteractionStat
             {
                 UserInteractionStatus.ACCEPTED,
                 UserInteractionStatus.EXPIRED,
-                UserInteractionStatus.DISCARDED,
             }
         ),
         UserInteractionStatus.ACCEPTED: frozenset(

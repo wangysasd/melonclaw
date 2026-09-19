@@ -60,7 +60,7 @@ async def aget_pending_interaction(
 
 def _pending_from_snapshot(snapshot: Any) -> list[dict[str, Any]] | None:
     pending: list[dict[str, Any]] = []
-    for index, interrupt in enumerate(getattr(snapshot, "interrupts", ()) or ()):
+    for interrupt in getattr(snapshot, "interrupts", ()) or ():
         value = getattr(interrupt, "value", None)
         if not isinstance(value, Mapping):
             continue
@@ -72,9 +72,7 @@ def _pending_from_snapshot(snapshot: Any) -> list[dict[str, Any]] | None:
             continue
         interrupt_id = getattr(interrupt, "id", None)
         if not interrupt_id:
-            # 旧 checkpoint 可能没有暴露 id；保留一个稳定的兼容标识，
-            # 但新版本的 LangGraph Interrupt 始终会提供真实 ID。
-            interrupt_id = f"legacy-{index}"
+            raise ValueError("Checkpoint interrupt 缺少真实 ID，无法安全恢复。")
         pending.append({**dict(value), "kind": kind, "id": str(interrupt_id)})
     return pending or None
 

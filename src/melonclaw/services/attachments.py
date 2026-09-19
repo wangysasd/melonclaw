@@ -149,7 +149,6 @@ class AttachmentService:
                     kind=kind,
                     size_bytes=size,
                     sha256=digest.hexdigest(),
-                    storage_key=local.storage_key(attachment_id),
                     client_request_id=request_id,
                     expires_at=datetime.now(UTC)
                     + timedelta(hours=settings.attachment_staged_ttl_hours),
@@ -416,7 +415,7 @@ class AttachmentService:
     def _unavailable_block(record: dict[str, Any]) -> dict[str, Any]:
         return {
             "type": "unavailable",
-            "file_name": record.get("original_name") or "附件",
+            "file_name": record["original_name"],
         }
 
     def capabilities(self) -> dict[str, Any]:
@@ -491,9 +490,9 @@ class AttachmentService:
     @staticmethod
     def _compare_fingerprint(existing: dict[str, Any], fingerprint: tuple[str, int, str, str]) -> None:
         if (
-            existing.get("sha256"),
-            existing.get("size_bytes"),
-            existing.get("kind"),
-            existing.get("media_type"),
+            existing["sha256"],
+            existing["size_bytes"],
+            existing["kind"],
+            existing["media_type"],
         ) != fingerprint:
             raise AttachmentConflictError()
