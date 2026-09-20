@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -21,6 +22,7 @@ from melonclaw.core.hitl import (
 )
 from melonclaw.core.model_catalog import ResolvedModel
 from melonclaw.core.user_input import normalize_capabilities
+from melonclaw.output.assistant_steps import AssistantStepAccumulator, events_from_snapshot
 from melonclaw.output.content import content_to_text
 from melonclaw.output.events import DISPLAY_EVENT_TYPES, iter_research_events
 from melonclaw.output.formatting import _preview, sanitize_text
@@ -77,6 +79,8 @@ class PreparedExecution:
     user_interaction_id: UUID | None = None
     resuming: bool = False
     replay_message: dict[str, Any] | None = None
+    assistant_steps: list[dict[str, Any]] = field(default_factory=list)
+    execution_duration_ms: int | None = None
     attachments: list[dict[str, Any]] = field(default_factory=list)
     released: bool = False
 
@@ -430,6 +434,7 @@ class ExecutionService:
             model=model,
             skill_id=skill_id,
             replay_message=assistant,
+            assistant_steps=list(assistant["assistant_steps"]),
             attachments=attachments or [],
         )
 
@@ -470,6 +475,7 @@ class ExecutionService:
             skill_id=skill_id,
             lock_connection=lock_connection,
             attachments=attachments or [],
+            assistant_steps=list(pair.assistant_message["assistant_steps"]),
         )
 
     async def prepare_approval(
@@ -564,6 +570,8 @@ class ExecutionService:
                     if request_record is not None
                     else []
                 ),
+                assistant_steps=list(assistant["assistant_steps"]),
+                execution_duration_ms=assistant.get("execution_duration_ms"),
             ),
             command,
         )
@@ -579,8 +587,17 @@ class ExecutionService:
         storage = self.runtime.require_ready()
         agent = execution.agent
         display_events: list[dict[str, Any]] = []
-        emitted_text: list[str] = []
+        transcript = AssistantStepAccumulator(
+            message_id=str(execution.assistant_message_id),
+            run_id=execution.run_id or str(execution.assistant_message_id),
+            steps=execution.assistant_steps,
+        )
+        started_at = perf_counter()
+        base_duration_ms = execution.execution_duration_ms or 0
         finished = False
+
+        def elapsed_duration_ms() -> int:
+            return base_duration_ms + int((perf_counter() - started_at) * 1000)
 
         def remember_display_event(event: dict[str, Any]) -> None:
             """保留可回放的工具/子 Agent 轨迹，并合并子 Agent 文本分片。"""
@@ -619,12 +636,18 @@ class ExecutionService:
             }
             if execution.replay_message is not None:
                 replay = execution.replay_message
+                for replay_event in events_from_snapshot(
+                    replay["id"], replay["assistant_steps"]
+                ):
+                    yield replay_event
                 if replay["status"] == "completed":
                     yield {
                         "type": "completed",
                         "message_id": replay["id"],
                         "request_id": execution.request_id,
                         "content": replay["content"],
+                        "assistant_steps": replay["assistant_steps"],
+                        "execution_duration_ms": replay.get("execution_duration_ms"),
                         "replayed": True,
                     }
                 else:
@@ -686,9 +709,11 @@ class ExecutionService:
                     model_spec=execution.model.model_spec,
                     memory_enabled=True,
                 ),
+                assistant_message_id=str(execution.assistant_message_id),
+                run_id=execution.run_id,
+                assistant_steps=execution.assistant_steps,
             ):
-                if event.get("type") == "text":
-                    emitted_text.append(str(event.get("text", "")))
+                transcript.apply_event(event)
                 remember_display_event(event)
                 yield event
 
@@ -728,6 +753,8 @@ class ExecutionService:
                         execution.conversation_id,
                         execution.assistant_message_id,
                         status="interrupted",
+                        assistant_steps=transcript.terminal_snapshot(status="interrupted"),
+                        execution_duration_ms=elapsed_duration_ms(),
                         display_metadata=display_metadata,
                         expected_status=self._expected_assistant_status(execution),
                     )
@@ -751,6 +778,8 @@ class ExecutionService:
                     execution.conversation_id,
                     execution.assistant_message_id,
                     status="interrupted",
+                    assistant_steps=transcript.terminal_snapshot(status="interrupted"),
+                    execution_duration_ms=elapsed_duration_ms(),
                     display_metadata=display_metadata,
                     expected_status=self._expected_assistant_status(execution),
                 )
@@ -766,14 +795,21 @@ class ExecutionService:
                 execution.config,
             )
             if not final_content:
-                final_content = "".join(emitted_text).strip()
+                final_content = transcript.visible_content().strip()
+            final_content = sanitize_text(final_content)
             if not final_content:
                 raise AgentExecutionError("Agent 未返回可保存的助手回复。")
+            assistant_steps = transcript.terminal_snapshot(
+                status="completed",
+                final_content=final_content,
+            )
             saved = await storage.update_assistant(
                 execution.conversation_id,
                 execution.assistant_message_id,
                 content=final_content,
                 status="completed",
+                assistant_steps=assistant_steps,
+                execution_duration_ms=elapsed_duration_ms(),
                 display_metadata=display_metadata,
                 expected_status=self._expected_assistant_status(execution),
             )
@@ -782,6 +818,10 @@ class ExecutionService:
                 "message_id": saved["id"],
                 "request_id": execution.request_id,
                 "content": saved["content"],
+                # completed 是终态对账帧：即使浏览器漏掉了前面的增量事件，
+                # 也能用数据库已提交的完整快照恢复中间 AIMessage 和工具调用。
+                "assistant_steps": saved["assistant_steps"],
+                "execution_duration_ms": saved.get("execution_duration_ms"),
             }
             yield {"type": "done", "message_id": saved["id"]}
             finished = True
@@ -798,6 +838,8 @@ class ExecutionService:
                 status="cancelled",
                 error_code="request_cancelled",
                 display_metadata=display_events,
+                assistant_steps=transcript.terminal_snapshot(status="cancelled"),
+                execution_duration_ms=elapsed_duration_ms(),
             )
             raise
         except Exception as exc:  # noqa: BLE001 - 保存失败状态后发送安全错误
@@ -813,6 +855,8 @@ class ExecutionService:
                 status="failed",
                 error_code="agent_execution_failed",
                 display_metadata=display_events,
+                assistant_steps=transcript.terminal_snapshot(status="failed"),
+                execution_duration_ms=elapsed_duration_ms(),
             )
             yield {
                 "type": "error",

@@ -2,6 +2,7 @@
 
 from melonclaw.database.schema import (
     chat_attachments,
+    chat_messages,
     user_interactions,
     user_tenants,
 )
@@ -18,3 +19,8 @@ def test_user_tenants_uses_natural_composite_primary_key():
         "user_id",
         "tenant_id",
     }
+
+
+def test_assistant_steps_are_embedded_in_chat_messages():
+    assert "assistant_steps" in chat_messages.c
+    assert "execution_duration_ms" in chat_messages.c

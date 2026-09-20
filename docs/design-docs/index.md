@@ -8,6 +8,8 @@
 |---|---|---|
 | [聊天附件上传设计](chat-attachments.md) | 已实现 | 首版支持图片、文本、带文本层 PDF 和 DOCX/XLSX/PPTX；包含两阶段上传、消息原子绑定、解析、hydration、权限边界和清理任务。详细讨论稿仍保留在本地 `note/上传附件技术设计.md` |
 | [用户决策 HITL](user-input-hitl.md) | 已实现 | Agent 在关键决策不确定时通过 `ask_user` 暂停，前端展示选项，服务端校验并从原 Checkpoint 恢复；包含幂等、TTL、历史恢复和当前边界 |
+| [完整 AI 消息流展示](assistant-message-stream.md) | 已实现 | 根 Agent 多轮 AI 文本、工具调用/结果、终态保存与历史回放；子 Agent 继续使用任务卡 |
+| [Agent 执行过程展示](agent-execution-display.md) | 已实现 | 一次运行聚合为一个可折叠执行区域：运行状态与耗时、过程文本/工具条目的时间线、最终回答分离、折叠与默认展开规则、工具耗时来源 |
 
 ## 状态取值
 

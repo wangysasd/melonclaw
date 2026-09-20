@@ -45,7 +45,7 @@ describe("chat run lifecycle", () => {
           model: "deepseek-v4-flash",
         },
       });
-      onEvent({ type: "completed", message_id: "a1", content: "你好" });
+      onEvent({ type: "completed", message_id: "a1", content: "你好", assistant_steps: [] });
       onEvent({ type: "done", terminal_reason: "completed" });
     });
     const { result } = renderHook(() => useChatStream({ scroll }));
@@ -64,7 +64,7 @@ describe("chat run lifecycle", () => {
   it("re-syncs history only when the reply is a receipt without further execution", async () => {
     // 正常跑完的流自己会推进 UI，不需要额外拉取历史。
     vi.mocked(sendMessageStream).mockImplementation(async (_id, _input, { onEvent }) => {
-      onEvent({ type: "completed", message_id: "a1", content: "你好" });
+      onEvent({ type: "completed", message_id: "a1", content: "你好", assistant_steps: [] });
       onEvent({ type: "done", terminal_reason: "completed" });
     });
     const { result } = renderHook(() => useChatStream({ scroll }));
@@ -98,6 +98,7 @@ describe("chat run lifecycle", () => {
           status: "failed",
           error_code: "user_input_recovery_required",
           content: "",
+          assistant_steps: [],
           display_metadata: {},
         },
       ],
@@ -138,7 +139,7 @@ describe("chat run lifecycle", () => {
         user_message_id: "u-new",
         message_id: "a-new",
       });
-      onEvent({ type: "completed", message_id: "a-new", content: "新一轮" });
+      onEvent({ type: "completed", message_id: "a-new", content: "新一轮", assistant_steps: [] });
       onEvent({ type: "done", terminal_reason: "completed" });
     });
     const { result } = renderHook(() => useChatStream({ scroll }));
@@ -212,7 +213,7 @@ describe("chat run lifecycle", () => {
     expect(mocks.session.runStatus).toBe("responding");
     act(() => emit({ type: "tool_call", name: "example", args: {}, status: "started" }));
     expect(mocks.session.runStatus).toBe("processing");
-    act(() => emit({ type: "completed", message_id: "a1", content: '{"tools":[]}' }));
+    act(() => emit({ type: "completed", message_id: "a1", content: '{"tools":[]}', assistant_steps: [] }));
     await act(async () => { emit({ type: "done", terminal_reason: "completed" }); stream.resolve(); await task; });
     expect(result.current.state.messages[1].content).toBe("");
   });
@@ -223,7 +224,7 @@ describe("chat run lifecycle", () => {
       assistant_message_id: "a1",
       actions: [],
     };
-    vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, pending_approval: approval, items: [{ id: "a1", role: "assistant", content: "", status: "interrupted" }] });
+    vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, pending_approval: approval, items: [{ id: "a1", role: "assistant", content: "", status: "interrupted", assistant_steps: [] }] });
     const stream = deferred<void>(); let emit!: (event: StreamEvent) => void;
     vi.mocked(sendApprovalStream).mockImplementation((_id, _input, { onEvent }) => { emit = onEvent; return stream.promise; });
     const { result } = renderHook(() => useChatStream({ scroll }));
@@ -239,8 +240,35 @@ describe("chat run lifecycle", () => {
       assistantMessageId: "a1",
     });
   });
+  it("drops a redelivered SSE frame using the server frame id", async () => {
+    const stream = deferred<void>();
+    let emit!: (event: StreamEvent, eventId?: number) => void;
+    vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent }) => {
+      emit = onEvent;
+      return stream.promise;
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let task!: Promise<void>;
+    act(() => { task = result.current.sendMessage("test"); });
+    await waitFor(() => expect(emit).toBeDefined());
+    act(() => {
+      emit({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: "u1", message_id: "a1" }, 1);
+      emit({ type: "assistant_step_started", message_id: "a1", step: { id: "run:step:0", ordinal: 0, content: "", status: "streaming", is_final: false, tool_calls: [] } }, 2);
+      emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "你好" }, 3);
+      // 同一帧重复投递：序号没有增长，必须被丢弃。
+      emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "你好" }, 3);
+    });
+    expect(result.current.state.messages[1].assistantSteps?.[0].content).toBe("你好");
+    expect(result.current.state.messages[1].assistantSteps).toHaveLength(1);
+    act(() => emit({ type: "completed", message_id: "a1", content: "你好", assistant_steps: [] }, 4));
+    act(() => emit({ type: "done", terminal_reason: "completed" }, 5));
+    stream.resolve();
+    await act(async () => { await task; });
+  });
+
   it("does not mark an old completed answer as failed when a new request fails before starting", () => {
-    const state = { ...INITIAL_CHAT_STATE, messages: [{ id: "old", role: "assistant" as const, content: "done", status: "completed" as const, markdown: true, events: [], phases: [] }] };
+    const state = { ...INITIAL_CHAT_STATE, messages: [{ id: "old", role: "assistant" as const, content: "done", status: "completed" as const, markdown: true, events: [], assistantSteps: [], phases: [] }] };
     expect(reducer(state, { type: "streamFailed", message: "draft", error: "offline" }).messages[0].status).toBe("completed");
   });
   it("an old stream cannot detach the new conversation's controller", async () => {
@@ -259,7 +287,7 @@ describe("chat run lifecycle", () => {
     let secondTask!: Promise<void>; act(() => { secondTask = result.current.sendMessage("two"); });
     expect(vi.mocked(sendMessageStream).mock.calls[0]?.[1].modelId).toBe("system:deepseek:flash");
     expect(vi.mocked(sendMessageStream).mock.calls[1]?.[1].modelId).toBe("system:deepseek:pro");
-    act(() => emitFirst({ type: "completed", message_id: "old", content: "old answer" }));
+    act(() => emitFirst({ type: "completed", message_id: "old", content: "old answer", assistant_steps: [] }));
     expect(mocks.session.busy).toBe(true);
     expect(result.current.state.messages.map((item) => item.content)).toEqual(["two", ""]);
     const calls = vi.mocked(mocks.session.attachStream).mock.calls.length;
@@ -287,7 +315,7 @@ describe("chat run lifecycle", () => {
     vi.mocked(getConversationHistory).mockImplementation(async () => {
       historyCalls += 1;
       return historyCalls >= 3
-        ? { ...emptyHistory, items: [{ id: "a1", role: "assistant", content: "", status: "pending" }] }
+        ? { ...emptyHistory, items: [{ id: "a1", role: "assistant", content: "", status: "pending", assistant_steps: [] }] }
         : emptyHistory;
     });
     vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent, signal }) => {
@@ -318,7 +346,7 @@ describe("chat run lifecycle", () => {
     await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
     act(() => emit({ type: "text", text: "继续输出" }));
     expect(result.current.state.messages.at(-1)?.content).toBe("继续输出");
-    act(() => emit({ type: "completed", message_id: "a1", content: "继续输出" }));
+    act(() => emit({ type: "completed", message_id: "a1", content: "继续输出", assistant_steps: [] }));
     act(() => emit({ type: "done", terminal_reason: "completed" }));
     stream.resolve();
     await act(async () => { await task; });

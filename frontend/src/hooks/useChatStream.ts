@@ -9,9 +9,16 @@ import {
 import { App as AntdApp } from "antd";
 
 import { getConversationHistory } from "../api/client";
-import { sendApprovalStream, sendMessageStream, sendUserInputStream } from "../api/stream";
+import {
+  sendApprovalStream,
+  sendMessageStream,
+  sendUserInputStream,
+  type StreamHandlers,
+} from "../api/stream";
 import type {
   ApprovalDecision,
+  AssistantStep,
+  AssistantToolCall,
   DisplayEvent,
   MessageStatus,
   MessageModel,
@@ -52,9 +59,16 @@ export interface ChatMessage {
   markdown: boolean;
   /** 工具/子代理轨迹事件，与最终回复分层展示。 */
   events: DisplayEvent[];
+  /** 根 Agent 的有序 AIMessage steps；正文 content 只保存最终答复。 */
+  assistantSteps: AssistantStep[];
   /** 安全的阶段摘要，不保存或展示原始模型思维链。 */
   phases: ReasoningPhase[];
   model?: MessageModel | null;
+  executionDurationMs?: number | null;
+  /** 运行开始时间（epoch 毫秒）：乐观发送时本地记录，历史加载用 created_at。 */
+  startedAt?: number | null;
+  /** 本地观测到的终态时间（epoch 毫秒），后端未给 duration 时的兜底。 */
+  completedAt?: number | null;
   attachments?: AttachmentSummary[];
   /** 乐观渲染的临时消息（未收到 message_started 前）。 */
   optimistic?: boolean;
@@ -94,9 +108,20 @@ type ChatAction =
       attachments?: AttachmentSummary[];
     }
   | { type: "text"; text: string }
+  | { type: "assistantStepStarted"; messageId: string; step: AssistantStep }
+  | { type: "assistantTextDelta"; messageId: string; stepId: string; delta: string }
+  | { type: "assistantToolCall"; messageId: string; stepId: string; call: AssistantToolCall }
+  | { type: "assistantToolResult"; messageId: string; stepId: string; callId: string; result: AssistantToolCall }
+  | { type: "assistantStepCompleted"; messageId: string; stepId: string; content: string; toolCalls: AssistantToolCall[]; status: AssistantStep["status"] }
   | { type: "runPhase"; phase: ReasoningPhase }
   | { type: "displayEvent"; event: DisplayEvent }
-  | { type: "completed"; messageId: string; content: string }
+  | {
+      type: "completed";
+      messageId: string;
+      content: string;
+      assistantSteps: AssistantStep[];
+      executionDurationMs?: number | null;
+    }
   | { type: "messageStatus"; messageId: string; status: MessageStatus }
   | { type: "streamFailed"; messageId?: string; message?: string; error?: string }
   | { type: "historyFailed"; error: string }
@@ -131,11 +156,82 @@ function upsertLastAssistant(
   return messages;
 }
 
+function updateAssistantById(
+  state: ChatState,
+  messageId: string,
+  update: (message: ChatMessage) => ChatMessage,
+): ChatMessage[] {
+  const messages = [...state.messages];
+  const index = messages.findIndex(
+    (message) => message.role === "assistant" &&
+      (message.id === messageId || message.optimistic),
+  );
+  if (index >= 0) messages[index] = update(messages[index]);
+  return messages;
+}
+
+function upsertAssistantStep(message: ChatMessage, step: AssistantStep): ChatMessage {
+  const steps = [...message.assistantSteps];
+  const existing = steps.findIndex((item) => item.id === step.id);
+  if (existing >= 0) steps[existing] = { ...steps[existing], ...step };
+  else steps.push(step);
+  steps.sort((left, right) => left.ordinal - right.ordinal);
+  return { ...message, assistantSteps: steps };
+}
+
+function updateStep(
+  message: ChatMessage,
+  stepId: string,
+  update: (step: AssistantStep) => AssistantStep,
+): ChatMessage {
+  const steps = message.assistantSteps.map((step) =>
+    step.id === stepId ? update(step) : step,
+  );
+  return { ...message, assistantSteps: steps };
+}
+
+function statusFromToolCalls(
+  toolCalls: AssistantToolCall[],
+  fallback: AssistantStep["status"],
+): AssistantStep["status"] {
+  if (toolCalls.length === 0) return fallback;
+  if (toolCalls.some((tool) => tool.status === "running")) return "running";
+  if (toolCalls.some((tool) => tool.status === "waiting")) return "waiting";
+  if (toolCalls.some((tool) => tool.status === "failed")) return "failed";
+  if (toolCalls.some((tool) => tool.status === "unknown")) return "unknown";
+  return "completed";
+}
+
 function appendPhase(message: ChatMessage, phase: ReasoningPhase): ChatMessage {
   const phases = message.phases ?? [];
   return phases.includes(phase)
     ? message
     : { ...message, phases: [...phases, phase] };
+}
+
+/** 已经结束的运行不能被迟到的事件改回进行中。 */
+function isTerminalStatus(status: ChatMessage["status"]): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function fromIso(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+/** 中断等待交互时把运行中的 step/工具标为 waiting，与终态回显保持一致。 */
+function markInteractionWaiting(message: ChatMessage): ChatMessage {
+  const steps = message.assistantSteps.map((step) => ({
+    ...step,
+    status: step.status === "streaming" || step.status === "running"
+      ? ("waiting" as const)
+      : step.status,
+    tool_calls: step.tool_calls.map((tool) =>
+      tool.status === "running" ? { ...tool, status: "waiting" as const } : tool,
+    ),
+  }));
+  return { ...message, status: "interrupted", markdown: true, assistantSteps: steps };
 }
 
 export function reducer(state: ChatState, action: ChatAction): ChatState {
@@ -185,12 +281,17 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         error: null,
         messages: state.messages.map((message) => {
           if (message.role === "assistant" && (message.optimistic || message.id === action.assistantMessageId)) {
+            // 迟到的开始事件不能把已经结束的运行重新变成 running。
+            if (!message.optimistic && isTerminalStatus(message.status)) return message;
             return {
               ...message,
               id: action.assistantMessageId,
               status: "streaming",
               model: action.model ?? message.model,
               attachments: action.attachments ?? message.attachments,
+              assistantSteps: message.assistantSteps,
+              startedAt: message.startedAt ?? Date.now(),
+              completedAt: null,
               optimistic: false,
             };
           }
@@ -207,11 +308,82 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
     case "text":
       return {
         ...state,
-        messages: upsertLastAssistant(state, (message) => ({
-          ...appendPhase(message, "responding"),
-          content: message.content + action.text,
-          status: message.status === "streaming" ? message.status : "streaming",
-        })),
+        messages: upsertLastAssistant(state, (message) =>
+          isTerminalStatus(message.status)
+            ? message
+            : {
+                ...appendPhase(message, "responding"),
+                content: message.content + action.text,
+                status: message.status === "streaming" ? message.status : "streaming",
+              },
+        ),
+      };
+    case "assistantStepStarted":
+      return {
+        ...state,
+        messages: updateAssistantById(state, action.messageId, (message) => {
+          const known = message.assistantSteps.some((step) => step.id === action.step.id);
+          // 已结束的运行只接受已知步骤的更新，避免迟到事件凭空长出新的执行步骤。
+          if (isTerminalStatus(message.status) && !known) return message;
+          return upsertAssistantStep(message, action.step);
+        }),
+      };
+    case "assistantTextDelta":
+      return {
+        ...state,
+        messages: updateAssistantById(state, action.messageId, (message) =>
+          updateStep(message, action.stepId, (step) => {
+            // 重放会把整段快照当成一次 delta 投递：内容一致时不重复追加。
+            if (step.content === action.delta) return step;
+            return {
+              ...step,
+              content: `${step.content}${action.delta}`,
+              status: step.status === "completed" ? step.status : "streaming",
+            };
+          }),
+        ),
+      };
+    case "assistantToolCall":
+      return {
+        ...state,
+        messages: updateAssistantById(state, action.messageId, (message) =>
+          updateStep(message, action.stepId, (step) => {
+            const toolCalls = [...step.tool_calls];
+            const index = toolCalls.findIndex((tool) => tool.call_id === action.call.call_id);
+            if (index >= 0) toolCalls[index] = { ...toolCalls[index], ...action.call };
+            else toolCalls.push(action.call);
+            toolCalls.sort((left, right) => left.batch_index - right.batch_index);
+            return { ...step, tool_calls: toolCalls, status: "running" };
+          }),
+        ),
+      };
+    case "assistantToolResult":
+      return {
+        ...state,
+        messages: updateAssistantById(state, action.messageId, (message) =>
+          updateStep(message, action.stepId, (step) => {
+            const toolCalls = step.tool_calls.map((tool) =>
+              tool.call_id === action.callId ? { ...tool, ...action.result } : tool,
+            );
+            return {
+              ...step,
+              tool_calls: toolCalls,
+              status: statusFromToolCalls(toolCalls, step.status),
+            };
+          }),
+        ),
+      };
+    case "assistantStepCompleted":
+      return {
+        ...state,
+        messages: updateAssistantById(state, action.messageId, (message) =>
+          updateStep(message, action.stepId, (step) => ({
+            ...step,
+            content: action.content,
+            tool_calls: action.toolCalls,
+            status: statusFromToolCalls(action.toolCalls, action.status),
+          })),
+        ),
       };
     case "runPhase":
       return {
@@ -236,8 +408,12 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
                 ...message,
                 id: action.messageId,
                 content: action.content,
+                executionDurationMs: action.executionDurationMs,
                 status: "completed" as const,
                 markdown: true,
+                completedAt: message.completedAt ?? Date.now(),
+                // completed 携带服务端已落库的完整快照，终态只认这一份权威数据。
+                assistantSteps: action.assistantSteps,
                 optimistic: false,
               }
             : message,
@@ -249,7 +425,15 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         messages: state.messages.map((message) =>
           message.role === "assistant" &&
           (message.id === action.messageId || message.optimistic)
-            ? { ...message, id: action.messageId, status: action.status, optimistic: false }
+            ? {
+                ...message,
+                id: action.messageId,
+                status: action.status,
+                completedAt: isTerminalStatus(action.status)
+                  ? message.completedAt ?? Date.now()
+                  : message.completedAt ?? null,
+                optimistic: false,
+              }
             : message,
         ),
       };
@@ -261,6 +445,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
           ...message,
           status: "failed",
           markdown: true,
+          completedAt: message.completedAt ?? Date.now(),
         }) : message),
         restoreDraft: state.restoreDraft ?? action.message ?? null,
         error: action.error ?? state.error,
@@ -268,9 +453,9 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
     case "historyFailed":
       return { ...state, historyLoading: false, error: action.error };
     case "approvalRequired":
-      return { ...state, approval: action.request, messages: upsertLastAssistant(state, (message) => ({ ...appendPhase(message, "waiting"), status: "interrupted", markdown: true })) };
+      return { ...state, approval: action.request, messages: upsertLastAssistant(state, (message) => markInteractionWaiting(appendPhase(message, "waiting"))) };
     case "userInputRequired":
-      return { ...state, userQuestion: action.request, approval: null, messages: upsertLastAssistant(state, (message) => ({ ...appendPhase(message, "waiting"), status: "interrupted", markdown: true })) };
+      return { ...state, userQuestion: action.request, approval: null, messages: upsertLastAssistant(state, (message) => markInteractionWaiting(appendPhase(message, "waiting"))) };
     case "userInputAccepted":
       return { ...state, userQuestion: null };
     case "approvalCleared":
@@ -292,6 +477,8 @@ interface SendContext {
   skillId: string | null;
   draft: string;
   attachmentIds: string[];
+  /** 本条流已消费到的 SSE 序号：只用于丢弃重复投递的帧。 */
+  lastEventId?: number;
   onAccepted?: () => void;
 }
 
@@ -374,8 +561,14 @@ export function useChatStream({
   }, [bumpHistoryRevision]);
 
   const handleEvent = useCallback(
-    (event: StreamEvent, context: SendContext): void => {
+    (event: StreamEvent, context: SendContext, eventId?: number): void => {
       if (!matchesContext(context)) return;
+      if (eventId !== undefined) {
+        // 服务端帧序号在单条流内单调递增：重复或乱序帧直接丢弃，
+        // 不能按文本内容去重（相同文本可能是模型真实重复输出）。
+        if (context.lastEventId !== undefined && eventId <= context.lastEventId) return;
+        context.lastEventId = eventId;
+      }
       const follow = scroll.isNearBottom();
       switch (event.type) {
         case "run_phase":
@@ -400,6 +593,52 @@ export function useChatStream({
             sessionRef.current.setRunStatus("responding");
           }
           break;
+        case "assistant_step_started":
+          dispatch({
+            type: "assistantStepStarted",
+            messageId: event.message_id,
+            step: event.step,
+          });
+          sessionRef.current.setRunStatus("responding");
+          break;
+        case "assistant_text_delta":
+          dispatch({
+            type: "assistantTextDelta",
+            messageId: event.message_id,
+            stepId: event.step_id,
+            delta: event.delta,
+          });
+          sessionRef.current.setRunStatus("responding");
+          break;
+        case "assistant_tool_call":
+          dispatch({
+            type: "assistantToolCall",
+            messageId: event.message_id,
+            stepId: event.step_id,
+            call: event.call,
+          });
+          sessionRef.current.setRunStatus("processing");
+          break;
+        case "assistant_tool_result":
+          dispatch({
+            type: "assistantToolResult",
+            messageId: event.message_id,
+            stepId: event.step_id,
+            callId: event.call_id,
+            result: event.result,
+          });
+          sessionRef.current.setRunStatus("processing");
+          break;
+        case "assistant_step_completed":
+          dispatch({
+            type: "assistantStepCompleted",
+            messageId: event.message_id,
+            stepId: event.step_id,
+            content: event.content,
+            toolCalls: event.tool_calls,
+            status: event.status,
+          });
+          break;
         case "completed":
           selectorTextBufferRef.current = "";
           sessionRef.current.setBusy(false);
@@ -409,6 +648,8 @@ export function useChatStream({
             type: "completed",
             messageId: event.message_id,
             content: visibleAssistantText(event.content),
+            assistantSteps: event.assistant_steps,
+            executionDurationMs: event.execution_duration_ms,
           });
           break;
         case "message_status":
@@ -488,10 +729,7 @@ export function useChatStream({
 
   const runStream = useCallback(
     async (
-      stream: (handlers: {
-        onEvent: (event: StreamEvent) => void;
-        signal: AbortSignal;
-      }) => Promise<void>,
+      stream: (handlers: StreamHandlers) => Promise<void>,
       context: SendContext,
       optimisticIds: string[],
     ): Promise<boolean> => {
@@ -509,12 +747,12 @@ export function useChatStream({
       try {
         await stream({
           signal: controller.signal,
-          onEvent: (event) => {
+          onEvent: (event, eventId) => {
             if (event.type === "message_started") started = true;
             if (event.type === "error") failed = true;
             if (TERMINAL_HINT.has(event.type)) terminal = true;
             // 后台会话的事件不能改变当前会话的发送、审批或运行状态。
-            handleEvent(event, context);
+            handleEvent(event, context, eventId);
           },
         });
         if (!terminal) {
@@ -624,6 +862,7 @@ export function useChatStream({
           timestamp: new Date().toISOString(),
           markdown: false,
           events: [],
+          assistantSteps: [],
           phases: [],
           optimistic: true,
         },
@@ -635,7 +874,10 @@ export function useChatStream({
           timestamp: null,
           markdown: false,
           events: [],
+          assistantSteps: [],
           phases: [],
+          // 发送即开始计时：执行区域在 message_started 之前就能显示耗时。
+          startedAt: Date.now(),
           optimistic: true,
         },
       });
@@ -815,8 +1057,12 @@ export function useChatStream({
             timestamp: item.created_at ?? null,
             markdown: item.role !== "user",
             events: item.display_metadata?.events ?? [],
+            assistantSteps: item.assistant_steps,
             phases: [],
             model: item.model ?? null,
+            executionDurationMs: item.execution_duration_ms,
+            startedAt: fromIso(item.created_at),
+            completedAt: null,
             attachments: item.attachments ?? [],
           };
         });

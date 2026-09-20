@@ -280,6 +280,8 @@ class ConversationRepositoryMixin:
                         "role": "assistant",
                         "content": "",
                         "status": "pending",
+                        "assistant_steps": [],
+                        "execution_duration_ms": None,
                         "display_metadata": {},
                         "error_code": None,
                         "model_id": model_id,
@@ -317,6 +319,8 @@ class ConversationRepositoryMixin:
             "role": "assistant",
             "content": "",
             "status": "pending",
+            "assistant_steps": [],
+            "execution_duration_ms": None,
             "display_metadata": {},
             "model": {
                 "id": model_id,
@@ -384,6 +388,8 @@ class ConversationRepositoryMixin:
         *,
         content: str | None = None,
         status: str,
+        assistant_steps: list[dict[str, Any]] | None = None,
+        execution_duration_ms: int | None = None,
         display_metadata: dict[str, Any] | None = None,
         error_code: str | None = None,
         expected_status: str | Collection[str] | None = None,
@@ -393,6 +399,10 @@ class ConversationRepositoryMixin:
         values: dict[str, Any] = {"status": status, "updated_at": _now()}
         if content is not None:
             values["content"] = content
+        if assistant_steps is not None:
+            values["assistant_steps"] = assistant_steps
+        if execution_duration_ms is not None:
+            values["execution_duration_ms"] = execution_duration_ms
         if display_metadata is not None:
             values["display_metadata"] = display_metadata
         values["error_code"] = error_code

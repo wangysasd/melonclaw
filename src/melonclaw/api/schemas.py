@@ -12,6 +12,34 @@ from pydantic import BaseModel, Field
 MAX_ATTACHMENT_IDS_PER_MESSAGE = 200
 
 
+class AssistantToolCallSchema(BaseModel):
+    """assistant step 内可展示的工具调用快照。"""
+
+    call_id: str
+    name: str
+    batch_index: int
+    args_preview: str | None = None
+    result_preview: str | None = None
+    status: str
+    error: str | None = None
+    # epoch 毫秒；只在真实观测到调用/结果时写入，缺省表示没有可靠耗时。
+    started_at: int | None = None
+    completed_at: int | None = None
+
+
+class AssistantStepSchema(BaseModel):
+    """一次根 Agent AIMessage 的可见展示快照。"""
+
+    id: str
+    ordinal: int
+    source_message_id: str | None = None
+    content: str
+    status: str
+    is_final: bool
+    tool_calls: list[AssistantToolCallSchema]
+    truncated: bool = False
+
+
 class ConversationRequest(BaseModel):
     """创建会话时的开发用户和当前租户运行上下文；会话本身不绑定租户。"""
 

@@ -17,7 +17,7 @@ runtime.py      按 Project 解析工作区，按 (project_id, model) 缓存 Age
         ▼
 backend/        CompositeBackend：默认 LocalShellBackend(Project 工作区) + 受保护目录与 /skills/ 路由
         ▼
-output/         把 LangGraph 消息流转成 SSE 事件（text / tool_call / approval / user_input 等）
+output/         把 LangGraph 消息流投影成有序 assistant steps 与 SSE 事件
 ```
 
 附件采用独立的两阶段数据流：浏览器先向 `api/routes/attachments.py` 上传到
@@ -43,7 +43,7 @@ Project 的受控 `.attachments/` 目录，`services/attachments.py` 完成校�
 | `storage/` | Project 工作区内附件原文、派生文件与临时文件的受控路径映射和发布 | `attachments.py` |
 | `services/` | 用例编排：执行、执行收尾、用户问题恢复、会话、技能、运行时资源管理 | `execution.py`、`execution_finalize.py`、`user_input_execution.py`、`runtime.py`、`chat.py`、`skills.py` |
 | `api/` | HTTP 边界：路由、Schema、错误映射、SSE 编码、应用生命周期 | `app.py`、`routes/*`（含 `user_input.py`）、`schemas.py`、`sse.py` |
-| `output/` | 从 LangGraph 消息/事件里提取模型可见文本与前端展示事件 | `events.py`、`visible_text.py`、`formatting.py` |
+| `output/` | 通过当前 Deep Agents v3 事件投影提取模型可见文本，并把根 Agent 的每次 AIMessage 投影成有序 assistant steps；子 Agent 保留任务卡事件 | `events.py`、`assistant_steps.py`、`visible_text.py`、`formatting.py` |
 | `memory/` | Global / Tenant / User 三级长期记忆的中间件、工具与服务 | `service.py`、`middleware.py`、`tools.py` |
 | `middleware/` | Agent 中间件：文件操作顺序、工具动态选择、用户提问批次护栏 | `file_ordering.py`、`tool_selection.py`、`user_input_guard.py` |
 | `backend/` | Deep Agents Backend 的构造与路径路由 | `factory.py` |

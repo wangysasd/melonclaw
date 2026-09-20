@@ -12,9 +12,9 @@ import inspect
 from collections.abc import AsyncIterator
 from typing import Any
 
+from melonclaw.output.assistant_steps import AssistantStepAccumulator
 from melonclaw.output.content import content_to_text
 from melonclaw.output.formatting import (
-    _call_key,
     _decode_tool_args,
     _preview,
     sanitize_text,
@@ -23,8 +23,6 @@ from melonclaw.output.visible_text import VisibleTextFilter, visible_text
 
 DISPLAY_EVENT_TYPES = frozenset(
     {
-        "tool_call",
-        "tool_result",
         "subagent_started",
         "subagent_text",
         "subagent_tool_call",
@@ -64,7 +62,7 @@ def _parent_call_id(handle: Any) -> str | None:
 
 
 def _is_tool_selector_message(message_stream: Any) -> bool:
-    """隐藏内部工具选择器的消息，兼容 v3 当前的私有启动元数据。"""
+    """隐藏内部工具选择器消息，读取当前 v3 的启动元数据。"""
 
     candidates = [
         getattr(message_stream, "metadata", None),
@@ -109,6 +107,7 @@ async def _consume_messages(
     scope_stream: Any,
     scope: dict[str, Any] | None,
     output: asyncio.Queue[dict[str, Any] | BaseException | object],
+    projector: AssistantStepAccumulator | None = None,
 ) -> None:
     """消费一个命名空间中的模型文本投影。"""
 
@@ -125,19 +124,37 @@ async def _consume_messages(
 
         if scope is None:
             await output.put({"type": "run_phase", "phase": "thinking"})
+            if projector is None:
+                text_filter = VisibleTextFilter()
+                async for delta in message_stream.text:
+                    text = text_filter.feed(content_to_text(delta))
+                    if text:
+                        await output.put({"type": "text", "text": sanitize_text(text)})
+                tail = text_filter.finish()
+                if tail:
+                    await output.put({"type": "text", "text": sanitize_text(tail)})
+                continue
+            source_message_id = str(getattr(message_stream, "id", None) or "") or None
+            started = projector.start_step(source_message_id=source_message_id)
+            await output.put(started)
+            step_id = str(started["step"]["id"])
+        else:
+            step_id = ""
         chunks: list[str] = []
-        text_filter = VisibleTextFilter()
+        text_filter = VisibleTextFilter() if scope is not None else None
         async for delta in message_stream.text:
             text = content_to_text(delta)
             if not text:
                 continue
             chunks.append(text)
-            text = text_filter.feed(text)
-            if not text:
-                continue
             if scope is None:
-                await output.put({"type": "text", "text": sanitize_text(text)})
+                event = projector.project_text_delta(step_id, text)
+                if event is not None:
+                    await output.put(event)
             else:
+                text = text_filter.feed(text)
+                if not text:
+                    continue
                 await output.put(
                     {
                         "type": "subagent_text",
@@ -146,38 +163,52 @@ async def _consume_messages(
                     }
                 )
 
-        tail = text_filter.finish()
-        if tail:
-            await output.put(
-                {"type": "text", "text": sanitize_text(tail)} if scope is None else
-                {"type": "subagent_text", **_scope_fields(scope), "text": sanitize_text(tail)}
-            )
+        if scope is not None:
+            tail = text_filter.finish()
+            if tail:
+                await output.put(
+                    {"type": "subagent_text", **_scope_fields(scope), "text": sanitize_text(tail)}
+                )
 
         # 非流式 provider 可能只在最终 message 中提供正文；不要让它在前端
         # 看起来像“子 Agent 没有输出”。仅在没有任何 delta 时补发一次。
-        if not chunks:
-            try:
-                message = await message_stream.output
-            except Exception:  # noqa: BLE001 - provider output is optional fallback
-                message = None
+        try:
+            raw_output = message_stream.output
+            message = await raw_output if inspect.isawaitable(raw_output) else raw_output
+        except Exception:  # noqa: BLE001 - provider output is optional fallback
+            message = None
+        if scope is None:
+            raw_tool_calls = getattr(message, "tool_calls", None) if message is not None else None
+            full_content = getattr(message, "content", "") if message is not None else ""
+            if isinstance(message, dict):
+                raw_tool_calls = message.get("tool_calls")
+                full_content = message.get("content", "")
+            tool_calls = [
+                call for call in (raw_tool_calls or []) if isinstance(call, dict)
+            ]
+            for event in projector.complete_step(
+                step_id,
+                content=full_content,
+                tool_calls=tool_calls,
+            ):
+                await output.put(event)
+        elif not chunks:
             text = visible_text(content_to_text(getattr(message, "content", "")))
             if text:
-                if scope is None:
-                    await output.put({"type": "text", "text": sanitize_text(text)})
-                else:
-                    await output.put(
-                        {
-                            "type": "subagent_text",
-                            **_scope_fields(scope),
-                            "text": sanitize_text(text),
-                        }
-                    )
+                await output.put(
+                    {
+                        "type": "subagent_text",
+                        **_scope_fields(scope),
+                        "text": sanitize_text(text),
+                    }
+                )
 
 
 async def _consume_tool_calls(
     scope_stream: Any,
     scope: dict[str, Any] | None,
     output: asyncio.Queue[dict[str, Any] | BaseException | object],
+    projector: AssistantStepAccumulator | None = None,
 ) -> None:
     """消费一个命名空间中的工具调用生命周期。"""
 
@@ -185,6 +216,38 @@ async def _consume_tool_calls(
         raw_call_id = getattr(call, "tool_call_id", None) or "unknown"
         call_id = str(raw_call_id)
         name = sanitize_text(str(getattr(call, "tool_name", None) or "unknown"))
+        if scope is None:
+            if projector is None:
+                raise RuntimeError("根 Agent 工具投影器未初始化。")
+            args = getattr(call, "input", None)
+            call_event = projector.project_tool_call(
+                call_id=call_id,
+                name=name,
+                batch_index=int(getattr(call, "index", 0) or 0),
+                args=args,
+            )
+            if call_event is not None:
+                await output.put(call_event)
+            try:
+                async for _ in call.output_deltas:
+                    pass
+            except Exception as exc:  # noqa: BLE001 - 结果事件仍需告知前端
+                result_event = projector.project_tool_result(
+                    call_id=call_id,
+                    result=str(exc),
+                    status="failed",
+                    error=str(exc),
+                )
+            else:
+                result_event = projector.project_tool_result(
+                    call_id=call_id,
+                    result=call.error or _tool_output_text(getattr(call, "output", None)),
+                    status="failed" if call.error else "completed",
+                    error=str(call.error) if call.error else None,
+                )
+            if result_event is not None:
+                await output.put(result_event)
+            continue
         call_key = f"id:{call_id}" if scope is None else f"{scope['subagent_id']}:id:{call_id}"
         fields = {} if scope is None else _scope_fields(scope)
         event_type = "tool_call" if scope is None else "subagent_tool_call"
@@ -321,6 +384,9 @@ async def _iter_v3_research_events(
     config: dict[str, Any],
     *,
     context: Any | None = None,
+    assistant_message_id: str | None = None,
+    run_id: str | None = None,
+    assistant_steps: list[dict[str, Any]] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """使用 Deep Agents/LangGraph v3 投影并发消费根 Agent 与子 Agent。"""
 
@@ -332,9 +398,14 @@ async def _iter_v3_research_events(
 
     end_marker = object()
     queue: asyncio.Queue[dict[str, Any] | BaseException | object] = asyncio.Queue()
+    projector = AssistantStepAccumulator(
+        message_id=assistant_message_id or "assistant",
+        run_id=run_id or assistant_message_id or "run",
+        steps=assistant_steps,
+    )
     root_tasks = [
-        asyncio.create_task(_consume_messages(stream, None, queue)),
-        asyncio.create_task(_consume_tool_calls(stream, None, queue)),
+        asyncio.create_task(_consume_messages(stream, None, queue, projector)),
+        asyncio.create_task(_consume_tool_calls(stream, None, queue, projector)),
         asyncio.create_task(_consume_subagents(stream, None, queue)),
     ]
 
@@ -376,6 +447,9 @@ async def iter_research_events(
     config: dict[str, Any],
     *,
     context: Any | None = None,
+    assistant_message_id: str | None = None,
+    run_id: str | None = None,
+    assistant_steps: list[dict[str, Any]] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """将模型消息、工具调用和工具结果转换为安全的结构化事件。
 
@@ -383,193 +457,14 @@ async def iter_research_events(
     理解 LangChain 的具体消息类型，也不会把工具参数原样发给浏览器。
     """
 
-    # v3 是当前 Deep Agents 文档推荐的产品级事件接口；旧适配器保留给
-    # 没有 astream_events(version=...) 的测试替身和旧 LangGraph 版本。
-    astream_events = getattr(agent, "astream_events", None)
-    if astream_events is not None:
-        try:
-            parameters = inspect.signature(astream_events).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-        if "version" in parameters:
-            async for event in _iter_v3_research_events(
-                agent,
-                agent_input,
-                config,
-                context=context,
-            ):
-                yield event
-            return
-
-    async for event in _iter_legacy_research_events(
+    # 当前 Deep Agents 版本统一使用 v3 投影；不再维护旧的 v2 消息流适配器。
+    async for event in _iter_v3_research_events(
         agent,
         agent_input,
         config,
         context=context,
+        assistant_message_id=assistant_message_id,
+        run_id=run_id,
+        assistant_steps=assistant_steps,
     ):
         yield event
-
-
-async def _iter_legacy_research_events(
-    agent: Any,
-    agent_input: Any,
-    config: dict[str, Any],
-    *,
-    context: Any | None = None,
-) -> AsyncIterator[dict[str, Any]]:
-    """v2/旧版本兼容实现；保持原有事件契约。"""
-
-    pending_calls: dict[str, dict[str, Any]] = {}
-    call_ids: dict[str, str] = {}
-    index_keys: dict[int, str] = {}
-    started_calls: set[str] = set()
-    emitted_args: set[str] = set()
-    text_filters: dict[str, VisibleTextFilter] = {}
-    last_phase_message: tuple[str, str] | None = None
-
-    stream_kwargs: dict[str, Any] = {
-        "config": config,
-        "stream_mode": "messages",
-    }
-    if context is not None:
-        stream_kwargs["context"] = context
-
-    async for message_chunk, metadata in agent.astream(agent_input, **stream_kwargs):
-        message_type = getattr(message_chunk, "type", "")
-        message_id = str(getattr(message_chunk, "id", None) or metadata.get("langgraph_node"))
-        if (
-            metadata.get("tool_selector")
-            or "tool-selector" in metadata.get("tags", [])
-        ):
-            phase_message = (message_id, "selecting_tools")
-            if phase_message != last_phase_message:
-                yield {"type": "run_phase", "phase": "selecting_tools"}
-                last_phase_message = phase_message
-            continue
-
-        if message_type == "tool":
-            tool_call_id = getattr(message_chunk, "tool_call_id", None)
-            key = call_ids.get(tool_call_id) if tool_call_id else None
-            if key is None and pending_calls:
-                key = next(iter(pending_calls))
-            if key is None:
-                key = f"result:{tool_call_id or getattr(message_chunk, 'name', 'unknown')}"
-
-            pending = pending_calls.setdefault(key, {})
-            name = pending.get("name") or getattr(message_chunk, "name", None) or "unknown"
-            args = pending.get("args")
-            if args in (None, {}) and pending.get("args_text"):
-                args = pending["args_text"]
-            if key not in started_calls:
-                yield {
-                    "type": "tool_call",
-                    "call_key": key,
-                    "name": sanitize_text(str(name)),
-                    "status": "started",
-                }
-                started_calls.add(key)
-            if key not in emitted_args:
-                yield {
-                    "type": "tool_call",
-                    "call_key": key,
-                    "name": sanitize_text(str(name)),
-                    "status": "args",
-                    "args": _preview(_decode_tool_args(args)),
-                }
-                emitted_args.add(key)
-
-            raw_content = getattr(message_chunk, "content", "")
-            result = content_to_text(raw_content)
-            if not result:
-                result = raw_content if isinstance(raw_content, str) else raw_content or "<无文本输出>"
-            yield {
-                "type": "tool_result",
-                "call_key": key,
-                "name": sanitize_text(str(name)),
-                "content": _preview(result),
-            }
-            continue
-
-        if message_type not in {"ai", "AIMessageChunk"}:
-            continue
-
-        # 某些模型先发送 tool_call_chunks，再发送完整 tool_calls；先缓存分片，
-        # 等工具真正执行时再把完整参数作为展示事件发出。
-        for index, chunk in enumerate(getattr(message_chunk, "tool_call_chunks", []) or []):
-            if not isinstance(chunk, dict):
-                continue
-            key = _call_key(chunk, index, index_keys)
-            pending = pending_calls.setdefault(key, {})
-            if chunk.get("id"):
-                call_ids[str(chunk["id"])] = key
-            if chunk.get("name"):
-                pending["name"] = chunk["name"]
-            raw_args = chunk.get("args")
-            if isinstance(raw_args, str):
-                pending["args_text"] = pending.get("args_text", "") + raw_args
-            elif raw_args is not None:
-                pending["args"] = raw_args
-            if pending.get("name") and key not in started_calls:
-                yield {
-                    "type": "tool_call",
-                    "call_key": key,
-                    "name": sanitize_text(str(pending["name"])),
-                    "status": "started",
-                }
-                started_calls.add(key)
-
-        for index, call in enumerate(getattr(message_chunk, "tool_calls", []) or []):
-            if not isinstance(call, dict):
-                continue
-            key = _call_key(call, index, index_keys)
-            pending = pending_calls.setdefault(key, {})
-            if call.get("id"):
-                call_ids[str(call["id"])] = key
-            if call.get("name"):
-                pending["name"] = call["name"]
-            if "args" in call:
-                call_args = call["args"]
-                if call_args or not pending.get("args_text"):
-                    pending["args"] = call_args
-            if pending.get("name") and key not in started_calls:
-                yield {
-                    "type": "tool_call",
-                    "call_key": key,
-                    "name": sanitize_text(str(pending["name"])),
-                    "status": "started",
-                }
-                started_calls.add(key)
-
-        if metadata.get("langgraph_node") not in {"model", "agent"}:
-            continue
-        phase_message = (message_id, "thinking")
-        if phase_message != last_phase_message:
-            yield {"type": "run_phase", "phase": "thinking"}
-            last_phase_message = phase_message
-        text_filter = text_filters.setdefault(message_id, VisibleTextFilter())
-        text = text_filter.feed(content_to_text(getattr(message_chunk, "content", "")))
-        if text:
-            yield {"type": "text", "text": sanitize_text(text)}
-
-    for text_filter in text_filters.values():
-        tail = text_filter.finish()
-        if tail:
-            yield {"type": "text", "text": sanitize_text(tail)}
-
-    # 兼容只发出参数分片、但没有 ToolMessage 的模型或失败路径。
-    for key, pending in pending_calls.items():
-        if key in emitted_args:
-            continue
-        args = pending.get("args", pending.get("args_text"))
-        if args in (None, {}) and pending.get("args_text"):
-            args = pending["args_text"]
-        if args is None:
-            continue
-        yield {
-            "type": "tool_call",
-            "call_key": key,
-            "name": sanitize_text(str(pending.get("name", "unknown"))),
-            "status": "args",
-            "args": _preview(_decode_tool_args(args)),
-        }
-        emitted_args.add(key)

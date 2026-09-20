@@ -53,18 +53,30 @@ async def mark_execution_status(
     status: str,
     error_code: str,
     display_metadata: list[dict[str, Any]],
+    assistant_steps: list[dict[str, Any]] | None = None,
+    content: str | None = None,
+    execution_duration_ms: int | None = None,
 ) -> None:
     """写入助手的最终状态；写不进去不抛错，保留原始异常给上层。"""
 
     if storage is None:
         return
     try:
+        values: dict[str, Any] = {
+            "status": status,
+            "display_metadata": {"events": display_metadata} if display_metadata else {},
+            "error_code": error_code,
+        }
+        if assistant_steps is not None:
+            values["assistant_steps"] = assistant_steps
+        if content is not None:
+            values["content"] = content
+        if execution_duration_ms is not None:
+            values["execution_duration_ms"] = execution_duration_ms
         await storage.update_assistant(
             execution.conversation_id,
             execution.assistant_message_id,
-            status=status,
-            display_metadata={"events": display_metadata} if display_metadata else {},
-            error_code=error_code,
+            **values,
             expected_status=expected_status,
         )
     except Exception:  # noqa: BLE001 - 不覆盖原始 Agent/取消错误

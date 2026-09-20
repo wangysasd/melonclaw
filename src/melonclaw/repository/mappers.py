@@ -101,6 +101,8 @@ def _message_dict(row: Mapping[str, Any]) -> dict[str, Any]:
         "role": str(row["role"]),
         "content": str(row["content"]),
         "status": str(row["status"]),
+        "assistant_steps": row["assistant_steps"],
+        "execution_duration_ms": row["execution_duration_ms"],
         "display_metadata": row["display_metadata"],
         "error_code": row["error_code"],
         "model": model,

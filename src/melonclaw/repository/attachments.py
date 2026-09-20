@@ -694,6 +694,8 @@ class AttachmentRepositoryMixin:
                         "role": "assistant",
                         "content": "",
                         "status": "pending",
+                        "assistant_steps": [],
+                        "execution_duration_ms": None,
                         "display_metadata": {},
                         "error_code": None,
                         "model_id": model_id,

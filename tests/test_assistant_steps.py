@@ -1,0 +1,152 @@
+"""根 Agent assistant steps 的顺序、关联和终态测试。"""
+
+from melonclaw.output.assistant_steps import AssistantStepAccumulator
+
+
+def test_multiple_model_steps_keep_text_and_tools_in_causal_order():
+    accumulator = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
+    first = accumulator.start_step(source_message_id="ai-1")
+    first_id = first["step"]["id"]
+    assert accumulator.project_text_delta(first_id, "<think>hidden</think>文字 A") ["delta"] == "文字 A"
+    accumulator.complete_step(
+        first_id,
+        tool_calls=[
+            {"id": "call-1", "name": "search_web", "args": {"q": "a"}},
+            {"id": "call-2", "name": "execute", "args": {"command": "b"}},
+        ],
+    )
+    accumulator.project_tool_result(call_id="call-2", result="结果 2")
+    accumulator.project_tool_result(call_id="call-1", result="结果 1")
+
+    second = accumulator.start_step(source_message_id="ai-2")
+    second_id = second["step"]["id"]
+    accumulator.project_text_delta(second_id, "文字 B")
+    accumulator.complete_step(second_id)
+    snapshot = accumulator.terminal_snapshot(status="completed", final_content="文字 B")
+
+    assert [step["ordinal"] for step in snapshot] == [0, 1]
+    assert [step["content"] for step in snapshot] == ["文字 A", "文字 B"]
+    assert [tool["call_id"] for tool in snapshot[0]["tool_calls"]] == ["call-1", "call-2"]
+    assert [tool["result_preview"] for tool in snapshot[0]["tool_calls"]] == ["结果 1", "结果 2"]
+    assert snapshot[1]["is_final"] is True
+    assert snapshot[0]["is_final"] is False
+
+
+def test_tool_events_can_arrive_before_the_complete_ai_message():
+    accumulator = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
+    assert accumulator.project_tool_call(
+        call_id="call-1",
+        name="search_web",
+        args={"q": "redacted"},
+    ) is None
+    assert accumulator.project_tool_result(
+        call_id="call-1",
+        result="ok",
+    ) is None
+
+    started = accumulator.start_step()
+    accumulator.complete_step(started["step"]["id"])
+    step = accumulator.steps[0]
+    assert step["tool_calls"][0]["call_id"] == "call-1"
+    assert step["tool_calls"][0]["status"] == "completed"
+    assert step["tool_calls"][0]["result_preview"] == "ok"
+
+
+def test_interrupted_and_failed_runs_keep_visible_steps_without_marking_success():
+    accumulator = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
+    started = accumulator.start_step()
+    step_id = started["step"]["id"]
+    accumulator.project_text_delta(step_id, "已完成前置工作")
+    accumulator.complete_step(
+        step_id,
+        tool_calls=[{"id": "call-1", "name": "execute", "args": {"command": "x"}}],
+    )
+    waiting = accumulator.terminal_snapshot(status="interrupted")
+    assert waiting[0]["content"] == "已完成前置工作"
+    assert waiting[0]["status"] == "waiting"
+    assert waiting[0]["tool_calls"][0]["status"] == "waiting"
+    assert waiting[0]["is_final"] is False
+
+    failed = accumulator.terminal_snapshot(status="failed")
+    assert failed[0]["content"] == "已完成前置工作"
+    assert failed[0]["tool_calls"][0]["status"] == "unknown"
+    assert failed[0]["is_final"] is False
+
+
+def test_resumed_run_no_longer_sticks_on_waiting_step():
+    """HITL 恢复后工具结果要同步 step 状态，终态也要收敛 waiting。"""
+
+    accumulator = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
+    started = accumulator.start_step()
+    step_id = started["step"]["id"]
+    accumulator.complete_step(
+        step_id,
+        tool_calls=[{"id": "call-1", "name": "execute", "args": {"command": "x"}}],
+    )
+    waiting = accumulator.terminal_snapshot(status="interrupted")
+    assert waiting[0]["status"] == "waiting"
+    assert waiting[0]["tool_calls"][0]["status"] == "waiting"
+
+    resumed = AssistantStepAccumulator(
+        message_id="assistant-1", run_id="run-2", steps=waiting
+    )
+    result = resumed.project_tool_result(call_id="call-1", result="ok")
+    assert result is not None
+    assert resumed.steps[0]["tool_calls"][0]["status"] == "completed"
+    assert resumed.steps[0]["status"] == "completed"
+
+    final = resumed.terminal_snapshot(status="completed", final_content="完成")
+    assert final[0]["status"] == "completed"
+    assert final[0]["tool_calls"][0]["status"] == "completed"
+    assert final[0]["is_final"] is False
+
+
+def test_tool_snapshots_carry_server_side_timings():
+    """工具耗时只能来自真实观测：结果晚到也不能把调用时间编造出来。"""
+
+    accumulator = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
+    accumulator.start_step()
+    event = accumulator.project_tool_call(
+        call_id="call-1",
+        name="execute",
+        batch_index=0,
+        started_at=1_000,
+    )
+    assert event is not None
+    assert event["call"]["started_at"] == 1_000
+    assert "completed_at" not in event["call"]
+
+    accumulator.project_tool_result(
+        call_id="call-1",
+        result="ok",
+        completed_at=1_250,
+    )
+    snapshot = accumulator.steps[0]["tool_calls"][0]
+    assert snapshot["started_at"] == 1_000
+    assert snapshot["completed_at"] == 1_250
+
+    # 只有结果、没有调用事件：不写 started_at，前端据此不显示耗时。
+    orphan = AssistantStepAccumulator(message_id="assistant-1", run_id="run-2")
+    orphan.start_step()
+    orphan.project_tool_result(call_id="call-2", result="late", completed_at=2_000)
+    orphan_tool = orphan.steps[0]["tool_calls"][0]
+    assert "started_at" not in orphan_tool
+    assert orphan_tool["completed_at"] == 2_000
+
+
+def test_completed_snapshot_converges_waiting_without_tool_result():
+    """工具结果事件丢失时，完成的 step 也不能停留在 waiting。"""
+
+    accumulator = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
+    started = accumulator.start_step()
+    step_id = started["step"]["id"]
+    accumulator.complete_step(
+        step_id,
+        tool_calls=[{"id": "call-1", "name": "execute", "args": {"command": "x"}}],
+    )
+    waiting = accumulator.terminal_snapshot(status="interrupted")
+
+    final = AssistantStepAccumulator(
+        message_id="assistant-1", run_id="run-2", steps=waiting
+    ).terminal_snapshot(status="completed", final_content="完成")
+    assert final[0]["status"] == "completed"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -127,6 +128,8 @@ chat_messages = Table(
     Column("role", String(16), nullable=False),
     Column("content", Text, nullable=False, server_default=""),
     Column("status", String(16), nullable=False),
+    Column("assistant_steps", JSONB, nullable=False, server_default="[]"),
+    Column("execution_duration_ms", BigInteger, nullable=True),
     Column("display_metadata", JSONB, nullable=False, server_default="{}"),
     Column("error_code", String(80), nullable=True),
     # 模型绑定属于本次 assistant run，而不是 Conversation 全局配置。

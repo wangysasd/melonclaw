@@ -25,19 +25,20 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 |---|---|
 | `src/api/` | HTTP 与 SSE 客户端：`client.ts`（JSON 请求封装与错误归一化）、`stream.ts`（fetch + ReadableStream 手动解析 SSE 帧） |
 | `src/state/` | 会话级全局状态（`session.tsx`）：用户、租户、Project、Conversation、当前流、`epoch` 失效机制 |
-| `src/hooks/` | 流式消息 reducer 与副作用：`useChatStream.ts` 处理 optimistic 消息、增量文本、审批、断线重同步 |
-| `src/components/` | 展示与交互组件（Composer、ChatView、审批卡、用户问题卡、技能选择等） |
+| `src/hooks/` | 流式消息 reducer 与副作用：`useChatStream.ts` 处理 optimistic 消息、增量文本、审批、断线重同步；`useRunClock.ts` 提供只在运行期开启的运行级计时 |
+| `src/components/` | 展示与交互组件（Composer、ChatView、`AgentExecution` 执行过程区域、ToolTimeline 子 Agent 任务卡、审批卡、用户问题卡、技能选择等） |
 | `src/types/` | 与后端契约对应的类型：`api.ts` 里的 `Message`、`SendMessageInput`、`StreamEvent` 判别联合 |
 | `src/styles/` | 分文件维护的样式：`global.css`、`sidebar.css`、`chat.css` |
 | `src/theme/` | antd 主题配置 |
-| `src/lib/` | 与框架无关的纯函数工具 |
+| `src/lib/` | 与框架无关的纯函数工具：`agentRun.ts` 把助手消息归约成 `AgentRun` 展示模型（状态、耗时、有序步骤、最终回答分离） |
 | `tests/` | vitest 用例；`setup.ts` 是公共初始化 |
 
 ## 3. 与后端的契约
 
 - 请求：`POST /api/conversations/{conversation_id}/messages`，JSON 请求体，字段见 `src/types/api.ts` 的 `SendMessageInput`。
 - 响应：`text/event-stream`，由 `src/api/stream.ts` 手动分帧解析（按空行切帧，逐帧解析 `data:` 行）。
-- 事件类型以 `src/types/api.ts` 的 `StreamEvent` 判别联合为准（`message_started`、`text`、`tool_call`、`approval_required`、`user_input_required`、`completed` 等）。用户问题事件由执行服务直接进入统一 SSE 编码器；如果新增需要从 Agent 原始流投影出的事件，仍必须同步修改后端 `output/events.py`、`api/sse.py` 和前端联合类型。
+- 事件类型以 `src/types/api.ts` 的 `StreamEvent` 判别联合为准。根 Agent 使用 `assistant_step_started`、`assistant_text_delta`、`assistant_tool_call`、`assistant_tool_result`、`assistant_step_completed`，每个事件都带 `message_id`，前端按 `message_id → step_id → call_id` 归约；子 Agent 继续使用任务卡事件。用户问题事件由执行服务直接进入统一 SSE 编码器；如果新增需要从 Agent 原始流投影出的事件，仍必须同步修改后端 `output/events.py`、`api/sse.py` 和前端联合类型。
+- 帧序号：服务端每个 SSE 帧都带 `id: N`（单条流内单调递增），`api/stream.ts` 把它作为 `onEvent` 的第二个参数交给 `useChatStream`，用于丢弃重复投递的帧；去重不按文本内容判断。
 - 断线重连：不依赖 SSE 缓存，而是靠会话重新同步；`session.tsx` 的 `epoch` 用来丢弃切换会话后迟到的响应。
 
 ## 4. UI 约定
@@ -51,12 +52,14 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 - 会话侧栏首次显示最近 10 条记录，通过「加载更多会话」继续分页；滚动条默认隐藏，悬浮或键盘聚焦滚动区域时显示。
 - 模拟用户下拉项只显示用户名，字号 14px，不显示租户数量。
 - 顶栏只显示靠左的当前会话名称：字号 16px、不加粗、背景色 `#F5F5F7`，高度相较原样式降低 20%。
+- 顶栏右侧提供「系统工具」入口，打开固定工具与当前配置 MCP 服务的分类目录；目录图标与执行时间线共用语义化 SVG 图标映射。
 - 模型选择器的下拉选项与选中后展示的模型名称统一为 14px。
 
 ### 消息区
 
-- 思路摘要、工具活动标题、文字正文和代码块使用一致的阅读宽度。
-- 摘要阶段数据和工具活动标题使用 14px 常规字重。
+- 执行过程、工具活动标题、文字正文和代码块使用一致的阅读宽度。
+- 执行步骤和工具活动标题使用 14px 常规字重。
+- 用户消息、最终回答和执行过程统一使用 14px；辅助文字（状态、耗时、参数摘要）统一用次要文字色，执行过程不使用左侧竖线装饰；执行过程的工具条目按类型使用命令行或扳手图标，具体状态由右侧文字和颜色表达。
 - 代码块使用系统蓝色标题和边框，代码正文为 14px 等宽字体，并与聊天正文保持一致的相对行高。
 
 ### 设计语言
@@ -78,7 +81,9 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 - **添加附件弹窗**：弹窗内可拖拽文件到虚线区域，也可以点击该区域从文件夹多选。选择后立刻上传并逐项显示文件名、大小与上传状态（失败项显示原因、上传中显示百分比进度），每项都能单独移除；点「确认添加附件」才把附件交给输入区，点「取消」会删掉本次已上传的暂存附件。弹窗里按 `GET /api/attachments/capabilities` 写明支持的类型与大小/数量限制，并在上传前做预校验；服务端仍会重新校验，前端校验只是快速失败。
 - **输入区附件卡片**：确认前不占用输入区；确认后显示文件名与解析状态，解析失败或超过轮询上限显示「重新解析」。解析状态按附件 ID 单独轮询并指数退避，最长约 5.5 分钟后停止并标记超时，不会因为每秒回写状态而重建定时器。
 - 图片附件在输入区和历史消息里都能点开全屏预览（Esc 或点击空白关闭）；非图片附件显示类型角标（PDF / XLSX / PPTX 等）便于区分。
-- **执行摘要**：工具与子 Agent 活动在可展开的摘要面板中显示；失败、等待审批、未收到结果会分别标注。
+- **Agent 执行过程**：一次 assistant 消息 = 一次运行，过程文本与工具调用聚合在同一个「执行区域」里，不铺成多个聊天气泡。区域**不套卡片**：一行状态/耗时摘要 + 一段与正式 AI 回复左边缘对齐的时间线，摘要行底部保留一条浅灰分隔线，过程文本就是普通正文。没有第一条可展示 step 时，`responding` 阶段显示“正在生成回复…”以说明模型正在产生可见输出，避免使用含义不清的“正在回复”。运行期间执行过程强制展开；进入终态后默认收起，点击状态摘要即可重新查看完整工具调用和中间 AIMessage。摘要行只显示状态与耗时（`running` 实时计时，如 `正在执行 · 1.9s`；终态显示 `完成 · 耗时 4.8s`），不重复显示工具名称或“已调用”计数；具体工具在时间线中展示。`failed`/`cancelled`/`interrupted` 保留并展开已产生的过程；历史里仍是 `pending` 且当前没有订阅时显示「执行状态待确认」，不无限显示正在执行。助手消息元信息不重复显示“已完成”等状态。执行区展开/收起箭头位于摘要行最右侧，收起朝右、展开朝下。展开状态只是组件内的临时 UI state，不写入历史、localStorage 或全局 store。本轮没有过程或工具时不渲染空执行区域，也不伪造调用记录。
+- **过程消息与最终回答**：只有后端落库的 `is_final` step 才是最终回答，正文由外层独立渲染，绝不进入折叠容器；流式期间不猜测谁会成为最终回答，过程文本一律留在执行区域里。`completed` 事件必须携带服务端已提交的完整 `assistant_steps` 快照，前端终态直接采用它对账此前增量，避免漏帧后丢失工具和中间消息；不再为缺失快照或缺失 `is_final` 保留旧数据推断分支。
+- **工具条目与工具目录**：同一步（同一条 AIMessage）的工具按因果顺序直接逐行展示，每个实际调用只出现一次，不再额外套一层重复工具名的活动摘要。目录把固定工具分为文件与工作区、命令与计算、联网搜索、长期记忆、协作与提问、MCP 外部服务六类；`ls`、`read_file`、`write_file`、`edit_file`、`delete`、`glob`、`grep`、`execute`、`eval`、`internet_search`、五个 Memory 工具、`task`、`ask_user` 和 `list_mcp_tools` 共 18 个固定 Agent 工具使用逐工具语义图标（命令类使用终端图标）。MCP 配置的具体工具由运行时发现，目录只列服务名并明确标记“工具运行时发现”，不猜测工具名称。工具行显示友好名称、一行参数摘要（JSON 取最具代表性的标量，最多占工具行可用宽度的一半，过长时用省略号截断）、状态与耗时（服务端同时给出 `started_at`/`completed_at` 才显示，否则不编造），行尾是展开/收起箭头，收起朝右、展开朝下，整行可点击也支持键盘操作。参数、结果与错误放在展开区里，仅缩进展示，不增加左侧竖线，预览限高滚动。工具结果在数据层独立、展示层按 `call_id` 合并，因此同名工具重复调用、并行执行、完成顺序与调用顺序不一致都能正确对应。子 Agent 轨迹继续用 `ToolTimeline` 的任务卡渲染。
 - **用户问题卡**：当 Agent 通过 `ask_user` 等待关键决策时，页面显示一张可包含多个独立问题的卡片；每个问题支持单选/多选项和可选的「其他」文本输入，全部完成后一次提交。提交按钮在未全部作答或提交中时不可用，普通消息发送会锁定。刷新会话后，问题卡从历史接口恢复；过期答案由服务端拒绝。卡片额外提供次要按钮「跳过，让 AI 自己决定」（批量卡片为「全部跳过，让 AI 自己决定」），提交 `{ type: "cancelled" }` 后由 Agent 自行收尾。`expires_at` 已过时禁用两个按钮并提示「发送新消息时会自动跳过」，真正的解锁由后端在收到新消息前代答取消完成。
 
 ## 6. 部署

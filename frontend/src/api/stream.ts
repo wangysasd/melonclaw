@@ -14,7 +14,8 @@ import type {
  * 流式端点在准备阶段（校验/幂等/抢锁）可能返回非 2xx，此时按 REST 错误归一化。
  */
 export interface StreamHandlers {
-  onEvent: (event: StreamEvent) => void;
+  /** eventId 是服务端 `id:` 帧序号（单条流内单调递增），用于丢弃重复投递。 */
+  onEvent: (event: StreamEvent, eventId?: number) => void;
   signal?: AbortSignal;
 }
 
@@ -138,8 +139,12 @@ export async function streamRequest(
   }
 }
 
-function dispatchFrame(frame: string, onEvent: (event: StreamEvent) => void): void {
+function dispatchFrame(
+  frame: string,
+  onEvent: (event: StreamEvent, eventId?: number) => void,
+): void {
   const dataLines: string[] = [];
+  let eventId: number | undefined;
   for (const line of frame.split(/\r?\n/)) {
     if (!line || line.startsWith(":")) {
       // 空行或 keep-alive 注释帧。
@@ -147,8 +152,12 @@ function dispatchFrame(frame: string, onEvent: (event: StreamEvent) => void): vo
     }
     if (line.startsWith("data:")) {
       dataLines.push(line.slice(5).trimStart());
+      continue;
     }
-    // `id:` 帧为服务端序号，前端不需要。
+    if (line.startsWith("id:")) {
+      const parsed = Number(line.slice(3).trim());
+      eventId = Number.isFinite(parsed) ? parsed : undefined;
+    }
   }
   if (dataLines.length === 0) {
     return;
@@ -164,6 +173,6 @@ function dispatchFrame(frame: string, onEvent: (event: StreamEvent) => void): vo
     typeof payload === "object" &&
     typeof (payload as { type?: unknown }).type === "string"
   ) {
-    onEvent(payload as StreamEvent);
+    onEvent(payload as StreamEvent, eventId);
   }
 }

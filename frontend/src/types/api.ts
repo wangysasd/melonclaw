@@ -91,7 +91,46 @@ export type MessageStatus =
   | "cancelled"
   | "interrupted";
 
-/** 历史重放的工具/子代理轨迹事件，结构同 SSE 事件（见 StreamEvent）。 */
+export type AssistantStepStatus =
+  | "streaming"
+  | "running"
+  | "completed"
+  | "failed"
+  | "waiting"
+  | "unknown";
+
+export type AssistantToolStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "waiting"
+  | "unknown";
+
+export interface AssistantToolCall {
+  call_id: string;
+  name: string;
+  batch_index: number;
+  args_preview?: string;
+  result_preview?: string;
+  status: AssistantToolStatus;
+  error?: string;
+  /** epoch 毫秒；服务端只在真实观测到调用/结果时写入，缺失表示没有可靠耗时。 */
+  started_at?: number;
+  completed_at?: number;
+}
+
+export interface AssistantStep {
+  id: string;
+  ordinal: number;
+  source_message_id?: string;
+  content: string;
+  status: AssistantStepStatus;
+  is_final: boolean;
+  tool_calls: AssistantToolCall[];
+  truncated?: boolean;
+}
+
+/** 历史重放的子代理轨迹事件，结构同 SSE 事件（见 StreamEvent）。 */
 export interface DisplayEvent {
   type: string;
   [key: string]: unknown;
@@ -102,12 +141,16 @@ export interface Message {
   role: string;
   status: MessageStatus;
   content: string;
+  /** 新协议始终返回完整的助手步骤快照；空数组表示本轮没有过程步骤。 */
+  assistant_steps: AssistantStep[];
+  execution_duration_ms?: number | null;
   created_at?: string;
   error_code?: string | null;
   model?: MessageModel | null;
   display_metadata?: {
     events?: DisplayEvent[];
     skill?: { id: string; display_name: string };
+    capabilities?: string[];
   } | null;
   attachments?: AttachmentSummary[];
 }
@@ -310,6 +353,38 @@ export type StreamEvent =
     }
   | { type: "text"; text: string }
   | {
+      type: "assistant_step_started";
+      message_id: string;
+      step: AssistantStep;
+    }
+  | {
+      type: "assistant_text_delta";
+      message_id: string;
+      step_id: string;
+      delta: string;
+    }
+  | {
+      type: "assistant_tool_call";
+      message_id: string;
+      step_id: string;
+      call: AssistantToolCall;
+    }
+  | {
+      type: "assistant_tool_result";
+      message_id: string;
+      step_id: string;
+      call_id: string;
+      result: AssistantToolCall;
+    }
+  | {
+      type: "assistant_step_completed";
+      message_id: string;
+      step_id: string;
+      content: string;
+      tool_calls: AssistantToolCall[];
+      status: AssistantStepStatus;
+    }
+  | {
       type: "tool_call";
       call_key?: string;
       name: string;
@@ -370,6 +445,9 @@ export type StreamEvent =
       message_id: string;
       request_id?: string;
       content: string;
+      /** 终态权威快照；前端不再从局部增量推断最终步骤。 */
+      assistant_steps: AssistantStep[];
+      execution_duration_ms?: number | null;
       replayed?: boolean;
     }
   | { type: "done"; message_id?: string; terminal_reason?: string; replayed?: boolean }

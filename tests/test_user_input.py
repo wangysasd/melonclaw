@@ -424,6 +424,7 @@ class _CancelHarness:
             "id": candidate["assistant_message_id"] if candidate else str(uuid4()),
             "request_id": "request-1",
             "content": "",
+            "assistant_steps": [],
             "display_metadata": {},
         }
         self.project = {

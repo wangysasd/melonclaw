@@ -9,9 +9,11 @@ import { ApprovalPanel } from "./ApprovalPanel";
 import { UserQuestionPanel } from "./UserQuestionPanel";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
-import { ReasoningSummary } from "./ReasoningSummary";
+import { AgentExecution } from "./AgentExecution";
+import { ToolCatalogDialog } from "./ToolCatalogDialog";
 import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
 import { useServiceStatus } from "../hooks/useServiceStatus";
+import { buildAgentRun } from "../lib/agentRun";
 import { attachmentBadge } from "../lib/attachmentFiles";
 import { copyText } from "../lib/clipboard";
 import { formatMessageTime } from "../lib/format";
@@ -20,20 +22,12 @@ import { useSession, type RunStatus } from "../state/session";
 import { attachmentContentUrl } from "../api/client";
 import type { PendingApproval, UserQuestionRequest } from "../types/api";
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: "处理中",
-  completed: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-  interrupted: "等待交互",
-};
-
 const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   starting: "正在准备",
   ready: "已就绪",
   selecting_tools: "正在工具筛选",
   thinking: "思考中",
-  responding: "正在回复",
+  responding: "正在生成回复",
   processing: "处理中",
   waiting: "等待确认",
   failed: "失败",
@@ -175,25 +169,30 @@ const MessageBubble = memo(function MessageBubble({
   message,
   userName,
   runStatus,
+  conversationId,
   userId,
   tenantId,
 }: {
   message: ChatMessage;
   userName: string;
   runStatus: RunStatus;
+  conversationId: string | null;
   userId: string;
   tenantId: string;
 }) {
-  const status =
-    message.status === "streaming"
-      ? "处理中"
-      : (STATUS_LABELS[message.status ?? ""] ?? "");
   const metaLabel = message.role === "user" ? userName : "MelonClaw";
   const metaDetail =
     message.role === "user"
       ? formatMessageTime(message.timestamp ?? null)
-      : status;
-  const renderedContent = useDeferredValue(message.content);
+      : "";
+  const run = useMemo(
+    () =>
+      message.role === "assistant" ? buildAgentRun(message, conversationId) : null,
+    [message, conversationId],
+  );
+  // 执行过程与最终回答彻底分离：折叠只作用于执行过程，回答正文始终独立渲染。
+  const displayContent = run ? run.finalAnswer ?? "" : message.content;
+  const renderedContent = useDeferredValue(displayContent);
 
   return (
     <article className={`message ${message.role}`}>
@@ -210,17 +209,19 @@ const MessageBubble = memo(function MessageBubble({
       <div className="message-content">
         <div className="message-meta">
           <span className="message-author">{metaLabel}</span>
-          {message.role === "assistant" && message.model?.model ? (
-            <span className="message-model">{message.model.model}</span>
-          ) : null}
           {metaDetail ? <span className="message-time">{metaDetail}</span> : null}
         </div>
-        {message.role === "assistant" ? (
-          <ReasoningSummary phases={message.phases} events={message.events} status={message.status} />
+        {run ? (
+          <AgentExecution
+            run={run}
+            events={message.events}
+            messageStatus={message.status}
+            phaseLabel={RUN_STATUS_LABELS[runStatus]}
+          />
         ) : null}
         <MessageAttachments attachments={message.attachments ?? []} userId={userId} tenantId={tenantId} />
         <div className="message-body">
-          {message.role === "user" || message.content ? (
+          {message.role === "user" || displayContent ? (
             <Bubble
               placement={message.role === "user" ? "end" : "start"}
               variant={message.role === "assistant" ? "borderless" : "filled"}
@@ -230,9 +231,6 @@ const MessageBubble = memo(function MessageBubble({
             />
           ) : null}
         </div>
-        {message.status === "streaming" && !message.content && message.events.length === 0 ? (
-          <div className="message-progress" role="status"><Icon name="loader-circle" size={15} className="mc-icon-spin" />{`${RUN_STATUS_LABELS[runStatus]}…`}</div>
-        ) : null}
         {message.status === "failed" || message.status === "cancelled" ? (
           <p className="message-notice">{message.status === "failed" ? "本次回复未完成，当前显示已接收的内容。" : "本次回复已中止。"}</p>
         ) : null}
@@ -245,10 +243,11 @@ const MessageBubble = memo(function MessageBubble({
 /** 聊天主视图：消息与审批共用阅读流，底部保留输入区与状态提醒。 */
 export function ChatView() {
   const session = useSession();
-  const { runStatus } = useServiceStatus();
+  const { runStatus, status } = useServiceStatus();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
   const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const [toolCatalogOpen, setToolCatalogOpen] = useState(false);
   const scrollFrame = useRef<number | null>(null);
   const approvalRef = useRef<HTMLDivElement>(null);
 
@@ -342,7 +341,23 @@ export function ChatView() {
             {chat.state.conversationTitle || "准备开始"}
           </div>
         </div>
+        <button
+          type="button"
+          className="tool-catalog-trigger"
+          onClick={() => setToolCatalogOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={toolCatalogOpen}
+        >
+          <Icon name="wrench" size={15} />
+          <span>系统工具</span>
+        </button>
       </header>
+
+      <ToolCatalogDialog
+        open={toolCatalogOpen}
+        mcpServers={status?.mcp_servers ?? []}
+        onClose={() => setToolCatalogOpen(false)}
+      />
 
       <div className="conversation" ref={scrollRef} aria-label="聊天记录"
         onScroll={() => setAwayFromBottom(!scroll.isNearBottom())}>
@@ -375,6 +390,7 @@ export function ChatView() {
                 message={message}
                 userName={userName}
                 runStatus={runStatus}
+                conversationId={chat.state.conversationId}
                 userId={session.userId}
                 tenantId={session.tenantId}
               />

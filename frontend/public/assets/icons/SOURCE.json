@@ -71,9 +71,33 @@
       "git_blob_sha": "da48f664e51be4ceb800dbe4f6c10c5e7cfa800e"
     },
     {
+      "path": "icons/terminal.svg",
+      "git_blob_sha": "c02c54768923cdf58432908c2e394afc5baf322f"
+    },
+    {
+      "path": "icons/wrench.svg",
+      "git_blob_sha": "c1dcdbd4d9fbbda090febb698dc6e820d51547a2"
+    },
+    {
       "path": "icons/x.svg",
       "git_blob_sha": "e31794349d3eecea1b3ae8e974b68bb8f4becda7"
     }
   ],
+  "local_extensions": {
+    "description": "MelonClaw semantic tool icons; authored locally in the existing CSS-mask SVG style.",
+    "files": [
+      "icons/calculator.svg",
+      "icons/book-open.svg",
+      "icons/bookmark.svg",
+      "icons/brain.svg",
+      "icons/file-pen-line.svg",
+      "icons/globe-2.svg",
+      "icons/plug.svg",
+      "icons/pencil-line.svg",
+      "icons/scan-search.svg",
+      "icons/trash-2.svg",
+      "icons/users.svg"
+    ]
+  },
   "license_path": "LICENSE.txt"
 }

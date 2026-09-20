@@ -1,25 +1,75 @@
-const TOOL_LABELS: Record<string, string> = {
-  search: "搜索资料",
-  tavily_search: "搜索资料",
-  internet_search: "搜索资料",
-  read_file: "读取文件",
-  write_file: "写入文件",
-  edit_file: "编辑文件",
-  delete_file: "删除文件",
-  glob: "查找文件",
-  grep: "查找内容",
-  ls: "查看目录",
-  execute: "执行命令",
-  eval: "执行计算",
-  task: "委派子 Agent",
-  search_memory: "检索记忆",
-  read_memory: "读取记忆",
-  remember_user_memory: "保存个人记忆",
-  forget_user_memory: "删除个人记忆",
-  propose_tenant_memory: "提交租户记忆提案",
-};
+import { toolDefinition, toolIconName } from "./toolCatalog";
 
 export function toolSummary(name: string): string {
-  return TOOL_LABELS[name] || name || "未知工具";
+  return toolDefinition(name)?.label || name || "未知工具";
 }
 
+export { toolIconName };
+
+/** 优先用这些字段做一行摘要：它们通常就是用户最关心的定位信息。 */
+const SUMMARY_KEYS = [
+  "command",
+  "query",
+  "path",
+  "file_path",
+  "filepath",
+  "pattern",
+  "url",
+  "skill_id",
+  "name",
+  "id",
+];
+
+const SUMMARY_LIMIT = 120;
+
+function firstScalar(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = firstScalar(item);
+      if (text) return text;
+    }
+    return null;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of SUMMARY_KEYS) {
+      if (key in record) {
+        const text = firstScalar(record[key]);
+        if (text) return text;
+      }
+    }
+    for (const item of Object.values(record)) {
+      const text = firstScalar(item);
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+/**
+ * 工具调用的一行摘要：参数是 JSON 时取最有代表性的标量，
+ * 否则退回参数预览的第一行。只做展示裁剪，不改动原始数据。
+ */
+export function toolCallSummary(argsPreview: string | null | undefined): string | null {
+  const raw = (argsPreview ?? "").trim();
+  if (!raw) return null;
+  let text: string | null = null;
+  if (raw.startsWith("{") || raw.startsWith("[")) {
+    try {
+      text = firstScalar(JSON.parse(raw));
+    } catch {
+      text = null;
+    }
+  }
+  if (!text) {
+    text = raw.split("\n").map((line) => line.trim()).find(Boolean) ?? null;
+  }
+  if (!text) return null;
+  const compact = text.replace(/\s+/g, " ");
+  return compact.length > SUMMARY_LIMIT
+    ? `${compact.slice(0, SUMMARY_LIMIT)}…`
+    : compact;
+}

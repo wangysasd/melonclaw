@@ -278,6 +278,8 @@ class UserInputExecutionService:
                         if request_record is not None
                         else []
                     ),
+                    assistant_steps=list(assistant["assistant_steps"]),
+                    execution_duration_ms=assistant.get("execution_duration_ms"),
                 ),
                 command,
                 accepted,
