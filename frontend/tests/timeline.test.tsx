@@ -11,6 +11,18 @@ describe("tool activity", () => {
     const nodes = buildTimeline([{ type: "subagent_started", subagent_id: "a" }, ...[1, 2].map(() => ({ type: "subagent_tool_call", subagent_id: "a", call_key: "k", name: "search" }))]);
     expect(nodes[0]).toMatchObject({ kind: "subagent", toolCount: 1 });
   });
+  it("marks a synthetic task wrapper complete when its subagent completes", () => {
+    const nodes = buildTimeline([
+      {
+        type: "subagent_started",
+        subagent_id: "a",
+        subagent_name: "general-purpose",
+        parent_call_id: "call-task",
+      },
+      { type: "subagent_completed", subagent_id: "a", status: "completed" },
+    ], "completed");
+    expect(nodes[0]).toMatchObject({ kind: "tool", name: "task", status: "completed" });
+  });
   it("never keeps a tool spinning after the run pauses or ends without a result", () => {
     const events = [{ type: "tool_call", name: "execute", call_key: "a" }];
     expect(buildTimeline(events, "interrupted")[0].status).toBe("waiting");

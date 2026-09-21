@@ -37,6 +37,8 @@ interface ToolNode {
   output?: string;
   status: ToolStatus;
   children: TimelineEntry[];
+  /** parent_call_id 无法匹配根工具事件时创建的展示占位节点。 */
+  synthetic?: boolean;
 }
 
 interface SubagentNode {
@@ -145,6 +147,7 @@ export function buildTimeline(events: DisplayEvent[], messageStatus?: MessageSta
       }
       if (!parent) {
         parent = ensureTool(keys[0], "task", "started");
+        parent.synthetic = true;
         appendRoot(parent);
       }
     }
@@ -223,6 +226,32 @@ export function buildTimeline(events: DisplayEvent[], messageStatus?: MessageSta
       default:
         break;
     }
+  }
+  // 根 Agent 的 task 调用位于 assistant_steps，display events 只保存子 Agent
+  // 轨迹，因此这里可能只有一个由 parent_call_id 创建的 task 占位节点。用子
+  // Agent 的终态回填它，避免子 Agent 已完成时外层仍显示“未收到执行结果”。
+  const reconcileSyntheticTool = (tool: ToolNode): void => {
+    for (const child of tool.children) {
+      if (child.kind === "tool") reconcileSyntheticTool(child);
+    }
+    if (!tool.synthetic || tool.children.length === 0) return;
+    if (tool.children.some(hasFailure)) {
+      tool.status = "failed";
+      return;
+    }
+    const statuses = tool.children.map((child) => child.status);
+    if (statuses.some((status) => status === "waiting")) {
+      tool.status = "waiting";
+    } else if (statuses.some((status) => status === "unknown")) {
+      tool.status = "unknown";
+    } else if (statuses.some((status) => status === "started")) {
+      tool.status = "started";
+    } else if (statuses.every((status) => status === "completed")) {
+      tool.status = "completed";
+    }
+  };
+  for (const entry of root) {
+    if (entry.kind === "tool") reconcileSyntheticTool(entry);
   }
   const inactive = messageStatus === "interrupted" ? "waiting" :
     messageStatus === "failed" || messageStatus === "cancelled" || messageStatus === "completed" ? "unknown" : null;
