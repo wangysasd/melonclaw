@@ -710,188 +710,133 @@
   opacity: 0.5;
 }
 
-/* 工具时间线（对齐旧 .message-tools / .tool-card / .subagent-card 系列） */
-
-.tool-thought-chain .ant-thought-chain-node-title {
-  font-size: var(--text-md);
-  font-weight: 400;
-}
-.tool-thought-chain .ant-thought-chain-node-content-box {
-  margin-top: 12px;
-  margin-bottom: 0;
-}
+/* 执行轨迹：工具调用和子 Agent 共用一套摘要行与详情层级。 */
 .message-tools {
   display: grid;
   gap: 8px;
   margin-top: 12px;
 }
-
-.tool-card {
-  max-width: 680px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
-  background: var(--panel);
-  box-shadow: var(--shadow-card);
+.execution-activity-label { margin-top: 0; }
+.execution-activity-list {
+  display: grid;
+  gap: 2px;
 }
-
-.tool-card > summary,
-.subagent-card > summary {
-  list-style: none;
-  cursor: pointer;
+.execution-node {
+  min-width: 0;
+  border: 0;
+  background: transparent;
 }
-
-.tool-card > summary::-webkit-details-marker,
-.subagent-card > summary::-webkit-details-marker {
-  display: none;
-}
-
-.tool-head {
-  min-height: 42px;
+.execution-node > summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 11px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.tool-summary {
-  color: var(--ink);
-  font-weight: 700;
-}
-
-.tool-name {
-  max-width: 260px;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 3px 0;
   overflow: hidden;
+  cursor: pointer;
+  list-style: none;
   color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-md);
+  text-align: left;
+}
+.execution-node > summary::-webkit-details-marker { display: none; }
+.execution-node > summary:hover { color: var(--ink); }
+.execution-node-icon {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.execution-node-title {
+  min-width: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.tool-status {
-  min-width: 62px;
+.execution-node-subtitle {
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.execution-node-status {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
+  gap: 4px;
+  min-width: 0;
   margin-left: auto;
+  flex-shrink: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-
-.tool-card.is-complete .tool-status {
-  color: #1f9d48;
-}
-
-.tool-card.is-failed .tool-status {
-  color: var(--status-error);
-}
-
-.tool-card.is-failed {
-  border-color: rgba(215, 0, 21, 0.26);
-  background: #fffbfb;
-}
-
-.tool-details {
-  padding: 0 11px 10px;
-}
-
-.tool-args,
-.tool-output {
-  max-height: 220px;
-  margin: 0;
-  overflow: auto;
-  padding: 9px 0 0;
+.execution-node-chevron {
+  flex-shrink: 0;
   color: var(--muted);
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  transition: transform 180ms ease;
 }
+.execution-node.is-complete .execution-node-status,
+.execution-node.is-completed .execution-node-status { color: var(--status-success); }
+.execution-node.is-failed .execution-node-status,
+.execution-node.is-unknown .execution-node-status { color: var(--status-error); }
+.execution-node.is-waiting .execution-node-status { color: var(--status-warning); }
+.execution-node.is-failed > summary .execution-node-title,
+.execution-node.is-failed > summary .execution-node-icon { color: var(--status-error); }
+.execution-node.is-running > summary .execution-node-icon,
+.execution-node.is-started > summary .execution-node-icon { color: var(--brand-primary); }
 
-.tool-args + .tool-output {
-  margin-top: 9px;
+.execution-node-details {
+  margin: 2px 0 7px;
+  padding: 3px 0 0;
 }
-
-.tool-output {
-  color: #48484a;
-}
-
-.tool-children {
-  display: grid;
-  gap: 8px;
-  margin-top: 9px;
-}
-
-.subagent-card {
-  overflow: hidden;
-  border: 1px solid rgba(0, 113, 227, 0.18);
-  border-radius: 10px;
-  background: rgba(0, 113, 227, 0.04);
-}
-
-.subagent-head {
-  min-height: 38px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.execution-node-details pre {
+  max-height: 240px;
+  margin: 4px 0 0;
   padding: 7px 9px;
-  color: var(--brand-primary);
-  font-size: 12px;
+  overflow: auto;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--ink);
+  font: var(--text-md)/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-
-.subagent-icon {
-  color: var(--brand-primary);
-}
-
-.subagent-name {
-  color: var(--brand-primary);
-  font-family: var(--font-mono);
-  font-weight: 700;
-}
-
-.subagent-status {
-  margin-left: auto;
+.agent-tool-detail-label {
+  margin-top: 4px;
   color: var(--muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-md);
 }
-
-.subagent-card.is-failed {
-  border-color: rgba(215, 0, 21, 0.26);
-  background: #fffbfb;
+.agent-tool-children {
+  display: grid;
+  gap: 2px;
+  margin-top: 7px;
 }
-
-.subagent-card.is-failed .subagent-head,
-.subagent-card.is-failed .subagent-name {
-  color: var(--status-error);
-}
-
-.subagent-details {
-  padding: 0 9px 9px;
-}
-
 .subagent-output {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-md);
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.subagent-tools {
-  display: grid;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.subagent-tools .tool-card {
-  max-width: none;
-  box-shadow: none;
+/* 保留旧类名的最小兼容样式，避免历史 CSS 使用方突然失去基础排版。 */
+.tool-status {
+  display: flex;
+  align-items: center;
+  min-width: 62px;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* 审批面板（对齐旧 .approval-* 系列，Apple 橙系警示色） */
@@ -1861,7 +1806,7 @@
   padding: 6px 0 0;
 }
 
-.agent-timeline { display: grid; gap: 6px; }
+.agent-timeline { display: grid; gap: 8px; }
 
 .agent-step-progress { font-size: var(--text-md); color: var(--ink); }
 .agent-step-progress .message-markdown { max-width: none; font-size: var(--text-md); }
@@ -1883,77 +1828,6 @@
   padding-left: 0;
 }
 
-.agent-tool {
-  min-width: 0;
-  border: 0;
-  background: transparent;
-}
-.agent-tool > summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  min-width: 0;
-  min-height: 26px;
-  padding: 1px 0;
-  cursor: pointer;
-  list-style: none;
-  color: var(--muted);
-  font-size: var(--text-md);
-  overflow: hidden;
-}
-.agent-tool > summary::-webkit-details-marker { display: none; }
-.agent-tool > summary:hover { color: var(--ink); }
-.agent-tool-chevron {
-  flex-shrink: 0;
-  color: var(--muted);
-  transition: transform 180ms ease;
-}
-.agent-tool-name { color: var(--ink); flex-shrink: 0; }
-.agent-tool-hint {
-  flex: 0 1 50%;
-  min-width: 0;
-  max-width: 50%;
-  overflow: hidden;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agent-tool-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-  flex-shrink: 0;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.agent-tool.is-failed .agent-tool-status,
-.agent-tool.is-unknown .agent-tool-status { color: var(--status-error); }
-.agent-tool.is-waiting .agent-tool-status { color: #b06000; }
-
-/* 展开的细节只缩进一级，不增加额外的装饰线。 */
-.agent-tool-details {
-  margin: 2px 0 6px 6px;
-  padding-left: 9px;
-}
-.agent-tool-detail-label { margin-top: 4px; color: var(--muted); font-size: var(--text-md); }
-.agent-tool-details pre {
-  max-height: 240px;
-  margin: 4px 0 0;
-  padding: 7px 9px;
-  overflow: auto;
-  border-radius: 7px;
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--ink);
-  font: var(--text-md)/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 @media (max-width: 640px) {
-  .agent-tool-hint { display: none; }
+  .execution-node-subtitle { display: none; }
 }

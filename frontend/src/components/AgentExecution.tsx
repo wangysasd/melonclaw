@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { Icon, type IconName } from "./Icon";
+import { ExecutionNode } from "./ExecutionNode";
 import { Markdown } from "./Markdown";
 import { ToolTimeline } from "./ToolTimeline";
 import { useElapsedMs } from "../hooks/useRunClock";
@@ -50,6 +51,13 @@ function runStatusIcon(status: AgentRunStatus): IconName {
   if (status === "failed" || status === "cancelled" || status === "unconfirmed") {
     return "circle-alert";
   }
+  if (status === "waiting") return "shield-check";
+  return "loader-circle";
+}
+
+function toolStatusIcon(status: AssistantToolStatus): IconName {
+  if (status === "completed") return "circle-check";
+  if (status === "failed" || status === "unknown") return "circle-alert";
   if (status === "waiting") return "shield-check";
   return "loader-circle";
 }
@@ -123,33 +131,27 @@ function ToolCallItem({ tool }: { tool: ToolCallStep }) {
   const hasDetails = Boolean(tool.argsPreview || tool.resultPreview || tool.error);
 
   return (
-    <details
-      className={`agent-tool is-${tool.status}`}
+    <ExecutionNode
+      className={`agent-tool execution-node is-${tool.status}`}
       open={open}
+      detailsClassName="agent-tool-details"
       onToggle={(event) =>
         setOverride({ status: tool.status, open: event.currentTarget.open })
       }
+      icon={toolIconName(tool.toolName)}
+      title={toolSummary(tool.toolName)}
+      subtitle={summary}
+      status={
+        <>
+          <Icon
+            name={toolStatusIcon(tool.status)}
+            size={14}
+            className={tool.status === "running" ? "mc-icon-spin" : undefined}
+          />
+          <span>{TOOL_STATUS_LABELS[tool.status]}{duration ? ` · ${duration}` : ""}</span>
+        </>
+      }
     >
-      <summary className="agent-tool-head">
-        <Icon
-          name={toolIconName(tool.toolName)}
-          size={14}
-          className="agent-tool-icon"
-        />
-        <span className="agent-tool-name">{toolSummary(tool.toolName)}</span>
-        {summary ? <span className="agent-tool-hint">{summary}</span> : null}
-        <span className="agent-tool-status">
-          {TOOL_STATUS_LABELS[tool.status]}
-          {duration ? ` · ${duration}` : ""}
-        </span>
-        <Icon
-          name="chevron-right"
-          size={14}
-          className="agent-tool-chevron"
-          rotate={open ? 90 : 0}
-        />
-      </summary>
-      <div className="agent-tool-details">
         {tool.argsPreview ? (
           <>
             <div className="agent-tool-detail-label">参数</div>
@@ -171,8 +173,7 @@ function ToolCallItem({ tool }: { tool: ToolCallStep }) {
         {hasDetails ? null : (
           <div className="agent-tool-detail-label">暂无更多细节</div>
         )}
-      </div>
-    </details>
+    </ExecutionNode>
   );
 }
 

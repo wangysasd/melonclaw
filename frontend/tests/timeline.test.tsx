@@ -37,4 +37,22 @@ describe("tool activity", () => {
     expect(container.querySelector("details")?.open).toBe(true);
     expect(screen.getByText("错误详情")).toBeTruthy();
   });
+
+  it("uses the shared execution node for subagents and nested tools", () => {
+    const events = [
+      { type: "subagent_started", subagent_id: "a", subagent_name: "general-purpose", parent_call_id: "task-1" },
+      { type: "subagent_text", subagent_id: "a", text: "子 Agent 输出" },
+      { type: "subagent_tool_call", subagent_id: "a", call_key: "tool-1", name: "search" },
+      { type: "subagent_tool_result", subagent_id: "a", call_key: "tool-1", name: "search", status: "completed", content: "ok" },
+      { type: "subagent_completed", subagent_id: "a", status: "completed" },
+    ];
+    const { container } = render(<ToolTimeline events={events} messageStatus="completed" />);
+
+    expect(container.querySelector(".execution-node.agent-subagent")).not.toBeNull();
+    expect(container.querySelector(".tool-card")).toBeNull();
+    expect(container.querySelector(".subagent-card")).toBeNull();
+    expect(container.querySelectorAll(".execution-node").length).toBe(3);
+    expect(container.textContent).toContain("完成");
+    expect(container.textContent).not.toContain("已完成");
+  });
 });

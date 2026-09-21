@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
-import ThoughtChain from "@ant-design/x/es/thought-chain";
 
+import { ExecutionNode } from "./ExecutionNode";
 import { Icon } from "./Icon";
 import type { DisplayEvent, MessageStatus } from "../types/api";
 
@@ -264,7 +264,7 @@ export function buildTimeline(events: DisplayEvent[], messageStatus?: MessageSta
 
 const TOOL_STATUS_LABELS: Record<ToolStatus, string> = {
   started: "处理中",
-  completed: "已完成",
+  completed: "完成",
   failed: "失败",
   waiting: "已暂停，等待确认",
   unknown: "未收到执行结果",
@@ -272,73 +272,62 @@ const TOOL_STATUS_LABELS: Record<ToolStatus, string> = {
 
 const SUBAGENT_STATUS_LABELS: Record<SubagentStatus, string> = {
   running: "处理中",
-  completed: "已完成",
+  completed: "完成",
   failed: "失败",
   waiting: "已暂停，等待确认",
   unknown: "未收到执行结果",
 };
 
+function nodeStatusIcon(status: ToolStatus | SubagentStatus) {
+  if (status === "completed") return "circle-check" as const;
+  if (status === "failed" || status === "unknown") return "circle-alert" as const;
+  if (status === "waiting") return "shield-check" as const;
+  return "loader-circle" as const;
+}
+
 function ToolCard({ tool }: { tool: ToolNode }) {
   const [expanded, setExpanded] = useState<{ status: ToolStatus; open: boolean } | null>(null);
   const open = expanded?.status === tool.status ? expanded.open : hasFailure(tool);
 
-  const headIcon =
-    tool.name === "task" ? "list-checks" : "file-text";
-  const statusIcon =
-    tool.status === "completed"
-      ? "circle-check"
-      : tool.status === "failed"
-        ? "circle-alert"
-        : tool.status === "waiting"
-          ? "shield-check"
-          : tool.status === "unknown"
-            ? "circle-alert"
-            : "loader-circle";
-
   return (
-    <details
+    <ExecutionNode
       className={[
-        "tool-card",
+        "agent-tool",
+        "execution-node",
         tool.status === "completed" ? "is-complete" : "",
         tool.status === "failed" ? "is-failed" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       open={open}
+      detailsClassName="agent-tool-details"
       onToggle={(event) => setExpanded({ status: tool.status, open: event.currentTarget.open })}
-    >
-      <summary className="tool-head">
-        <Icon
-          name={headIcon}
-          size={17}
-        />
-        <span className="tool-summary">{toolSummary(tool.name)}</span>
-        <span className="tool-name">{tool.name}</span>
-        <span className="tool-status">
+      icon={tool.name === "task" ? "list-checks" : "file-text"}
+      title={toolSummary(tool.name)}
+      subtitle={tool.name}
+      status={
+        <>
           <Icon
-            name={statusIcon}
-            size={15}
+            name={nodeStatusIcon(tool.status)}
+            size={14}
             className={tool.status === "started" ? "mc-icon-spin" : undefined}
           />
-          <span className="tool-status-label">
-            {TOOL_STATUS_LABELS[tool.status]}
-          </span>
-        </span>
-      </summary>
-      <div className="tool-details">
-        {tool.args !== undefined && <><div className="tool-detail-label">输入参数</div><pre className="tool-args">{tool.args}</pre></>}
+          <span>{TOOL_STATUS_LABELS[tool.status]}</span>
+        </>
+      }
+    >
+        {tool.args !== undefined && <><div className="agent-tool-detail-label">输入参数</div><pre>{tool.args}</pre></>}
         {tool.output !== undefined && (
-          <><div className="tool-detail-label">{tool.status === "failed" ? "错误详情" : "执行结果"}</div><pre className="tool-output">{tool.output}</pre></>
+          <><div className="agent-tool-detail-label">{tool.status === "failed" ? "错误详情" : "执行结果"}</div><pre>{tool.output}</pre></>
         )}
         {tool.children.length > 0 && (
-          <div className="tool-children">
+          <div className="agent-tool-children">
             {tool.children.map((child) => (
               <TimelineEntryView key={child.kind === "tool" ? child.key : child.id} entry={child} />
             ))}
           </div>
         )}
-      </div>
-    </details>
+    </ExecutionNode>
   );
 }
 
@@ -349,31 +338,37 @@ function SubagentCard({ node }: { node: SubagentNode }) {
   const failed = node.status === "failed";
 
   return (
-    <details
-      className={["subagent-card", failed ? "is-failed" : ""]
+    <ExecutionNode
+      className={["agent-tool", "execution-node", "agent-subagent", failed ? "is-failed" : ""]
         .filter(Boolean)
         .join(" ")}
       open={open}
+      detailsClassName="agent-tool-details"
       onToggle={(event) => setExpanded({ status: node.status, open: event.currentTarget.open })}
+      icon="list-checks"
+      iconClassName="agent-subagent-icon"
+      title={node.name}
+      subtitle={`${node.toolCount} 个工具`}
+      status={
+        <>
+          <Icon
+            name={nodeStatusIcon(node.status)}
+            size={14}
+            className={node.status === "running" ? "mc-icon-spin" : undefined}
+          />
+          <span>{SUBAGENT_STATUS_LABELS[node.status]}</span>
+        </>
+      }
     >
-      <summary className="subagent-head">
-        <Icon name="list-checks" size={16} className="subagent-icon" />
-        <span className="subagent-name">{node.name}</span>
-        <span className="subagent-status">
-          {SUBAGENT_STATUS_LABELS[node.status]} · {node.toolCount} 个工具
-        </span>
-      </summary>
-      <div className="subagent-details">
         {node.text ? <div className="subagent-output">{node.text}</div> : null}
         {node.tools.length > 0 && (
-          <div className="subagent-tools">
+          <div className="agent-tool-children">
             {node.tools.map((tool) => (
               <ToolCard key={tool.key} tool={tool} />
             ))}
           </div>
         )}
-      </div>
-    </details>
+    </ExecutionNode>
   );
 }
 
@@ -388,27 +383,14 @@ function TimelineEntryView({ entry }: { entry: TimelineEntry }): ReactNode {
 export const ToolTimeline = memo(function ToolTimeline({ events, messageStatus }: { events: DisplayEvent[]; messageStatus?: MessageStatus | "streaming" | null }) {
   const timeline = useMemo(() => buildTimeline(events, messageStatus), [events, messageStatus]);
   if (timeline.length === 0) return null;
-  const thoughtItems = timeline.map((entry) => {
-    const status = entry.status === "failed" || hasFailure(entry) ? "error" as const
-      : entry.status === "completed" ? "success" as const
-        : entry.status === "waiting" || entry.status === "unknown" ? "abort" as const
-          : "loading" as const;
-    const title = entry.kind === "tool"
-      ? `${toolSummary(entry.name)} · ${TOOL_STATUS_LABELS[entry.status]}`
-      : `${entry.name} · ${SUBAGENT_STATUS_LABELS[entry.status]}`;
-    return {
-      key: entry.kind === "tool" ? entry.key : entry.id,
-      title,
-      status,
-      // 保留旧卡片作为详情内容，ThoughtChain 负责阶段的统一层级与状态线。
-      content: <TimelineEntryView entry={entry} />,
-      collapsible: false,
-    };
-  });
   return (
     <div className="message-tools" aria-label="工具活动">
-      <div className="tool-detail-label">工具活动 · {timeline.length} 项</div>
-      <ThoughtChain className="tool-thought-chain" line="solid" items={thoughtItems} />
+      <div className="agent-tool-detail-label execution-activity-label">工具活动 · {timeline.length} 项</div>
+      <div className="execution-activity-list">
+        {timeline.map((entry) => (
+          <TimelineEntryView key={entry.kind === "tool" ? entry.key : entry.id} entry={entry} />
+        ))}
+      </div>
     </div>
   );
 });
