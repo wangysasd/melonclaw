@@ -246,6 +246,23 @@ describe("composer", () => {
     view.unmount();
   });
 
+  it("shows a stop square while running and only stops on click", async () => {
+    session.busy = true;
+    session.runStatus = "processing";
+    const onSend = vi.fn(); const onStop = vi.fn(); const onChange = vi.fn();
+    const view = await renderComposer({ value: "draft", onChange, onSend, disabled: false, isRunning: true, onStop });
+    const stopButton = screen.getByRole("button", { name: "停止生成" });
+    expect((stopButton as HTMLButtonElement).disabled).toBe(false);
+    // 回车不触发停止也不发送。
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onStop).not.toHaveBeenCalled();
+    fireEvent.click(stopButton);
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onSend).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it("shows model choices to the left of send and reports a selection", async () => {
     const view = await renderComposer({ value: "你好", disabled: false });
     const picker = screen.getByRole("combobox", { name: "选择模型" }) as HTMLSelectElement;

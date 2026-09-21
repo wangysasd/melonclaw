@@ -365,7 +365,7 @@
   background: rgba(0, 113, 227, 0.035);
 }
 
-.tool-catalog-server-list li span {
+.tool-catalog-server-status {
   margin-left: auto;
   color: var(--muted);
   font-size: 11px;

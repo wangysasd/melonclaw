@@ -15,6 +15,7 @@
 | D7 | 无本地可观测性栈 | agent 无法自行验证启动耗时、事件延迟等指标 | 需要时再加最小实现，不要提前建设 | `docs/QUALITY_SCORE.md` |
 | D8 | 设计文档 `note/上传附件技术设计.md` 未版本化 | 协作者与 CI 不可见，无法校验新鲜度 | 定稿后搬入 `docs/design-docs/` 并更新索引 | `docs/design-docs/index.md` |
 | D9 | CI 未在真实 PR 上验证过 | 流水线可能因环境差异失败，分支保护也未配置 | 下一次提交时观察两个 job，通过后再考虑设为必需检查 | `.github/workflows/check.yml` |
+| D10 | `execute` 审批被注释（过渡期免审批） | Shell 无确认执行；`LocalShellBackend` 不是沙箱，误操作/提示注入可直达宿主机 | 沙箱落地后解开 `src/melonclaw/core/hitl.py` 的 `TODO(sandbox)` 注释并恢复 README 文案 | 本次改动 |
 
 ## 已偿还
 

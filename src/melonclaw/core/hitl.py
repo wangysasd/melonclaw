@@ -28,12 +28,15 @@ SENSITIVE_TOOL_INTERRUPTS: dict[str, InterruptOnConfig] = {
         description="文件操作需要人工确认后才会执行。",
     )
     for tool_name in ("write_file", "edit_file", "delete")
-} | {
-    "execute": InterruptOnConfig(
-        allowed_decisions=_SENSITIVE_DECISIONS,
-        description="Shell 命令需要人工确认后才会执行。",
-    ),
 }
+# TODO(sandbox): 沙箱落地后恢复 execute 审批。过渡期 execute 免审批，
+# 仅限本机单用户 127.0.0.1 开发使用；LocalShellBackend 不是安全沙箱。
+# | {
+#     "execute": InterruptOnConfig(
+#         allowed_decisions=_SENSITIVE_DECISIONS,
+#         description="Shell 命令需要人工确认后才会执行。",
+#     ),
+# }
 
 
 async def aget_pending_approval(

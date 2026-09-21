@@ -484,6 +484,12 @@ interface SendContext {
 
 export interface ChatStreamHandle {
   state: ChatState;
+  /** 当前可见会话是否有 AI 输出在跑（左栏转圈与停止键的依据）。 */
+  isRunning: boolean;
+  /** 正在跑输出的会话 ID（跨会话并发时多项）。 */
+  runningConversationIds: string[];
+  /** 显式取消当前可见会话的输出：abort 该会话流并乐观置 cancelled。 */
+  stopCurrent: () => boolean;
   sendMessage: (
     content: string,
     skillId?: string | null,
@@ -520,10 +526,18 @@ export function useChatStream({
   sessionRef.current = session;
   const chatStateRef = useRef(state);
   chatStateRef.current = state;
-  const activeRunRef = useRef<{ controller: AbortController; context: SendContext } | null>(null);
+  /** 多会话并发：按 conversationId 各持一条 SSE 流，切会话不断开。 */
+  const activeRunsRef = useRef(new Map<string, { controller: AbortController; context: SendContext }>());
+  /** 按会话缓存聊天态：后台会话的事件只写缓存，切回来直接恢复续播。 */
+  const chatCacheRef = useRef(new Map<string, ChatState>());
   const historyControllerRef = useRef<AbortController | null>(null);
   const forceHistoryReloadRef = useRef(false);
-  const selectorTextBufferRef = useRef("");
+  const textBuffersRef = useRef(new Map<string, string>());
+
+  // 可见态同步进缓存：后台事件走缓存，回来时不丢增量。
+  useEffect(() => {
+    if (state.conversationId) chatCacheRef.current.set(state.conversationId, state);
+  }, [state]);
 
   const matchesContext = useCallback((context: SendContext): boolean => {
     const current = sessionRef.current;
@@ -535,25 +549,55 @@ export function useChatStream({
     );
   }, []);
 
-  const appendStreamText = useCallback((text: string): boolean => {
+  /** 按会话投递归约：永远写缓存；只有可见会话才 dispatch 到当前视图。 */
+  const dispatchFor = useCallback((conversationId: string, action: ChatAction): void => {
+    const visible = chatStateRef.current.conversationId === conversationId;
+    const prev = visible
+      ? chatStateRef.current
+      : (chatCacheRef.current.get(conversationId) ?? {
+          ...INITIAL_CHAT_STATE,
+          conversationId,
+        });
+    const next = reducer(prev, action);
+    chatCacheRef.current.set(conversationId, next);
+    if (visible) dispatch(action);
+  }, []);
+
+  const bufferFor = useCallback((conversationId: string): string => {
+    return textBuffersRef.current.get(conversationId) ?? "";
+  }, []);  const setBufferFor = useCallback((conversationId: string, value: string): void => {
+    if (value) textBuffersRef.current.set(conversationId, value);
+    else textBuffersRef.current.delete(conversationId);
+  }, []);
+
+  /** 除指定会话外是否还有活流：全局 busy 只在所有会话都空闲时才清零。 */
+  const othersRunning = useCallback((excludeId: string): boolean => {
+    for (const [id, run] of activeRunsRef.current.entries()) {
+      if (id !== excludeId && !run.controller.signal.aborted) return true;
+    }
+    return false;
+  }, []);
+
+  const appendStreamText = useCallback((conversationId: string, text: string): boolean => {
     if (!text) return false;
-    const candidate = selectorTextBufferRef.current + text;
-    const kind = classifyToolSelectorText(candidate);
+    const buffered = bufferFor(conversationId) + text;
+    const kind = classifyToolSelectorText(buffered);
     if (kind === "selector") {
-      selectorTextBufferRef.current = "";
+      setBufferFor(conversationId, "");
       return false;
     }
     if (kind === "pending") {
-      selectorTextBufferRef.current = candidate;
+      setBufferFor(conversationId, buffered);
       return false;
     }
-    if (selectorTextBufferRef.current) {
-      dispatch({ type: "text", text: selectorTextBufferRef.current });
-      selectorTextBufferRef.current = "";
+    const pending = bufferFor(conversationId);
+    if (pending) {
+      dispatchFor(conversationId, { type: "text", text: pending });
+      setBufferFor(conversationId, "");
     }
-    dispatch({ type: "text", text });
+    dispatchFor(conversationId, { type: "text", text });
     return true;
-  }, []);
+  }, [bufferFor, dispatchFor, setBufferFor]);
 
   const reloadHistory = useCallback(() => {
     forceHistoryReloadRef.current = true;
@@ -562,23 +606,24 @@ export function useChatStream({
 
   const handleEvent = useCallback(
     (event: StreamEvent, context: SendContext, eventId?: number): void => {
-      if (!matchesContext(context)) return;
+      const conversationId = context.conversationId;
+      const viewing = matchesContext(context);
       if (eventId !== undefined) {
         // 服务端帧序号在单条流内单调递增：重复或乱序帧直接丢弃，
         // 不能按文本内容去重（相同文本可能是模型真实重复输出）。
         if (context.lastEventId !== undefined && eventId <= context.lastEventId) return;
         context.lastEventId = eventId;
       }
-      const follow = scroll.isNearBottom();
+      const follow = viewing && scroll.isNearBottom();
       switch (event.type) {
         case "run_phase":
-          dispatch({ type: "runPhase", phase: event.phase });
-          sessionRef.current.setRunStatus(event.phase);
+          dispatchFor(conversationId, { type: "runPhase", phase: event.phase });
+          if (viewing) sessionRef.current.setRunStatus(event.phase);
           break;
         case "message_started":
-          if (context.epoch === sessionRef.current.epoch) context.onAccepted?.();
+          if (viewing && context.epoch === sessionRef.current.epoch) context.onAccepted?.();
           context.onAccepted = undefined;
-          dispatch({
+          dispatchFor(conversationId, {
             type: "messageStarted",
             assistantMessageId: event.message_id,
             userMessageId: event.user_message_id,
@@ -588,49 +633,49 @@ export function useChatStream({
           });
           break;
         case "text":
-          dispatch({ type: "runPhase", phase: "responding" });
-          if (appendStreamText(event.text)) {
-            sessionRef.current.setRunStatus("responding");
+          dispatchFor(conversationId, { type: "runPhase", phase: "responding" });
+          if (appendStreamText(conversationId, event.text)) {
+            if (viewing) sessionRef.current.setRunStatus("responding");
           }
           break;
         case "assistant_step_started":
-          dispatch({
+          dispatchFor(conversationId, {
             type: "assistantStepStarted",
             messageId: event.message_id,
             step: event.step,
           });
-          sessionRef.current.setRunStatus("responding");
+          if (viewing) sessionRef.current.setRunStatus("responding");
           break;
         case "assistant_text_delta":
-          dispatch({
+          dispatchFor(conversationId, {
             type: "assistantTextDelta",
             messageId: event.message_id,
             stepId: event.step_id,
             delta: event.delta,
           });
-          sessionRef.current.setRunStatus("responding");
+          if (viewing) sessionRef.current.setRunStatus("responding");
           break;
         case "assistant_tool_call":
-          dispatch({
+          dispatchFor(conversationId, {
             type: "assistantToolCall",
             messageId: event.message_id,
             stepId: event.step_id,
             call: event.call,
           });
-          sessionRef.current.setRunStatus("processing");
+          if (viewing) sessionRef.current.setRunStatus("processing");
           break;
         case "assistant_tool_result":
-          dispatch({
+          dispatchFor(conversationId, {
             type: "assistantToolResult",
             messageId: event.message_id,
             stepId: event.step_id,
             callId: event.call_id,
             result: event.result,
           });
-          sessionRef.current.setRunStatus("processing");
+          if (viewing) sessionRef.current.setRunStatus("processing");
           break;
         case "assistant_step_completed":
-          dispatch({
+          dispatchFor(conversationId, {
             type: "assistantStepCompleted",
             messageId: event.message_id,
             stepId: event.step_id,
@@ -640,11 +685,14 @@ export function useChatStream({
           });
           break;
         case "completed":
-          selectorTextBufferRef.current = "";
-          sessionRef.current.setBusy(false);
-          sessionRef.current.setRunStatus(null);
-          dispatch({ type: "approvalCleared" });
-          dispatch({
+          setBufferFor(conversationId, "");
+          sessionRef.current.markConversationIdle?.(conversationId);
+          if (viewing) {
+            if (!othersRunning(conversationId)) sessionRef.current.setBusy(false);
+            sessionRef.current.setRunStatus(null);
+          }
+          dispatchFor(conversationId, { type: "approvalCleared" });
+          dispatchFor(conversationId, {
             type: "completed",
             messageId: event.message_id,
             content: visibleAssistantText(event.content),
@@ -653,58 +701,74 @@ export function useChatStream({
           });
           break;
         case "message_status":
-          dispatch({
+          dispatchFor(conversationId, {
             type: "messageStatus",
             messageId: event.message_id,
             status: event.status,
           });
-          if (event.status === "pending") {
-            message.error("该请求正在进行中，请稍候刷新会话。");
-            dispatch({ type: "historyFailed", error: "该请求仍在进行中。请稍后重新同步会话，确认结果后再发送新消息。" });
+          sessionRef.current.markConversationIdle?.(conversationId);
+          if (viewing) {
+            if (event.status === "pending") {
+              message.error("该请求正在进行中，请稍候刷新会话。");
+              dispatchFor(conversationId, { type: "historyFailed", error: "该请求仍在进行中。请稍后重新同步会话，确认结果后再发送新消息。" });
+            }
+            if (!othersRunning(conversationId)) sessionRef.current.setBusy(false);
+            sessionRef.current.setRunStatus(
+              event.status === "interrupted"
+                ? "waiting"
+                : event.status === "failed"
+                  ? "failed"
+                  : null,
+            );
           }
-          sessionRef.current.setBusy(false);
-          sessionRef.current.setRunStatus(
-            event.status === "interrupted"
-              ? "waiting"
-              : event.status === "failed"
-                ? "failed"
-                : null,
-          );
           break;
         case "approval_required":
-          sessionRef.current.setBusy(true);
-          sessionRef.current.setRunStatus("waiting");
-          dispatch({ type: "runPhase", phase: "waiting" });
-          dispatch({ type: "approvalRequired", request: event.request });
+          if (viewing) {
+            sessionRef.current.setBusy(true);
+            sessionRef.current.setRunStatus("waiting");
+          }
+          dispatchFor(conversationId, { type: "runPhase", phase: "waiting" });
+          dispatchFor(conversationId, { type: "approvalRequired", request: event.request });
           break;
         case "user_input_required":
-          sessionRef.current.setBusy(true);
-          sessionRef.current.setRunStatus("waiting");
-          dispatch({ type: "runPhase", phase: "waiting" });
-          dispatch({ type: "userInputRequired", request: event.request });
+          if (viewing) {
+            sessionRef.current.setBusy(true);
+            sessionRef.current.setRunStatus("waiting");
+          }
+          dispatchFor(conversationId, { type: "runPhase", phase: "waiting" });
+          dispatchFor(conversationId, { type: "userInputRequired", request: event.request });
           break;
         case "user_input_accepted":
-          sessionRef.current.setBusy(true);
-          sessionRef.current.setRunStatus("processing");
-          dispatch({ type: "userInputAccepted" });
+          if (viewing) {
+            sessionRef.current.setBusy(true);
+            sessionRef.current.setRunStatus("processing");
+          }
+          dispatchFor(conversationId, { type: "userInputAccepted" });
           break;
         case "done":
-          sessionRef.current.setBusy(false);
-          void sessionRef.current.refreshConversations();
-          // 回执型响应（同幂等键重试）背后没有继续执行：如果不回到服务端对账，
-          // 用户只会看到卡片消失、然后什么都没发生。
-          if (event.terminal_reason === "already_accepted") reloadHistory();
+          if (viewing) {
+            if (!othersRunning(conversationId)) sessionRef.current.setBusy(false);
+            void sessionRef.current.refreshConversations();
+            // 回执型响应（同幂等键重试）背后没有继续执行：如果不回到服务端对账，
+            // 用户只会看到卡片消失、然后什么都没发生。
+            if (event.terminal_reason === "already_accepted") reloadHistory();
+          } else {
+            void sessionRef.current.refreshConversations();
+          }
           break;
         case "error":
-          sessionRef.current.setBusy(false);
-          sessionRef.current.setRunStatus("failed");
-          dispatch({
+          sessionRef.current.markConversationIdle?.(conversationId);
+          dispatchFor(conversationId, {
             type: "streamFailed",
             messageId: event.message_id,
             message: context.draft,
             error: event.message || "助手运行失败。请检查会话状态后重试。",
           });
-          message.error(event.message || "助手运行失败。请重试。");
+          if (viewing) {
+            if (!othersRunning(conversationId)) sessionRef.current.setBusy(false);
+            sessionRef.current.setRunStatus("failed");
+            message.error(event.message || "助手运行失败。请重试。");
+          }
           break;
         case "tool_call":
         case "tool_result":
@@ -714,8 +778,8 @@ export function useChatStream({
         case "subagent_tool_result":
         case "subagent_completed":
         case "subagent_failed":
-          sessionRef.current.setRunStatus("processing");
-          dispatch({ type: "displayEvent", event: event as DisplayEvent });
+          if (viewing) sessionRef.current.setRunStatus("processing");
+          dispatchFor(conversationId, { type: "displayEvent", event: event as DisplayEvent });
           break;
         default:
           break;
@@ -724,7 +788,7 @@ export function useChatStream({
         scroll.scrollToBottom();
       }
     },
-    [appendStreamText, matchesContext, message, reloadHistory, scroll],
+    [appendStreamText, dispatchFor, matchesContext, message, othersRunning, reloadHistory, scroll, setBufferFor],
   );
 
   const runStream = useCallback(
@@ -733,17 +797,20 @@ export function useChatStream({
       context: SendContext,
       optimisticIds: string[],
     ): Promise<boolean> => {
-      if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return false;
+      // 同一会话只允许一条流；不同会话可并发，切会话不断开。
+      const existing = activeRunsRef.current.get(context.conversationId);
+      if (existing && !existing.controller.signal.aborted) return false;
+      sessionRef.current.markConversationRunning?.(context.conversationId);
       sessionRef.current.setBusy(true);
       sessionRef.current.setRunStatus("starting");
-      selectorTextBufferRef.current = "";
+      setBufferFor(context.conversationId, "");
       let started = false;
       let failed = false;
       let terminal = false;
       const controller = new AbortController();
-      activeRunRef.current = { controller, context };
-      sessionRef.current.attachStream(controller);
-      dispatch({ type: "runPhase", phase: "starting" });
+      activeRunsRef.current.set(context.conversationId, { controller, context });
+      sessionRef.current.attachStream(controller, context.conversationId);
+      dispatchFor(context.conversationId, { type: "runPhase", phase: "starting" });
       try {
         await stream({
           signal: controller.signal,
@@ -751,7 +818,6 @@ export function useChatStream({
             if (event.type === "message_started") started = true;
             if (event.type === "error") failed = true;
             if (TERMINAL_HINT.has(event.type)) terminal = true;
-            // 后台会话的事件不能改变当前会话的发送、审批或运行状态。
             handleEvent(event, context, eventId);
           },
         });
@@ -766,25 +832,27 @@ export function useChatStream({
         if (error instanceof DOMException && error.name === "AbortError") {
           return false;
         }
-        if (!started && matchesContext(context)) {
-          dispatch({ type: "removeOptimistic", ids: optimisticIds });
+        if (!started) {
+          dispatchFor(context.conversationId, { type: "removeOptimistic", ids: optimisticIds });
         }
+        sessionRef.current.markConversationIdle?.(context.conversationId);
         if (matchesContext(context)) {
           sessionRef.current.setBusy(false);
           sessionRef.current.setRunStatus("failed");
-          dispatch({ type: "streamFailed", message: context.draft, error: error instanceof Error ? error.message : String(error) });
+          dispatchFor(context.conversationId, { type: "streamFailed", message: context.draft, error: error instanceof Error ? error.message : String(error) });
           message.error(error instanceof Error ? error.message : String(error));
         }
         return false;
       } finally {
-        if (matchesContext(context)) selectorTextBufferRef.current = "";
-        if (activeRunRef.current?.controller === controller) {
-          activeRunRef.current = null;
-          if (matchesContext(context)) sessionRef.current.attachStream(null);
+        setBufferFor(context.conversationId, "");
+        if (activeRunsRef.current.get(context.conversationId)?.controller === controller) {
+          activeRunsRef.current.delete(context.conversationId);
+          sessionRef.current.attachStream(null, context.conversationId);
+          sessionRef.current.markConversationIdle?.(context.conversationId);
         }
       }
     },
-    [handleEvent, matchesContext, message],
+    [dispatchFor, handleEvent, matchesContext, message, setBufferFor],
   );
 
   const sendMessage = useCallback(
@@ -800,12 +868,18 @@ export function useChatStream({
       const canReplaceExpiredQuestion = Boolean(
         pendingQuestion && isUserQuestionExpired(pendingQuestion.expires_at),
       );
+      // 并发会话可同时跑：只看当前可见会话是否有流，不看全局 busy。
+      const visibleRun = snapshot.conversationId
+        ? activeRunsRef.current.get(snapshot.conversationId)
+        : undefined;
+      const visibleRunning = Boolean(
+        visibleRun && !visibleRun.controller.signal.aborted,
+      );
       if (
         (!cleanText && attachmentIds.length === 0) ||
-        (snapshot.busy && !canReplaceExpiredQuestion) ||
+        (visibleRunning && !canReplaceExpiredQuestion) ||
         snapshot.conversationCreating
       ) return;
-      if (activeRunRef.current && matchesContext(activeRunRef.current.context)) return;
       if (!snapshot.contextReady || snapshot.status?.status !== "ready") {
         message.error("服务仍在准备中，请稍候再发送。");
         return;
@@ -851,7 +925,7 @@ export function useChatStream({
       ];
       // 新会话历史与首次发送可能并发；迟到的历史不能覆盖本次乐观消息。
       historyControllerRef.current?.abort();
-      dispatch({
+      dispatchFor(conversationId, {
         type: "optimistic",
         conversationId,
         user: {
@@ -901,7 +975,7 @@ export function useChatStream({
         optimisticIds,
       );
     },
-    [message, runStream, scroll, matchesContext],
+    [dispatchFor, message, runStream, scroll],
   );
 
   const submitApproval = useCallback(
@@ -1008,24 +1082,47 @@ export function useChatStream({
     const load = async () => {
       const forceReload = forceHistoryReloadRef.current;
       forceHistoryReloadRef.current = false;
-      const activeRun = activeRunRef.current;
-      if (
-        !forceReload &&
-        activeRun &&
-        !activeRun.controller.signal.aborted &&
-        matchesContext(activeRun.context) &&
-        chatStateRef.current.conversationId === snapshot.conversationId
-      ) return;
-      if (!snapshot.conversationId) {
+      const targetId = snapshot.conversationId;
+      if (!targetId) {
         dispatch({ type: "reset", conversationId: null });
         return;
       }
-      dispatch({ type: "historyLoading", conversationId: snapshot.conversationId });
-      selectorTextBufferRef.current = "";
+      // 切回仍在跑的会话：直接恢复缓存里的流式增量，不用历史快照覆盖。
+      const liveRun = activeRunsRef.current.get(targetId);
+      const cached = chatCacheRef.current.get(targetId);
+      if (
+        !forceReload &&
+        liveRun &&
+        !liveRun.controller.signal.aborted &&
+        cached &&
+        cached.messages.length > 0 &&
+        cached.conversationId === targetId
+      ) {
+        dispatch({
+          type: "historyLoaded",
+          conversationId: targetId,
+          title: cached.conversationTitle,
+          messages: cached.messages,
+          approval: cached.approval,
+          userQuestion: cached.userQuestion,
+        });
+        sessionRef.current.setBusy(true);
+        sessionRef.current.setRunStatus("processing");
+        return;
+      }
+      const ownRun = activeRunsRef.current.get(targetId);
+      if (
+        !forceReload &&
+        ownRun &&
+        !ownRun.controller.signal.aborted &&
+        chatStateRef.current.conversationId === targetId
+      ) return;
+      dispatch({ type: "historyLoading", conversationId: targetId });
+      setBufferFor(targetId, "");
       try {
         const data = await getConversationHistory(
           {
-            conversationId: snapshot.conversationId,
+            conversationId: targetId,
             userId: snapshot.userId,
             tenantId: snapshot.tenantId,
             limit: 50,
@@ -1068,17 +1165,17 @@ export function useChatStream({
         });
         dispatch({
           type: "historyLoaded",
-          conversationId: snapshot.conversationId,
+          conversationId: targetId,
           title: data.conversation?.title ?? null,
           messages,
           approval: data.pending_approval,
           userQuestion: data.pending_interaction ?? null,
         });
-        const currentActiveRun = activeRunRef.current;
+        const ownActiveRun = activeRunsRef.current.get(targetId);
         const activeStream =
-          currentActiveRun && !currentActiveRun.controller.signal.aborted;
-        const activeForSnapshot =
-          activeStream && matchesContext(currentActiveRun.context);
+          ownActiveRun && !ownActiveRun.controller.signal.aborted;
+        // 同会话的活流：历史只提供已落库内容，后续事件继续由原 SSE 补上。
+        const activeForSnapshot = Boolean(activeStream);
         if (data.pending_approval || data.pending_interaction) {
           sessionRef.current.setBusy(true);
           sessionRef.current.setRunStatus("waiting");
@@ -1087,10 +1184,9 @@ export function useChatStream({
           const pending = messages.some((item) => item.status === "pending");
           sessionRef.current.setRunStatus(pending ? "processing" : null);
           if (pending) {
-            dispatch({ type: "historyFailed", error: "上次请求尚未结束，当前未连接其输出。请稍后重新同步会话。" });
+            dispatchFor(targetId, { type: "historyFailed", error: "上次请求尚未结束，当前未连接其输出。请稍后重新同步会话。" });
           }
         } else if (activeForSnapshot) {
-          // 回到仍在运行的会话：历史只提供已落库内容，后续事件继续由原 SSE 补上。
           sessionRef.current.setBusy(true);
           sessionRef.current.setRunStatus("processing");
         }
@@ -1100,7 +1196,9 @@ export function useChatStream({
         }
         if (snapshot.epoch === sessionRef.current.epoch) {
           message.error(error instanceof Error ? error.message : String(error));
-          dispatch({ type: "historyFailed", error: error instanceof Error ? error.message : String(error) });
+          const failedAction = { type: "historyFailed" as const, error: error instanceof Error ? error.message : String(error) };
+          if (snapshot.conversationId) dispatchFor(snapshot.conversationId, failedAction);
+          else dispatch(failedAction);
         }
       }
     };
@@ -1109,16 +1207,66 @@ export function useChatStream({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.conversationId, session.userId, session.tenantId, session.projectId, session.epoch, historyRevision]);
 
+  /**
+   * 显式取消某会话的输出：abort 该会话的 SSE 流并乐观置 cancelled。
+   * 后端断开后按现有 CancelledError 路径写 cancelled/request_cancelled。
+   * 只动该会话，不影响其他并发会话。
+   */
+  const stopConversation = useCallback((conversationId: string): boolean => {
+    if (!conversationId) return false;
+    const run = activeRunsRef.current.get(conversationId);
+    if (!run || run.controller.signal.aborted) return false;
+    run.controller.abort();
+    // abort 后流静默结束：本地先显式收尾，避免卡在 streaming。
+    const prev = chatStateRef.current.conversationId === conversationId
+      ? chatStateRef.current
+      : chatCacheRef.current.get(conversationId);
+    const target = prev?.messages.filter(
+      (item) => item.role === "assistant" && !isTerminalStatus(item.status),
+    ).at(-1);
+    if (target) {
+      dispatchFor(conversationId, {
+        type: "messageStatus",
+        messageId: target.id,
+        status: "cancelled",
+      });
+    }
+    sessionRef.current.markConversationIdle?.(conversationId);
+    if (sessionRef.current.conversationId === conversationId) {
+      sessionRef.current.setBusy(false);
+      sessionRef.current.setRunStatus(null);
+    }
+    return true;
+  }, [dispatchFor]);
+
+  const stopCurrent = useCallback((): boolean => {
+    const currentId = sessionRef.current.conversationId
+      ?? chatStateRef.current.conversationId;
+    if (!currentId) return false;
+    return stopConversation(currentId);
+  }, [stopConversation]);
+
+  const runningConversationIds = useMemo(
+    () => session.runningConversationIds ?? [],
+    [session.runningConversationIds],
+  );
+  const isRunning = Boolean(
+    state.conversationId && runningConversationIds.includes(state.conversationId),
+  );
+
   const handle = useMemo<ChatStreamHandle>(
     () => ({
       state,
+      isRunning,
+      runningConversationIds,
+      stopCurrent,
       sendMessage,
       submitApproval,
       submitUserInput,
       clearRestoreDraft: () => dispatch({ type: "draftRestored" }),
       reloadHistory,
     }),
-    [state, reloadHistory, sendMessage, submitApproval, submitUserInput],
+    [state, isRunning, runningConversationIds, stopCurrent, reloadHistory, sendMessage, submitApproval, submitUserInput],
   );
 
   return handle;

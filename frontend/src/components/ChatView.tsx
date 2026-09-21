@@ -438,12 +438,14 @@ export function ChatView() {
         value={draft}
         onChange={setDraft}
         onSend={handleSend}
+        isRunning={chat.isRunning}
+        onStop={() => chat.stopCurrent()}
         disabled={
           session.conversationCreating ||
           chat.state.historyLoading ||
           Boolean(chat.state.approval) ||
           Boolean(chat.state.userQuestion && !userQuestionExpired) ||
-          ((session.busy || Boolean(chat.state.error)) &&
+          ((chat.isRunning || Boolean(chat.state.error)) &&
             !expiredQuestionCanStartNewMessage)
         }
       />

@@ -29,6 +29,7 @@ export const ICON_NAMES = [
   "plus",
   "plug",
   "pencil-line",
+  "square",
   "search",
   "scan-search",
   "shield-check",

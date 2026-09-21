@@ -81,6 +81,7 @@ export function SidebarContent({
     session.selectConversation(id);
     onSelectConversationCloseMobile?.();
   };
+  const runningIds = session.runningConversationIds ?? [];
 
   if (collapsed) {
     return (
@@ -197,11 +198,16 @@ export function SidebarContent({
               <Conversations
                 rootClassName="conversation-list"
                 activeKey={session.conversationId ?? undefined}
-                items={session.conversations.map((conversation) => ({
-                  key: conversation.id,
-                  label: <><span className="conversation-item-title">{conversation.title || "未命名会话"}</span><span className="conversation-item-time">{formatConversationTime(conversation.updated_at)}</span></>,
-                  icon: <Icon name="message-circle" size={14} />,
-                }))}
+                items={session.conversations.map((conversation) => {
+                  const running = runningIds.includes(conversation.id);
+                  return {
+                    key: conversation.id,
+                    label: <><span className="conversation-item-title">{conversation.title || "未命名会话"}</span><span className="conversation-item-time">{formatConversationTime(conversation.updated_at)}</span></>,
+                    icon: running
+                      ? <Icon name="loader-circle" size={14} className="mc-icon-spin" />
+                      : <Icon name="message-circle" size={14} />,
+                  };
+                })}
                 onActiveChange={(id) => conversationClick(id)}
               />
             ) : (

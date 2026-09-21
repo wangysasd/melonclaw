@@ -45,6 +45,10 @@ export interface ComposerProps {
     onAccepted?: () => void,
   ) => void;
   disabled: boolean;
+  /** 当前会话是否有 AI 输出在跑：跑时发送键变方形停止键。 */
+  isRunning?: boolean;
+  /** 显式取消当前会话输出；只在停止模式下调用。 */
+  onStop?: () => void;
 }
 
 /** 已通过弹窗确认、进入输入区等待随消息发送的附件。 */
@@ -81,7 +85,7 @@ function statusText(attachment: ComposerAttachment): string {
 }
 
 /** Sender 仅负责输入展示；模型快照与发送恢复仍由现有聊天流管理。 */
-export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
+export function Composer({ value, onChange, onSend, disabled, isRunning, onStop }: ComposerProps) {
   const session = useSession();
   const { message } = AntdApp.useApp();
   const senderRef = useRef<SenderRef>(null);
@@ -260,15 +264,20 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
   }, [filteredSkills.length]);
 
   let placeholder = "聊点儿什么，输入/调用技能工具。";
+  // 停止模式：当前会话正在输出且非等待确认，发送键变方形停止键，可点取消。
+  // waiting（审批/问题卡）时仍是等待确认，不进停止模式。
+  const running = isRunning ?? session.busy;
+  const waiting = session.runStatus === "waiting";
+  const stopMode = running && !waiting && !session.conversationCreating;
   if (!session.contextReady) {
     placeholder = "正在准备工作区…";
   } else if (session.projects.length === 0) {
     placeholder = "请先创建一个项目…";
   } else if (session.conversationCreating) {
     placeholder = "正在准备会话…";
-  } else if (session.runStatus === "waiting") {
+  } else if (waiting) {
     placeholder = "请先处理待确认操作，也可以先写下一条消息…";
-  } else if (session.busy) {
+  } else if (running) {
     placeholder = "助手正在回复，可以先写下一条消息…";
   }
 
@@ -288,19 +297,25 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
       selectedModel?.input_modalities && !selectedModel.input_modalities.includes("image"),
   );
   const readyAttachments = attachments.length > 0 && attachments.every(isReady) && !hasUnsupportedImage;
-  const sendDisabled = inputDisabled || disabled || session.busy || session.runStatus === "waiting" || session.conversationCreating || (!value.trim() && !readyAttachments);
-  const sendLabel = session.conversationCreating
-    ? "准备中"
-    : session.runStatus === "waiting"
-      ? "等待确认"
-      : session.busy
-        ? "处理中"
-        : "发送";
-  const sendIcon = session.conversationCreating || session.busy
-    ? "loader-circle"
-    : session.runStatus === "waiting"
-      ? "shield-check"
-      : "arrow-up";
+  const sendDisabled = stopMode
+    ? false
+    : (inputDisabled || disabled || running || waiting || session.conversationCreating || (!value.trim() && !readyAttachments));
+  const sendLabel = stopMode
+    ? "停止生成"
+    : session.conversationCreating
+      ? "准备中"
+      : waiting
+        ? "等待确认"
+        : running
+          ? "处理中"
+          : "发送";
+  const sendIcon = stopMode
+    ? "square"
+    : session.conversationCreating || running
+      ? "loader-circle"
+      : waiting
+        ? "shield-check"
+        : "arrow-up";
 
   /** 打开附件弹窗；带 files 表示由输入区的拖拽/粘贴进入，弹窗会立刻上传。 */
   const openAttachmentDialog = (files: File[] = []) => {
@@ -312,6 +327,8 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
   };
 
   const submit = () => {
+    // 停止模式下回车不发送：只能点按钮显式取消，避免误触。
+    if (stopMode) return;
     if (sendDisabled || composingRef.current || submittingRef.current) return;
     submittingRef.current = true;
     try {
@@ -328,6 +345,15 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
       setSelectedSkill(null);
       queueMicrotask(() => { submittingRef.current = false; });
     }
+  };
+
+  /** 发送键点击：停止模式下显式取消，否则走正常发送。 */
+  const handleSendButton = () => {
+    if (stopMode) {
+      onStop?.();
+      return;
+    }
+    submit();
   };
 
   const handleDialogConfirm = (items: StagedAttachment[]) => {
@@ -529,7 +555,7 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
           aria-label="输入内容"
           aria-describedby="composer-hint"
           disabled={inputDisabled}
-          loading={session.busy || session.conversationCreating}
+          loading={running || session.conversationCreating}
           onChange={(nextValue, event) => {
             onChange(nextValue);
             updateSkillTrigger(
@@ -641,10 +667,10 @@ export function Composer({ value, onChange, onSend, disabled }: ComposerProps) {
                 <button
                   className="send-button"
                   type="button"
-                  onClick={submit}
+                  onClick={handleSendButton}
                   disabled={sendDisabled}
                   aria-label={sendLabel}
-                  aria-busy={session.busy || session.conversationCreating}
+                  aria-busy={running || session.conversationCreating}
                   title={sendLabel}
                 >
                   <Icon

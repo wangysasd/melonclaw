@@ -121,7 +121,7 @@ export function ToolCatalogDialog({
                   <li key={server}>
                     <Icon name="plug" size={15} />
                     <code>{server}</code>
-                    <span>工具运行时发现</span>
+                    <span className="tool-catalog-server-status">工具运行时发现</span>
                   </li>
                 ))}
               </ul>

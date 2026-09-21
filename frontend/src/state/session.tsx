@@ -71,6 +71,8 @@ export interface SessionState {
   contextReady: boolean;
   /** 有流式请求进行中（聊天流与审批恢复置位）。 */
   busy: boolean;
+  /** 正在运行 AI 输出的会话 ID 集合：多会话可并发，切会话不清空。 */
+  runningConversationIds: string[];
   conversationCreating: boolean;
   /** 显式覆盖运行状态（审批等待等场景）；null 时按规则推导。 */
   runStatus: RunStatus | null;
@@ -111,6 +113,9 @@ type SessionAction =
   | { type: "busy"; busy: boolean }
   | { type: "creating"; creating: boolean }
   | { type: "runStatus"; runStatus: RunStatus | null }
+  | { type: "runStarted"; conversationId: string }
+  | { type: "runFinished"; conversationId: string }
+  | { type: "runsCleared" }
   | { type: "epoch" }
   | { type: "bootstrapped" };
 
@@ -132,6 +137,7 @@ const INITIAL_STATE: SessionState = {
   conversationId: null,
   contextReady: false,
   busy: false,
+  runningConversationIds: [],
   conversationCreating: false,
   runStatus: null,
   epoch: 0,
@@ -228,6 +234,26 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       };
     case "busy":
       return { ...state, busy: action.busy };
+    case "runStarted":
+      return state.runningConversationIds.includes(action.conversationId)
+        ? state
+        : {
+            ...state,
+            runningConversationIds: [...state.runningConversationIds, action.conversationId],
+          };
+    case "runFinished":
+      return state.runningConversationIds.includes(action.conversationId)
+        ? {
+            ...state,
+            runningConversationIds: state.runningConversationIds.filter(
+              (id) => id !== action.conversationId,
+            ),
+          }
+        : state;
+    case "runsCleared":
+      return state.runningConversationIds.length === 0
+        ? state
+        : { ...state, runningConversationIds: [] };
     case "creating":
       return { ...state, conversationCreating: action.creating };
     case "runStatus":
@@ -270,8 +296,16 @@ export interface SessionContextValue extends SessionState {
   newConversation: () => Promise<ConversationSummary | null>;
   setBusy: (busy: boolean) => void;
   setRunStatus: (runStatus: RunStatus | null) => void;
-  /** 聊天流注册当前 AbortController；切换用户/项目时中止，切换会话时保持连接。 */
-  attachStream: (controller: AbortController | null) => void;
+  /**
+   * 聊天流注册当前 AbortController；切换用户/项目时中止，切换会话时保持连接。
+   *
+   * 多会话可并发：按 conversationId 分开持有，切会话只保留不断开。
+   */
+  attachStream: (controller: AbortController | null, conversationId?: string | null) => void;
+  /** 标记某会话开始 AI 输出（左栏转圈 + 全局 busy 置位）。 */
+  markConversationRunning: (conversationId: string) => void;
+  /** 标记某会话输出结束（只清该会话，不影响其他并发会话）。 */
+  markConversationIdle: (conversationId: string) => void;
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -283,7 +317,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const dataControllerRef = useRef<AbortController | null>(null);
-  const streamControllerRef = useRef<AbortController | null>(null);
+  const streamControllersRef = useRef(new Map<string, AbortController>());
 
   // dispatch 的同时同步 stateRef，保证异步操作立即读到最新上下文
   // （React 的重渲染是异步的，直接读 stateRef 会拿到过期值）。
@@ -321,11 +355,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const markConversationRunning = useCallback((conversationId: string) => {
+    if (!conversationId) return;
+    dispatchSync({ type: "runStarted", conversationId });
+    dispatchSync({ type: "busy", busy: true });
+  }, [dispatchSync]);
+
+  const markConversationIdle = useCallback((conversationId: string) => {
+    if (!conversationId) return;
+    dispatchSync({ type: "runFinished", conversationId });
+    const remaining = stateRef.current.runningConversationIds.filter(
+      (id) => id !== conversationId,
+    );
+    if (remaining.length === 0) {
+      dispatchSync({ type: "busy", busy: false });
+      dispatchSync({ type: "runStatus", runStatus: null });
+    }
+  }, [dispatchSync]);
+
   const abortActiveRequests = useCallback(() => {
-    streamControllerRef.current?.abort();
-    streamControllerRef.current = null;
+    for (const controller of streamControllersRef.current.values()) {
+      controller.abort();
+    }
+    streamControllersRef.current.clear();
     dataControllerRef.current?.abort();
     dataControllerRef.current = null;
+    dispatchSync({ type: "runsCleared" });
     dispatchSync({ type: "busy", busy: false });
     dispatchSync({ type: "runStatus", runStatus: null });
   }, [dispatchSync]);
@@ -675,8 +730,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     });
   }, [dispatchSync]);
 
-  const attachStream = useCallback((controller: AbortController | null) => {
-    streamControllerRef.current = controller;
+  const attachStream = useCallback((controller: AbortController | null, conversationId?: string | null) => {
+    const key = conversationId ?? stateRef.current.conversationId ?? "";
+    if (controller) {
+      if (key) streamControllersRef.current.set(key, controller);
+      return;
+    }
+    if (key) {
+      streamControllersRef.current.delete(key);
+      return;
+    }
+    streamControllersRef.current.clear();
   }, []);
 
   // 启动引导：轮询 /api/status，ready 后串行 users→projects→conversations。
@@ -762,7 +826,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
-      streamControllerRef.current?.abort();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const streams = streamControllersRef.current;
+      for (const controller of streams.values()) {
+        controller.abort();
+      }
+      streams.clear();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       dataControllerRef.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -783,6 +853,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setBusy,
       setRunStatus,
       attachStream,
+      markConversationRunning,
+      markConversationIdle,
     }),
     [
       state,
@@ -798,6 +870,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setBusy,
       setRunStatus,
       attachStream,
+      markConversationRunning,
+      markConversationIdle,
     ],
   );
 

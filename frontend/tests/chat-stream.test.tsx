@@ -22,8 +22,17 @@ beforeEach(() => {
     selectedModelId: "system:deepseek:flash",
     modelOptions: [{ id: "system:deepseek:flash", display_name: "DeepSeek Flash", source: "system", provider: "deepseek", model: "deepseek-v4-flash", available: true, is_default: true }],
     contextReady: true, busy: false, conversationCreating: false, projects: [{ id: "p", name: "p" }], status: { status: "ready" },
+    runningConversationIds: [],
     setBusy: vi.fn((value) => { mocks.session.busy = value; }),
     setRunStatus: vi.fn((value) => { mocks.session.runStatus = value; }),
+    markConversationRunning: vi.fn((id: string) => {
+      if (!mocks.session.runningConversationIds.includes(id)) mocks.session.runningConversationIds.push(id);
+      mocks.session.busy = true;
+    }),
+    markConversationIdle: vi.fn((id: string) => {
+      mocks.session.runningConversationIds = mocks.session.runningConversationIds.filter((item) => item !== id);
+      if (mocks.session.runningConversationIds.length === 0) mocks.session.busy = false;
+    }),
     attachStream: vi.fn(), refreshConversations: vi.fn().mockResolvedValue(undefined),
   } as unknown as SessionContextValue;
   vi.mocked(getConversationHistory).mockResolvedValue(emptyHistory);
@@ -283,16 +292,22 @@ describe("chat run lifecycle", () => {
     let firstTask!: Promise<void>; act(() => { firstTask = result.current.sendMessage("one"); });
     mocks.session = { ...mocks.session, conversationId: "c2", epoch: 2, selectedModelId: "system:deepseek:pro" };
     rerender(); await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    // busy 跟随当前视图：旧会话在后台跑不影响新会话的发送态。
     expect(mocks.session.busy).toBe(false);
+    expect(result.current.runningConversationIds).toEqual(["c1"]);
+    // 多会话并发：切走后新会话仍可发送，不被旧会话阻塞。
     let secondTask!: Promise<void>; act(() => { secondTask = result.current.sendMessage("two"); });
     expect(vi.mocked(sendMessageStream).mock.calls[0]?.[1].modelId).toBe("system:deepseek:flash");
     expect(vi.mocked(sendMessageStream).mock.calls[1]?.[1].modelId).toBe("system:deepseek:pro");
+    // 旧会话的终态事件只写旧会话缓存，不影响当前视图与新会话的流。
     act(() => emitFirst({ type: "completed", message_id: "old", content: "old answer", assistant_steps: [] }));
     expect(mocks.session.busy).toBe(true);
     expect(result.current.state.messages.map((item) => item.content)).toEqual(["two", ""]);
-    const calls = vi.mocked(mocks.session.attachStream).mock.calls.length;
+    expect([...mocks.session.runningConversationIds]).toEqual(["c2"]);
     await act(async () => { first.resolve(); await firstTask; });
-    expect(vi.mocked(mocks.session.attachStream).mock.calls).toHaveLength(calls);
+    // 旧流结束只注销自己：新会话仍在跑，busy 保持。
+    expect(mocks.session.busy).toBe(true);
+    expect([...mocks.session.runningConversationIds]).toEqual(["c2"]);
     await act(async () => { second.resolve(); await secondTask; });
   });
   it("forces history sync after returning to a conversation with a stale stream ref", async () => {
@@ -308,6 +323,42 @@ describe("chat run lifecycle", () => {
     await waitFor(() => expect(vi.mocked(getConversationHistory).mock.calls.length).toBe(initialHistoryCalls + 1));
     stream.resolve();
     await act(async () => { await task; });
+  });
+  it("stops the visible run explicitly and marks it cancelled", async () => {
+    let emit!: (event: StreamEvent) => void;
+    let streamSignal!: AbortSignal;
+    let rejectStream!: (reason?: unknown) => void;
+    vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent, signal }) => {
+      emit = onEvent;
+      streamSignal = signal!;
+      return new Promise<void>((_resolve, reject) => {
+        rejectStream = reject;
+        signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let task!: Promise<void>;
+    act(() => { task = result.current.sendMessage("test"); });
+    await waitFor(() => expect(streamSignal).toBeDefined());
+    act(() => {
+      emit({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: "u1", message_id: "a1" });
+    });
+    expect(result.current.isRunning).toBe(true);
+    let stopped!: boolean;
+    act(() => { stopped = result.current.stopCurrent(); });
+    expect(stopped).toBe(true);
+    expect(streamSignal.aborted).toBe(true);
+    // 显式取消立即本地收尾，不等后端对账。
+    expect(result.current.state.messages.at(-1)).toMatchObject({ status: "cancelled" });
+    expect(result.current.isRunning).toBe(false);
+    expect(mocks.session.busy).toBe(false);
+    await act(async () => {
+      rejectStream(new DOMException("aborted", "AbortError"));
+      await task;
+    });
+    // abort 后的流静默结束，不把 cancelled 覆盖成 failed。
+    expect(result.current.state.messages.at(-1)).toMatchObject({ status: "cancelled" });
   });
   it("keeps the conversation stream alive while another conversation is selected", async () => {
     const stream = deferred<void>(); let streamSignal!: AbortSignal; let emit!: (event: StreamEvent) => void;

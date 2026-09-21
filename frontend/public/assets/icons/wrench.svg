@@ -4,10 +4,25 @@
   height="24"
   viewBox="0 0 24 24"
   fill="none"
-  stroke="currentColor"
-  stroke-width="2"
+  stroke="#808080"
+  stroke-width="1.8"
   stroke-linecap="round"
   stroke-linejoin="round"
 >
-  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.6-3.6a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91A6 6 0 0 1 14.7 6.3z" />
+  <path
+    transform="rotate(45 12 12)"
+    d="
+      M 9 2.5
+      L 9 6.5
+      L 12 8.3
+      L 15 6.5
+      L 15 2.5
+      C 19 5 18 10.5 14 12
+      L 14 20
+      A 2 2 0 0 1 10 20
+      L 10 12
+      C 6 10.5 5 5 9 2.5
+      Z
+    "
+  />
 </svg>
