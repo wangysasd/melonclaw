@@ -128,7 +128,7 @@ type ChatAction =
     }
   | { type: "messageStatus"; messageId: string; status: MessageStatus }
   | { type: "streamFailed"; messageId?: string; message?: string; error?: string }
-  | { type: "historyFailed"; error: string }
+  | { type: "historyFailed"; conversationId: string; error: string }
   | { type: "approvalRequired"; request: PendingApproval }
   | { type: "userInputRequired"; request: UserQuestionRequest }
   | { type: "userInputAccepted" }
@@ -458,7 +458,9 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         error: action.error ?? state.error,
       };
     case "historyFailed":
-      return { ...state, historyLoading: false, error: action.error };
+      return state.conversationId === action.conversationId
+        ? { ...state, historyLoading: false, error: action.error }
+        : state;
     case "approvalRequired":
       return { ...state, approval: action.request, messages: upsertLastAssistant(state, (message) => markInteractionWaiting(appendPhase(message, "waiting"))) };
     case "userInputRequired":
@@ -484,6 +486,7 @@ interface SendContext {
   skillId: string | null;
   draft: string;
   attachmentIds: string[];
+  firstMessage?: boolean;
   /** 本条流已消费到的 SSE 序号：只用于丢弃重复投递的帧。 */
   lastEventId?: number;
   onAccepted?: () => void;
@@ -547,7 +550,7 @@ export function useChatStream({
   }, [state]);
 
   const matchesContext = useCallback((context: SendContext): boolean => {
-    const current = sessionRef.current;
+    const current = sessionRef.current.getCurrentContext?.() ?? sessionRef.current;
     return (
       context.conversationId === current.conversationId &&
       context.userId === current.userId &&
@@ -567,7 +570,10 @@ export function useChatStream({
         });
     const next = reducer(prev, action);
     chatCacheRef.current.set(conversationId, next);
-    if (visible) dispatch(action);
+    if (visible) {
+      chatStateRef.current = next;
+      dispatch(action);
+    }
   }, []);
 
   const bufferFor = useCallback((conversationId: string): string => {
@@ -628,8 +634,12 @@ export function useChatStream({
           if (viewing) sessionRef.current.setRunStatus(event.phase);
           break;
         case "message_started":
-          if (viewing && context.epoch === sessionRef.current.epoch) context.onAccepted?.();
+          if (viewing && context.epoch === (sessionRef.current.getCurrentContext?.() ?? sessionRef.current).epoch) context.onAccepted?.();
           context.onAccepted = undefined;
+          if (context.firstMessage) {
+            sessionRef.current.markConversationStarted(conversationId, context.projectId);
+            context.firstMessage = false;
+          }
           dispatchFor(conversationId, {
             type: "messageStarted",
             assistantMessageId: event.message_id,
@@ -717,7 +727,7 @@ export function useChatStream({
           if (viewing) {
             if (event.status === "pending") {
               message.error("该请求正在进行中，请稍候刷新会话。");
-              dispatchFor(conversationId, { type: "historyFailed", error: "该请求仍在进行中。请稍后重新同步会话，确认结果后再发送新消息。" });
+              dispatchFor(conversationId, { type: "historyFailed", conversationId, error: "该请求仍在进行中。请稍后重新同步会话，确认结果后再发送新消息。" });
             }
             if (!othersRunning(conversationId)) sessionRef.current.setBusy(false);
             sessionRef.current.setRunStatus(
@@ -851,6 +861,7 @@ export function useChatStream({
         }
         return false;
       } finally {
+        if (context.firstMessage) sessionRef.current.cancelConversationSubmission(context.conversationId);
         setBufferFor(context.conversationId, "");
         if (activeRunsRef.current.get(context.conversationId)?.controller === controller) {
           activeRunsRef.current.delete(context.conversationId);
@@ -895,32 +906,48 @@ export function useChatStream({
       const startTenantId = snapshot.tenantId;
       const startProjectId = snapshot.projectId;
       const startModelId = snapshot.selectedModelId || "";
-      let conversationId = snapshot.conversationId;
+      const startingConversationId = snapshot.conversationId;
+      const localSubmissionId = startingConversationId ? null : `local:${crypto.randomUUID()}`;
+      if (localSubmissionId) {
+        snapshot.markConversationSubmitted(localSubmissionId, startProjectId, cleanText, true);
+      }
+      let conversationId = startingConversationId;
       if (!conversationId) {
-        const conversation = await snapshot.newConversation(snapshot.projectId || null);
+        const conversation = await snapshot.ensureConversation();
         conversationId = conversation?.id ?? null;
       }
+      const current = sessionRef.current.getCurrentContext?.() ?? sessionRef.current;
       if (
         !conversationId ||
-        conversationId !== sessionRef.current.conversationId ||
-        startUserId !== sessionRef.current.userId ||
-        startTenantId !== sessionRef.current.tenantId ||
-        (startProjectId && startProjectId !== sessionRef.current.projectId)
+        conversationId !== current.conversationId ||
+        startUserId !== current.userId ||
+        startTenantId !== current.tenantId ||
+        startProjectId !== current.projectId
       ) {
+        if (localSubmissionId) sessionRef.current.cancelConversationSubmission(localSubmissionId);
         return;
       }
+      if (localSubmissionId) {
+        sessionRef.current.identifyConversationSubmission(localSubmissionId, conversationId);
+      }
       const context: SendContext = {
-        epoch: sessionRef.current.epoch,
+        epoch: current.epoch,
         conversationId,
-        userId: sessionRef.current.userId,
-        tenantId: sessionRef.current.tenantId,
-        projectId: sessionRef.current.projectId,
+        userId: current.userId,
+        tenantId: current.tenantId,
+        projectId: current.projectId,
         modelId: startModelId,
         skillId,
         draft: cleanText,
         attachmentIds,
+        firstMessage: current.draftConversationId === conversationId,
         onAccepted,
       };
+      if (!startingConversationId) {
+        const reset = { type: "reset" as const, conversationId };
+        chatStateRef.current = reducer(chatStateRef.current, reset);
+        dispatch(reset);
+      }
       const requestId = crypto.randomUUID();
       const optimisticIds = [
         `optimistic-user-${requestId}`,
@@ -959,6 +986,9 @@ export function useChatStream({
           optimistic: true,
         },
       });
+      if (context.firstMessage && !localSubmissionId) {
+        sessionRef.current.markConversationSubmitted(conversationId, context.projectId, cleanText);
+      }
       scroll.scrollToBottom(true);
       await runStream(
         (handlers) =>
@@ -1091,6 +1121,23 @@ export function useChatStream({
         dispatch({ type: "reset", conversationId: null });
         return;
       }
+      if (snapshot.draftConversationId === targetId) {
+        const cached = chatCacheRef.current.get(targetId);
+        if (cached?.messages.length) {
+          dispatch({
+            type: "historyLoaded",
+            conversationId: targetId,
+            title: cached.conversationTitle,
+            projectId: cached.conversationProjectId,
+            messages: cached.messages,
+            approval: cached.approval,
+            userQuestion: cached.userQuestion,
+          });
+        } else {
+          dispatch({ type: "reset", conversationId: targetId });
+        }
+        return;
+      }
       // 切回仍在跑的会话：直接恢复缓存里的流式增量，不用历史快照覆盖。
       const liveRun = activeRunsRef.current.get(targetId);
       const cached = chatCacheRef.current.get(targetId);
@@ -1190,7 +1237,7 @@ export function useChatStream({
           const pending = messages.some((item) => item.status === "pending");
           sessionRef.current.setRunStatus(pending ? "processing" : null);
           if (pending) {
-            dispatchFor(targetId, { type: "historyFailed", error: "上次请求尚未结束，当前未连接其输出。请稍后重新同步会话。" });
+            dispatchFor(targetId, { type: "historyFailed", conversationId: targetId, error: "上次请求尚未结束，当前未连接其输出。请稍后重新同步会话。" });
           }
         } else if (activeForSnapshot) {
           sessionRef.current.setBusy(true);
@@ -1200,11 +1247,14 @@ export function useChatStream({
         if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
           return;
         }
-        if (snapshot.epoch === sessionRef.current.epoch) {
+        const current = sessionRef.current.getCurrentContext?.() ?? sessionRef.current;
+        if (snapshot.epoch === current.epoch && snapshot.conversationId === current.conversationId) {
           message.error(error instanceof Error ? error.message : String(error));
-          const failedAction = { type: "historyFailed" as const, error: error instanceof Error ? error.message : String(error) };
-          if (snapshot.conversationId) dispatchFor(snapshot.conversationId, failedAction);
-          else dispatch(failedAction);
+          if (snapshot.conversationId) dispatchFor(snapshot.conversationId, {
+            type: "historyFailed",
+            conversationId: snapshot.conversationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
     };

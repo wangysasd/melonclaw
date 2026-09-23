@@ -3,10 +3,12 @@ import { useEffect, useState } from "react";
 
 import { Icon } from "./Icon";
 import { UserPicker } from "./UserPicker";
+import { listConversations } from "../api/client";
 import { formatConversationTime } from "../lib/format";
 import { useServiceStatus } from "../hooks/useServiceStatus";
 import { useSession } from "../state/session";
 import { SIDEBAR_STORAGE_KEY, readStorage, writeStorage } from "../state/storage";
+import type { ConversationSummary } from "../types/api";
 
 function RunDetails() {
   const { status } = useServiceStatus();
@@ -86,18 +88,70 @@ export function SidebarContent({
   const { modal, message } = AntdApp.useApp();
   const [renaming, setRenaming] = useState<{ kind: ResourceKind; id: string; name: string } | null>(null);
   const [submittingRename, setSubmittingRename] = useState(false);
-  // 新建按钮在创建中也不禁用：在途到达的点击由 newConversation 排队补建。
-  // 禁掉按钮会让“新建空会话”（前后都是相同欢迎页）看起来像没反应，
-  // 用户下意识再点一次反而更容易落在禁用窗口里被吞掉。
+  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(session.projectId || null);
+  const [projectList, setProjectList] = useState<{
+    projectId: string; userId: string; tenantId: string;
+    items: ConversationSummary[]; cursor: string | null; loading: boolean; failed: boolean;
+  } | null>(null);
+  const [projectListRefresh, setProjectListRefresh] = useState(0);
+
+  useEffect(() => {
+    if (session.projectId) setExpandedProjectId(session.projectId);
+  }, [session.projectId]);
+
+  useEffect(() => {
+    const projectId = expandedProjectId;
+    if (!projectId || projectId === session.projectId || !session.contextReady || !session.projects.some((project) => project.id === projectId)) return;
+    const controller = new AbortController();
+    const userId = session.userId;
+    const tenantId = session.tenantId;
+    setProjectList({ projectId, userId, tenantId, items: [], cursor: null, loading: true, failed: false });
+    void listConversations({ userId, tenantId, projectId, limit: 10 }, controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) {
+          setProjectList({ projectId, userId, tenantId, items: data.items, cursor: data.next_cursor, loading: false, failed: false });
+          session.acknowledgeConversationRows(data.items.map((item) => item.id));
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          message.error(error instanceof Error ? error.message : String(error));
+          setProjectList({ projectId, userId, tenantId, items: [], cursor: null, loading: false, failed: true });
+        }
+      });
+    return () => controller.abort();
+  }, [expandedProjectId, session.projectId, session.contextReady, session.projects, session.userId, session.tenantId, session.conversationListRevision, session.acknowledgeConversationRows, projectListRefresh, message]);
+
+  const loadMoreProjectConversations = async (projectId: string, cursor: string) => {
+    const userId = session.userId;
+    const tenantId = session.tenantId;
+    try {
+      const data = await listConversations({ userId, tenantId, projectId, limit: 10, cursor });
+      setProjectList((current) => current?.projectId === projectId && current.userId === userId && current.tenantId === tenantId && current.cursor === cursor
+        ? { ...current, items: [...current.items, ...data.items], cursor: data.next_cursor }
+        : current);
+      session.acknowledgeConversationRows(data.items.map((item) => item.id));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+  // 空白聊天页可直接切换，只有服务尚未就绪时禁用新建入口。
   const canCreate =
     session.contextReady &&
     session.status?.status === "ready";
 
-  const conversationClick = (id: string) => {
-    session.selectConversation(id);
+  const conversationClick = (id: string, projectId?: string) => {
+    if (projectId && projectId !== session.projectId) session.openProjectConversation(projectId, id);
+    else session.selectConversation(id);
     onSelectConversationCloseMobile?.();
   };
   const runningIds = session.runningConversationIds ?? [];
+  const optimisticRows = session.optimisticConversations ?? [];
+  const visibleRows = (items: ConversationSummary[], projectId: string | null): (ConversationSummary & { localOnly?: boolean })[] => {
+    const listedIds = new Set(items.map((item) => item.id));
+    return [...optimisticRows.filter((item) => item.project_id === projectId && !listedIds.has(item.id)), ...items];
+  };
+  const recentConversations = visibleRows(session.recents, null);
   const actionMenu = (kind: ResourceKind, id: string, name: string, pinned: boolean): MenuProps => ({
     items: [
       { key: "pin", label: pinned ? "取消置顶" : "置顶" },
@@ -107,9 +161,10 @@ export function SidebarContent({
     onClick: ({ key, domEvent }) => {
       domEvent.stopPropagation();
       if (key === "pin") {
-        void (kind === "project"
-          ? session.updateProject(id, { isPinned: !pinned })
-          : session.updateConversation(id, { isPinned: !pinned }));
+        if (kind === "project") void session.updateProject(id, { isPinned: !pinned });
+        else void session.updateConversation(id, { isPinned: !pinned }).then((ok) => {
+          if (ok) setProjectListRefresh((value) => value + 1);
+        });
       } else if (key === "rename") {
         setRenaming({ kind, id, name });
       } else if (key === "delete") {
@@ -121,7 +176,7 @@ export function SidebarContent({
           cancelText: "取消",
           onOk: async () => {
             if (kind === "project") await session.deleteProject(id);
-            else await session.deleteConversation(id);
+            else if (await session.deleteConversation(id)) setProjectListRefresh((value) => value + 1);
           },
         });
       }
@@ -141,26 +196,36 @@ export function SidebarContent({
       const ok = renaming.kind === "project"
         ? await session.updateProject(renaming.id, { name })
         : await session.updateConversation(renaming.id, { name });
-      if (ok) setRenaming(null);
+      if (ok) {
+        setRenaming(null);
+        if (renaming.kind === "conversation") setProjectListRefresh((value) => value + 1);
+      }
     } finally {
       setSubmittingRename(false);
     }
   };
 
-  const conversationRows = (items: typeof session.conversations, isRecent: boolean) => (
+  const conversationRows = (items: (ConversationSummary & { localOnly?: boolean })[], isRecent: boolean, projectId?: string) => (
     <div className="conversation-list">
       {items.map((conversation) => {
         const running = runningIds.includes(conversation.id);
         const title = conversation.title || "未命名会话";
         return (
           <div key={conversation.id} className={["conversation-item", conversation.id === session.conversationId ? "is-active" : ""].filter(Boolean).join(" ")}>
-            <button type="button" className="conversation-item-main" onClick={() => isRecent ? (session.openRecent(conversation.id), onSelectConversationCloseMobile?.()) : conversationClick(conversation.id)} title={title}>
+            <button type="button" className="conversation-item-main" disabled={conversation.localOnly} onClick={() => {
+              if (isRecent) {
+                session.openRecent(conversation.id);
+                onSelectConversationCloseMobile?.();
+              } else conversationClick(conversation.id, projectId);
+            }} title={title}>
               <Icon name={running ? "loader-circle" : "message-circle"} size={14} className={running ? "mc-icon-spin" : undefined} />
               <span className="conversation-item-title">{title}</span>
               {conversation.is_pinned ? <Icon name="pin" size={12} className="sidebar-pinned" /> : null}
               <span className="conversation-item-time">{formatConversationTime(conversation.updated_at)}</span>
             </button>
-            <MoreButton label={`对话「${title}」`} menu={actionMenu("conversation", conversation.id, title, Boolean(conversation.is_pinned))} />
+            {!optimisticRows.some((item) => item.id === conversation.id) ? (
+              <MoreButton label={`对话「${title}」`} menu={actionMenu("conversation", conversation.id, title, Boolean(conversation.is_pinned))} />
+            ) : null}
           </div>
         );
       })}
@@ -251,11 +316,17 @@ export function SidebarContent({
           ) : (
             <div className="project-list">
               {session.projects.map((project) => {
-                const expanded = project.id === session.projectId;
+                const expanded = project.id === expandedProjectId;
+                const currentList = project.id === session.projectId;
+                const remoteList = projectList?.projectId === project.id && projectList.userId === session.userId && projectList.tenantId === session.tenantId ? projectList : null;
+                const conversations = visibleRows(currentList ? session.conversations : remoteList?.items ?? [], project.id);
+                const loading = currentList ? session.conversationsLoading : remoteList?.loading ?? true;
+                const failed = currentList ? session.conversationsLoadFailed : remoteList?.failed ?? false;
+                const cursor = currentList ? session.conversationCursor : remoteList?.cursor ?? null;
                 return (
                   <div key={project.id} className="project-group">
-                    <div className={["project-item", expanded ? "is-active" : ""].filter(Boolean).join(" ")}>
-                      <button type="button" className="project-item-main" onClick={() => void session.openProject(project.id)} title={project.name} aria-expanded={expanded}>
+                    <div className="project-item">
+                      <button type="button" className="project-item-main" onClick={() => setExpandedProjectId(expanded ? null : project.id)} title={project.name} aria-expanded={expanded}>
                         <Icon name={expanded ? "folder-open" : "folder"} size={15} />
                         <span className="project-item-name">{project.name}</span>
                         {project.is_pinned ? <Icon name="pin" size={12} className="sidebar-pinned" /> : null}
@@ -264,7 +335,7 @@ export function SidebarContent({
                       <button
                         type="button"
                         className="project-item-new"
-                        onClick={() => void session.newConversation(project.id)}
+                        onClick={() => session.startNewConversation(project.id)}
                         disabled={!canCreate}
                         title={`在「${project.name}」中新建会话`}
                         aria-label={`在「${project.name}」中新建会话`}
@@ -274,15 +345,15 @@ export function SidebarContent({
                     </div>
                     {expanded ? (
                       <div className="project-children" aria-label={`${project.name}的对话`}>
-                        {session.conversations.length > 0 ? conversationRows(session.conversations, false) : null}
-                        {session.conversations.length === 0 && (session.conversationsLoadFailed || session.conversationsLoading) ? (
-                          <div className="conversation-empty">{session.conversationsLoadFailed ? "会话加载失败" : "会话加载中…"}</div>
+                        {conversations.length > 0 ? conversationRows(conversations, false, project.id) : null}
+                        {conversations.length === 0 && (failed || loading) ? (
+                          <div className="conversation-empty">{failed ? "会话加载失败" : "会话加载中…"}</div>
                         ) : null}
-                        {session.conversationCursor ? (
-                          <Button type="text" block size="small" className="load-more" onClick={() => void session.loadMoreConversations()}>加载更多会话</Button>
+                        {cursor ? (
+                          <Button type="text" block size="small" className="load-more" onClick={() => void (currentList ? session.loadMoreConversations() : loadMoreProjectConversations(project.id, cursor))}>加载更多会话</Button>
                         ) : null}
-                        {!session.conversationsLoading && !session.conversationsLoadFailed && session.conversations.length === 0 ? (
-                          <button type="button" className="project-child-new" onClick={() => void session.newConversation(project.id)} disabled={!canCreate}>
+                        {!loading && !failed && conversations.length === 0 ? (
+                          <button type="button" className="project-child-new" onClick={() => session.startNewConversation(project.id)} disabled={!canCreate}>
                             <Icon name="plus" size={13} /> 在此项目中新建首个对话
                           </button>
                         ) : null}
@@ -299,8 +370,8 @@ export function SidebarContent({
           <div className="conversation-heading">
             <div className="section-label">最近会话</div>
           </div>
-          {session.recents.length > 0 ? (
-            conversationRows(session.recents, true)
+          {recentConversations.length > 0 ? (
+            conversationRows(recentConversations, true)
           ) : (
             <div className="conversation-empty">
               {session.contextReady ? "还没有普通会话" : "会话加载中…"}

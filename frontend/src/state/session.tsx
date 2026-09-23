@@ -17,7 +17,6 @@ import {
   deleteProject as apiDeleteProject,
   updateConversation as apiUpdateConversation,
   deleteConversation as apiDeleteConversation,
-  getConversationHistory,
   getStatus,
   listSkills,
   listModels,
@@ -76,6 +75,13 @@ export interface SessionState {
   tenantId: string;
   projectId: string;
   conversationId: string | null;
+  /** 已建库但尚未发送首条消息的会话；侧栏列表此时仍不展示它。 */
+  draftConversationId: string | null;
+  /** 首次发送后立即显示，直到服务端列表包含该会话。 */
+  optimisticConversations: (ConversationSummary & { localOnly?: boolean })[];
+  activeLocalSubmissionId: string | null;
+  /** 首条消息落库时递增，通知侧栏刷新展开的非当前项目。 */
+  conversationListRevision: number;
   /** projects 加载成功，用户/租户上下文就绪。 */
   contextReady: boolean;
   /** 有流式请求进行中（聊天流与审批恢复置位）。 */
@@ -125,10 +131,17 @@ type SessionAction =
   | { type: "skillsFailed"; error: string }
   | { type: "contextCleared" }
   | { type: "projectSelected"; projectId: string }
+  | { type: "newDraftStarted"; projectId: string }
+  | { type: "projectConversationSelected"; projectId: string; conversationId: string }
   | { type: "recentSelected"; conversationId: string }
   | { type: "conversationSelected"; conversationId: string | null }
   | { type: "userSwitched"; userId: string; tenantId: string; resetContext: boolean }
   | { type: "conversationCreated"; conversation: ConversationSummary }
+  | { type: "conversationSubmitted"; conversation: ConversationSummary & { localOnly?: boolean } }
+  | { type: "conversationSubmissionIdentified"; localId: string; conversationId: string }
+  | { type: "conversationSubmissionFailed"; conversationId: string }
+  | { type: "conversationListed"; conversationIds: string[] }
+  | { type: "conversationStarted"; conversationId: string }
   | { type: "busy"; busy: boolean }
   | { type: "creating"; creating: boolean }
   | { type: "runStatus"; runStatus: RunStatus | null }
@@ -158,6 +171,10 @@ const INITIAL_STATE: SessionState = {
   tenantId: readStorage(TENANT_STORAGE_KEY) ?? "",
   projectId: "",
   conversationId: null,
+  draftConversationId: null,
+  optimisticConversations: [],
+  activeLocalSubmissionId: null,
+  conversationListRevision: 0,
   contextReady: false,
   busy: false,
   runningConversationIds: [],
@@ -198,9 +215,11 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       const items = action.append
         ? [...state.conversations, ...action.items]
         : action.items;
+      const listedIds = new Set(action.items.map((item) => item.id));
       return {
         ...state,
         conversations: items,
+        optimisticConversations: state.optimisticConversations.filter((item) => !listedIds.has(item.id)),
         conversationsLoading: false,
         conversationsLoadFailed: false,
         conversationCursor: action.cursor,
@@ -213,9 +232,11 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       const recents = action.append
         ? [...state.recents, ...action.items]
         : action.items;
+      const listedIds = new Set(action.items.map((item) => item.id));
       return {
         ...state,
         recents,
+        optimisticConversations: state.optimisticConversations.filter((item) => !listedIds.has(item.id)),
         recentsCursor: action.cursor,
         ...(state.projectId
           ? {}
@@ -230,6 +251,7 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         conversationsLoadFailed: false,
         conversationCursor: null,
         conversationId: null,
+        draftConversationId: null,
       };
     case "modelsLoaded":
       return {
@@ -265,9 +287,25 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         conversationsLoadFailed: false,
         conversationCursor: null,
         conversationId: null,
+        draftConversationId: null,
+        activeLocalSubmissionId: null,
       };
     case "projectSelected":
-      return { ...state, projectId: action.projectId, conversations: [], conversationCursor: null, conversationsLoading: Boolean(action.projectId), conversationsLoadFailed: false };
+      return { ...state, projectId: action.projectId, draftConversationId: null, activeLocalSubmissionId: null, conversations: [], conversationCursor: null, conversationsLoading: Boolean(action.projectId), conversationsLoadFailed: false };
+    case "newDraftStarted":
+      return {
+        ...state,
+        projectId: action.projectId,
+        conversationId: null,
+        draftConversationId: null,
+        activeLocalSubmissionId: null,
+        conversations: action.projectId === state.projectId ? state.conversations : action.projectId ? [] : state.recents,
+        conversationCursor: action.projectId === state.projectId ? state.conversationCursor : action.projectId ? null : state.recentsCursor,
+        conversationsLoading: action.projectId === state.projectId ? state.conversationsLoading : Boolean(action.projectId),
+        conversationsLoadFailed: action.projectId === state.projectId ? state.conversationsLoadFailed : false,
+      };
+    case "projectConversationSelected":
+      return { ...state, projectId: action.projectId, conversationId: action.conversationId, draftConversationId: null, activeLocalSubmissionId: null, conversations: [], conversationCursor: null, conversationsLoading: true, conversationsLoadFailed: false };
     case "recentSelected":
       return {
         ...state,
@@ -277,19 +315,24 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         conversationsLoadFailed: false,
         conversationCursor: state.recentsCursor,
         conversationId: action.conversationId,
+        draftConversationId: null,
+        activeLocalSubmissionId: null,
       };
     case "conversationSelected":
-      return { ...state, conversationId: action.conversationId };
+      return { ...state, conversationId: action.conversationId, draftConversationId: action.conversationId === state.draftConversationId ? state.draftConversationId : null, activeLocalSubmissionId: null };
     case "userSwitched":
       return {
         ...state,
         userId: action.userId,
         tenantId: action.tenantId,
         contextReady: false,
+        optimisticConversations: [],
+        activeLocalSubmissionId: null,
         ...(action.resetContext
           ? {
               projectId: "",
               conversationId: null,
+              draftConversationId: null,
               recents: [],
               recentsCursor: null,
               modelOptions: [],
@@ -301,7 +344,40 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       return {
         ...state,
         conversationId: action.conversation.id,
+        draftConversationId: action.conversation.id,
+        activeLocalSubmissionId: null,
         conversationCreating: false,
+      };
+    case "conversationSubmitted":
+      return state.optimisticConversations.some((item) => item.id === action.conversation.id)
+        ? state
+        : { ...state, optimisticConversations: [action.conversation, ...state.optimisticConversations], activeLocalSubmissionId: action.conversation.localOnly ? action.conversation.id : state.activeLocalSubmissionId };
+    case "conversationSubmissionIdentified":
+      return {
+        ...state,
+        optimisticConversations: state.optimisticConversations.map((item) => item.id === action.localId
+          ? { ...item, id: action.conversationId, localOnly: false }
+          : item),
+        activeLocalSubmissionId: state.activeLocalSubmissionId === action.localId ? null : state.activeLocalSubmissionId,
+      };
+    case "conversationSubmissionFailed":
+      return {
+        ...state,
+        optimisticConversations: state.optimisticConversations.filter((item) => item.id !== action.conversationId),
+        activeLocalSubmissionId: state.activeLocalSubmissionId === action.conversationId ? null : state.activeLocalSubmissionId,
+      };
+    case "conversationListed": {
+      const listedIds = new Set(action.conversationIds);
+      return {
+        ...state,
+        optimisticConversations: state.optimisticConversations.filter((item) => !listedIds.has(item.id)),
+      };
+    }
+    case "conversationStarted":
+      return {
+        ...state,
+        draftConversationId: state.draftConversationId === action.conversationId ? null : state.draftConversationId,
+        conversationListRevision: state.conversationListRevision + 1,
       };
     case "busy":
       return { ...state, busy: action.busy };
@@ -356,8 +432,10 @@ function tenantCandidates(user: DevUser | null): string[] {
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export interface SessionContextValue extends SessionState {
+  getCurrentContext: () => Pick<SessionState, "conversationId" | "draftConversationId" | "projectId" | "userId" | "tenantId" | "epoch">;
   changeUser: (userId: string) => Promise<void>;
   openProject: (projectId: string) => Promise<void>;
+  openProjectConversation: (projectId: string, conversationId: string) => void;
   openRecent: (conversationId: string) => void;
   closeProject: () => void;
   createProject: (name: string) => Promise<Project | null>;
@@ -370,7 +448,13 @@ export interface SessionContextValue extends SessionState {
   loadMoreRecents: () => Promise<void>;
   refreshConversations: () => Promise<void>;
   selectModel: (modelId: string) => void;
-  newConversation: (projectId?: string | null) => Promise<ConversationSummary | null>;
+  startNewConversation: (projectId?: string | null) => void;
+  ensureConversation: () => Promise<ConversationSummary | null>;
+  markConversationSubmitted: (conversationId: string, projectId: string, content: string, localOnly?: boolean) => void;
+  identifyConversationSubmission: (localId: string, conversationId: string) => void;
+  cancelConversationSubmission: (conversationId: string) => void;
+  acknowledgeConversationRows: (conversationIds: string[]) => void;
+  markConversationStarted: (conversationId: string, projectId: string) => void;
   setBusy: (busy: boolean) => void;
   setRunStatus: (runStatus: RunStatus | null) => void;
   /**
@@ -395,14 +479,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   stateRef.current = state;
   const dataControllerRef = useRef<AbortController | null>(null);
   const streamControllersRef = useRef(new Map<string, AbortController>());
-  /** 在途创建未完成时到达的新建请求：只保留最新一次，按序补建，保证每次点击都不丢失。 */
-  const pendingNewConversationRef = useRef<{ targetProjectId: string | null } | null>(null);
+  /** 首次发送与附件入口同时请求时共用一次创建。 */
+  const creationPromiseRef = useRef<Promise<ConversationSummary | null> | null>(null);
 
   // dispatch 的同时同步 stateRef，保证异步操作立即读到最新上下文
   // （React 的重渲染是异步的，直接读 stateRef 会拿到过期值）。
   const dispatchSync = useCallback((action: SessionAction) => {
     stateRef.current = reducer(stateRef.current, action);
     dispatch(action);
+  }, []);
+
+  const getCurrentContext = useCallback(() => {
+    const { conversationId, draftConversationId, projectId, userId, tenantId, epoch } = stateRef.current;
+    return { conversationId, draftConversationId, projectId, userId, tenantId, epoch };
   }, []);
 
   const bumpGeneration = useCallback(() => {
@@ -491,6 +580,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const generation = generationRef.current;
       const { userId, tenantId, projectId } = snapshot;
       const cursor = append ? snapshot.conversationCursor : null;
+      dataControllerRef.current?.abort();
       const controller = new AbortController();
       dataControllerRef.current = controller;
       if (projectId && !append) dispatchSync({ type: "conversationsLoading" });
@@ -706,6 +796,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [abortActiveDataRequests, bumpGeneration, dispatchSync, loadConversationsInternal],
   );
 
+  const openProjectConversation = useCallback((projectId: string, conversationId: string) => {
+    const snapshot = stateRef.current;
+    if (!snapshot.projects.some((project) => project.id === projectId)) return;
+    if (snapshot.projectId === projectId) {
+      selectConversationInternal(conversationId);
+      return;
+    }
+    abortActiveDataRequests();
+    bumpGeneration();
+    writeStorage(projectStorageKey(snapshot.userId), projectId);
+    writeStorage(conversationStorageKey(snapshot.userId), conversationId);
+    dispatchSync({ type: "projectConversationSelected", projectId, conversationId });
+    void loadConversationsInternal({ refreshOnly: true });
+  }, [abortActiveDataRequests, bumpGeneration, dispatchSync, loadConversationsInternal, selectConversationInternal]);
+
   const closeProject = useCallback(() => {
     const { userId } = stateRef.current;
     abortActiveDataRequests();
@@ -850,59 +955,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await loadConversationsInternal({ append: false, refreshOnly: true });
   }, [loadConversationsInternal]);
 
-  /** 创建普通会话；显式传 projectId 时才在项目中创建。
-   *
-   * 单次创建的完整实现（创建 + 列表刷新）。并发保护由外层 newConversation
-   * 负责：这里假设调用时没有其他创建在途，串行执行，不与自身并发。
-   */
-  const createConversationInternal = useCallback(async (targetProjectId?: string | null) => {
+  /** 新建按钮只切到空白聊天页，不向服务端创建记录。 */
+  const startNewConversation = useCallback((targetProjectId?: string | null) => {
     const snapshot = stateRef.current;
-    if (snapshot.conversationCreating) return null;
+    if (!snapshot.contextReady) return;
+    const projectId = targetProjectId ?? "";
+    if (projectId && !snapshot.projects.some((project) => project.id === projectId)) return;
+    const currentDraftUnsent = (!snapshot.conversationId && !snapshot.activeLocalSubmissionId) || (
+      Boolean(snapshot.conversationId) &&
+      snapshot.conversationId === snapshot.draftConversationId &&
+      !snapshot.optimisticConversations.some((item) => item.id === snapshot.conversationId)
+    );
+    if (snapshot.projectId === projectId && currentDraftUnsent) return;
+    abortActiveDataRequests();
+    bumpGeneration();
+    writeStorage(projectStorageKey(snapshot.userId), projectId);
+    writeStorage(conversationStorageKey(snapshot.userId), "");
+    dispatchSync({ type: "newDraftStarted", projectId });
+    dispatchSync({ type: "runStatus", runStatus: null });
+    if (projectId && projectId !== snapshot.projectId) {
+      void loadConversationsInternal({ refreshOnly: true });
+    }
+  }, [abortActiveDataRequests, bumpGeneration, dispatchSync, loadConversationsInternal]);
+
+  /** 首次发送或普通会话附件上传时才创建持久会话。 */
+  const createConversationInternal = useCallback(async () => {
+    const snapshot = stateRef.current;
     if (!snapshot.contextReady || snapshot.status?.status !== "ready") {
       message.error("服务仍在准备中，请稍候再试。");
       return null;
     }
-    const projectId = targetProjectId ?? "";
-    // 已停在一张“白纸”上时不再建：当前会话无任何消息、没在跑输出、且目标
-    // 作用域一致（同为普通或同一个项目），直接复用当前会话。跨作用域
-    // （如项目内点全局新建）仍必须新建，不能把项目会话当成普通会话用。
-    // 历史以服务端为准；查不到或检查期间上下文变化时一律按“非空”处理、走新建。
-    if (
-      projectId === snapshot.projectId &&
-      snapshot.conversationId &&
-      !snapshot.runningConversationIds.includes(snapshot.conversationId)
-    ) {
-      const reuseId = snapshot.conversationId;
-      const { userId, tenantId } = snapshot;
-      try {
-        const history = await getConversationHistory({
-          conversationId: reuseId,
-          userId,
-          tenantId,
-          limit: 1,
-        });
-        const current = stateRef.current;
-        if (
-          history.items.length === 0 &&
-          current.conversationId === reuseId &&
-          current.userId === userId &&
-          current.tenantId === tenantId &&
-          current.projectId === projectId &&
-          !current.runningConversationIds.includes(reuseId)
-        ) {
-          return { id: reuseId, project_id: projectId || null };
-        }
-      } catch {
-        // 检查失败不断新建：宁可多一张白纸，不吞掉用户的新建意图。
-      }
-    }
-    if (projectId && !snapshot.projects.some((p) => p.id === projectId)) return null;
+    const projectId = snapshot.projectId;
     const generation = bumpGeneration();
     const { userId, tenantId } = snapshot;
-    if (projectId !== snapshot.projectId) {
-      writeStorage(projectStorageKey(userId), projectId);
-      dispatchSync({ type: "projectSelected", projectId });
-    }
     dispatchSync({ type: "creating", creating: true });
     try {
       const conversation = await apiCreateConversation({
@@ -916,7 +1001,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       writeStorage(conversationStorageKey(userId), conversation.id);
       bumpGeneration();
       dispatchSync({ type: "conversationCreated", conversation });
-      await loadConversationsInternal({ append: false, refreshOnly: true });
       return conversation;
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -935,33 +1019,53 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     bumpGeneration,
     contextMatches,
     dispatchSync,
-    loadConversationsInternal,
     message,
   ]);
 
-  /**
-   * 新建会话入口（侧栏按钮、快捷键、发送兜底共用）。
-   *
-   * 上一次创建（含列表刷新）未完成时到达的请求不再静默丢弃，而是记下最新
-   * 的目标并在当前创建结束后按序补建：新建空会话前后都是相同的欢迎页，
-   * 用户无法分辨是否生效，会下意识再点一次，吞掉这次点击就是“点了没创建”。
-   * 排队期间到达的多次请求合并为一次，以最终目标为准；返回本次调用自己那
-   * 次创建的结果，排队补建的归属由后续列表刷新体现。
-   */
-  const newConversation = useCallback(async (targetProjectId?: string | null) => {
-    if (stateRef.current.conversationCreating) {
-      pendingNewConversationRef.current = { targetProjectId: targetProjectId ?? null };
-      return null;
+  const ensureConversation = useCallback(() => {
+    const snapshot = stateRef.current;
+    if (snapshot.conversationId) {
+      return Promise.resolve({ id: snapshot.conversationId, project_id: snapshot.projectId || null });
     }
-    const own = await createConversationInternal(targetProjectId);
-    for (;;) {
-      const pending = pendingNewConversationRef.current;
-      if (pending === null) break;
-      pendingNewConversationRef.current = null;
-      await createConversationInternal(pending.targetProjectId);
-    }
-    return own;
+    if (creationPromiseRef.current) return creationPromiseRef.current;
+    const promise = createConversationInternal();
+    creationPromiseRef.current = promise;
+    void promise.finally(() => {
+      if (creationPromiseRef.current === promise) creationPromiseRef.current = null;
+    });
+    return promise;
   }, [createConversationInternal]);
+
+  const markConversationSubmitted = useCallback((conversationId: string, projectId: string, content: string, localOnly = false) => {
+    const title = content.trim().replace(/\s+/g, " ").slice(0, 30) || "附件消息";
+    dispatchSync({ type: "conversationSubmitted", conversation: {
+      id: conversationId,
+      project_id: projectId || null,
+      title,
+      updated_at: new Date().toISOString(),
+      localOnly,
+    } });
+  }, [dispatchSync]);
+
+  const identifyConversationSubmission = useCallback((localId: string, conversationId: string) => {
+    dispatchSync({ type: "conversationSubmissionIdentified", localId, conversationId });
+  }, [dispatchSync]);
+
+  const cancelConversationSubmission = useCallback((conversationId: string) => {
+    dispatchSync({ type: "conversationSubmissionFailed", conversationId });
+  }, [dispatchSync]);
+
+  const acknowledgeConversationRows = useCallback((conversationIds: string[]) => {
+    if (conversationIds.some((id) => stateRef.current.optimisticConversations.some((item) => item.id === id))) {
+      dispatchSync({ type: "conversationListed", conversationIds });
+    }
+  }, [dispatchSync]);
+
+  const markConversationStarted = useCallback((conversationId: string, projectId: string) => {
+    dispatchSync({ type: "conversationStarted", conversationId });
+    if (stateRef.current.projectId === projectId) void loadConversationsInternal({ refreshOnly: true });
+    else if (!projectId) void loadRecentsInternal();
+  }, [dispatchSync, loadConversationsInternal, loadRecentsInternal]);
 
   const setBusy = useCallback((busy: boolean) => {
     dispatchSync({ type: "busy", busy });
@@ -1095,8 +1199,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const value = useMemo<SessionContextValue>(
     () => ({
       ...state,
+      getCurrentContext,
       changeUser,
       openProject,
+      openProjectConversation,
       openRecent,
       closeProject,
       createProject,
@@ -1109,7 +1215,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadMoreRecents,
       refreshConversations,
       selectModel,
-      newConversation,
+      startNewConversation,
+      ensureConversation,
+      markConversationSubmitted,
+      identifyConversationSubmission,
+      cancelConversationSubmission,
+      acknowledgeConversationRows,
+      markConversationStarted,
       setBusy,
       setRunStatus,
       attachStream,
@@ -1118,8 +1230,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }),
     [
       state,
+      getCurrentContext,
       changeUser,
       openProject,
+      openProjectConversation,
       openRecent,
       closeProject,
       createProject,
@@ -1132,7 +1246,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadMoreRecents,
       refreshConversations,
       selectModel,
-      newConversation,
+      startNewConversation,
+      ensureConversation,
+      markConversationSubmitted,
+      identifyConversationSubmission,
+      cancelConversationSubmission,
+      acknowledgeConversationRows,
+      markConversationStarted,
       setBusy,
       setRunStatus,
       attachStream,

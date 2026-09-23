@@ -44,6 +44,8 @@ const session = {
   tenantId: "t1",
   projectId: "p1",
   conversationId: "c1",
+  draftConversationId: null as string | null,
+  ensureConversation: vi.fn(),
   busy: false,
   runStatus: null as string | null,
   conversationCreating: false,
@@ -165,6 +167,9 @@ beforeEach(() => {
   session.runStatus = null;
   session.conversationCreating = false;
   session.projectId = "p1";
+  session.conversationId = "c1";
+  session.draftConversationId = null;
+  session.ensureConversation.mockReset();
   session.userId = "u1";
   session.tenantId = "t1";
 
@@ -347,6 +352,32 @@ describe("composer", () => {
     expect(screen.getByText("点击选择文件，或把文件拖到这里")).toBeTruthy();
     expect(screen.getByText(/支持 PNG \/ TXT/)).toBeTruthy();
     expect(screen.queryByRole("menu", { name: "添加内容" })).toBeNull();
+    view.unmount();
+  });
+
+  it("keeps the attachment dialog open when a blank recent chat gets its storage ID", async () => {
+    session.projectId = "";
+    session.conversationId = null;
+    session.ensureConversation.mockImplementation(async () => {
+      session.conversationId = "c2";
+      session.draftConversationId = "c2";
+      return { id: "c2", project_id: null };
+    });
+    const view = await renderComposer();
+    openFilesDialog();
+    await flush();
+    expect(session.ensureConversation).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("点击选择文件，或把文件拖到这里")).toBeTruthy();
+    view.unmount();
+  });
+
+  it("opens project attachments without creating an empty conversation", async () => {
+    session.conversationId = null;
+    const view = await renderComposer();
+    openFilesDialog();
+    await flush();
+    expect(session.ensureConversation).not.toHaveBeenCalled();
+    expect(screen.getByText("点击选择文件，或把文件拖到这里")).toBeTruthy();
     view.unmount();
   });
 

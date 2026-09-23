@@ -34,11 +34,81 @@ beforeEach(() => {
       if (mocks.session.runningConversationIds.length === 0) mocks.session.busy = false;
     }),
     attachStream: vi.fn(), refreshConversations: vi.fn().mockResolvedValue(undefined),
+    markConversationSubmitted: vi.fn(), identifyConversationSubmission: vi.fn(), cancelConversationSubmission: vi.fn(),
+    markConversationStarted: vi.fn(),
   } as unknown as SessionContextValue;
   vi.mocked(getConversationHistory).mockResolvedValue(emptyHistory);
 });
 
 describe("chat run lifecycle", () => {
+  it("does not put an old conversation's history error on a new blank page", () => {
+    const blank = reducer({ ...INITIAL_CHAT_STATE, conversationId: null }, { type: "historyFailed", conversationId: "c1", error: "旧会话加载失败" });
+    expect(blank.error).toBeNull();
+  });
+
+  it("reveals a new conversation on send before the first server event", async () => {
+    mocks.session.conversationId = null;
+    mocks.session.projectId = "";
+    mocks.session.draftConversationId = null;
+    const creation = deferred<void>();
+    mocks.session.ensureConversation = vi.fn(async () => {
+      await creation.promise;
+      mocks.session.conversationId = "c2";
+      mocks.session.draftConversationId = "c2";
+      return { id: "c2", project_id: null };
+    });
+    mocks.session.markConversationStarted = vi.fn();
+    let finishStream!: () => void;
+    vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent }) => new Promise<void>((resolve) => {
+      finishStream = () => {
+        onEvent({ type: "message_started", conversation_id: "c2", request_id: "r2", user_message_id: "u2", message_id: "a2" });
+        onEvent({ type: "completed", message_id: "a2", content: "收到", assistant_steps: [] });
+        onEvent({ type: "done", terminal_reason: "completed" });
+        resolve();
+      };
+    }));
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await act(async () => { await Promise.resolve(); });
+    let sending!: Promise<void>;
+    act(() => { sending = result.current.sendMessage("第一条消息"); });
+    expect(mocks.session.markConversationSubmitted).toHaveBeenCalledWith(expect.stringMatching(/^local:/), "", "第一条消息", true);
+    expect(mocks.session.identifyConversationSubmission).not.toHaveBeenCalled();
+    await act(async () => { creation.resolve(); await Promise.resolve(); });
+    await waitFor(() => expect(mocks.session.identifyConversationSubmission).toHaveBeenCalledWith(expect.stringMatching(/^local:/), "c2"));
+    expect(mocks.session.markConversationStarted).not.toHaveBeenCalled();
+    await act(async () => { finishStream(); await sending; });
+    expect(mocks.session.ensureConversation).toHaveBeenCalledTimes(1);
+    expect(mocks.session.markConversationStarted).toHaveBeenCalledWith("c2", "");
+    expect(mocks.session.cancelConversationSubmission).not.toHaveBeenCalled();
+    expect(result.current.state.messages[0]?.content).toBe("第一条消息");
+  });
+
+  it("removes the temporary sidebar row when the first send fails before acceptance", async () => {
+    mocks.session.conversationId = "c2";
+    mocks.session.projectId = "";
+    mocks.session.draftConversationId = "c2";
+    vi.mocked(sendMessageStream).mockRejectedValue(new Error("发送失败"));
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await act(async () => { await Promise.resolve(); });
+    await act(() => result.current.sendMessage("第一条消息"));
+    expect(mocks.session.markConversationSubmitted).toHaveBeenCalledWith("c2", "", "第一条消息");
+    expect(mocks.session.cancelConversationSubmission).toHaveBeenCalledWith("c2");
+    expect(mocks.session.markConversationStarted).not.toHaveBeenCalled();
+  });
+
+  it("removes the local row if creating the conversation fails", async () => {
+    mocks.session.conversationId = null;
+    mocks.session.projectId = "";
+    mocks.session.ensureConversation = vi.fn().mockResolvedValue(null);
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await act(async () => { await Promise.resolve(); });
+    await act(() => result.current.sendMessage("第一条消息"));
+    const localId = vi.mocked(mocks.session.markConversationSubmitted).mock.calls[0]?.[0];
+    expect(localId).toMatch(/^local:/);
+    expect(mocks.session.cancelConversationSubmission).toHaveBeenCalledWith(localId);
+    expect(sendMessageStream).not.toHaveBeenCalled();
+  });
+
   it("sends the selected model ID and records it on the streaming reply", async () => {
     vi.mocked(sendMessageStream).mockImplementation(async (_id, _input, { onEvent }) => {
       onEvent({

@@ -100,6 +100,10 @@ class ConversationRepositoryMixin:
         conditions = [
             chat_conversations.c.user_id == user_id,
             chat_conversations.c.status == "active",
+            # 空白会话可为附件暂存而提前建表，但首条消息落库前不进入侧栏。
+            select(chat_messages.c.id)
+            .where(chat_messages.c.conversation_id == chat_conversations.c.id)
+            .exists(),
         ]
         if scope not in {None, "unassigned"} or (scope and project_id is not None):
             raise ValueError("会话作用域无效。")

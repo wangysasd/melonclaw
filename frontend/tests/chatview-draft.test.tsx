@@ -44,6 +44,7 @@ const session = {
   projects: [] as Project[],
   conversations: [] as ConversationSummary[],
   recents: [] as ConversationSummary[],
+  optimisticConversations: [] as ConversationSummary[],
   skills: [],
   skillsLoading: false,
   skillsError: null,

@@ -307,10 +307,12 @@ export function ChatView({ onOpenProjectDialog }: { onOpenProjectDialog?: () => 
   // 会话看起来和没点一样（同样的欢迎页 + 同样的输入框文字）。失败回填走
   // restoreDraft（只在输入框为空时生效），切会话时旧会话的回填已无意义，一并丢弃。
   useEffect(() => {
+    // 首次发送或附件暂存会先拿到会话 ID，此时输入框仍属于同一张空白页。
+    if (session.conversationId && session.conversationId === session.draftConversationId) return;
     setDraft("");
     chat.clearRestoreDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat.state.conversationId]);
+  }, [chat.state.conversationId, session.conversationId, session.draftConversationId]);
   useEffect(() => {
     if (!chat.state.historyLoading) scroll.scrollToBottom();
   }, [chat.state.conversationId, chat.state.historyLoading, scroll]);
@@ -349,6 +351,7 @@ export function ChatView({ onOpenProjectDialog }: { onOpenProjectDialog?: () => 
   const currentConversation = session.conversationId
     ? session.conversations.find((item) => item.id === session.conversationId)
       ?? session.recents.find((item) => item.id === session.conversationId)
+      ?? session.optimisticConversations.find((item) => item.id === session.conversationId)
     : null;
   const chatMatchesSelection = Boolean(session.conversationId && chat.state.conversationId === session.conversationId);
   const conversationTitle = currentConversation?.title

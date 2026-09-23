@@ -16,7 +16,7 @@ function Workspace() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
 
   const newConversation = () => {
-    void session.newConversation();
+    session.startNewConversation();
   };
 
   // 全局快捷键：⌘K / Ctrl+K 新建对话。
@@ -30,7 +30,7 @@ function Workspace() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.newConversation]);
+  }, [session.startNewConversation]);
 
   return (
     <div className="app-shell">

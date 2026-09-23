@@ -286,9 +286,9 @@
 }
 
 .conversation-item {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
   width: 100%;
   padding: 2px 4px 2px 10px;
   border: none;
@@ -306,6 +306,19 @@
   padding: 6px 0; border: 0; background: transparent; color: inherit;
   font: inherit; text-align: left; cursor: pointer;
 }
+
+.conversation-item .sidebar-more {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.conversation-item:hover .sidebar-more,
+.conversation-item .sidebar-more:focus-visible,
+.conversation-item .sidebar-more[aria-expanded="true"] { pointer-events: auto; }
+.conversation-item:hover .conversation-item-time,
+.conversation-item:focus-within .conversation-item-time { opacity: 0; }
 
 .sidebar-more {
   display: inline-flex; align-items: center; justify-content: center;
@@ -328,7 +341,6 @@
   background: var(--hover);
 }
 
-.project-item.is-active,
 .conversation-item.is-active {
   background: var(--brand-soft);
   color: var(--brand-primary);

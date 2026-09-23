@@ -177,17 +177,23 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
 
   useEffect(() => {
     // 技能选择只对当前上下文的一条消息生效，切换用户/项目/会话时不能带到下一处。
+    if (session.conversationId && session.conversationId === session.draftConversationId) return;
     setSelectedSkill(null);
     setSkillTrigger(null);
+    // draftConversationId 清除于首条消息落库，不代表切换聊天。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.userId, session.projectId, session.conversationId]);
 
   useEffect(() => {
-    setAttachments([]);
-    setPreview(null);
-    setDragging(false);
-    setDialogOpen(false);
-    setPlusMenuOpen(false);
-    dragDepthRef.current = 0;
+    // 空白页因附件上传取得 ID 后仍是同一张草稿，弹窗和暂存附件应保留。
+    if (!(session.conversationId && session.conversationId === session.draftConversationId)) {
+      setAttachments([]);
+      setPreview(null);
+      setDragging(false);
+      setDialogOpen(false);
+      setPlusMenuOpen(false);
+      dragDepthRef.current = 0;
+    }
     return () => {
       for (const attachment of attachmentsRef.current) {
         if (attachment.source === "upload" && attachment.status === "staged") {
@@ -195,6 +201,8 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
         }
       }
     };
+    // 首条消息落库后保留已附加文件，因此不随 draftConversationId 清除重跑。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachmentAccess, session.userId, session.tenantId, session.projectId, session.conversationId]);
 
   // 解析轮询：按附件 ID 集合调度，指数退避并在超过上限后标记超时。
@@ -327,11 +335,11 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
   const openAttachmentDialog = async (files: File[] = []) => {
     if (!canAttach) return;
     let conversationId = session.conversationId;
-    if (!conversationId) {
-      const conversation = await session.newConversation(session.projectId || null);
+    if (!conversationId && !session.projectId) {
+      const conversation = await session.ensureConversation();
       conversationId = conversation?.id ?? null;
     }
-    if (!conversationId) return;
+    if (!conversationId && !session.projectId) return;
     setPlusMenuOpen(false);
     setDialogFiles(files);
     setDialogSessionId((current) => current + 1);
