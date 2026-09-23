@@ -73,19 +73,13 @@ projects = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("status", String(16), nullable=False, server_default="active"),
-    Column("is_default", Boolean, nullable=False, server_default="false"),
+    Column("is_pinned", Boolean, nullable=False, server_default="false"),
     UniqueConstraint("id", "user_id", name="uq_projects_id_user"),
     ForeignKeyConstraint(
         ["user_id"],
         ["users.user_id"],
         name="fk_projects_user",
         ondelete="RESTRICT",
-    ),
-    Index(
-        "uq_projects_user_default",
-        "user_id",
-        unique=True,
-        postgresql_where=text("is_default"),
     ),
 )
 
@@ -94,11 +88,25 @@ chat_conversations = Table(
     metadata,
     Column("id", PGUUID(as_uuid=True), primary_key=True),
     Column("user_id", String(64), nullable=False),
-    Column("project_id", PGUUID(as_uuid=True), nullable=False),
+    Column("project_id", PGUUID(as_uuid=True), nullable=True),
+    UniqueConstraint("id", "user_id", name="uq_conversations_id_user"),
+    ForeignKeyConstraint(["user_id"], ["users.user_id"], ondelete="RESTRICT"),
     Column("title", String(200), nullable=False, server_default="新会话"),
+    Column("is_pinned", Boolean, nullable=False, server_default="false"),
+    Column("status", String(16), nullable=False, server_default="active"),
     Column("agent_id", String(120), nullable=False, server_default="quickstart-research-agent"),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    Index(
+        "ix_conversations_project_updated", "user_id", "project_id", desc("updated_at"), desc("id")
+    ),
+    Index(
+        "ix_conversations_unassigned_updated",
+        "user_id",
+        desc("updated_at"),
+        desc("id"),
+        postgresql_where=text("project_id IS NULL"),
+    ),
     Index(
         "ix_chat_conversations_user_updated_id",
         "user_id",
@@ -218,7 +226,16 @@ chat_attachments = Table(
         ForeignKey("users.user_id", ondelete="RESTRICT"),
         nullable=False,
     ),
-    Column("project_id", PGUUID(as_uuid=True), nullable=False),
+    Column("project_id", PGUUID(as_uuid=True), nullable=True),
+    Column("owner_conversation_id", PGUUID(as_uuid=True), nullable=True),
+    ForeignKeyConstraint(
+        ["owner_conversation_id", "user_id"],
+        ["chat_conversations.id", "chat_conversations.user_id"],
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint(
+        "(project_id IS NULL) <> (owner_conversation_id IS NULL)", name="ck_attachment_owner"
+    ),
     Column("original_name", String(255), nullable=False),
     Column("media_type", String(120), nullable=False),
     Column("kind", String(16), nullable=False),
@@ -236,6 +253,17 @@ chat_attachments = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("expires_at", DateTime(timezone=True), nullable=True),
     Column("storage_purged_at", DateTime(timezone=True), nullable=True),
+    Index("ix_attachments_conversation", "user_id", "owner_conversation_id"),
+    Index(
+        "uq_attachments_conversation_upload",
+        "user_id",
+        "owner_conversation_id",
+        "client_request_id",
+        unique=True,
+        postgresql_where=text(
+            "owner_conversation_id IS NOT NULL AND client_request_id IS NOT NULL"
+        ),
+    ),
     ForeignKeyConstraint(
         ["project_id", "user_id"],
         ["projects.id", "projects.user_id"],
@@ -268,7 +296,7 @@ chat_attachments = Table(
         "project_id",
         "client_request_id",
         unique=True,
-        postgresql_where=text("client_request_id IS NOT NULL"),
+        postgresql_where=text("project_id IS NOT NULL AND client_request_id IS NOT NULL"),
     ),
 )
 

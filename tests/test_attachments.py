@@ -175,6 +175,7 @@ class AttachmentCapabilitiesTests(unittest.TestCase):
             self.assertIn(".docx", extensions)
             self.assertEqual(capabilities["max_file_bytes"], 1234)
             self.assertEqual(capabilities["max_per_message"], 3)
+            self.assertEqual(capabilities["workspace_max_bytes"], settings.attachment_project_max_bytes)
 
 
 if __name__ == "__main__":

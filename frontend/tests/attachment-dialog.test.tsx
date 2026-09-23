@@ -22,7 +22,7 @@ const capabilities: AttachmentCapabilities = {
   max_file_bytes: 10,
   max_total_bytes: 25,
   max_per_message: 2,
-  project_max_bytes: 100,
+  workspace_max_bytes: 100,
   image_max_pixels: 100,
   pdf_max_pages: 1,
 };
@@ -149,6 +149,7 @@ describe("attachment dialog", () => {
     expect(client.deleteAttachment).toHaveBeenCalledWith("a-a.txt", {
       userId: "u1",
       tenantId: "t1",
+      projectId: "p1",
     });
   });
 
@@ -175,6 +176,7 @@ describe("attachment dialog", () => {
     expect(client.deleteAttachment).toHaveBeenCalledWith("a-a.txt", {
       userId: "u1",
       tenantId: "t1",
+      projectId: "p1",
     });
     expect(onConfirm).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);

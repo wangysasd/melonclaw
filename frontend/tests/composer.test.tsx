@@ -39,7 +39,7 @@ vi.mock("antd", async (importOriginal) => {
 const session = {
   contextReady: true,
   status: { status: "ready" },
-  projects: [{ id: "p" }],
+  projects: [{ id: "p", name: "项目" }],
   userId: "u1",
   tenantId: "t1",
   projectId: "p1",
@@ -88,7 +88,7 @@ const capabilitiesPayload: AttachmentCapabilities = {
   max_file_bytes: 10,
   max_total_bytes: 25,
   max_per_message: 2,
-  project_max_bytes: 100,
+  workspace_max_bytes: 100,
   image_max_pixels: 100,
   pdf_max_pages: 1,
 };
@@ -403,6 +403,7 @@ describe("composer", () => {
     expect(client.deleteAttachment).toHaveBeenCalledWith("a-a.txt", {
       userId: "u1",
       tenantId: "t1",
+      projectId: "p1",
     });
     expect(view.container.querySelector(".composer-attachments")).toBeNull();
     view.unmount();
@@ -419,6 +420,8 @@ describe("composer", () => {
     expect(client.retryAttachmentParse).toHaveBeenCalledWith("a1", {
       userId: "u1",
       tenantId: "t1",
+      projectId: "p1",
+      conversationId: null,
     });
     view.unmount();
   });

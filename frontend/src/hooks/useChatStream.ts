@@ -77,6 +77,9 @@ export interface ChatMessage {
 interface ChatState {
   conversationId: string | null;
   conversationTitle: string | null;
+  /** 当前会话自身的项目归属（服务端为准）：附件 hydration 按它取作用域，
+   * 不用侧栏当前项目代替，避免跨作用域新建过渡期图片 404。 */
+  conversationProjectId: string | null;
   messages: ChatMessage[];
   approval: PendingApproval | null;
   userQuestion: UserQuestionRequest | null;
@@ -93,11 +96,12 @@ type ChatAction =
       type: "historyLoaded";
       conversationId: string;
       title: string | null;
+      projectId: string | null;
       messages: ChatMessage[];
       approval: PendingApproval | null;
       userQuestion: UserQuestionRequest | null;
     }
-  | { type: "optimistic"; conversationId: string; user: ChatMessage; assistant: ChatMessage }
+  | { type: "optimistic"; conversationId: string; projectId: string | null; user: ChatMessage; assistant: ChatMessage }
   | { type: "removeOptimistic"; ids: string[] }
   | {
       type: "messageStarted";
@@ -134,6 +138,7 @@ type ChatAction =
 export const INITIAL_CHAT_STATE: ChatState = {
   conversationId: null,
   conversationTitle: null,
+  conversationProjectId: null,
   messages: [],
   approval: null,
   userQuestion: null,
@@ -249,6 +254,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         conversationId: action.conversationId,
         conversationTitle: action.title,
+        conversationProjectId: action.projectId,
         messages: action.messages,
         approval: action.approval,
         userQuestion: action.userQuestion,
@@ -260,6 +266,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         conversationId: action.conversationId,
+        conversationProjectId: action.projectId,
         approval: null,
         userQuestion: null,
         historyLoading: false,
@@ -884,17 +891,13 @@ export function useChatStream({
         message.error("服务仍在准备中，请稍候再发送。");
         return;
       }
-      if (snapshot.projects.length === 0) {
-        message.error("还没有可用项目，请先创建一个项目。");
-        return;
-      }
       const startUserId = snapshot.userId;
       const startTenantId = snapshot.tenantId;
       const startProjectId = snapshot.projectId;
       const startModelId = snapshot.selectedModelId || "";
       let conversationId = snapshot.conversationId;
       if (!conversationId) {
-        const conversation = await snapshot.newConversation();
+        const conversation = await snapshot.newConversation(snapshot.projectId || null);
         conversationId = conversation?.id ?? null;
       }
       if (
@@ -928,6 +931,7 @@ export function useChatStream({
       dispatchFor(conversationId, {
         type: "optimistic",
         conversationId,
+        projectId: context.projectId || null,
         user: {
           id: optimisticIds[0],
           role: "user",
@@ -1102,6 +1106,7 @@ export function useChatStream({
           type: "historyLoaded",
           conversationId: targetId,
           title: cached.conversationTitle,
+          projectId: cached.conversationProjectId,
           messages: cached.messages,
           approval: cached.approval,
           userQuestion: cached.userQuestion,
@@ -1167,6 +1172,7 @@ export function useChatStream({
           type: "historyLoaded",
           conversationId: targetId,
           title: data.conversation?.title ?? null,
+          projectId: data.conversation?.project_id ?? null,
           messages,
           approval: data.pending_approval,
           userQuestion: data.pending_interaction ?? null,

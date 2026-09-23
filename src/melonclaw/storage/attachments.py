@@ -1,6 +1,6 @@
-"""Project 工作区内的附件存储。
+"""当前工作区内的附件存储。
 
-附件路径由 Project 工作区和 ``attachment_id`` 唯一推导。文件名不参与路径拼接，
+附件路径由工作区和 ``attachment_id`` 唯一推导。文件名不参与路径拼接，
 原文和派生目录也不会作为静态资源暴露。
 """
 
@@ -14,7 +14,7 @@ from uuid import UUID
 
 
 class LocalAttachmentStorage:
-    """使用 Project 工作区 ``.attachments`` 目录的首版存储实现。"""
+    """使用当前工作区 ``.attachments`` 目录的首版存储实现。"""
 
     def __init__(self, workspace_dir: Path) -> None:
         self.workspace_dir = workspace_dir.resolve()
@@ -26,7 +26,7 @@ class LocalAttachmentStorage:
         try:
             candidate.relative_to(self.root.resolve())
         except ValueError as exc:
-            raise ValueError("附件路径超出 Project 工作区。") from exc
+            raise ValueError("附件路径超出工作区。") from exc
         return candidate
 
     def original_path(self, attachment_id: UUID | str) -> Path:

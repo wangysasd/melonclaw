@@ -60,19 +60,56 @@ async def upload_attachment(
         return error_response(exc)
 
 
+@router.post("/api/conversations/{conversation_id}/attachments", status_code=201)
+async def upload_conversation_attachment(
+    request: Request,
+    conversation_id: UUID,
+    file: UploadFile = File(...),
+    user_id: str | None = Form(None),
+    tenant_id: str | None = Form(None),
+    client_request_id: str | None = Form(None),
+) -> JSONResponse:
+    """上传到普通会话的独立工作区；项目会话使用项目上传入口。"""
+
+    manager = get_chat_service(request)
+    if not manager.ready:
+        return JSONResponse(manager.status(), status_code=503)
+    try:
+        resolved_user = resolve_request_user_id(request, user_id)
+        result = await manager.attachments.upload(
+            None,
+            resolved_user,
+            file,
+            client_request_id=client_request_id,
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+        )
+        return JSONResponse(result, status_code=201)
+    except Exception as exc:  # noqa: BLE001 - 统一返回脱敏错误
+        return error_response(exc)
+
+
 @router.get("/api/attachments/{attachment_id}")
 async def attachment_metadata(
     request: Request,
     attachment_id: UUID,
     user_id: str | None = None,
     tenant_id: str | None = None,
+    project_id: UUID | None = None,
+    conversation_id: UUID | None = None,
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
         return JSONResponse(manager.status(), status_code=503)
     try:
         resolved_user = resolve_request_user_id(request, user_id)
-        result = await manager.attachments.metadata(attachment_id, resolved_user, tenant_id)
+        result = await manager.attachments.metadata(
+            attachment_id,
+            resolved_user,
+            tenant_id,
+            project_id=project_id,
+            conversation_id=conversation_id,
+        )
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001 - 统一返回脱敏错误
         return error_response(exc)
@@ -84,6 +121,8 @@ async def attachment_content(
     attachment_id: UUID,
     user_id: str | None = None,
     tenant_id: str | None = None,
+    project_id: UUID | None = None,
+    conversation_id: UUID | None = None,
 ) -> FileResponse | JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
@@ -94,6 +133,8 @@ async def attachment_content(
             attachment_id,
             resolved_user,
             tenant_id,
+            project_id=project_id,
+            conversation_id=conversation_id,
         )
         return FileResponse(
             path,
@@ -111,6 +152,8 @@ async def retry_attachment_parse(
     attachment_id: UUID,
     user_id: str | None = None,
     tenant_id: str | None = None,
+    project_id: UUID | None = None,
+    conversation_id: UUID | None = None,
 ) -> JSONResponse:
     """重置解析失败的 staged 附件并重新排队；已在解析中时幂等返回当前状态。"""
 
@@ -123,6 +166,8 @@ async def retry_attachment_parse(
             attachment_id,
             resolved_user,
             tenant_id,
+            project_id=project_id,
+            conversation_id=conversation_id,
         )
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001 - 统一返回脱敏错误
@@ -135,13 +180,21 @@ async def delete_attachment(
     attachment_id: UUID,
     user_id: str | None = None,
     tenant_id: str | None = None,
+    project_id: UUID | None = None,
+    conversation_id: UUID | None = None,
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
         return JSONResponse(manager.status(), status_code=503)
     try:
         resolved_user = resolve_request_user_id(request, user_id)
-        result = await manager.attachments.delete(attachment_id, resolved_user, tenant_id)
+        result = await manager.attachments.delete(
+            attachment_id,
+            resolved_user,
+            tenant_id,
+            project_id=project_id,
+            conversation_id=conversation_id,
+        )
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001 - 统一返回脱敏错误
         return error_response(exc)

@@ -175,7 +175,8 @@ class UserInputExecutionService:
             assistant["request_id"],
         )
         model = runtime.model_for_message(assistant)
-        agent = await runtime.agent_for_project(
+        agent = await runtime.agent_for_conversation(
+            conversation,
             project,
             model,
             runtime.capabilities_for_message(
@@ -254,9 +255,9 @@ class UserInputExecutionService:
             return (
                 PreparedExecution(
                     conversation_id=conversation_id,
-                    project_id=UUID(project["id"]),
-                    project_name=project["name"],
-                    workdir_path=project["workdir_path"],
+                    project_id=UUID(project["id"]) if project is not None else None,
+                    project_name=project["name"] if project is not None else None,
+                    workdir_path=str(runtime.workspace_dir(conversation, project)),
                     user_id=context.user_id,
                     tenant_id=context.tenant_id,
                     tenant_name=context.tenant_name_zh,
@@ -387,7 +388,8 @@ class UserInputExecutionService:
             context.user_id,
             assistant["request_id"],
         )
-        agent = await runtime.agent_for_project(
+        agent = await runtime.agent_for_conversation(
+            conversation,
             project,
             runtime.model_for_message(assistant),
             runtime.capabilities_for_message(

@@ -63,6 +63,14 @@ def _summary(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _scope_condition(project_id: UUID | None, conversation_id: UUID | None):
+    if project_id is not None:
+        return chat_attachments.c.project_id == project_id
+    if conversation_id is not None:
+        return chat_attachments.c.owner_conversation_id == conversation_id
+    raise ValueError("附件必须属于项目或普通会话。")
+
+
 class AttachmentRepositoryMixin:
     """由 BusinessRepository 继承的附件 CRUD、claim 和绑定事务。"""
 
@@ -71,7 +79,8 @@ class AttachmentRepositoryMixin:
         *,
         attachment_id: UUID,
         user_id: str,
-        project_id: UUID,
+        project_id: UUID | None,
+        owner_conversation_id: UUID | None,
         original_name: str,
         media_type: str,
         kind: str,
@@ -79,12 +88,14 @@ class AttachmentRepositoryMixin:
         sha256: str,
         client_request_id: str | None,
         expires_at: datetime,
-        project_max_bytes: int,
+        workspace_max_bytes: int,
     ) -> dict[str, Any]:
         timestamp = _now()
         parse_status = "not_required" if kind == "image" else "pending"
         async with self.engine.begin() as connection:
-            await self._lock_attachment_project(connection, project_id)
+            await self._lock_attachment_scope(
+                connection, project_id, owner_conversation_id
+            )
             total = await connection.scalar(
                 select(
                     func.coalesce(
@@ -96,12 +107,12 @@ class AttachmentRepositoryMixin:
                     )
                 ).where(
                     and_(
-                        chat_attachments.c.project_id == project_id,
+                        _scope_condition(project_id, owner_conversation_id),
                         chat_attachments.c.storage_purged_at.is_(None),
                     )
                 )
             )
-            if int(total or 0) + size_bytes > project_max_bytes:
+            if int(total or 0) + size_bytes > workspace_max_bytes:
                 raise AttachmentQuotaError()
             try:
                 result = await connection.execute(
@@ -110,6 +121,7 @@ class AttachmentRepositoryMixin:
                         id=attachment_id,
                         user_id=user_id,
                         project_id=project_id,
+                        owner_conversation_id=owner_conversation_id,
                         original_name=original_name,
                         media_type=media_type,
                         kind=kind,
@@ -137,13 +149,14 @@ class AttachmentRepositoryMixin:
     async def find_attachment_upload(
         self,
         user_id: str,
-        project_id: UUID,
+        project_id: UUID | None,
+        owner_conversation_id: UUID | None,
         client_request_id: str,
     ) -> dict[str, Any] | None:
         query = select(chat_attachments).where(
             and_(
                 chat_attachments.c.user_id == user_id,
-                chat_attachments.c.project_id == project_id,
+                _scope_condition(project_id, owner_conversation_id),
                 chat_attachments.c.client_request_id == client_request_id,
             )
         )
@@ -194,6 +207,7 @@ class AttachmentRepositoryMixin:
         user_id: str,
         *,
         project_id: UUID | None = None,
+        owner_conversation_id: UUID | None = None,
     ) -> dict[str, Any] | None:
         conditions = [
             chat_attachments.c.id == attachment_id,
@@ -202,6 +216,10 @@ class AttachmentRepositoryMixin:
         ]
         if project_id is not None:
             conditions.append(chat_attachments.c.project_id == project_id)
+        if owner_conversation_id is not None:
+            conditions.append(
+                chat_attachments.c.owner_conversation_id == owner_conversation_id
+            )
         async with self.engine.connect() as connection:
             row = (await connection.execute(select(chat_attachments).where(and_(*conditions)))).mappings().first()
         return _attachment_dict(row) if row else None
@@ -466,7 +484,7 @@ class AttachmentRepositoryMixin:
         worker_id: str,
         *,
         derived_size_bytes: int,
-        project_max_bytes: int,
+        workspace_max_bytes: int,
     ) -> bool:
         async with self.engine.begin() as connection:
             result = await connection.execute(
@@ -477,7 +495,17 @@ class AttachmentRepositoryMixin:
             row = result.mappings().first()
             if row is None or row["status"] != "staged" or row["parse_status"] != "processing" or row["parse_worker_id"] != worker_id:
                 return False
-            await self._lock_attachment_project(connection, UUID(str(row["project_id"])))
+            project_id = (
+                UUID(str(row["project_id"])) if row["project_id"] is not None else None
+            )
+            owner_conversation_id = (
+                UUID(str(row["owner_conversation_id"]))
+                if row["owner_conversation_id"] is not None
+                else None
+            )
+            await self._lock_attachment_scope(
+                connection, project_id, owner_conversation_id
+            )
             total = await connection.scalar(
                 select(
                     func.coalesce(
@@ -489,19 +517,19 @@ class AttachmentRepositoryMixin:
                     )
                 ).where(
                     and_(
-                        chat_attachments.c.project_id == row["project_id"],
+                        _scope_condition(project_id, owner_conversation_id),
                         chat_attachments.c.storage_purged_at.is_(None),
                     )
                 )
             )
             current_derived = int(row["derived_size_bytes"])
-            if int(total or 0) - current_derived + derived_size_bytes > project_max_bytes:
+            if int(total or 0) - current_derived + derived_size_bytes > workspace_max_bytes:
                 await connection.execute(
                     update(chat_attachments)
                     .where(chat_attachments.c.id == attachment_id)
                     .values(
                         parse_status="failed",
-                        parse_error_code="project_attachment_quota_exceeded",
+                        parse_error_code="workspace_attachment_quota_exceeded",
                         parse_worker_id=None,
                         parse_lease_expires_at=None,
                         updated_at=_now(),
@@ -578,7 +606,7 @@ class AttachmentRepositoryMixin:
         self,
         conversation_id: UUID,
         user_id: str,
-        project_id: UUID,
+        project_id: UUID | None,
         request_id: str,
         content: str,
         *,
@@ -608,7 +636,11 @@ class AttachmentRepositoryMixin:
                         and_(
                             chat_conversations.c.id == conversation_id,
                             chat_conversations.c.user_id == user_id,
-                            chat_conversations.c.project_id == project_id,
+                            (
+                                chat_conversations.c.project_id == project_id
+                                if project_id is not None
+                                else chat_conversations.c.project_id.is_(None)
+                            ),
                         )
                     )
                     .with_for_update()
@@ -638,7 +670,23 @@ class AttachmentRepositoryMixin:
             total_bytes = 0
             for attachment_id in attachment_ids:
                 row = by_id.get(attachment_id)
-                if row is None or row["user_id"] != user_id or row["project_id"] != project_id:
+                valid_scope = (
+                    row is not None
+                    and row["user_id"] == user_id
+                    and (
+                        (
+                            project_id is not None
+                            and row["project_id"] == project_id
+                            and row["owner_conversation_id"] is None
+                        )
+                        or (
+                            project_id is None
+                            and row["project_id"] is None
+                            and row["owner_conversation_id"] == conversation_id
+                        )
+                    )
+                )
+                if not valid_scope:
                     raise AttachmentNotFoundError()
                 if row["status"] not in {"staged", "attached"}:
                     raise AttachmentNotFoundError()
@@ -758,8 +806,18 @@ class AttachmentRepositoryMixin:
             summaries,
         )
 
-    async def _lock_attachment_project(self, connection: Any, project_id: UUID) -> None:
+    async def _lock_attachment_scope(
+        self,
+        connection: Any,
+        project_id: UUID | None,
+        conversation_id: UUID | None,
+    ) -> None:
+        scope = (
+            f"project:{project_id}"
+            if project_id is not None
+            else f"conversation:{conversation_id}"
+        )
         await connection.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
-            {"lock_key": f"melonclaw:attachments:{project_id}"},
+            {"lock_key": f"melonclaw:attachments:{scope}"},
         )

@@ -31,7 +31,8 @@ export interface AttachmentDialogProps {
   capabilities: AttachmentCapabilities;
   userId: string;
   tenantId: string;
-  projectId: string;
+  projectId: string | null;
+  conversationId: string;
   /** 输入区已确认的附件，用于合并计算数量与总大小上限。 */
   existingCount: number;
   existingTotalBytes: number;
@@ -62,6 +63,7 @@ export function AttachmentDialog({
   userId,
   tenantId,
   projectId,
+  conversationId,
   existingCount,
   existingTotalBytes,
   onClose,
@@ -74,6 +76,9 @@ export function AttachmentDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const controllersRef = useRef(new Map<string, AbortController>());
   const dragDepthRef = useRef(0);
+  const access = projectId
+    ? { userId, tenantId, projectId }
+    : { userId, tenantId, conversationId };
 
   useEffect(() => {
     itemsRef.current = items;
@@ -106,7 +111,7 @@ export function AttachmentDialog({
     const controller = new AbortController();
     controllersRef.current.set(temporaryId, controller);
     void uploadAttachment(
-      projectId,
+      projectId ? { projectId } : { conversationId },
       {
         userId,
         tenantId,
@@ -181,7 +186,7 @@ export function AttachmentDialog({
       current.filter((entry) => entry.attachment_id !== item.attachment_id),
     );
     if (!item.attachment_id.startsWith("uploading-") && !item.uploadError) {
-      void deleteAttachment(item.attachment_id, { userId, tenantId }).catch(
+      void deleteAttachment(item.attachment_id, access).catch(
         () => undefined,
       );
     }
@@ -192,7 +197,7 @@ export function AttachmentDialog({
     controllersRef.current.clear();
     for (const item of itemsRef.current) {
       if (!item.attachment_id.startsWith("uploading-") && !item.uploadError) {
-        void deleteAttachment(item.attachment_id, { userId, tenantId }).catch(
+        void deleteAttachment(item.attachment_id, access).catch(
           () => undefined,
         );
       }

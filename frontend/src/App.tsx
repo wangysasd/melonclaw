@@ -38,7 +38,7 @@ function Workspace() {
         onNewConversation={newConversation}
         onOpenProjectDialog={() => setProjectDialogOpen(true)}
       />
-      <ChatView />
+      <ChatView onOpenProjectDialog={() => setProjectDialogOpen(true)} />
       <ProjectDialog
         open={projectDialogOpen}
         onClose={() => setProjectDialogOpen(false)}

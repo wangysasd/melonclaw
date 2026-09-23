@@ -83,10 +83,14 @@ function MessageAttachments({
   attachments,
   userId,
   tenantId,
+  projectId,
+  conversationId,
 }: {
   attachments: NonNullable<ChatMessage["attachments"]>;
   userId: string;
   tenantId: string;
+  projectId: string;
+  conversationId: string | null;
 }) {
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
   if (attachments.length === 0) return null;
@@ -94,7 +98,12 @@ function MessageAttachments({
     <>
       <div className="message-attachments" aria-label="消息附件">
         {attachments.map((attachment) => {
-          const url = attachmentContentUrl(attachment.attachment_id, { userId, tenantId });
+          const url = attachmentContentUrl(attachment.attachment_id, {
+            userId,
+            tenantId,
+            projectId: projectId || null,
+            conversationId: projectId ? null : conversationId,
+          });
           const isImage = attachment.kind === "image";
           return (
             <div className="message-attachment" key={attachment.attachment_id}>
@@ -172,6 +181,7 @@ const MessageBubble = memo(function MessageBubble({
   conversationId,
   userId,
   tenantId,
+  projectId,
 }: {
   message: ChatMessage;
   userName: string;
@@ -179,6 +189,7 @@ const MessageBubble = memo(function MessageBubble({
   conversationId: string | null;
   userId: string;
   tenantId: string;
+  projectId: string;
 }) {
   const metaLabel = message.role === "user" ? userName : "MelonClaw";
   const metaDetail =
@@ -219,7 +230,13 @@ const MessageBubble = memo(function MessageBubble({
             phaseLabel={RUN_STATUS_LABELS[runStatus]}
           />
         ) : null}
-        <MessageAttachments attachments={message.attachments ?? []} userId={userId} tenantId={tenantId} />
+        <MessageAttachments
+          attachments={message.attachments ?? []}
+          userId={userId}
+          tenantId={tenantId}
+          projectId={projectId}
+          conversationId={conversationId}
+        />
         <div className="message-body">
           {message.role === "user" || displayContent ? (
             <Bubble
@@ -241,7 +258,7 @@ const MessageBubble = memo(function MessageBubble({
 });
 
 /** 聊天主视图：消息与审批共用阅读流，底部保留输入区与状态提醒。 */
-export function ChatView() {
+export function ChatView({ onOpenProjectDialog }: { onOpenProjectDialog?: () => void } = {}) {
   const session = useSession();
   const { runStatus, status } = useServiceStatus();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -286,6 +303,14 @@ export function ChatView() {
   useEffect(() => () => {
     if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
   }, []);
+  // 切换会话即换一张“白纸”：旧会话没发出去的草稿不能带到新会话，否则新建
+  // 会话看起来和没点一样（同样的欢迎页 + 同样的输入框文字）。失败回填走
+  // restoreDraft（只在输入框为空时生效），切会话时旧会话的回填已无意义，一并丢弃。
+  useEffect(() => {
+    setDraft("");
+    chat.clearRestoreDraft();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.state.conversationId]);
   useEffect(() => {
     if (!chat.state.historyLoading) scroll.scrollToBottom();
   }, [chat.state.conversationId, chat.state.historyLoading, scroll]);
@@ -321,6 +346,21 @@ export function ChatView() {
   const userName =
     session.users.find((user) => user.user_id === session.userId)?.display_name ??
     (session.userId || "用户");
+  const currentConversation = session.conversationId
+    ? session.conversations.find((item) => item.id === session.conversationId)
+      ?? session.recents.find((item) => item.id === session.conversationId)
+    : null;
+  const chatMatchesSelection = Boolean(session.conversationId && chat.state.conversationId === session.conversationId);
+  const conversationTitle = currentConversation?.title
+    || (chatMatchesSelection ? chat.state.conversationTitle : null)
+    || "准备开始";
+  const conversationProjectId = currentConversation
+    ? currentConversation.project_id
+    : chatMatchesSelection && chat.state.conversationProjectId
+      ? chat.state.conversationProjectId
+      : session.conversationId ? session.projectId : null;
+  const projectName = session.projects.find((project) => project.id === conversationProjectId)?.name;
+  const topbarTitle = projectName ? `${projectName}/${conversationTitle}` : conversationTitle;
 
   return (
     <div className="chat-view">
@@ -338,7 +378,7 @@ export function ChatView() {
             <Icon name="menu" size={18} />
           </button>
           <div className="topbar-session-name">
-            {chat.state.conversationTitle || "准备开始"}
+            {topbarTitle}
           </div>
         </div>
         <button
@@ -393,6 +433,7 @@ export function ChatView() {
                 conversationId={chat.state.conversationId}
                 userId={session.userId}
                 tenantId={session.tenantId}
+                projectId={chat.state.conversationProjectId ?? session.projectId}
               />
             ))}
           </div>
@@ -435,6 +476,7 @@ export function ChatView() {
       ) : null}
 
       <Composer
+        onOpenProjectDialog={onOpenProjectDialog}
         value={draft}
         onChange={setDraft}
         onSend={handleSend}

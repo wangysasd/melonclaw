@@ -7,7 +7,7 @@ import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import UUID
 
 from melonclaw.repository.constants import DEFAULT_SIMULATED_USER_ID
 
@@ -26,10 +26,11 @@ def _conversation_dict(row: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
         "user_id": str(row["user_id"]),
-        "project_id": str(row["project_id"]),
-        "project_name": str(row["project_name"]),
-        "workdir_path": str(row["workdir_path"]),
+        "project_id": str(row["project_id"]) if row["project_id"] is not None else None,
+        "project_name": row["project_name"],
+        "workdir_path": row["workdir_path"],
         "title": str(row["title"]),
+        "is_pinned": bool(row["is_pinned"]),
         "agent_id": str(row["agent_id"]),
         "created_at": _as_iso(row["created_at"]),
         "updated_at": _as_iso(row["updated_at"]),
@@ -73,11 +74,11 @@ def _project_dict(row: Mapping[str, Any]) -> dict[str, Any]:
         "id": str(row["id"]),
         "user_id": str(row["user_id"]),
         "name": str(row["name"]),
-        "workdir_path": str(row["workdir_path"]),
+        "workdir_path": row["workdir_path"],
         "status": str(row["status"]),
+        "is_pinned": bool(row["is_pinned"]),
         "created_at": _as_iso(row["created_at"]),
         "updated_at": _as_iso(row["updated_at"]),
-        "is_default": bool(row["is_default"]),
     }
 
 
@@ -116,32 +117,26 @@ def _conversation_title(content: str) -> str:
     return compact[:30] or "新会话"
 
 
-def _default_project_id(user_id: str) -> UUID:
-    """为用户生成可重复计算的默认 Project ID。"""
-
-    return uuid5(
-        NAMESPACE_URL,
-        f"melonclaw:default-project:{user_id}",
-    )
-
-
-def encode_conversation_cursor(updated_at: str, conversation_id: str) -> str:
+def encode_conversation_cursor(updated_at: str, conversation_id: str, is_pinned: bool = False) -> str:
     payload = json.dumps(
-        {"updated_at": updated_at, "id": conversation_id},
+        {"updated_at": updated_at, "id": conversation_id, "is_pinned": is_pinned},
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
     return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
 
 
-def decode_conversation_cursor(cursor: str) -> tuple[datetime, UUID]:
+def decode_conversation_cursor(cursor: str) -> tuple[bool, datetime, UUID]:
     try:
         padded = cursor + "=" * (-len(cursor) % 4)
         value = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
         updated_at = datetime.fromisoformat(value["updated_at"])
         conversation_id = UUID(value["id"])
+        is_pinned = value["is_pinned"]
+        if not isinstance(is_pinned, bool):
+            raise ValueError("cursor 无效。")
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError("cursor 无效。") from exc
     if updated_at.tzinfo is None:
         updated_at = updated_at.replace(tzinfo=UTC)
-    return updated_at, conversation_id
+    return is_pinned, updated_at, conversation_id

@@ -15,6 +15,7 @@ import { AttachmentDialog, type StagedAttachment } from "./AttachmentDialog";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { PlusMenu } from "./PlusMenu";
+import { ProjectPicker } from "./ProjectPicker";
 import { SkillPicker } from "./SkillPicker";
 import { SkillLogo } from "./SkillLogo";
 import { findSkillTrigger, type SkillTrigger } from "../lib/skillTrigger";
@@ -49,6 +50,7 @@ export interface ComposerProps {
   isRunning?: boolean;
   /** 显式取消当前会话输出；只在停止模式下调用。 */
   onStop?: () => void;
+  onOpenProjectDialog?: () => void;
 }
 
 /** 已通过弹窗确认、进入输入区等待随消息发送的附件。 */
@@ -85,8 +87,15 @@ function statusText(attachment: ComposerAttachment): string {
 }
 
 /** Sender 仅负责输入展示；模型快照与发送恢复仍由现有聊天流管理。 */
-export function Composer({ value, onChange, onSend, disabled, isRunning, onStop }: ComposerProps) {
+export function Composer({ value, onChange, onSend, disabled, isRunning, onStop, onOpenProjectDialog }: ComposerProps) {
   const session = useSession();
+  const attachmentAccess = useMemo(
+    () =>
+      session.projectId
+        ? { userId: session.userId, tenantId: session.tenantId, projectId: session.projectId }
+        : { userId: session.userId, tenantId: session.tenantId, conversationId: session.conversationId },
+    [session.conversationId, session.projectId, session.tenantId, session.userId],
+  );
   const { message } = AntdApp.useApp();
   const senderRef = useRef<SenderRef>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -182,11 +191,11 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
     return () => {
       for (const attachment of attachmentsRef.current) {
         if (attachment.source === "upload" && attachment.status === "staged") {
-          void deleteAttachment(attachment.attachment_id, { userId: session.userId, tenantId: session.tenantId }).catch(() => undefined);
+          void deleteAttachment(attachment.attachment_id, attachmentAccess).catch(() => undefined);
         }
       }
     };
-  }, [session.userId, session.tenantId, session.projectId, session.conversationId]);
+  }, [attachmentAccess, session.userId, session.tenantId, session.projectId, session.conversationId]);
 
   // 解析轮询：按附件 ID 集合调度，指数退避并在超过上限后标记超时。
   // 依赖只有稳定的 pendingKey，不会因为每次轮询回写状态而重建定时器。
@@ -210,7 +219,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
     const tick = async () => {
       const results = await Promise.all(
         ids.map((id) =>
-          getAttachment(id, { userId: session.userId, tenantId: session.tenantId })
+          getAttachment(id, attachmentAccess)
             .catch(() => null),
         ),
       );
@@ -247,7 +256,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [pendingKey, message, session.userId, session.tenantId]);
+  }, [attachmentAccess, pendingKey, message, session.userId, session.tenantId]);
 
   useLayoutEffect(() => {
     if (!selectedSkill) {
@@ -271,8 +280,6 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
   const stopMode = running && !waiting && !session.conversationCreating;
   if (!session.contextReady) {
     placeholder = "正在准备工作区…";
-  } else if (session.projects.length === 0) {
-    placeholder = "请先创建一个项目…";
   } else if (session.conversationCreating) {
     placeholder = "正在准备会话…";
   } else if (waiting) {
@@ -283,8 +290,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
 
   const canUse =
     session.contextReady &&
-    session.status?.status === "ready" &&
-    session.projects.length > 0;
+    session.status?.status === "ready";
 
   const inputDisabled = !canUse;
   const canAttach = canUse && !session.conversationCreating;
@@ -318,8 +324,14 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
         : "arrow-up";
 
   /** 打开附件弹窗；带 files 表示由输入区的拖拽/粘贴进入，弹窗会立刻上传。 */
-  const openAttachmentDialog = (files: File[] = []) => {
+  const openAttachmentDialog = async (files: File[] = []) => {
     if (!canAttach) return;
+    let conversationId = session.conversationId;
+    if (!conversationId) {
+      const conversation = await session.newConversation(session.projectId || null);
+      conversationId = conversation?.id ?? null;
+    }
+    if (!conversationId) return;
     setPlusMenuOpen(false);
     setDialogFiles(files);
     setDialogSessionId((current) => current + 1);
@@ -368,7 +380,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
     if (preview?.attachment_id === attachment.attachment_id) setPreview(null);
     setAttachments((current) => current.filter((item) => item.attachment_id !== attachment.attachment_id));
     if (attachment.source === "upload" && attachment.status === "staged") {
-      void deleteAttachment(attachment.attachment_id, { userId: session.userId, tenantId: session.tenantId }).catch(() => undefined);
+      void deleteAttachment(attachment.attachment_id, attachmentAccess).catch(() => undefined);
     }
   };
 
@@ -384,6 +396,8 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
     void retryAttachmentParse(attachment.attachment_id, {
       userId: session.userId,
       tenantId: session.tenantId,
+      projectId: session.projectId || null,
+      conversationId: session.projectId ? null : session.conversationId,
     }).catch((error: unknown) => {
       const text = error instanceof Error ? error.message : "重新解析失败，请稍后重试。";
       message.error(text);
@@ -423,7 +437,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
     dragDepthRef.current = 0;
     setDragging(false);
     const files = Array.from(event.dataTransfer?.files ?? []);
-    if (files.length > 0) openAttachmentDialog(files);
+    if (files.length > 0) void openAttachmentDialog(files);
   };
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -431,7 +445,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
     const files = Array.from(event.clipboardData?.files ?? []);
     if (files.length === 0) return;
     event.preventDefault();
-    openAttachmentDialog(files);
+    void openAttachmentDialog(files);
   };
 
   const selectSkill = (skill: SkillOption) => {
@@ -462,6 +476,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
 
   return (
     <div className="composer-wrap">
+      <ProjectPicker onOpenProjectDialog={onOpenProjectDialog} />
       <div
         ref={composerRef}
         className={`composer ${dragging ? "is-dragging" : ""}`}
@@ -493,7 +508,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
             skills={skills}
             skillsLoading={session.skillsLoading ?? false}
             skillsError={session.skillsError ?? null}
-            onPickFiles={() => openAttachmentDialog()}
+            onPickFiles={() => void openAttachmentDialog()}
             onPickSkill={applySkill}
           />
         ) : null}
@@ -503,6 +518,8 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
               const url = attachmentContentUrl(attachment.attachment_id, {
                 userId: session.userId,
                 tenantId: session.tenantId,
+                projectId: session.projectId || null,
+                conversationId: session.projectId ? null : session.conversationId,
               });
               const failed = attachment.parse_status === "failed" || attachment.parseTimedOut;
               return (
@@ -696,6 +713,8 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
           src={attachmentContentUrl(preview.attachment_id, {
             userId: session.userId,
             tenantId: session.tenantId,
+            projectId: session.projectId || null,
+            conversationId: session.projectId ? null : session.conversationId,
           })}
           alt={preview.file_name}
           onClose={() => setPreview(null)}
@@ -708,7 +727,8 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop 
         capabilities={capabilities}
         userId={session.userId}
         tenantId={session.tenantId}
-        projectId={session.projectId}
+        projectId={session.projectId || null}
+        conversationId={session.conversationId ?? ""}
         existingCount={attachments.length}
         existingTotalBytes={attachments.reduce((sum, item) => sum + item.size_bytes, 0)}
         onClose={() => setDialogOpen(false)}

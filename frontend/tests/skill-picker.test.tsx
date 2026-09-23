@@ -7,7 +7,7 @@ import { Composer } from "../src/components/Composer";
 const session = {
   contextReady: true,
   status: { status: "ready" },
-  projects: [{ id: "p" }],
+  projects: [{ id: "p", name: "项目" }],
   busy: false,
   runStatus: null,
   conversationCreating: false,

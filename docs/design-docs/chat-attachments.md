@@ -6,13 +6,14 @@
 
 在现有 Project、Conversation、Agent 和 SSE 链路上支持图片与普通文件附件。上传结果
 需要可重试、可审计；消息只保存附件关系和脱敏摘要，不保存原始文件内容或图片
-base64。附件必须经过当前用户、租户上下文、Project 和模型能力的服务端校验。
+base64。附件必须经过当前用户、租户上下文、工作区和模型能力的服务端校验。
 
 ## 方案概览
 
-采用两阶段协议：浏览器先以 multipart 调用
-`POST /api/projects/{project_id}/attachments`，服务端流式计算 SHA-256、做类型/容器
-校验并把原文写入 Project 工作区的 `.attachments/<attachment_id>/original/blob`；文本、
+采用两阶段协议：浏览器先以 multipart 调用 Project 的
+`POST /api/projects/{project_id}/attachments` 或普通会话的
+`POST /api/conversations/{conversation_id}/attachments`，服务端流式计算 SHA-256、做类型/容器
+校验并把原文写入当前工作区的 `.attachments/<attachment_id>/original/blob`；文本、
 PDF 和 Office 文件由后台解析进程生成 `derived/index.md` 与分片。发送消息时只提交
 `attachment_ids`，Repository 在同一事务中锁定 Conversation 和附件，写入消息关系，
 并把 staged 附件转为 attached。
@@ -28,9 +29,9 @@ Agent 通过受控虚拟路径按需读取。出站图片经 `services/attachmen
 
 - `chat_attachments` 保存生命周期、解析租约、哈希、派生大小和清理标记；
   `chat_message_attachments` 保存消息关系和顺序。
-- 附件物理路径由 Project 工作区和 `attachment_id` 唯一推导，不在数据库重复保存
+- 附件物理路径由当前工作区和 `attachment_id` 唯一推导，不在数据库重复保存
   `storage_key`。
-- Project 配额判断使用 PostgreSQL transaction advisory lock；消息绑定、附件状态迁移
+- 每个工作区的配额判断使用 PostgreSQL transaction advisory lock；消息绑定、附件状态迁移
   和 request_id 幂等比较由 Repository 完成，避免服务层先查后写的竞态。
 - 图片是否可发送由 `core/model_catalog.py` 的静态 `input_modalities` 决定；不支持图片
   的模型返回 `model_image_unsupported`，不调用 OCR 或图片转文字降级。
@@ -90,8 +91,8 @@ scripts/start.sh
 
 ## 验证记录与当前边界
 
-已通过 `scripts/check.sh`（compileall、33 项后端测试、Ruff、锁文件校验、ESLint、
-TypeScript、66 项前端测试）和前端生产构建；附件校验、文本/JSON 前移校验、图片出站缩放
+已通过 `scripts/check.sh`（compileall、后端测试、Ruff、锁文件校验、ESLint、
+TypeScript 和前端测试）和前端生产构建；附件校验、文本/JSON 前移校验、图片出站缩放
 与缓存、能力清单、加号二级目录、附件弹窗与前端预校验、Markdown 派生输出、独立解析进程、
 本地存储路径和 API 路由有专项测试/导入检查。真实 PostgreSQL 建表与初始化、真实模型视觉请求、大文件资源压测、
 病毒扫描、内存/CPU/打开文件数硬限制、对象存储和生产隔离沙箱仍需在部署环境单独验证。

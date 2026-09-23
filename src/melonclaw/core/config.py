@@ -25,7 +25,7 @@ from melonclaw.core.mcp_config import (
 
 
 def _create_workspace_root() -> Path:
-    """返回跨进程保留的 Project 工作区根目录。"""
+    """返回跨进程保留的工作区根目录。"""
 
     configured = os.getenv("MELONCLAW_WORKSPACE_DIR", "").strip()
     workspace_root = (
@@ -134,6 +134,7 @@ class Settings:
     attachment_image_outbound_max_edge: int = 1568
     attachment_image_outbound_jpeg_quality: int = 85
     attachment_image_cache_entries: int = 32
+    agent_cache_entries: int = 32
     user_input_ttl_seconds: int = 24 * 60 * 60
 
     @property
@@ -288,6 +289,7 @@ def load_settings(provider: str | None = None) -> Settings:
         mcp_tool_allowlists=mcp_tool_allowlists,
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
         provider_configs=provider_configs,
+        agent_cache_entries=_int_setting("MELONCLAW_AGENT_CACHE_ENTRIES", 32),
         default_model_id=default_model_id,
         default_model_key=default_model_key,
         attachment_max_file_bytes=_int_setting(

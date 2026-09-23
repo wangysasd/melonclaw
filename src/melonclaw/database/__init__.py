@@ -7,12 +7,7 @@ from melonclaw.database.connection import (
     open_checkpoint_pool,
     open_memory_store,
 )
-from melonclaw.database.constants import (
-    BUSINESS_TABLES,
-    CHECKPOINT_TABLES,
-    DEFAULT_PROJECT_NAME,
-    STORE_TABLES,
-)
+from melonclaw.database.constants import BUSINESS_TABLES, CHECKPOINT_TABLES, STORE_TABLES
 from melonclaw.database.database import Database
 from melonclaw.database.errors import (
     DatabaseConfigurationError,
@@ -35,7 +30,6 @@ from melonclaw.database.schema import (
 __all__ = [
     "BUSINESS_TABLES",
     "CHECKPOINT_TABLES",
-    "DEFAULT_PROJECT_NAME",
     "STORE_TABLES",
     "Database",
     "DatabaseConfigurationError",

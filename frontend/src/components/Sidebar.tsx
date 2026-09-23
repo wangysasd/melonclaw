@@ -1,5 +1,4 @@
-import { Button, Drawer, Empty } from "antd";
-import Conversations from "@ant-design/x/es/conversations";
+import { App as AntdApp, Button, Drawer, Dropdown, Input, Modal, type MenuProps } from "antd";
 import { useEffect, useState } from "react";
 
 import { Icon } from "./Icon";
@@ -55,6 +54,18 @@ function RunDetails() {
   );
 }
 
+type ResourceKind = "project" | "conversation";
+
+function MoreButton({ label, menu }: { label: string; menu: MenuProps }) {
+  return (
+    <Dropdown menu={menu} trigger={["click"]} placement="bottomRight" classNames={{ root: "sidebar-action-dropdown" }}>
+      <button type="button" className="sidebar-more" aria-label={`${label}更多操作`} title="更多操作" onClick={(event) => event.stopPropagation()}>
+        <span aria-hidden="true">···</span>
+      </button>
+    </Dropdown>
+  );
+}
+
 export interface SidebarContentProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -72,16 +83,89 @@ export function SidebarContent({
   onSelectConversationCloseMobile,
 }: SidebarContentProps) {
   const session = useSession();
+  const { modal, message } = AntdApp.useApp();
+  const [renaming, setRenaming] = useState<{ kind: ResourceKind; id: string; name: string } | null>(null);
+  const [submittingRename, setSubmittingRename] = useState(false);
+  // 新建按钮在创建中也不禁用：在途到达的点击由 newConversation 排队补建。
+  // 禁掉按钮会让“新建空会话”（前后都是相同欢迎页）看起来像没反应，
+  // 用户下意识再点一次反而更容易落在禁用窗口里被吞掉。
   const canCreate =
     session.contextReady &&
-    session.status?.status === "ready" &&
-    !session.conversationCreating;
+    session.status?.status === "ready";
 
   const conversationClick = (id: string) => {
     session.selectConversation(id);
     onSelectConversationCloseMobile?.();
   };
   const runningIds = session.runningConversationIds ?? [];
+  const actionMenu = (kind: ResourceKind, id: string, name: string, pinned: boolean): MenuProps => ({
+    items: [
+      { key: "pin", label: pinned ? "取消置顶" : "置顶" },
+      { key: "rename", label: "重命名" },
+      { key: "delete", label: "删除", danger: true },
+    ],
+    onClick: ({ key, domEvent }) => {
+      domEvent.stopPropagation();
+      if (key === "pin") {
+        void (kind === "project"
+          ? session.updateProject(id, { isPinned: !pinned })
+          : session.updateConversation(id, { isPinned: !pinned }));
+      } else if (key === "rename") {
+        setRenaming({ kind, id, name });
+      } else if (key === "delete") {
+        modal.confirm({
+          title: `删除${kind === "project" ? "项目" : "对话"}「${name}」？`,
+          content: kind === "project" ? "项目及其中的对话将从列表中移除。" : "该对话将从列表中移除。",
+          okText: "删除",
+          okButtonProps: { danger: true },
+          cancelText: "取消",
+          onOk: async () => {
+            if (kind === "project") await session.deleteProject(id);
+            else await session.deleteConversation(id);
+          },
+        });
+      }
+    },
+  });
+
+  const submitRename = async () => {
+    if (!renaming || submittingRename) return;
+    const name = renaming.name.trim();
+    const maxLength = renaming.kind === "project" ? 120 : 200;
+    if (!name || name.length > maxLength) {
+      message.error(`名称长度须在 1 到 ${maxLength} 个字符之间。`);
+      return;
+    }
+    setSubmittingRename(true);
+    try {
+      const ok = renaming.kind === "project"
+        ? await session.updateProject(renaming.id, { name })
+        : await session.updateConversation(renaming.id, { name });
+      if (ok) setRenaming(null);
+    } finally {
+      setSubmittingRename(false);
+    }
+  };
+
+  const conversationRows = (items: typeof session.conversations, isRecent: boolean) => (
+    <div className="conversation-list">
+      {items.map((conversation) => {
+        const running = runningIds.includes(conversation.id);
+        const title = conversation.title || "未命名会话";
+        return (
+          <div key={conversation.id} className={["conversation-item", conversation.id === session.conversationId ? "is-active" : ""].filter(Boolean).join(" ")}>
+            <button type="button" className="conversation-item-main" onClick={() => isRecent ? (session.openRecent(conversation.id), onSelectConversationCloseMobile?.()) : conversationClick(conversation.id)} title={title}>
+              <Icon name={running ? "loader-circle" : "message-circle"} size={14} className={running ? "mc-icon-spin" : undefined} />
+              <span className="conversation-item-title">{title}</span>
+              {conversation.is_pinned ? <Icon name="pin" size={12} className="sidebar-pinned" /> : null}
+              <span className="conversation-item-time">{formatConversationTime(conversation.updated_at)}</span>
+            </button>
+            <MoreButton label={`对话「${title}」`} menu={actionMenu("conversation", conversation.id, title, Boolean(conversation.is_pinned))} />
+          </div>
+        );
+      })}
+    </div>
+  );
 
   if (collapsed) {
     return (
@@ -156,79 +240,104 @@ export function SidebarContent({
             </button>
           </div>
           {session.projects.length === 0 && session.contextReady ? (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="还没有可用项目"
-            />
+            <Button
+              type="dashed"
+              block
+              className="project-empty-create"
+              onClick={onOpenProjectDialog}
+            >
+              创建新项目
+            </Button>
           ) : (
             <div className="project-list">
-              {session.projects.map((project) => (
-                <button
-                  key={project.id}
-                  type="button"
-                  className={[
-                    "project-item",
-                    project.id === session.projectId ? "is-active" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onClick={() => void session.openProject(project.id)}
-                >
-                  <Icon name="folder" size={15} />
-                  <span className="project-item-name">{project.name}</span>
-                  {project.is_default ? (
-                    <span className="project-item-badge">默认</span>
-                  ) : null}
-                </button>
-              ))}
+              {session.projects.map((project) => {
+                const expanded = project.id === session.projectId;
+                return (
+                  <div key={project.id} className="project-group">
+                    <div className={["project-item", expanded ? "is-active" : ""].filter(Boolean).join(" ")}>
+                      <button type="button" className="project-item-main" onClick={() => void session.openProject(project.id)} title={project.name} aria-expanded={expanded}>
+                        <Icon name={expanded ? "folder-open" : "folder"} size={15} />
+                        <span className="project-item-name">{project.name}</span>
+                        {project.is_pinned ? <Icon name="pin" size={12} className="sidebar-pinned" /> : null}
+                      </button>
+                      <MoreButton label={`项目「${project.name}」`} menu={actionMenu("project", project.id, project.name, Boolean(project.is_pinned))} />
+                      <button
+                        type="button"
+                        className="project-item-new"
+                        onClick={() => void session.newConversation(project.id)}
+                        disabled={!canCreate}
+                        title={`在「${project.name}」中新建会话`}
+                        aria-label={`在「${project.name}」中新建会话`}
+                      >
+                        <Icon name="message-square-plus" size={15} />
+                      </button>
+                    </div>
+                    {expanded ? (
+                      <div className="project-children" aria-label={`${project.name}的对话`}>
+                        {session.conversations.length > 0 ? conversationRows(session.conversations, false) : (
+                          <div className="conversation-empty">{session.conversationsLoadFailed ? "会话加载失败" : session.contextReady && !session.conversationsLoading ? "这个项目还没有会话" : "会话加载中…"}</div>
+                        )}
+                        {session.conversationCursor ? (
+                          <Button type="text" block size="small" className="load-more" onClick={() => void session.loadMoreConversations()}>加载更多会话</Button>
+                        ) : null}
+                        {!session.conversationsLoading && !session.conversationsLoadFailed && session.conversations.length === 0 ? (
+                          <button type="button" className="project-child-new" onClick={() => void session.newConversation(project.id)} disabled={!canCreate}>
+                            <Icon name="plus" size={13} /> 在此项目中新建对话
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
 
-        {session.projectId ? (
-          <section className="conversation-section" aria-label="当前项目会话">
-            <div className="conversation-heading">
-              <div className="section-label">当前项目</div>
-              <div className="current-project-name">
-                {session.projects.find((p) => p.id === session.projectId)?.name ??
-                  "未选择项目"}
-              </div>
+        <section className="conversation-section" aria-label="最近会话">
+          <div className="conversation-heading">
+            <div className="section-label">最近会话</div>
+          </div>
+          {session.recents.length > 0 ? (
+            conversationRows(session.recents, true)
+          ) : (
+            <div className="conversation-empty">
+              {session.contextReady ? "还没有普通会话" : "会话加载中…"}
             </div>
-            {session.conversations.length > 0 ? (
-              <Conversations
-                rootClassName="conversation-list"
-                activeKey={session.conversationId ?? undefined}
-                items={session.conversations.map((conversation) => {
-                  const running = runningIds.includes(conversation.id);
-                  return {
-                    key: conversation.id,
-                    label: <><span className="conversation-item-title">{conversation.title || "未命名会话"}</span><span className="conversation-item-time">{formatConversationTime(conversation.updated_at)}</span></>,
-                    icon: running
-                      ? <Icon name="loader-circle" size={14} className="mc-icon-spin" />
-                      : <Icon name="message-circle" size={14} />,
-                  };
-                })}
-                onActiveChange={(id) => conversationClick(id)}
-              />
-            ) : (
-              <div className="conversation-empty">
-                {session.contextReady ? "这个项目还没有会话" : "会话加载中…"}
-              </div>
-            )}
-            {session.conversationCursor ? (
-              <Button
-                type="text"
-                block
-                size="small"
-                className="load-more"
-                onClick={() => void session.loadMoreConversations()}
-              >
-                加载更多会话
-              </Button>
-            ) : null}
-          </section>
-        ) : null}
+          )}
+          {session.recentsCursor ? (
+            <Button
+              type="text"
+              block
+              size="small"
+              className="load-more"
+              onClick={() => void session.loadMoreRecents()}
+            >
+              加载更多会话
+            </Button>
+          ) : null}
+        </section>
       </div>
+
+      <Modal
+        title={renaming?.kind === "project" ? "重命名项目" : "重命名对话"}
+        open={renaming !== null}
+        onCancel={() => { if (!submittingRename) setRenaming(null); }}
+        onOk={() => void submitRename()}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={submittingRename}
+        okButtonProps={{ disabled: !renaming?.name.trim() }}
+      >
+        <Input
+          aria-label="新名称"
+          value={renaming?.name ?? ""}
+          maxLength={renaming?.kind === "project" ? 120 : 200}
+          onChange={(event) => setRenaming((current) => current ? { ...current, name: event.target.value } : null)}
+          onPressEnter={() => void submitRename()}
+          autoFocus
+        />
+      </Modal>
 
       <div className="sidebar-footer">
         <UserPicker />

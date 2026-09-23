@@ -10,7 +10,7 @@ MelonClaw 是一个基于 Deep Agents 的通用 AI 助手。通过 Web 界面处
 
 - 🧠 **通用任务处理** — 问答、总结、翻译、分析、研究和计划制定
 - 🔍 **联网搜索** — 配置 Tavily 后即可获取实时资料并核验来源
-- 📁 **多会话工作区** — Project 下的会话共享持久文件目录，对话状态彼此隔离；侧栏会话名称与“新建对话”保持 14px 的阅读层级
+- 📁 **多会话工作区** — 普通会话各自拥有持久工作区，Project 内的会话共享项目工作区；消息状态始终按会话隔离
 - 🤝 **子 Agent 协作** — 独立工作委派给子 Agent，主 Agent 汇总结果
 - 🧮 **安全计算** — QuickJS Interpreter 完成纯计算，无文件、网络和 Shell 权限
 - ✅ **可控副作用** — 写文件、删文件和执行 Shell 前需人工批准、编辑参数或拒绝
@@ -93,7 +93,7 @@ scripts/shutdown.sh   # 一键停止
 
 ## 💬 如何使用
 
-1. 选择开发用模拟用户，创建或选择一个 Project，新建会话后直接描述任务。
+1. 选择开发用模拟用户。点击「新建对话」会创建独立的普通会话；项目行右侧“…”后面的新建会话图标可随时在该项目下创建共享工作区内的会话。项目还没有会话时，展开区也会显示「在此项目中新建对话」。项目会话的顶栏显示「项目名称/会话名称」，普通会话只显示会话名称。输入框上方灰色栏可搜索、选择或新建项目，也可选择「不在项目中工作」；它与侧栏项目选择同步。已经停在没有任何消息的空白会话上时，再点新建会直接复用当前会话，不会重复创建。项目和对话行悬停时会出现“…”菜单，可置顶、重命名或删除；触屏时菜单按钮常显。删除会让资源及其历史从界面不可访问，但开发期仍保留数据库记录和工作区文件，不执行物理清理。
 2. 在发送按钮左侧的模型下拉框选择本轮要使用的模型；当前提供 DeepSeek Flash、DeepSeek Pro、MiniMax M3 和 MiniMax M2.7，选项只显示模型名（实际可用项取决于 `.env` 配置）。
 3. 在聊天输入框输入 `/` 打开 Skill 目录；继续输入关键词可以过滤，使用方向键和 Enter 选择。选中的 Skill 会以标签显示，并从本轮消息中生效。
 4. 点击输入框左下角的「+」展开二级目录：「图片和文件」打开「添加附件」弹窗（可拖拽文件到上传区，也可点击从文件夹多选；弹窗里写明支持的类型与大小、数量限制，上传后可逐项移除，点「确认添加附件」统一加入输入区，点「取消」则放弃本次上传）；「技能」悬停后在右侧列出与输入 `/` 相同的技能列表，选中即应用到本轮消息。把文件拖到输入区或粘贴剪贴板图片会跳过目录直接打开附件弹窗。等待文档解析完成后即可发送，解析失败或超时可点「重新解析」；图片在输入区和历史消息里都能点开预览，历史消息会展示附件状态与下载入口。
@@ -104,7 +104,7 @@ scripts/shutdown.sh   # 一键停止
 常用玩法：
 
 - 🔎 **联网研究** — 直接提出需要实时资料或来源核验的问题
-- 📝 **文件处理** — 在 Agent 中使用类似 `/summary.md` 的工作区路径，文件写入 Project 持久工作区（默认 `~/.melonclaw/workspaces`）
+- 📝 **文件处理** — 在 Agent 中使用类似 `/summary.md` 的工作区路径；普通会话写入该会话目录，Project 会话写入项目持久工作区（默认 `~/.melonclaw/workspaces`）
 - 📊 **数据计算** — 让 Agent 用 `eval` 完成循环、排序、聚合等纯计算
 
 ## ⚙️ 可选配置
@@ -121,12 +121,13 @@ scripts/shutdown.sh   # 一键停止
 | `DATABASE_URL` | PostgreSQL 连接串 |
 | `TUSHARE_MCP_TOKEN` | Tushare 取数 Skill（`tushare-fetcher`）的访问 Token |
 | `MELONCLAW_SHELL_ENV_ALLOWLIST` | 额外放行给 Agent Shell 环境的变量白名单，逗号分隔，支持 `NAME` 精确与 `PREFIX_*` 前缀匹配 |
-| `MELONCLAW_WORKSPACE_DIR` | Project 工作区根目录 |
+| `MELONCLAW_WORKSPACE_DIR` | 工作区根目录；其下按 `projects/<project_id>` 和 `conversations/<conversation_id>` 分隔 |
+| `MELONCLAW_AGENT_CACHE_ENTRIES` | Agent 工作区缓存上限（默认 32），只影响可重建的内存实例 |
 | `MELONCLAW_HOST` / `MELONCLAW_PORT` | 后端监听地址和端口 |
 | `MELONCLAW_FRONTEND_HOST` / `MELONCLAW_FRONTEND_PORT` | 前端开发服务器监听地址和端口 |
 | `MELONCLAW_ALLOWED_ORIGINS` | 独立前端跨域部署时放行的 origin |
 | `MELONCLAW_ATTACHMENT_MAX_FILE_MB` / `MELONCLAW_ATTACHMENT_MAX_PER_MESSAGE` | 单个附件大小（默认 20 MB）和单条消息附件数量（默认 10） |
-| `MELONCLAW_ATTACHMENT_MAX_TOTAL_MB` / `MELONCLAW_ATTACHMENT_PROJECT_MAX_MB` | 单条消息总大小（默认 50 MB）和 Project 附件原文+派生文件总配额（默认 1024 MB） |
+| `MELONCLAW_ATTACHMENT_MAX_TOTAL_MB` / `MELONCLAW_ATTACHMENT_PROJECT_MAX_MB` | 单条消息总大小（默认 50 MB）和每个工作区附件原文+派生文件总配额（默认 1024 MB）；后一个变量沿用现有名称 |
 | `MELONCLAW_ATTACHMENT_IMAGE_MAX_PIXELS` / `MELONCLAW_ATTACHMENT_PDF_MAX_PAGES` | 图片像素上限（默认 30000000）和 PDF 页数上限（默认 500） |
 | `MELONCLAW_ATTACHMENT_PARSE_MAX_CHARS` | 单附件派生文本字符上限（默认 2000000） |
 | `MELONCLAW_ATTACHMENT_ARCHIVE_MAX_ENTRIES` / `MELONCLAW_ATTACHMENT_ARCHIVE_MAX_UNCOMPRESSED_MB` / `MELONCLAW_ATTACHMENT_ARCHIVE_MAX_ENTRY_MB` | OOXML 容器条目数、总解压大小和单条目大小限制 |
@@ -179,7 +180,10 @@ npm run build                     # 构建产物输出到 frontend/dist/
 
 界面结构与视觉约定（侧栏分页、字号与配色、消息区版式等实现细节）集中维护在 [docs/FRONTEND.md](docs/FRONTEND.md)；本文件只保留使用者需要知道的信息。
 
-附件 API 由后端提供：`POST /api/projects/{project_id}/attachments` 上传，
+侧栏管理接口：`PATCH /api/projects/{project_id}` 与 `PATCH /api/conversations/{conversation_id}` 接收 `user_id`、可选 `tenant_id`，以及 `name` 或 `is_pinned`；对应的 `DELETE` 接口在查询参数中接收 `user_id` 和可选 `tenant_id`。删除是开发期的逻辑删除，工作区文件暂不物理清理。新增状态字段后，旧开发数据库需清空并运行 `uv run melonclaw-db-init` 重建表。
+
+附件 API 由后端提供：Project 使用 `POST /api/projects/{project_id}/attachments`，普通会话使用
+`POST /api/conversations/{conversation_id}/attachments` 上传，
 `GET /api/attachments/capabilities` 获取支持类型与限制，`GET /api/attachments/{attachment_id}`
 查询状态，`POST /api/attachments/{attachment_id}/parse` 重新解析失败的附件，
 `GET /api/attachments/{attachment_id}/content` 下载原文件（响应带 `nosniff` 与
@@ -194,5 +198,5 @@ staged 附件。发送消息时在 `POST /api/conversations/{conversation_id}/me
 - `.env` 中的 API Key、Token 和数据库密码只保存在本地，不要提交到 Git。
 - 页面中的用户和租户是开发入口，不代表生产环境的身份认证。
 - `LocalShellBackend` 不是安全沙箱，不要在不受信任的环境中直接开放服务。
-- 附件原文存放在 Project 工作区的 `.attachments/` 受控目录，Agent 只能读取解析后的派生文本，不能通过工具读取原图或写入附件目录；当前解析使用本机进程，不是生产级隔离沙箱。
+- 附件原文存放在当前工作区的 `.attachments/` 受控目录，普通会话和 Project 不会互相读取；Agent 只能读取解析后的派生文本，不能通过工具读取原图或写入附件目录；当前解析使用本机进程，不是生产级隔离沙箱。
 - 联网搜索、MCP 和模型调用依赖相应外部服务；未配置时其他能力仍可使用。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -47,7 +48,8 @@ class ChatRuntime:
     memory_store: Any | None = None
     memory_service: MemoryService | None = None
     attachment_hydration_provider: Any | None = None
-    project_agents: dict[tuple[str, tuple[str, int, str, str, str], tuple[str, ...]], Any] | None = None
+    workspace_agents: dict[tuple[str, tuple[str, int, str, str, str], tuple[str, ...]], Any] | None = None
+    agent_build_locks: dict[Any, asyncio.Lock] = field(default_factory=dict)
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
     skills_catalog: SkillCatalog = field(default_factory=lambda: skill_catalog)
@@ -78,7 +80,7 @@ class ChatRuntime:
                 self.settings.database_url
             )
             self.checkpointer = AsyncPostgresSaver(self.checkpoint_pool)
-            self.project_agents = {}
+            self.workspace_agents = {}
         except (
             DatabaseConfigurationError,
             DatabaseSchemaError,
@@ -110,9 +112,10 @@ class ChatRuntime:
         if self.database is not None:
             await self.database.close()
             self.database = None
-        if self.project_agents is not None:
-            self.project_agents.clear()
-        self.project_agents = None
+        if self.workspace_agents is not None:
+            self.workspace_agents.clear()
+        self.workspace_agents = None
+        self.agent_build_locks.clear()
 
     @property
     def ready(self) -> bool:
@@ -213,13 +216,37 @@ class ChatRuntime:
         candidate.mkdir(parents=True, exist_ok=True)
         return candidate
 
-    async def agent_for_project(
+    def conversation_workspace_dir(self, conversation_id: UUID) -> Path:
+        """返回普通会话独享的持久工作目录。"""
+
+        if self.settings is None:
+            raise RuntimeError("运行配置尚未加载。")
+        root = self.settings.workspace_root.resolve()
+        candidate = (root / "conversations" / str(conversation_id)).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise DatabaseSchemaError("Conversation 工作目录超出 workspace 根目录。") from exc
+        candidate.mkdir(parents=True, exist_ok=True)
+        return candidate
+
+    def workspace_dir(
         self,
-        project: dict[str, Any],
+        conversation: dict[str, Any],
+        project: dict[str, Any] | None,
+    ) -> Path:
+        if project is not None:
+            return self.project_workspace_dir(project)
+        return self.conversation_workspace_dir(UUID(str(conversation["id"])))
+
+    async def agent_for_conversation(
+        self,
+        conversation: dict[str, Any],
+        project: dict[str, Any] | None,
         model: ResolvedModel | None = None,
         capabilities: object = None,
     ) -> Any:
-        """按 Project + 模型版本 + 客户端能力缓存 Agent。
+        """按工作区 + 模型版本 + 客户端能力缓存 Agent。
 
         能力必须进缓存键：同一个 Project 上，声明了提问能力的客户端和没声明的
         客户端拿到的是两个不同的 Agent（工具集不同），不能互相复用。
@@ -230,25 +257,42 @@ class ChatRuntime:
             raise RuntimeError("Agent 仍在启动，请稍候。")
         if self.memory_service is None:
             raise RuntimeError("Memory Store 仍在启动，请稍候。")
-        if self.project_agents is None:
-            self.project_agents = {}
+        if self.workspace_agents is None:
+            self.workspace_agents = {}
         resolved_model = model or self.resolve_model()
         normalized_capabilities = normalize_capabilities(capabilities)
-        key = (str(project["id"]), resolved_model.cache_key, normalized_capabilities)
-        cached = self.project_agents.get(key)
-        if cached is not None:
-            return cached
-        agent = await build_research_agent(
-            self.settings,
-            checkpointer=self.checkpointer,
-            workspace_dir=self.project_workspace_dir(project),
-            model=resolved_model,
-            memory_service=self.memory_service,
-            attachment_hydration_provider=self.attachment_hydration_provider,
-            client_capabilities=normalized_capabilities,
+        workspace_key = (
+            f"project:{conversation['user_id']}:{project['id']}"
+            if project is not None
+            else f"conversation:{conversation['user_id']}:{conversation['id']}"
         )
-        self.project_agents[key] = agent
-        return agent
+        key = (workspace_key, resolved_model.cache_key, normalized_capabilities)
+        cached = self.workspace_agents.get(key)
+        if cached is not None:
+            self.workspace_agents.pop(key)
+            self.workspace_agents[key] = cached
+            return cached
+        lock = self.agent_build_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            cached = self.workspace_agents.get(key)
+            if cached is not None:
+                return cached
+            agent = await build_research_agent(
+                self.settings,
+                checkpointer=self.checkpointer,
+                workspace_dir=self.workspace_dir(conversation, project),
+                model=resolved_model,
+                memory_service=self.memory_service,
+                attachment_hydration_provider=self.attachment_hydration_provider,
+                client_capabilities=normalized_capabilities,
+            )
+            self.workspace_agents[key] = agent
+            cache_limit = max(1, getattr(self.settings, "agent_cache_entries", 32))
+            while len(self.workspace_agents) > cache_limit:
+                evicted = next(iter(self.workspace_agents))
+                self.workspace_agents.pop(evicted)
+                self.agent_build_locks.pop(evicted, None)
+            return agent
 
     @staticmethod
     def capabilities_for_message(message: dict[str, Any] | None) -> tuple[str, ...]:

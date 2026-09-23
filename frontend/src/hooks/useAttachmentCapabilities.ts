@@ -36,7 +36,7 @@ export const FALLBACK_ATTACHMENT_CAPABILITIES: AttachmentCapabilities = {
   max_file_bytes: 20 * 1024 * 1024,
   max_total_bytes: 50 * 1024 * 1024,
   max_per_message: 10,
-  project_max_bytes: 1024 * 1024 * 1024,
+  workspace_max_bytes: 1024 * 1024 * 1024,
   image_max_pixels: 30_000_000,
   pdf_max_pages: 500,
 };

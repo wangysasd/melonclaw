@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-DEFAULT_PROJECT_NAME = "临时会话"
-
 BUSINESS_TABLES = (
     "tenants",
     "users",

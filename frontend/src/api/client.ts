@@ -38,7 +38,7 @@ export class ApiError extends Error {
 }
 
 interface ApiRequestOptions {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   query?: Record<string, string | number | undefined | null>;
   body?: unknown;
   signal?: AbortSignal;
@@ -157,6 +157,21 @@ export function createProject(input: CreateProjectInput): Promise<Project> {
   });
 }
 
+type ResourceIdentity = { userId: string; tenantId?: string | null };
+
+export function updateProject(id: string, input: ResourceIdentity & { name?: string; isPinned?: boolean }): Promise<Project> {
+  return apiRequest<Project>(`/api/projects/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { user_id: input.userId, tenant_id: input.tenantId, name: input.name, is_pinned: input.isPinned },
+  });
+}
+
+export function deleteProject(id: string, input: ResourceIdentity): Promise<{ deleted: boolean }> {
+  return apiRequest(`/api/projects/${encodeURIComponent(id)}`, {
+    method: "DELETE", query: { user_id: input.userId, tenant_id: input.tenantId },
+  });
+}
+
 export function listConversations(
   input: ListConversationsInput,
   signal?: AbortSignal,
@@ -169,6 +184,7 @@ export function listConversations(
       user_id: input.userId,
       tenant_id: input.tenantId,
       project_id: input.projectId,
+      scope: input.scope,
       limit: input.limit ?? 10,
       cursor: input.cursor,
     },
@@ -186,6 +202,19 @@ export function createConversation(
       tenant_id: input.tenantId ?? null,
       project_id: input.projectId,
     },
+  });
+}
+
+export function updateConversation(id: string, input: ResourceIdentity & { name?: string; isPinned?: boolean }): Promise<ConversationSummary> {
+  return apiRequest<ConversationSummary>(`/api/conversations/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { user_id: input.userId, tenant_id: input.tenantId, name: input.name, is_pinned: input.isPinned },
+  });
+}
+
+export function deleteConversation(id: string, input: ResourceIdentity): Promise<{ deleted: boolean }> {
+  return apiRequest(`/api/conversations/${encodeURIComponent(id)}`, {
+    method: "DELETE", query: { user_id: input.userId, tenant_id: input.tenantId },
   });
 }
 
@@ -209,6 +238,22 @@ export function getConversationHistory(
 
 export interface UploadedAttachment extends AttachmentSummary {
   derived_size_bytes?: number;
+}
+
+type AttachmentAccessInput = {
+  userId: string;
+  tenantId?: string | null;
+  projectId?: string | null;
+  conversationId?: string | null;
+};
+
+function attachmentAccessQuery(input: AttachmentAccessInput) {
+  return {
+    user_id: input.userId,
+    tenant_id: input.tenantId,
+    project_id: input.projectId,
+    conversation_id: input.conversationId,
+  };
 }
 
 /** GET /api/attachments/capabilities：类型与限制的单一来源。 */
@@ -246,7 +291,7 @@ function parseXhrError(request: XMLHttpRequest): ApiError {
  * 上传进度（fetch 至今没有上传方向的进度事件）。
  */
 export function uploadAttachment(
-  projectId: string,
+  target: { projectId: string } | { conversationId: string },
   input: {
     userId: string;
     tenantId?: string | null;
@@ -261,7 +306,9 @@ export function uploadAttachment(
   form.append("user_id", input.userId);
   if (input.tenantId) form.append("tenant_id", input.tenantId);
   form.append("client_request_id", input.clientRequestId);
-  const url = `${API_BASE_URL}/api/projects/${encodeURIComponent(projectId)}/attachments`;
+  const url = "projectId" in target
+    ? `${API_BASE_URL}/api/projects/${encodeURIComponent(target.projectId)}/attachments`
+    : `${API_BASE_URL}/api/conversations/${encodeURIComponent(target.conversationId)}/attachments`;
   return new Promise<UploadedAttachment>((resolve, reject) => {
     if (signal?.aborted) {
       reject(abortError());
@@ -305,46 +352,48 @@ export function uploadAttachment(
 /** POST /api/attachments/{id}/parse：重置解析失败的 staged 附件并重新排队。 */
 export function retryAttachmentParse(
   attachmentId: string,
-  input: { userId: string; tenantId?: string | null },
+  input: AttachmentAccessInput,
 ): Promise<UploadedAttachment> {
   return apiRequest<UploadedAttachment>(
     `/api/attachments/${encodeURIComponent(attachmentId)}/parse`,
     {
       method: "POST",
-      query: { user_id: input.userId, tenant_id: input.tenantId },
+      query: attachmentAccessQuery(input),
     },
   );
 }
 
 export function getAttachment(
   attachmentId: string,
-  input: { userId: string; tenantId?: string | null },
+  input: AttachmentAccessInput,
   signal?: AbortSignal,
 ): Promise<UploadedAttachment> {
   return apiRequest<UploadedAttachment>(
     `/api/attachments/${encodeURIComponent(attachmentId)}`,
-    { query: { user_id: input.userId, tenant_id: input.tenantId }, signal },
+    { query: attachmentAccessQuery(input), signal },
   );
 }
 
 export function deleteAttachment(
   attachmentId: string,
-  input: { userId: string; tenantId?: string | null },
+  input: AttachmentAccessInput,
 ): Promise<UploadedAttachment> {
   return apiRequest<UploadedAttachment>(
     `/api/attachments/${encodeURIComponent(attachmentId)}`,
     {
       method: "DELETE",
-      query: { user_id: input.userId, tenant_id: input.tenantId },
+      query: attachmentAccessQuery(input),
     },
   );
 }
 
 export function attachmentContentUrl(
   attachmentId: string,
-  input: { userId: string; tenantId?: string | null },
+  input: AttachmentAccessInput,
 ): string {
   const params = new URLSearchParams({ user_id: input.userId });
   if (input.tenantId) params.set("tenant_id", input.tenantId);
+  if (input.projectId) params.set("project_id", input.projectId);
+  if (input.conversationId) params.set("conversation_id", input.conversationId);
   return `${API_BASE_URL}/api/attachments/${encodeURIComponent(attachmentId)}/content?${params.toString()}`;
 }

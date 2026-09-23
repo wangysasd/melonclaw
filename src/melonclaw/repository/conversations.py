@@ -30,7 +30,7 @@ class ConversationRepositoryMixin:
     async def create_conversation(
         self,
         user_id: str,
-        project_id: UUID,
+        project_id: UUID | None,
     ) -> dict[str, Any]:
         conversation_id = uuid4()
         timestamp = _now()
@@ -42,6 +42,8 @@ class ConversationRepositoryMixin:
             "agent_id": "quickstart-research-agent",
             "created_at": timestamp,
             "updated_at": timestamp,
+            "is_pinned": False,
+            "status": "active",
         }
         async with self.engine.begin() as connection:
             await connection.execute(insert(chat_conversations).values(**values))
@@ -62,11 +64,12 @@ class ConversationRepositoryMixin:
                 projects.c.workdir_path,
             )
             .select_from(
-                chat_conversations.join(
+                chat_conversations.outerjoin(
                     projects,
                     and_(
                         chat_conversations.c.project_id == projects.c.id,
                         chat_conversations.c.user_id == projects.c.user_id,
+                        projects.c.status == "active",
                     ),
                 )
             )
@@ -74,6 +77,8 @@ class ConversationRepositoryMixin:
                 and_(
                     chat_conversations.c.id == conversation_id,
                     chat_conversations.c.user_id == user_id,
+                    chat_conversations.c.status == "active",
+                    or_(chat_conversations.c.project_id.is_(None), projects.c.id.is_not(None)),
                 )
             )
         )
@@ -88,20 +93,29 @@ class ConversationRepositoryMixin:
         limit: int,
         cursor: str | None,
         project_id: UUID | None = None,
+        scope: str | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
         if not 1 <= limit <= 100:
             raise ValueError("limit 必须在 1 到 100 之间。")
         conditions = [
             chat_conversations.c.user_id == user_id,
+            chat_conversations.c.status == "active",
         ]
+        if scope not in {None, "unassigned"} or (scope and project_id is not None):
+            raise ValueError("会话作用域无效。")
+        if scope == "unassigned":
+            conditions.append(chat_conversations.c.project_id.is_(None))
         if project_id is not None:
             conditions.append(chat_conversations.c.project_id == project_id)
         if cursor:
-            cursor_updated_at, cursor_id = decode_conversation_cursor(cursor)
+            cursor_pinned, cursor_updated_at, cursor_id = decode_conversation_cursor(cursor)
             conditions.append(
                 or_(
-                    chat_conversations.c.updated_at < cursor_updated_at,
+                    chat_conversations.c.is_pinned < cursor_pinned,
+                    and_(chat_conversations.c.is_pinned == cursor_pinned,
+                         chat_conversations.c.updated_at < cursor_updated_at),
                     and_(
+                        chat_conversations.c.is_pinned == cursor_pinned,
                         chat_conversations.c.updated_at == cursor_updated_at,
                         chat_conversations.c.id < cursor_id,
                     ),
@@ -114,16 +128,18 @@ class ConversationRepositoryMixin:
                 projects.c.workdir_path,
             )
             .select_from(
-                chat_conversations.join(
+                chat_conversations.outerjoin(
                     projects,
                     and_(
                         chat_conversations.c.project_id == projects.c.id,
                         chat_conversations.c.user_id == projects.c.user_id,
+                        projects.c.status == "active",
                     ),
                 )
             )
-            .where(and_(*conditions))
+            .where(and_(*conditions, or_(chat_conversations.c.project_id.is_(None), projects.c.id.is_not(None))))
             .order_by(
+                chat_conversations.c.is_pinned.desc(),
                 chat_conversations.c.updated_at.desc(),
                 chat_conversations.c.id.desc(),
             )
@@ -136,8 +152,34 @@ class ConversationRepositoryMixin:
         next_cursor = None
         if has_more and rows:
             last = _conversation_dict(rows[-1])
-            next_cursor = encode_conversation_cursor(last["updated_at"], last["id"])
+            next_cursor = encode_conversation_cursor(last["updated_at"], last["id"], last["is_pinned"])
         return [_conversation_dict(row) for row in rows], next_cursor
+
+    async def update_conversation(
+        self, conversation_id: UUID, user_id: str, *, title: str | None = None,
+        is_pinned: bool | None = None, delete: bool = False,
+    ) -> dict[str, Any] | None:
+        # get_conversation also rejects conversations inside deleted projects.
+        if await self.get_conversation(conversation_id, user_id) is None:
+            raise ConversationNotFoundError
+        values: dict[str, Any] = {"updated_at": _now()}
+        if title is not None:
+            values["title"] = title
+        if is_pinned is not None:
+            values["is_pinned"] = is_pinned
+        if delete:
+            values["status"] = "deleted"
+        async with self.engine.begin() as connection:
+            result = await connection.execute(
+                update(chat_conversations)
+                .where(and_(chat_conversations.c.id == conversation_id,
+                            chat_conversations.c.user_id == user_id,
+                            chat_conversations.c.status == "active"))
+                .values(**values).returning(chat_conversations.c.id)
+            )
+            if result.scalar_one_or_none() is None:
+                raise ConversationNotFoundError
+        return None if delete else await self.get_conversation(conversation_id, user_id)
 
     async def list_messages(
         self,

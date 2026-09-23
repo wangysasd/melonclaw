@@ -55,7 +55,7 @@
   --text-base: 15px; /* 介于正文与次级之间的过渡档 */
   --text-lg: 16px; /* 正文 */
   --text-xl: 17px; /* 顶栏品牌 */
-  --text-title: 28px; /* 欢迎页主标题 */
+  --text-title: 22px; /* 欢迎页主标题 */
 }
 
 * {
@@ -138,4 +138,13 @@ body {
   background: var(--status-error-bg);
   border-radius: 8px;
   padding: 6px 10px;
+}
+
+.ant-modal.project-create-modal .ant-modal-title,
+.ant-modal.project-create-modal .ant-modal-body,
+.ant-modal.project-create-modal .dialog-label,
+.ant-modal.project-create-modal .dialog-error,
+.ant-modal.project-create-modal .ant-input,
+.ant-modal.project-create-modal .ant-modal-footer .ant-btn {
+  font-size: var(--text-md);
 }

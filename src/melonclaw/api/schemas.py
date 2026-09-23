@@ -45,7 +45,7 @@ class ConversationRequest(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=64)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
-    project_id: UUID
+    project_id: UUID | None = None
 
 
 class ProjectRequest(BaseModel):
@@ -54,6 +54,15 @@ class ProjectRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=64)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=120)
+
+
+class ResourceUpdateRequest(BaseModel):
+    """项目或会话的名称与置顶状态；路由按资源选择对应字段。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, max_length=200)
+    is_pinned: bool | None = None
 
 
 class MessageRequest(BaseModel):

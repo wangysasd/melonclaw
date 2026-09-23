@@ -40,7 +40,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--ink);
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
   font-weight: 400;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -404,7 +404,8 @@
   width: 100%;
   max-width: var(--content-max-width);
   gap: 12px;
-  margin: 0 auto 28px;
+  /* 上下各 14px，保证单条消息的外间距一致；相邻消息之间仍为 28px。 */
+  margin: 14px auto;
   animation: appear 180ms ease-out;
 }
 
@@ -476,6 +477,8 @@
 
 .message.user .message-meta {
   justify-content: flex-end;
+  /* 用户气泡上下留白一致：下方相邻消息间距为 28px。 */
+  margin-bottom: 28px;
 }
 
 .message-meta span {
@@ -515,6 +518,8 @@
   text-align: left;
 }
 .message.user .message-body .ant-bubble-content {
+  display: flex;
+  align-items: center;
   padding: 10px 14px;
   color: #fff;
   border: none;
@@ -996,6 +1001,134 @@
   padding: 0 0 19px;
 }
 
+.composer-project-bar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  height: 32.4px;
+  margin: 0 var(--radius-composer) -1px;
+  padding: 0 8px;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  background: #f1f1f3;
+}
+
+.composer-project-picker { position: relative; display: flex; align-items: center; min-width: 0; }
+
+.composer-project-control {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(260px, 70vw);
+  min-height: 26px;
+  border-radius: var(--radius-control);
+  background: transparent;
+}
+
+.composer-project-clear {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 23px;
+  height: 26px;
+  padding: 3px 0 3px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.composer-project-folder,
+.composer-project-remove { position: absolute; top: 6px; right: 0; }
+.composer-project-remove { opacity: 0; }
+.composer-project-control:hover .composer-project-folder,
+.composer-project-clear:focus-visible .composer-project-folder { opacity: 0; }
+.composer-project-control:hover .composer-project-remove,
+.composer-project-clear:focus-visible .composer-project-remove { opacity: 1; }
+.composer-project-clear:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; border-radius: 6px; }
+.composer-project-clear:disabled { cursor: wait; opacity: .55; }
+
+.composer-project-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.composer-project-control.is-selected .composer-project-trigger { padding-left: 7px; }
+.composer-project-trigger:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+.composer-project-trigger:disabled { cursor: wait; opacity: .55; }
+.composer-project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.composer-project-popover {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: min(280px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .98);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .16), 0 2px 8px rgba(0, 0, 0, .05);
+  font-size: var(--text-sm);
+}
+
+.composer-project-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px 9px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+.composer-project-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+.composer-project-search input::placeholder { color: #86868b; }
+.composer-project-options { max-height: min(32vh, 220px); overflow-y: auto; padding: 4px 0; }
+.composer-project-option,
+.composer-project-actions button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.composer-project-option span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-project-option:hover,
+.composer-project-actions button:hover { background: var(--hover); }
+.composer-project-option:focus-visible,
+.composer-project-actions button:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: -2px; }
+.composer-project-check { color: var(--brand-primary); }
+.composer-project-empty { padding: 12px 9px; color: var(--muted); font-size: var(--text-sm); }
+.composer-project-actions { border-top: 1px solid var(--line); padding-top: 6px; }
+.composer-project-actions button:first-child { background: rgba(0, 0, 0, .035); }
+.composer-project-actions button:last-child { color: var(--muted); }
+
 .composer {
   position: relative;
   min-height: 120px;
@@ -1008,8 +1141,6 @@
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   box-shadow: var(--shadow-composer);
-  transition: border-color var(--duration-fast) var(--ease-apple),
-    box-shadow var(--duration-fast) var(--ease-apple);
 }
 
 .skill-picker {
@@ -1448,12 +1579,6 @@
 }
 .attachment-dialog-remove:hover { color: #b42318; }
 
-.composer:focus-within {
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12),
-    var(--shadow-composer);
-}
-
 .composer textarea {
   width: 100%;
   min-height: 38px;
@@ -1546,6 +1671,8 @@
 .prompt-grid.ant-prompts .ant-prompts-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .prompt-grid.ant-prompts .ant-prompts-item { min-width: 0; border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 14px; background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03); transition: border-color var(--duration-fast) var(--ease-apple), background var(--duration-fast) var(--ease-apple); }
 .prompt-grid.ant-prompts .ant-prompts-item:hover { border-color: rgba(0, 113, 227, 0.4); background: rgba(0, 113, 227, 0.04); }
+.prompt-grid.ant-prompts .ant-prompts-label,
+.prompt-grid.ant-prompts .ant-prompts-desc { font-size: var(--text-md); }
 .prompt-grid.ant-prompts .prompt-icon { color: var(--brand-primary); }
 .prompt-grid.ant-prompts .ant-prompts-item:nth-child(3) .prompt-icon { color: var(--brand-coral); }
 @media (max-width: 640px) { .prompt-grid.ant-prompts .ant-prompts-list { grid-template-columns: 1fr; } }

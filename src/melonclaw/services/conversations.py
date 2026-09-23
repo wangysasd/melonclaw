@@ -14,6 +14,7 @@ from melonclaw.core.hitl import (
 from melonclaw.core.user_input import USER_INPUT_RECOVERY_REQUIRED
 from melonclaw.repository import (
     BusinessRepository,
+    ConversationBusyError,
     ConversationNotFoundError,
     ProjectNotFoundError,
     UserContext,
@@ -45,7 +46,6 @@ class ConversationService:
         context = await storage.get_user_context(clean_user_id, clean_tenant_id)
         if context is None:
             raise InvalidUserError("用户不存在或没有租户标签。")
-        await storage.ensure_default_project(context.user_id)
         return context
 
     async def users(self) -> dict[str, Any]:
@@ -59,7 +59,9 @@ class ConversationService:
         storage: BusinessRepository,
         conversation: dict[str, Any],
         context: UserContext,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
+        if conversation["project_id"] is None:
+            return None
         project = await storage.get_project(
             UUID(conversation["project_id"]),
             context.user_id,
@@ -94,21 +96,65 @@ class ConversationService:
         context = await self.resolve_user(user_id, tenant_id)
         return await storage.list_projects(context.user_id)
 
+    async def update_project(
+        self, project_id: UUID, user_id: str, tenant_id: str | None = None,
+        *, name: str | None = None, is_pinned: bool | None = None, delete: bool = False,
+    ) -> dict[str, Any] | None:
+        storage = self.runtime.require_ready()
+        context = await self.resolve_user(user_id, tenant_id)
+        if name is not None:
+            name = " ".join(name.split()).strip()
+            if not name or len(name) > 120:
+                raise ValueError("项目名称长度须在 1 到 120 个字符之间。")
+        if delete:
+            # 运行中的会话不能在背后失去所属项目。
+            cursor = None
+            while True:
+                conversations, cursor = await storage.list_conversations(
+                    context.user_id, limit=100, cursor=cursor, project_id=project_id,
+                )
+                for item in conversations:
+                    if await storage.get_incomplete_assistant(UUID(item["id"]), context.user_id):
+                        raise ConversationBusyError("项目中有进行中的会话，结束后再删除。")
+                if cursor is None:
+                    break
+        return await storage.update_project(
+            project_id, context.user_id, name=name, is_pinned=is_pinned, delete=delete,
+        )
+
     async def create_conversation(
         self,
         user_id: str,
-        project_id: UUID,
+        project_id: UUID | None = None,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
         storage = self.runtime.require_ready()
         context = await self.resolve_user(user_id, tenant_id)
-        project = await storage.get_project(project_id, context.user_id)
-        if project is None:
-            raise ProjectNotFoundError
-        self.runtime.project_workspace_dir(project)
+        project = None
+        if project_id is not None:
+            project = await storage.get_project(project_id, context.user_id)
+            if project is None:
+                raise ProjectNotFoundError
+            self.runtime.project_workspace_dir(project)
         return await storage.create_conversation(
             context.user_id,
-            UUID(project["id"]),
+            UUID(project["id"]) if project is not None else None,
+        )
+
+    async def update_conversation(
+        self, conversation_id: UUID, user_id: str, tenant_id: str | None = None,
+        *, title: str | None = None, is_pinned: bool | None = None, delete: bool = False,
+    ) -> dict[str, Any] | None:
+        storage = self.runtime.require_ready()
+        context = await self.resolve_user(user_id, tenant_id)
+        if title is not None:
+            title = " ".join(title.split()).strip()
+            if not title or len(title) > 200:
+                raise ValueError("会话名称长度须在 1 到 200 个字符之间。")
+        if delete and await storage.get_incomplete_assistant(conversation_id, context.user_id):
+            raise ConversationBusyError("会话正在运行，结束后再删除。")
+        return await storage.update_conversation(
+            conversation_id, context.user_id, title=title, is_pinned=is_pinned, delete=delete,
         )
 
     async def list_conversations(
@@ -119,6 +165,7 @@ class ConversationService:
         limit: int,
         cursor: str | None,
         project_id: UUID | None = None,
+        scope: str | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
         storage = self.runtime.require_ready()
         context = await self.resolve_user(user_id, tenant_id)
@@ -132,6 +179,7 @@ class ConversationService:
             limit=limit,
             cursor=cursor,
             project_id=project_id,
+            scope=scope,
         )
 
     async def history(
@@ -216,7 +264,9 @@ class ConversationService:
             capabilities = self.runtime.capabilities_for_message(
                 request_record.user_message if request_record is not None else None
             )
-        agent = await self.runtime.agent_for_project(project, model, capabilities)
+        agent = await self.runtime.agent_for_conversation(
+            conversation, project, model, capabilities
+        )
         pending = await aget_pending_interaction(
             agent,
             self.runtime.conversation_config(conversation_id),

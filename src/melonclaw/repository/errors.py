@@ -102,7 +102,7 @@ class AttachmentConflictError(AttachmentError):
 
 class AttachmentQuotaError(AttachmentError):
     def __init__(self, message: str = "附件配额已超限。") -> None:
-        super().__init__(message, "project_attachment_quota_exceeded", 413)
+        super().__init__(message, "workspace_attachment_quota_exceeded", 413)
 
 
 class AttachmentStateError(AttachmentError):

@@ -18,7 +18,7 @@ const capabilities: AttachmentCapabilities = {
   max_file_bytes: 100,
   max_total_bytes: 150,
   max_per_message: 2,
-  project_max_bytes: 1000,
+  workspace_max_bytes: 1000,
   image_max_pixels: 100,
   pdf_max_pages: 1,
 };

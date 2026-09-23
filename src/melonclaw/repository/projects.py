@@ -5,64 +5,17 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, insert, select, text
+from sqlalchemy import and_, insert, select, update
 
-from melonclaw.database.constants import DEFAULT_PROJECT_NAME
-from melonclaw.database.errors import DatabaseSchemaError
 from melonclaw.database.schema import projects
+from melonclaw.repository.errors import ProjectNotFoundError
 from melonclaw.repository.mappers import (
-    _default_project_id,
     _now,
     _project_dict,
 )
 
 
 class ProjectRepositoryMixin:
-    async def ensure_default_project(
-        self,
-        user_id: str,
-    ) -> dict[str, Any]:
-        """幂等返回用户的“临时会话” Project。"""
-
-        project_id = _default_project_id(user_id)
-        timestamp = _now()
-        async with self.engine.begin() as connection:
-            await connection.execute(
-                text(
-                    "INSERT INTO projects "
-                    "(id, user_id, name, workdir_path, "
-                    "created_at, updated_at, status, is_default) "
-                    "VALUES (:id, :user_id, :name, :workdir_path, "
-                    ":created_at, :updated_at, 'active', TRUE) "
-                    "ON CONFLICT DO NOTHING"
-                ),
-                {
-                    "id": project_id,
-                    "user_id": user_id,
-                    "name": DEFAULT_PROJECT_NAME,
-                    "workdir_path": f"projects/{project_id}",
-                    "created_at": timestamp,
-                    "updated_at": timestamp,
-                },
-            )
-            result = await connection.execute(
-                text(
-                    "SELECT id FROM projects "
-                    "WHERE user_id = :user_id AND is_default "
-                    "ORDER BY id LIMIT 1"
-                ),
-                {"user_id": user_id},
-            )
-            selected_id = result.scalar()
-        project = (
-            await self.get_project(UUID(str(selected_id)), user_id)
-            if selected_id
-            else None
-        )
-        if project is None:
-            raise DatabaseSchemaError("无法创建或读取用户默认 Project。")
-        return project
-
     async def create_project(
         self,
         user_id: str,
@@ -80,7 +33,7 @@ class ProjectRepositoryMixin:
             "created_at": timestamp,
             "updated_at": timestamp,
             "status": "active",
-            "is_default": False,
+            "is_pinned": False,
         }
         async with self.engine.begin() as connection:
             await connection.execute(insert(projects).values(**values))
@@ -114,10 +67,30 @@ class ProjectRepositoryMixin:
                     projects.c.status == "active",
                 )
             )
-            .order_by(projects.c.updated_at.desc(), projects.c.id.desc())
+            .order_by(projects.c.is_pinned.desc(), projects.c.updated_at.desc(), projects.c.id.desc())
         )
         async with self.engine.connect() as connection:
             rows = (await connection.execute(query)).mappings().all()
         return [_project_dict(row) for row in rows]
 
-
+    async def update_project(
+        self, project_id: UUID, user_id: str, *, name: str | None = None,
+        is_pinned: bool | None = None, delete: bool = False,
+    ) -> dict[str, Any] | None:
+        values: dict[str, Any] = {"updated_at": _now()}
+        if name is not None:
+            values["name"] = name
+        if is_pinned is not None:
+            values["is_pinned"] = is_pinned
+        if delete:
+            values["status"] = "deleted"
+        async with self.engine.begin() as connection:
+            row = (await connection.execute(
+                update(projects)
+                .where(and_(projects.c.id == project_id, projects.c.user_id == user_id,
+                            projects.c.status == "active"))
+                .values(**values).returning(projects)
+            )).mappings().first()
+        if row is None:
+            raise ProjectNotFoundError
+        return None if delete else _project_dict(row)

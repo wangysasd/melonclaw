@@ -57,8 +57,8 @@ class PreparedExecution:
     """准备阶段完成后的执行句柄。锁连接会一直持有到流结束。"""
 
     conversation_id: UUID
-    project_id: UUID
-    project_name: str
+    project_id: UUID | None
+    project_name: str | None
     workdir_path: str
     user_id: str
     tenant_id: str
@@ -87,7 +87,6 @@ class PreparedExecution:
 
 class ExecutionService:
     """处理消息幂等、会话锁、Agent 执行和最终状态落库。"""
-
     def __init__(
         self,
         runtime: ChatRuntime,
@@ -98,7 +97,6 @@ class ExecutionService:
         self.runtime = runtime
         self.conversations = conversations
         self.attachments = attachments or AttachmentService(runtime, conversations)
-
     async def prepare_message(
         self,
         conversation_id: UUID,
@@ -111,11 +109,7 @@ class ExecutionService:
         attachment_ids: list[UUID] | None = None,
         capabilities: list[str] | None = None,
     ) -> PreparedExecution:
-        """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。
-
-        ``capabilities`` 是浏览器声明的能力清单；它会随消息一起落库，恢复执行
-        时沿用同一份，避免提问和恢复拿到工具集不同的 Agent。
-        """
+        """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。"""
 
         storage = self.runtime.require_ready()
         normalized_capabilities = normalize_capabilities(capabilities)
@@ -148,11 +142,10 @@ class ExecutionService:
             request_id,
         )
         if existing is not None:
-            # 幂等重试沿用第一次请求实际绑定的模型，即使前端下拉框已经
-            # 切换到了另一个选项。
-            # 幂等重试沿用第一次请求落库的能力，就像沿用第一次绑定的模型。
+            # 幂等重试沿用第一次请求实际绑定的模型和客户端能力。
             model = self.runtime.model_for_message(existing.assistant_message)
-            agent = await self.runtime.agent_for_project(
+            agent = await self.runtime.agent_for_conversation(
+                conversation,
                 project,
                 model,
                 self.runtime.capabilities_for_message(existing.user_message),
@@ -166,13 +159,14 @@ class ExecutionService:
                 skill_id=skill_id,
                 attachment_ids=normalized_attachment_ids,
                 agent=agent,
+                conversation=conversation,
                 project=project,
                 model=model,
             )
 
         model = self.runtime.resolve_model(model_id)
-        agent = await self.runtime.agent_for_project(
-            project, model, normalized_capabilities
+        agent = await self.runtime.agent_for_conversation(
+            conversation, project, model, normalized_capabilities
         )
         lock_connection = await storage.try_advisory_lock(conversation_id)
         if lock_connection is None:
@@ -188,7 +182,8 @@ class ExecutionService:
                 stored_model = self.runtime.model_for_message(
                     existing.assistant_message
                 )
-                stored_agent = await self.runtime.agent_for_project(
+                stored_agent = await self.runtime.agent_for_conversation(
+                    conversation,
                     project,
                     stored_model,
                     self.runtime.capabilities_for_message(existing.user_message),
@@ -203,6 +198,7 @@ class ExecutionService:
                     attachment_ids=normalized_attachment_ids,
                     lock_connection=lock_connection,
                     agent=stored_agent,
+                    conversation=conversation,
                     project=project,
                     model=stored_model,
                 )
@@ -250,7 +246,7 @@ class ExecutionService:
                 pair = await storage.create_message_pair_with_attachments(
                     conversation_id,
                     context.user_id,
-                    UUID(project["id"]),
+                    UUID(project["id"]) if project is not None else None,
                     request_id,
                     clean_content,
                     attachment_ids=normalized_attachment_ids,
@@ -281,6 +277,7 @@ class ExecutionService:
                 pair,
                 lock_connection,
                 agent,
+                conversation,
                 project,
                 model,
                 run_id=str(uuid4()),
@@ -305,7 +302,8 @@ class ExecutionService:
         lock_connection: AsyncConnection | None = None,
         agent: Any,
         model: ResolvedModel,
-        project: dict[str, Any],
+        conversation: dict[str, Any],
+        project: dict[str, Any] | None,
     ) -> PreparedExecution:
         storage = self.runtime.require_ready()
         if (
@@ -326,8 +324,7 @@ class ExecutionService:
                 if lock_connection is None:
                     raise RequestInProgressError("该 request_id 正在执行中，请稍候查询历史。")
             try:
-                # 初次读取到 pending 只代表一个瞬间。拿到锁后必须重新读，
-                # 因为原执行可能刚好已经提交 completed/failed。
+                # 拿到锁后重新读取，避免原执行刚好已提交终态。
                 latest = await storage.find_request(
                     conversation_id,
                     context.user_id,
@@ -374,6 +371,7 @@ class ExecutionService:
                 assistant,
                 agent,
                 model,
+                conversation,
                 project,
                 skill_id=skill_id,
                 attachments=list(existing.attachments),
@@ -387,6 +385,7 @@ class ExecutionService:
             assistant,
             agent,
             model,
+            conversation,
             project,
             skill_id=skill_id,
             attachments=list(existing.attachments),
@@ -410,16 +409,17 @@ class ExecutionService:
         assistant: dict[str, Any],
         agent: Any,
         model: ResolvedModel,
-        project: dict[str, Any],
+        conversation: dict[str, Any],
+        project: dict[str, Any] | None,
         *,
         skill_id: str | None,
         attachments: list[dict[str, Any]] | None = None,
     ) -> PreparedExecution:
         return PreparedExecution(
             conversation_id=conversation_id,
-            project_id=UUID(project["id"]),
-            project_name=project["name"],
-            workdir_path=project["workdir_path"],
+            project_id=UUID(project["id"]) if project is not None else None,
+            project_name=project["name"] if project is not None else None,
+            workdir_path=str(self.runtime.workspace_dir(conversation, project)),
             user_id=context.user_id,
             tenant_id=context.tenant_id,
             tenant_name=context.tenant_name_zh,
@@ -438,14 +438,15 @@ class ExecutionService:
             attachments=attachments or [],
         )
 
-    @staticmethod
     def _execution_from_pair(
+        self,
         conversation_id: UUID,
         context: UserContext,
         pair: PreparedMessagePair,
         lock_connection: AsyncConnection,
         agent: Any,
-        project: dict[str, Any],
+        conversation: dict[str, Any],
+        project: dict[str, Any] | None,
         model: ResolvedModel,
         *,
         run_id: str,
@@ -455,9 +456,9 @@ class ExecutionService:
     ) -> PreparedExecution:
         return PreparedExecution(
             conversation_id=conversation_id,
-            project_id=UUID(project["id"]),
-            project_name=project["name"],
-            workdir_path=project["workdir_path"],
+            project_id=UUID(project["id"]) if project is not None else None,
+            project_name=project["name"] if project is not None else None,
+            workdir_path=str(self.runtime.workspace_dir(conversation, project)),
             user_id=context.user_id,
             tenant_id=context.tenant_id,
             tenant_name=context.tenant_name_zh,
@@ -517,7 +518,8 @@ class ExecutionService:
             assistant["request_id"],
         )
         model = self.runtime.model_for_message(assistant)
-        agent = await self.runtime.agent_for_project(
+        agent = await self.runtime.agent_for_conversation(
+            conversation,
             project,
             model,
             self.runtime.capabilities_for_message(
@@ -547,9 +549,9 @@ class ExecutionService:
         return (
             PreparedExecution(
                 conversation_id=conversation_id,
-                project_id=UUID(project["id"]),
-                project_name=project["name"],
-                workdir_path=project["workdir_path"],
+                project_id=UUID(project["id"]) if project is not None else None,
+                project_name=project["name"] if project is not None else None,
+                workdir_path=str(self.runtime.workspace_dir(conversation, project)),
                 user_id=context.user_id,
                 tenant_id=context.tenant_id,
                 tenant_name=context.tenant_name_zh,
@@ -697,8 +699,8 @@ class ExecutionService:
                     user_id=execution.user_id,
                     tenant_id=execution.tenant_id,
                     tenant_name=execution.tenant_name,
-                    project_id=str(execution.project_id),
-                    project_name=execution.project_name,
+                    project_id=str(execution.project_id) if execution.project_id else "",
+                    project_name=execution.project_name or "",
                     workdir_path=execution.workdir_path,
                     request_id=execution.request_id,
                     run_id=execution.run_id,

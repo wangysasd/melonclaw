@@ -86,10 +86,10 @@ class ChatService:
         return self.runtime.memory_service
 
     @property
-    def project_agents(
+    def workspace_agents(
         self,
-    ) -> dict[tuple[str, tuple[str, int, str, str, str]], Any] | None:
-        return self.runtime.project_agents
+    ) -> dict[tuple[str, tuple[str, int, str, str, str], tuple[str, ...]], Any] | None:
+        return self.runtime.workspace_agents
 
     @property
     def startup_error(self) -> str | None:
@@ -150,9 +150,6 @@ class ChatService:
     def _project_workspace_dir(self, project: dict[str, Any]):
         return self.runtime.project_workspace_dir(project)
 
-    async def _agent_for_project(self, project: dict[str, Any]) -> Any:
-        return await self.runtime.agent_for_project(project)
-
     @staticmethod
     def _conversation_config(conversation_id: UUID) -> dict[str, Any]:
         return ChatRuntime.conversation_config(conversation_id)
@@ -171,6 +168,22 @@ class ChatService:
         tenant_id: str | None = None,
     ) -> list[dict[str, Any]]:
         return await self.conversations.list_projects(user_id, tenant_id)
+
+    async def update_project(
+        self, project_id: UUID, user_id: str, tenant_id: str | None = None,
+        *, name: str | None = None, is_pinned: bool | None = None, delete: bool = False,
+    ) -> dict[str, Any] | None:
+        return await self.conversations.update_project(
+            project_id, user_id, tenant_id, name=name, is_pinned=is_pinned, delete=delete,
+        )
+
+    async def update_conversation(
+        self, conversation_id: UUID, user_id: str, tenant_id: str | None = None,
+        *, title: str | None = None, is_pinned: bool | None = None, delete: bool = False,
+    ) -> dict[str, Any] | None:
+        return await self.conversations.update_conversation(
+            conversation_id, user_id, tenant_id, title=title, is_pinned=is_pinned, delete=delete,
+        )
 
     async def create_conversation(
         self,
@@ -192,6 +205,7 @@ class ChatService:
         limit: int,
         cursor: str | None,
         project_id: UUID | None = None,
+        scope: str | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
         return await self.conversations.list_conversations(
             user_id,
@@ -199,6 +213,7 @@ class ChatService:
             limit=limit,
             cursor=cursor,
             project_id=project_id,
+            scope=scope,
         )
 
     async def history(

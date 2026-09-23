@@ -454,7 +454,8 @@ class _CancelHarness:
                 },
                 model_for_message=lambda message: SimpleNamespace(cache_key=("m",)),
                 capabilities_for_message=lambda message: (USER_INPUT_CAPABILITY,),
-                agent_for_project=self._agent_for_project,
+                agent_for_conversation=self._agent_for_conversation,
+                workspace_dir=lambda conversation, project: Path(project["workdir_path"]),
             ),
             conversations=SimpleNamespace(
                 resolve_user=self._resolve_user,
@@ -463,8 +464,10 @@ class _CancelHarness:
             stream_execution=stream_execution,
         )
 
-    async def _agent_for_project(self, project, model, capabilities=None):
-        self.calls.append("agent_for_project")
+    async def _agent_for_conversation(
+        self, conversation, project, model, capabilities=None
+    ):
+        self.calls.append("agent_for_conversation")
         return SimpleNamespace(capabilities=capabilities or ())
 
     async def _resolve_user(self, user_id, tenant_id=None):
@@ -820,10 +823,10 @@ def test_busy_conversation_is_rejected_before_any_write():
         capabilities_for_message=lambda message: (),
     )
 
-    async def _agent_for_project(project, model, capabilities=None):
+    async def _agent_for_conversation(conversation, project, model, capabilities=None):
         return SimpleNamespace()
 
-    runtime.agent_for_project = _agent_for_project
+    runtime.agent_for_conversation = _agent_for_conversation
 
     execution = SimpleNamespace(runtime=runtime, conversations=_Conversations())
     service = UserInputExecutionService(execution)
@@ -950,18 +953,58 @@ def test_agent_cache_key_includes_client_capabilities(monkeypatch, tmp_path):
         storage=object(),
         checkpointer=object(),
         memory_service=object(),
-        project_agents={},
+        workspace_agents={},
     )
+    conversation = {"id": str(uuid4()), "user_id": "user-1"}
     project = {"id": "project-1", "workdir_path": "p1"}
     with_capability = asyncio.run(
-        runtime.agent_for_project(project, capabilities=[USER_INPUT_CAPABILITY])
+        runtime.agent_for_conversation(
+            conversation, project, capabilities=[USER_INPUT_CAPABILITY]
+        )
     )
-    without_capability = asyncio.run(runtime.agent_for_project(project, capabilities=[]))
-    again = asyncio.run(runtime.agent_for_project(project, capabilities=[USER_INPUT_CAPABILITY]))
+    without_capability = asyncio.run(
+        runtime.agent_for_conversation(conversation, project, capabilities=[])
+    )
+    again = asyncio.run(
+        runtime.agent_for_conversation(
+            conversation, project, capabilities=[USER_INPUT_CAPABILITY]
+        )
+    )
 
     assert built == [(USER_INPUT_CAPABILITY,), ()]
     assert again is with_capability
     assert without_capability is not with_capability
+
+
+def test_ordinary_conversation_uses_its_own_workspace(monkeypatch, tmp_path):
+    built_workspaces: list[Path] = []
+
+    async def fake_build_research_agent(settings, **kwargs):
+        built_workspaces.append(Path(kwargs["workspace_dir"]))
+        return SimpleNamespace()
+
+    monkeypatch.setattr(runtime_module, "build_research_agent", fake_build_research_agent)
+    monkeypatch.setattr(ChatRuntime, "ready", property(lambda self: True))
+    monkeypatch.setattr(
+        ChatRuntime,
+        "resolve_model",
+        lambda self, *args, **kwargs: SimpleNamespace(cache_key=("model-1",)),
+    )
+
+    runtime = ChatRuntime(
+        settings=SimpleNamespace(workspace_root=tmp_path, agent_cache_entries=4),
+        storage=object(),
+        checkpointer=object(),
+        memory_service=object(),
+        workspace_agents={},
+    )
+    conversation_id = uuid4()
+    conversation = {"id": str(conversation_id), "user_id": "user-1"}
+
+    asyncio.run(runtime.agent_for_conversation(conversation, None))
+
+    assert built_workspaces == [tmp_path / "conversations" / str(conversation_id)]
+    assert built_workspaces[0].is_dir()
 
 
 # ---- 账本状态生命周期：转换表是唯一事实来源 ----

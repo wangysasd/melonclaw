@@ -76,19 +76,34 @@ class AttachmentService:
 
     async def upload(
         self,
-        project_id: UUID,
+        project_id: UUID | None,
         user_id: str,
         upload: AsyncUpload,
         client_request_id: str | None = None,
         tenant_id: str | None = None,
+        *,
+        conversation_id: UUID | None = None,
     ) -> dict[str, Any]:
         settings = self._settings()
         storage = self._repository()
         context = await self.conversations.resolve_user(user_id, tenant_id)
-        project = await storage.get_project(project_id, context.user_id)
-        if project is None:
+        if (project_id is None) == (conversation_id is None):
             raise AttachmentNotFoundError()
-        workspace = self.runtime.project_workspace_dir(project)
+        project = None
+        conversation = None
+        if project_id is not None:
+            project = await storage.get_project(project_id, context.user_id)
+            if project is None:
+                raise AttachmentNotFoundError()
+            workspace = self.runtime.project_workspace_dir(project)
+        else:
+            assert conversation_id is not None
+            conversation = await storage.get_conversation(
+                conversation_id, context.user_id
+            )
+            if conversation is None or conversation["project_id"] is not None:
+                raise AttachmentNotFoundError()
+            workspace = self.runtime.conversation_workspace_dir(conversation_id)
         local = LocalAttachmentStorage(workspace)
         descriptor, candidate = local.create_temp_file()
         size = 0
@@ -132,7 +147,7 @@ class AttachmentService:
             request_id = self._client_request_id(client_request_id)
             if request_id is not None:
                 existing = await storage.find_attachment_upload(
-                    context.user_id, project_id, request_id
+                    context.user_id, project_id, conversation_id, request_id
                 )
                 if existing is not None:
                     self._compare_fingerprint(existing, fingerprint)
@@ -144,6 +159,7 @@ class AttachmentService:
                     attachment_id=attachment_id,
                     user_id=context.user_id,
                     project_id=project_id,
+                    owner_conversation_id=conversation_id,
                     original_name=name,
                     media_type=media_type,
                     kind=kind,
@@ -152,14 +168,14 @@ class AttachmentService:
                     client_request_id=request_id,
                     expires_at=datetime.now(UTC)
                     + timedelta(hours=settings.attachment_staged_ttl_hours),
-                    project_max_bytes=settings.attachment_project_max_bytes,
+                    workspace_max_bytes=settings.attachment_project_max_bytes,
                 )
             except IntegrityError:
                 local.remove_attachment(attachment_id)
                 if request_id is None:
                     raise
                 existing = await storage.find_attachment_upload(
-                    context.user_id, project_id, request_id
+                    context.user_id, project_id, conversation_id, request_id
                 )
                 if existing is None:
                     raise AttachmentError("附件登记失败。", "attachment_storage_error", 503)
@@ -179,10 +195,17 @@ class AttachmentService:
         attachment_id: UUID,
         user_id: str,
         tenant_id: str | None = None,
+        *,
+        project_id: UUID | None = None,
+        conversation_id: UUID | None = None,
     ) -> dict[str, Any]:
         context = await self.conversations.resolve_user(user_id, tenant_id)
+        self._require_scope(project_id, conversation_id)
         result = await self._repository().get_attachment_for_user(
-            attachment_id, context.user_id
+            attachment_id,
+            context.user_id,
+            project_id=project_id,
+            owner_conversation_id=conversation_id,
         )
         if result is None:
             raise AttachmentNotFoundError()
@@ -193,21 +216,18 @@ class AttachmentService:
         attachment_id: UUID,
         user_id: str,
         tenant_id: str | None = None,
+        *,
+        project_id: UUID | None = None,
+        conversation_id: UUID | None = None,
     ) -> tuple[Path, dict[str, Any]]:
         context = await self.conversations.resolve_user(user_id, tenant_id)
-        record = await self._repository().get_attachment_record_for_user(
-            attachment_id, context.user_id
+        record = await self._scoped_record(
+            attachment_id, context.user_id, project_id, conversation_id
         )
         if record is None:
             raise AttachmentNotFoundError()
-        project = await self._repository().get_project(
-            UUID(str(record["project_id"])), context.user_id
-        )
-        if project is None:
-            raise AttachmentNotFoundError()
-        path = LocalAttachmentStorage(
-            self.runtime.project_workspace_dir(project)
-        ).original_path(attachment_id)
+        workspace = await self._workspace_for_record(record)
+        path = LocalAttachmentStorage(workspace).original_path(attachment_id)
         if not path.is_file():
             raise AttachmentNotFoundError()
         return path, record
@@ -217,19 +237,23 @@ class AttachmentService:
         attachment_id: UUID,
         user_id: str,
         tenant_id: str | None = None,
+        *,
+        project_id: UUID | None = None,
+        conversation_id: UUID | None = None,
     ) -> dict[str, Any]:
         context = await self.conversations.resolve_user(user_id, tenant_id)
         storage = self._repository()
-        record = await storage.get_attachment_record_for_user(attachment_id, context.user_id)
-        if record is None:
-            raise AttachmentNotFoundError()
+        record = await self._scoped_record(
+            attachment_id, context.user_id, project_id, conversation_id
+        )
         result = await storage.delete_staged_attachment(attachment_id, context.user_id)
-        project = await storage.get_project(UUID(str(record["project_id"])), context.user_id)
-        if project is not None:
+        try:
+            workspace = await self._workspace_for_record(record)
+        except AttachmentNotFoundError:
+            workspace = None
+        if workspace is not None:
             try:
-                LocalAttachmentStorage(self.runtime.project_workspace_dir(project)).remove_attachment(
-                    attachment_id
-                )
+                LocalAttachmentStorage(workspace).remove_attachment(attachment_id)
                 await storage.mark_storage_purged(attachment_id)
             except OSError:
                 # 下次清理任务仍会看到 storage_purged_at=NULL，不提前释放配额。
@@ -246,15 +270,12 @@ class AttachmentService:
 
         storage = self._repository()
         for record in await storage.claim_expired_attachments():
-            project = await storage.get_project(
-                UUID(str(record["project_id"])), record["user_id"]
-            )
-            if project is None:
+            try:
+                workspace = await self._workspace_for_record(record)
+            except AttachmentNotFoundError:
                 continue
             try:
-                LocalAttachmentStorage(
-                    self.runtime.project_workspace_dir(project)
-                ).remove_attachment(record["id"])
+                LocalAttachmentStorage(workspace).remove_attachment(record["id"])
                 await storage.mark_storage_purged(UUID(str(record["id"])))
             except OSError:
                 # 保留 storage_purged_at=NULL，下一轮继续尝试释放磁盘配额。
@@ -292,11 +313,14 @@ class AttachmentService:
         record = await storage.get_attachment_record(attachment_id)
         if record is None:
             return
-        project = await storage.get_project(UUID(str(record["project_id"])), record["user_id"])
-        if project is None:
-            await storage.fail_attachment_parse(attachment_id, self.runtime.worker_id, "project_not_found")
+        try:
+            workspace = await self._workspace_for_record(record)
+        except AttachmentNotFoundError:
+            await storage.fail_attachment_parse(
+                attachment_id, self.runtime.worker_id, "workspace_not_found"
+            )
             return
-        local = LocalAttachmentStorage(self.runtime.project_workspace_dir(project))
+        local = LocalAttachmentStorage(workspace)
         source = local.original_path(attachment_id)
         temp_dir = local.create_parse_temp_dir(attachment_id)
         semaphore = self._parse_semaphore or asyncio.Semaphore(1)
@@ -331,7 +355,7 @@ class AttachmentService:
                     attachment_id,
                     self.runtime.worker_id,
                     derived_size_bytes=derived_size,
-                    project_max_bytes=settings.attachment_project_max_bytes,
+                    workspace_max_bytes=settings.attachment_project_max_bytes,
                 )
                 if not published:
                     local.remove_path(local.derived_dir(attachment_id))
@@ -382,12 +406,11 @@ class AttachmentService:
     async def _hydration_block(self, record: dict[str, Any]) -> dict[str, Any]:
         if record["status"] in {"deleted", "expired"}:
             return self._unavailable_block(record)
-        project = await self._repository().get_project(
-            UUID(str(record["project_id"])), record["user_id"]
-        )
-        if project is None:
+        try:
+            workspace = await self._workspace_for_record(record)
+        except AttachmentNotFoundError:
             return self._unavailable_block(record)
-        local = LocalAttachmentStorage(self.runtime.project_workspace_dir(project))
+        local = LocalAttachmentStorage(workspace)
         if record["kind"] != "image":
             return {
                 "type": "document",
@@ -434,7 +457,7 @@ class AttachmentService:
             "max_file_bytes": settings.attachment_max_file_bytes,
             "max_total_bytes": settings.attachment_max_total_bytes,
             "max_per_message": settings.attachment_max_per_message,
-            "project_max_bytes": settings.attachment_project_max_bytes,
+            "workspace_max_bytes": settings.attachment_project_max_bytes,
             "image_max_pixels": settings.attachment_image_max_pixels,
             "pdf_max_pages": settings.attachment_pdf_max_pages,
         }
@@ -444,10 +467,16 @@ class AttachmentService:
         attachment_id: UUID,
         user_id: str,
         tenant_id: str | None = None,
+        *,
+        project_id: UUID | None = None,
+        conversation_id: UUID | None = None,
     ) -> dict[str, Any]:
         """重置可重试的失败解析并重新排队；已在解析中的直接返回当前状态。"""
 
         context = await self.conversations.resolve_user(user_id, tenant_id)
+        await self._scoped_record(
+            attachment_id, context.user_id, project_id, conversation_id
+        )
         result = await self._repository().reset_attachment_parse(
             attachment_id, context.user_id
         )
@@ -474,6 +503,55 @@ class AttachmentService:
 
     def _repository(self) -> BusinessRepository:
         return self.runtime.require_ready()
+
+    async def _workspace_for_record(self, record: dict[str, Any]) -> Path:
+        storage = self._repository()
+        if record["project_id"] is not None:
+            project = await storage.get_project(
+                UUID(str(record["project_id"])), str(record["user_id"])
+            )
+            if project is None:
+                raise AttachmentNotFoundError()
+            return self.runtime.project_workspace_dir(project)
+        owner = record.get("owner_conversation_id")
+        if owner is None:
+            raise AttachmentNotFoundError()
+        conversation_id = UUID(str(owner))
+        conversation = await storage.get_conversation(
+            conversation_id, str(record["user_id"])
+        )
+        if conversation is None or conversation["project_id"] is not None:
+            raise AttachmentNotFoundError()
+        return self.runtime.conversation_workspace_dir(conversation_id)
+
+    async def _scoped_record(
+        self,
+        attachment_id: UUID,
+        user_id: str,
+        project_id: UUID | None,
+        conversation_id: UUID | None,
+    ) -> dict[str, Any]:
+        self._require_scope(project_id, conversation_id)
+        record = await self._repository().get_attachment_record_for_user(
+            attachment_id, user_id
+        )
+        if record is None:
+            raise AttachmentNotFoundError()
+        if project_id is not None and record["project_id"] != project_id:
+            raise AttachmentNotFoundError()
+        if (
+            conversation_id is not None
+            and record["owner_conversation_id"] != conversation_id
+        ):
+            raise AttachmentNotFoundError()
+        return record
+
+    @staticmethod
+    def _require_scope(
+        project_id: UUID | None, conversation_id: UUID | None
+    ) -> None:
+        if (project_id is None) == (conversation_id is None):
+            raise AttachmentNotFoundError()
 
     @staticmethod
     def _client_request_id(value: str | None) -> str | None:

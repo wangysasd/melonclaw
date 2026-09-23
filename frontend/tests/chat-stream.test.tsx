@@ -280,6 +280,21 @@ describe("chat run lifecycle", () => {
     const state = { ...INITIAL_CHAT_STATE, messages: [{ id: "old", role: "assistant" as const, content: "done", status: "completed" as const, markdown: true, events: [], assistantSteps: [], phases: [] }] };
     expect(reducer(state, { type: "streamFailed", message: "draft", error: "offline" }).messages[0].status).toBe("completed");
   });
+  it("tracks the conversation's own project for attachment hydration", () => {
+    // 历史 authoritative：附件作用域跟会话归属走，不跟侧栏当前项目走。
+    const loaded = reducer(INITIAL_CHAT_STATE, {
+      type: "historyLoaded", conversationId: "c1", title: "t", projectId: "p1",
+      messages: [], approval: null, userQuestion: null,
+    });
+    expect(loaded.conversationProjectId).toBe("p1");
+    // 乐观发送沿用发送时的作用域；切会话/重载时清零。
+    const optimisticUser = { id: "u", role: "user" as const, content: "hi", status: null, markdown: false, events: [], assistantSteps: [], phases: [] };
+    const optimisticAssistant = { id: "a", role: "assistant" as const, content: "", status: "streaming" as const, markdown: false, events: [], assistantSteps: [], phases: [] };
+    const optimistic = reducer(loaded, { type: "optimistic", conversationId: "c1", projectId: "p1", user: optimisticUser, assistant: optimisticAssistant });
+    expect(optimistic.conversationProjectId).toBe("p1");
+    expect(reducer(optimistic, { type: "reset", conversationId: null }).conversationProjectId).toBeNull();
+    expect(reducer(optimistic, { type: "historyLoading", conversationId: "c1" }).conversationProjectId).toBeNull();
+  });
   it("an old stream cannot detach the new conversation's controller", async () => {
     const first = deferred<void>(); const second = deferred<void>();
     let emitFirst!: (event: StreamEvent) => void;

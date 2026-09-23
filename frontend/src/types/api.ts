@@ -68,7 +68,7 @@ export interface DevUser {
 export interface Project {
   id: string;
   name: string;
-  is_default?: boolean;
+  is_pinned?: boolean;
   workdir_path?: string;
   created_at?: string;
   updated_at?: string;
@@ -76,7 +76,8 @@ export interface Project {
 
 export interface ConversationSummary {
   id: string;
-  project_id?: string;
+  project_id: string | null;
+  is_pinned?: boolean;
   title?: string;
   created_at?: string;
   updated_at?: string;
@@ -184,7 +185,7 @@ export interface AttachmentCapabilities {
   max_file_bytes: number;
   max_total_bytes: number;
   max_per_message: number;
-  project_max_bytes: number;
+  workspace_max_bytes: number;
   image_max_pixels: number;
   pdf_max_pages: number;
 }
@@ -291,6 +292,7 @@ export interface ListConversationsInput {
   userId: string;
   tenantId?: string | null;
   projectId?: string | null;
+  scope?: "unassigned";
   limit?: number;
   cursor?: string | null;
 }
@@ -298,7 +300,7 @@ export interface ListConversationsInput {
 export interface CreateConversationInput {
   userId: string;
   tenantId?: string | null;
-  projectId: string;
+  projectId?: string | null;
 }
 
 export interface ListMessagesInput {

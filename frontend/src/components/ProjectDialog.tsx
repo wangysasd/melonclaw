@@ -48,6 +48,7 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
 
   return (
     <Modal
+      className="project-create-modal"
       title="新增项目"
       open={open}
       onCancel={() => (submitting ? undefined : onClose())}

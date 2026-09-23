@@ -13,15 +13,15 @@ api/            FastAPI 路由、请求校验、附件 multipart 上传、SSE �
         ▼
 core/agent.py   用 create_deep_agent 组装 Agent（模型 + 工具 + middleware + backend）
         ▼
-runtime.py      按 Project 解析工作区，按 (project_id, model) 缓存 Agent
+runtime.py      按 Project 或普通 Conversation 解析工作区，按工作区/模型/能力缓存 Agent
         ▼
-backend/        CompositeBackend：默认 LocalShellBackend(Project 工作区) + 受保护目录与 /skills/ 路由
+backend/        CompositeBackend：默认 LocalShellBackend(当前工作区) + 受保护目录与 /skills/ 路由
         ▼
 output/         把 LangGraph 消息流投影成有序 assistant steps 与 SSE 事件
 ```
 
-附件采用独立的两阶段数据流：浏览器先向 `api/routes/attachments.py` 上传到
-Project 的受控 `.attachments/` 目录，`services/attachments.py` 完成校验和后台解析；
+附件采用独立的两阶段数据流：浏览器先向 `api/routes/attachments.py` 上传到当前
+Project 或普通 Conversation 的受控 `.attachments/` 目录，`services/attachments.py` 完成校验和后台解析；
 发送消息时只提交附件 ID，由 `repository/attachments.py` 在消息事务中绑定。文档由
 `parsers/` 生成派生 Markdown，图片由注入式 hydration middleware 在模型出站前转换为
 标准 image content block；出站图片经 `services/attachment_images.py` 按文件版本缓存并
@@ -32,6 +32,14 @@ Project 的受控 `.attachments/` 目录，`services/attachments.py` 完成校�
 - `database/` + `repository/`：业务数据（用户、Project、Conversation、消息、审批、用户问题交互、Memory 事件），由 `melonclaw-db-init` 建表。
 - LangGraph Checkpointer：Agent 图状态，与业务表分离。
 
+Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conversation_id` 列；
+消息、审批、用户问题和附件关系表使用 `conversation_id` 外键引用它。Conversation 归属由
+`user_id + project_id` 确定：`project_id IS NULL` 表示普通会话，工作区为
+`conversations/<conversation_id>`；非空时工作区为项目的 `workdir_path`，同一项目内的会话共享文件，
+但仍各自使用独立的消息序列和 Checkpoint。项目和普通会话的附件分别由
+`chat_attachments.project_id` 与 `owner_conversation_id` 表示，数据库 CHECK 保证恰有一个归属。
+项目与会话各自持久化 `is_pinned` 供侧栏排序；删除使用 `status=deleted` 逻辑删除，读取时过滤已删除项目及其会话，保留跨数据库、Checkpoint 和文件系统的原始数据以避免非原子清理。
+
 ## 2. 模块职责
 
 | 包 | 职责 | 典型文件 |
@@ -40,7 +48,7 @@ Project 的受控 `.attachments/` 目录，`services/attachments.py` 完成校�
 | `database/` | 连接、表结构定义、建表与完整性校验、常量 | `schema.py`、`migrations.py`、`constants.py` |
 | `repository/` | 业务数据的读写、事务边界、会话锁、上下文与用户解析 | `repository.py`、`conversations.py`、`attachments.py`、`user_interactions.py`、`locks.py`、`bootstrap.py` |
 | `parsers/` | 附件扩展名/MIME/容器安全校验，以及受控文档到 Markdown 派生文件的解析 | `validation.py`、`documents.py` |
-| `storage/` | Project 工作区内附件原文、派生文件与临时文件的受控路径映射和发布 | `attachments.py` |
+| `storage/` | 当前工作区内附件原文、派生文件与临时文件的受控路径映射和发布 | `attachments.py` |
 | `services/` | 用例编排：执行、执行收尾、用户问题恢复、会话、技能、运行时资源管理 | `execution.py`、`execution_finalize.py`、`user_input_execution.py`、`runtime.py`、`chat.py`、`skills.py` |
 | `api/` | HTTP 边界：路由、Schema、错误映射、SSE 编码、应用生命周期 | `app.py`、`routes/*`（含 `user_input.py`）、`schemas.py`、`sse.py` |
 | `output/` | 通过当前 Deep Agents v3 事件投影提取模型可见文本，并把根 Agent 的每次 AIMessage 投影成有序 assistant steps；子 Agent 保留任务卡事件 | `events.py`、`assistant_steps.py`、`visible_text.py`、`formatting.py` |
