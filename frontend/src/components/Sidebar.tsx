@@ -274,15 +274,16 @@ export function SidebarContent({
                     </div>
                     {expanded ? (
                       <div className="project-children" aria-label={`${project.name}的对话`}>
-                        {session.conversations.length > 0 ? conversationRows(session.conversations, false) : (
-                          <div className="conversation-empty">{session.conversationsLoadFailed ? "会话加载失败" : session.contextReady && !session.conversationsLoading ? "这个项目还没有会话" : "会话加载中…"}</div>
-                        )}
+                        {session.conversations.length > 0 ? conversationRows(session.conversations, false) : null}
+                        {session.conversations.length === 0 && (session.conversationsLoadFailed || session.conversationsLoading) ? (
+                          <div className="conversation-empty">{session.conversationsLoadFailed ? "会话加载失败" : "会话加载中…"}</div>
+                        ) : null}
                         {session.conversationCursor ? (
                           <Button type="text" block size="small" className="load-more" onClick={() => void session.loadMoreConversations()}>加载更多会话</Button>
                         ) : null}
                         {!session.conversationsLoading && !session.conversationsLoadFailed && session.conversations.length === 0 ? (
                           <button type="button" className="project-child-new" onClick={() => void session.newConversation(project.id)} disabled={!canCreate}>
-                            <Icon name="plus" size={13} /> 在此项目中新建对话
+                            <Icon name="plus" size={13} /> 在此项目中新建首个对话
                           </button>
                         ) : null}
                       </div>
