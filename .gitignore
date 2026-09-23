@@ -31,6 +31,7 @@ dist/
 
 # 本地导入的 CICC Skills，不纳入项目版本控制。
 /skills/cicc-*/
+/skills/htsc-*/
 /skills-lock.json
 
 # 本地编辑器与系统文件。

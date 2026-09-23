@@ -6,6 +6,12 @@
         "token": "${YUJIAN_MCP_TOKEN}"
       }
     },
+    "htsc_research_mcp": {
+      "url": "https://inst.htsc.com/mcp/v1/ris/htsc_research_mcp",
+      "headers": {
+        "HTSC_APP_KEY": "${HTSC_APP_KEY}"
+      }
+    },
     "timing": {
       "url": "http://101.133.169.44/api/timing/mcp",
       "headers": { "Authorization": "${DONGWU_MCP_TOKEN}" },

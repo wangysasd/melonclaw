@@ -59,9 +59,9 @@ const WELCOME_PROMPTS = [
   {
     key: "search",
     icon: <Icon name="search" size={18} className="prompt-icon" />,
-    label: "查找资料",
-    description: "比较方案，梳理可靠信息",
-    prompt: "请比较两个技术方案的优缺点，并给出适用场景和推荐结论。",
+    label: "来了解我",
+    description: "先来了解我能胜任什么工作",
+    prompt: "告诉我你有什么技能，并给出适用场景。",
   },
   {
     key: "organize",
@@ -414,7 +414,7 @@ export function ChatView({ onOpenProjectDialog }: { onOpenProjectDialog?: () => 
             <div className="welcome-mark">
               <img src="/assets/brand/melonclaw-mark.png" alt="" />
             </div>
-            <h1>今天，有什么想一起搞定的？</h1>
+            <h1>今天，让我们一起做些什么</h1>
             <Prompts
               className="prompt-grid"
               wrap
