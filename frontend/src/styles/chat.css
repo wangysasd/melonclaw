@@ -1001,9 +1001,9 @@
   padding: 0 0 19px;
 }
 
+/* 项目栏不建立高层级上下文，避免盖住输入框内向上展开的附件和技能菜单。 */
 .composer-project-bar {
   position: relative;
-  z-index: 3;
   display: flex;
   align-items: center;
   height: 32.4px;
@@ -1230,9 +1230,9 @@
   position: absolute;
   z-index: 20;
   left: 0;
-  bottom: calc(100% + 10px);
+  bottom: calc(100% + 5px);
   min-width: 236px;
-  padding: 8px;
+  padding: 6px;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.98);
@@ -1244,7 +1244,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 0;
   border-radius: 14px;
   background: transparent;
