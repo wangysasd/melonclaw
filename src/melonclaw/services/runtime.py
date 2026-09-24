@@ -36,6 +36,12 @@ from melonclaw.services.skills import SkillCatalog, skill_catalog
 
 
 @dataclass
+class _AgentBuildLock:
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    users: int = 0
+
+
+@dataclass
 class ChatRuntime:
     """应用运行时共享的数据库、Agent 和 Memory 资源。"""
 
@@ -49,7 +55,7 @@ class ChatRuntime:
     memory_service: MemoryService | None = None
     attachment_hydration_provider: Any | None = None
     workspace_agents: dict[tuple[str, tuple[str, int, str, str, str], tuple[str, ...]], Any] | None = None
-    agent_build_locks: dict[Any, asyncio.Lock] = field(default_factory=dict)
+    agent_build_locks: dict[Any, _AgentBuildLock] = field(default_factory=dict)
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
     skills_catalog: SkillCatalog = field(default_factory=lambda: skill_catalog)
@@ -272,27 +278,31 @@ class ChatRuntime:
             self.workspace_agents.pop(key)
             self.workspace_agents[key] = cached
             return cached
-        lock = self.agent_build_locks.setdefault(key, asyncio.Lock())
-        async with lock:
-            cached = self.workspace_agents.get(key)
-            if cached is not None:
-                return cached
-            agent = await build_research_agent(
-                self.settings,
-                checkpointer=self.checkpointer,
-                workspace_dir=self.workspace_dir(conversation, project),
-                model=resolved_model,
-                memory_service=self.memory_service,
-                attachment_hydration_provider=self.attachment_hydration_provider,
-                client_capabilities=normalized_capabilities,
-            )
-            self.workspace_agents[key] = agent
-            cache_limit = max(1, getattr(self.settings, "agent_cache_entries", 32))
-            while len(self.workspace_agents) > cache_limit:
-                evicted = next(iter(self.workspace_agents))
-                self.workspace_agents.pop(evicted)
-                self.agent_build_locks.pop(evicted, None)
-            return agent
+        build_lock = self.agent_build_locks.setdefault(key, _AgentBuildLock())
+        build_lock.users += 1
+        try:
+            async with build_lock.lock:
+                cached = self.workspace_agents.get(key)
+                if cached is not None:
+                    return cached
+                agent = await build_research_agent(
+                    self.settings,
+                    checkpointer=self.checkpointer,
+                    workspace_dir=self.workspace_dir(conversation, project),
+                    model=resolved_model,
+                    memory_service=self.memory_service,
+                    attachment_hydration_provider=self.attachment_hydration_provider,
+                    client_capabilities=normalized_capabilities,
+                )
+                self.workspace_agents[key] = agent
+                cache_limit = max(1, getattr(self.settings, "agent_cache_entries", 32))
+                while len(self.workspace_agents) > cache_limit:
+                    self.workspace_agents.pop(next(iter(self.workspace_agents)))
+                return agent
+        finally:
+            build_lock.users -= 1
+            if build_lock.users == 0 and self.agent_build_locks.get(key) is build_lock:
+                self.agent_build_locks.pop(key)
 
     @staticmethod
     def capabilities_for_message(message: dict[str, Any] | None) -> tuple[str, ...]:

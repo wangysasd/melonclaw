@@ -338,12 +338,40 @@ describe("chat run lifecycle", () => {
       // 同一帧重复投递：序号没有增长，必须被丢弃。
       emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "你好" }, 3);
     });
-    expect(result.current.state.messages[1].assistantSteps?.[0].content).toBe("你好");
+    await waitFor(() => expect(result.current.state.messages[1].assistantSteps?.[0].content).toBe("你好"));
     expect(result.current.state.messages[1].assistantSteps).toHaveLength(1);
     act(() => emit({ type: "completed", message_id: "a1", content: "你好", assistant_steps: [] }, 4));
     act(() => emit({ type: "done", terminal_reason: "completed" }, 5));
     stream.resolve();
     await act(async () => { await task; });
+  });
+
+  it("flushes batched text before the next non-text event", async () => {
+    const stream = deferred<void>();
+    let emit!: (event: StreamEvent) => void;
+    vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent }) => {
+      emit = onEvent;
+      return stream.promise;
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let task!: Promise<void>;
+    act(() => { task = result.current.sendMessage("test"); });
+    await waitFor(() => expect(emit).toBeDefined());
+    act(() => {
+      emit({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: "u1", message_id: "a1" });
+      emit({ type: "assistant_step_started", message_id: "a1", step: { id: "run:step:0", ordinal: 0, content: "", status: "streaming", is_final: false, tool_calls: [] } });
+      emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "你" });
+      emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "好" });
+      emit({ type: "run_phase", phase: "processing" });
+    });
+    expect(result.current.state.messages[1].assistantSteps[0].content).toBe("你好");
+    await act(async () => {
+      emit({ type: "completed", message_id: "a1", content: "你好", assistant_steps: [] });
+      emit({ type: "done", terminal_reason: "completed" });
+      stream.resolve();
+      await task;
+    });
   });
 
   it("does not mark an old completed answer as failed when a new request fails before starting", () => {

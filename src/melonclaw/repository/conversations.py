@@ -26,15 +26,13 @@ from melonclaw.repository.errors import (
     ProjectNotFoundError,
 )
 from melonclaw.repository.mappers import (
-    _as_iso,
     _conversation_dict,
-    _conversation_title,
     _message_dict,
     _now,
     decode_conversation_cursor,
     encode_conversation_cursor,
 )
-from melonclaw.repository.models import PreparedMessagePair, RequestRecord
+from melonclaw.repository.models import RequestRecord
 
 
 class ConversationRepositoryMixin:
@@ -418,121 +416,41 @@ class ConversationRepositoryMixin:
             attachments=tuple(attachments),
         )
 
-    async def create_message_pair(
+    async def get_request_user_message(
         self,
         conversation_id: UUID,
         user_id: str,
         request_id: str,
-        content: str,
-        *,
-        model_id: str,
-        model_provider: str,
-        model_name: str,
-        model_display_name: str,
-        user_display_metadata: dict[str, Any] | None = None,
-    ) -> PreparedMessagePair:
-        timestamp = _now()
-        user_message_id = uuid4()
-        assistant_message_id = uuid4()
-        async with self.engine.begin() as connection:
-            conversation_query = select(chat_conversations).where(
-                and_(
-                    chat_conversations.c.id == conversation_id,
-                    chat_conversations.c.user_id == user_id,
+    ) -> dict[str, Any] | None:
+        """历史恢复只需首次请求的能力快照，无需重读消息对和附件。"""
+
+        query = (
+            select(chat_messages)
+            .select_from(
+                chat_messages.join(
+                    chat_conversations,
+                    chat_messages.c.conversation_id == chat_conversations.c.id,
+                ).outerjoin(
+                    projects,
+                    and_(
+                        chat_conversations.c.project_id == projects.c.id,
+                        chat_conversations.c.user_id == projects.c.user_id,
+                        projects.c.status == "active",
+                    ),
                 )
             )
-            conversation = (await connection.execute(conversation_query)).mappings().first()
-            if conversation is None:
-                raise ConversationNotFoundError
-            max_seq = await connection.scalar(
-                select(func.coalesce(func.max(chat_messages.c.seq), 0)).where(
-                    chat_messages.c.conversation_id == conversation_id
-                )
+            .where(
+                chat_messages.c.conversation_id == conversation_id,
+                chat_messages.c.request_id == request_id,
+                chat_messages.c.role == "user",
+                chat_conversations.c.user_id == user_id,
+                chat_conversations.c.status == "active",
+                or_(chat_conversations.c.project_id.is_(None), projects.c.id.is_not(None)),
             )
-            first_seq = int(max_seq or 0) + 1
-            title = (
-                _conversation_title(content)
-                if conversation["title"] == "新会话"
-                else conversation["title"]
-            )
-            await connection.execute(
-                insert(chat_messages),
-                [
-                    {
-                        "id": user_message_id,
-                        "conversation_id": conversation_id,
-                        "seq": first_seq,
-                        "request_id": request_id,
-                        "role": "user",
-                        "content": content,
-                        "status": "completed",
-                        "display_metadata": user_display_metadata or {},
-                        "error_code": None,
-                        "model_id": None,
-                        "model_provider": None,
-                        "model_name": None,
-                        "model_display_name": None,
-                        "created_at": timestamp,
-                        "updated_at": timestamp,
-                    },
-                    {
-                        "id": assistant_message_id,
-                        "conversation_id": conversation_id,
-                        "seq": first_seq + 1,
-                        "request_id": request_id,
-                        "role": "assistant",
-                        "content": "",
-                        "status": "pending",
-                        "assistant_steps": [],
-                        "execution_duration_ms": None,
-                        "display_metadata": {},
-                        "error_code": None,
-                        "model_id": model_id,
-                        "model_provider": model_provider,
-                        "model_name": model_name,
-                        "model_display_name": model_display_name,
-                        "created_at": timestamp,
-                        "updated_at": timestamp,
-                    },
-                ],
-            )
-            await connection.execute(
-                update(chat_conversations)
-                .where(chat_conversations.c.id == conversation_id)
-                .values(title=title, updated_at=timestamp)
-            )
-        user_message = {
-            "id": str(user_message_id),
-            "conversation_id": str(conversation_id),
-            "seq": first_seq,
-            "request_id": request_id,
-            "role": "user",
-            "content": content,
-            "status": "completed",
-            "display_metadata": user_display_metadata or {},
-            "error_code": None,
-            "model": None,
-            "created_at": _as_iso(timestamp),
-            "updated_at": _as_iso(timestamp),
-        }
-        assistant_message = {
-            **user_message,
-            "id": str(assistant_message_id),
-            "seq": first_seq + 1,
-            "role": "assistant",
-            "content": "",
-            "status": "pending",
-            "assistant_steps": [],
-            "execution_duration_ms": None,
-            "display_metadata": {},
-            "model": {
-                "id": model_id,
-                "display_name": model_display_name,
-                "provider": model_provider,
-                "model": model_name,
-            },
-        }
-        return PreparedMessagePair(request_id, user_message, assistant_message)
+        )
+        async with self.engine.connect() as connection:
+            row = (await connection.execute(query)).mappings().first()
+        return _message_dict(row) if row else None
 
     async def get_incomplete_assistant(
         self,

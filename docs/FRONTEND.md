@@ -39,6 +39,7 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 - 响应：`text/event-stream`，由 `src/api/stream.ts` 手动分帧解析（按空行切帧，逐帧解析 `data:` 行）。
 - 事件类型以 `src/types/api.ts` 的 `StreamEvent` 判别联合为准。根 Agent 使用 `assistant_step_started`、`assistant_text_delta`、`assistant_tool_call`、`assistant_tool_result`、`assistant_step_completed`，每个事件都带 `message_id`，前端按 `message_id → step_id → call_id` 归约；子 Agent 继续使用任务卡事件。用户问题事件由执行服务直接进入统一 SSE 编码器；如果新增需要从 Agent 原始流投影出的事件，仍必须同步修改后端 `output/events.py`、`api/sse.py` 和前端联合类型。
 - 帧序号：服务端每个 SSE 帧都带 `id: N`（单条流内单调递增），`api/stream.ts` 把它作为 `onEvent` 的第二个参数交给 `useChatStream`，用于丢弃重复投递的帧；去重不按文本内容判断。
+- 连续的 `assistant_text_delta` 按浏览器动画帧合并后更新可见会话；下一个非文本事件、停止或流结束会先冲刷待提交文本。`completed` 仍立即以服务端完整快照对账。
 - 断线重连：不依赖 SSE 缓存，而是靠会话重新同步；`session.tsx` 的 `epoch` 用来丢弃切换会话后迟到的响应。
 
 ## 4. UI 约定

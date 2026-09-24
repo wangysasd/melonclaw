@@ -307,9 +307,6 @@ class ConversationService:
         before_seq: int | None,
     ) -> dict[str, Any]:
         storage = self.runtime.require_ready()
-        conversation = await storage.get_conversation(conversation_id, user_id)
-        if conversation is None:
-            raise ConversationNotFoundError
         # Conversation 只按 user_id + project_id 归属；tenant_id 仅用于
         # 校验当前运行上下文并加载对应的 Tenant Memory。
         context = await self.resolve_user(user_id, tenant_id)
@@ -319,29 +316,21 @@ class ConversationService:
             limit=limit,
             before_seq=before_seq,
         )
-        attachments_by_message = await storage.list_attachments_for_messages(
-            [UUID(message["id"]) for message in messages if message["role"] == "user"]
+        attachments_by_message, project, incomplete, unresolved = await asyncio.gather(
+            storage.list_attachments_for_messages(
+                [UUID(message["id"]) for message in messages if message["role"] == "user"]
+            ),
+            self.project_for_conversation(storage, conversation, context),
+            storage.get_incomplete_assistant(conversation_id, context.user_id),
+            storage.get_recovery_required_interaction(conversation_id, context.user_id),
         )
         for message in messages:
             if message["role"] == "user":
                 message["attachments"] = attachments_by_message.get(
                     UUID(message["id"]), []
                 )
-        project = await self.project_for_conversation(
-            storage,
-            conversation,
-            context,
-        )
-        incomplete = await storage.get_incomplete_assistant(
-            conversation_id,
-            context.user_id,
-        )
         # 答案已经收下、但这一轮没能跑完的账本：这一轮只能由用户显式结束，
         # 历史里必须表现为失败，不能再亮出一张"等你回答"的卡片。
-        unresolved = await storage.get_recovery_required_interaction(
-            conversation_id,
-            context.user_id,
-        )
         unresolved_assistant_id = (
             str(unresolved["assistant_message_id"]) if unresolved is not None else None
         )
@@ -362,30 +351,24 @@ class ConversationService:
             ):
                 incomplete = candidate
                 recovery_assistant = candidate
-        model = (
-            self.runtime.model_for_message(incomplete)
-            if incomplete is not None
-            else self.runtime.resolve_model()
-        )
-        # 恢复待处理交互必须沿用提问那一轮声明的能力，否则拿到的 Agent 可能
-        # 没有 ask_user，读出来的 pending 与浏览器看到的卡片对不上。
-        capabilities: tuple[str, ...] = ()
+        pending = None
         if incomplete is not None:
-            request_record = await storage.find_request(
+            # 恢复待处理交互必须沿用提问那一轮的模型与客户端能力。
+            user_message = await storage.get_request_user_message(
                 conversation_id,
                 context.user_id,
                 incomplete["request_id"],
             )
-            capabilities = self.runtime.capabilities_for_message(
-                request_record.user_message if request_record is not None else None
+            agent = await self.runtime.agent_for_conversation(
+                conversation,
+                project,
+                self.runtime.model_for_message(incomplete),
+                self.runtime.capabilities_for_message(user_message),
             )
-        agent = await self.runtime.agent_for_conversation(
-            conversation, project, model, capabilities
-        )
-        pending = await aget_pending_interaction(
-            agent,
-            self.runtime.conversation_config(conversation_id),
-        )
+            pending = await aget_pending_interaction(
+                agent,
+                self.runtime.conversation_config(conversation_id),
+            )
         approvals = [item for item in pending or [] if item.get("kind") == "tool_approval"]
         questions = [item for item in pending or [] if item.get("kind") == "user_question"]
         # recovery_required 的那一轮不再给卡片：用户点提交只会换来"这一轮已经

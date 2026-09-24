@@ -1,6 +1,92 @@
 """根 Agent assistant steps 的顺序、关联和终态测试。"""
 
-from melonclaw.output.assistant_steps import AssistantStepAccumulator
+import asyncio
+
+from melonclaw.output.assistant_steps import MAX_STEPS_BYTES, AssistantStepAccumulator
+from melonclaw.output.events import iter_research_events
+
+
+def test_event_projection_updates_the_execution_snapshot_once():
+    async def empty():
+        if False:
+            yield None
+
+    class Message:
+        id = "ai-1"
+        metadata = {}
+        output = {"content": "你好", "tool_calls": []}
+
+        @property
+        def text(self):
+            async def chunks():
+                yield "你好"
+
+            return chunks()
+
+    class Stream:
+        tool_calls = empty()
+        subagents = empty()
+
+        @property
+        def messages(self):
+            async def messages():
+                yield Message()
+
+            return messages()
+
+        async def abort(self):
+            return None
+
+    class Agent:
+        def astream_events(self, agent_input, **kwargs):
+            return Stream()
+
+    async def collect():
+        projector = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
+        events = [
+            event
+            async for event in iter_research_events(
+                Agent(), {"messages": []}, {}, projector=projector
+            )
+        ]
+        return projector, events
+
+    projector, events = asyncio.run(collect())
+    assert projector.steps[0]["content"] == "你好"
+    assert [event["type"] for event in events if event["type"].startswith("assistant_")] == [
+        "assistant_step_started",
+        "assistant_text_delta",
+        "assistant_step_completed",
+    ]
+
+
+def test_text_deltas_avoid_full_snapshot_scans_until_limit():
+    accumulator = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
+    step_id = accumulator.start_step()["step"]["id"]
+    scans = 0
+    original = accumulator._enforce_total_limit
+
+    def count_scan():
+        nonlocal scans
+        scans += 1
+        original()
+
+    accumulator._enforce_total_limit = count_scan
+    for _ in range(100):
+        accumulator.project_text_delta(step_id, "普通文本")
+
+    assert scans == 0
+    assert accumulator.steps[0]["content"] == "普通文本" * 100
+
+
+def test_many_steps_still_respect_total_snapshot_limit():
+    accumulator = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
+    for _ in range(6):
+        step_id = accumulator.start_step()["step"]["id"]
+        accumulator.project_text_delta(step_id, "字" * 100_000)
+
+    assert len(str(accumulator.steps).encode("utf-8")) <= MAX_STEPS_BYTES
+    assert any(step.get("truncated") for step in accumulator.steps)
 
 
 def test_multiple_model_steps_keep_text_and_tools_in_causal_order():

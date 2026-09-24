@@ -90,6 +90,8 @@ interface ChatState {
 }
 
 type ChatAction =
+  | { type: "sync"; state: ChatState }
+  | { type: "batch"; actions: ChatAction[] }
   | { type: "reset"; conversationId: string | null }
   | { type: "historyLoading"; conversationId: string | null }
   | {
@@ -241,6 +243,10 @@ function markInteractionWaiting(message: ChatMessage): ChatMessage {
 
 export function reducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
+    case "sync":
+      return action.state;
+    case "batch":
+      return action.actions.reduce(reducer, state);
     case "reset":
       return { ...INITIAL_CHAT_STATE, conversationId: action.conversationId };
     case "historyLoading":
@@ -543,6 +549,8 @@ export function useChatStream({
   const historyControllerRef = useRef<AbortController | null>(null);
   const forceHistoryReloadRef = useRef(false);
   const textBuffersRef = useRef(new Map<string, string>());
+  const pendingDeltasRef = useRef(new Map<string, ChatAction[]>());
+  const deltaFrameRef = useRef<number | null>(null);
 
   // 可见态同步进缓存：后台事件走缓存，回来时不丢增量。
   useEffect(() => {
@@ -572,8 +580,42 @@ export function useChatStream({
     chatCacheRef.current.set(conversationId, next);
     if (visible) {
       chatStateRef.current = next;
-      dispatch(action);
+      dispatch({ type: "sync", state: next });
     }
+  }, []);
+
+  const flushTextDeltas = useCallback((conversationId?: string): void => {
+    const pending = pendingDeltasRef.current;
+    const ids = conversationId ? [conversationId] : [...pending.keys()];
+    for (const id of ids) {
+      const actions = pending.get(id);
+      if (!actions?.length) continue;
+      pending.delete(id);
+      dispatchFor(id, { type: "batch", actions });
+    }
+  }, [dispatchFor]);
+
+  const queueTextDelta = useCallback((conversationId: string, messageId: string, stepId: string, delta: string): void => {
+    const pending = pendingDeltasRef.current;
+    const actions = pending.get(conversationId) ?? [];
+    const previous = actions.at(-1);
+    if (previous?.type === "assistantTextDelta" && previous.messageId === messageId && previous.stepId === stepId) {
+      actions[actions.length - 1] = { ...previous, delta: previous.delta + delta };
+    } else {
+      actions.push({ type: "assistantTextDelta", messageId, stepId, delta });
+    }
+    pending.set(conversationId, actions);
+    if (deltaFrameRef.current === null) {
+      deltaFrameRef.current = requestAnimationFrame(() => {
+        deltaFrameRef.current = null;
+        flushTextDeltas();
+      });
+    }
+  }, [flushTextDeltas]);
+
+  useEffect(() => () => {
+    if (deltaFrameRef.current !== null) cancelAnimationFrame(deltaFrameRef.current);
+    pendingDeltasRef.current.clear();
   }, []);
 
   const bufferFor = useCallback((conversationId: string): string => {
@@ -627,6 +669,7 @@ export function useChatStream({
         if (context.lastEventId !== undefined && eventId <= context.lastEventId) return;
         context.lastEventId = eventId;
       }
+      if (event.type !== "assistant_text_delta") flushTextDeltas(conversationId);
       const follow = viewing && scroll.isNearBottom();
       switch (event.type) {
         case "run_phase":
@@ -664,12 +707,7 @@ export function useChatStream({
           if (viewing) sessionRef.current.setRunStatus("responding");
           break;
         case "assistant_text_delta":
-          dispatchFor(conversationId, {
-            type: "assistantTextDelta",
-            messageId: event.message_id,
-            stepId: event.step_id,
-            delta: event.delta,
-          });
+          queueTextDelta(conversationId, event.message_id, event.step_id, event.delta);
           if (viewing) sessionRef.current.setRunStatus("responding");
           break;
         case "assistant_tool_call":
@@ -805,7 +843,7 @@ export function useChatStream({
         scroll.scrollToBottom();
       }
     },
-    [appendStreamText, dispatchFor, matchesContext, message, othersRunning, reloadHistory, scroll, setBufferFor],
+    [appendStreamText, dispatchFor, flushTextDeltas, matchesContext, message, othersRunning, queueTextDelta, reloadHistory, scroll, setBufferFor],
   );
 
   const runStream = useCallback(
@@ -861,6 +899,7 @@ export function useChatStream({
         }
         return false;
       } finally {
+        flushTextDeltas(context.conversationId);
         if (context.firstMessage) sessionRef.current.cancelConversationSubmission(context.conversationId);
         setBufferFor(context.conversationId, "");
         if (activeRunsRef.current.get(context.conversationId)?.controller === controller) {
@@ -870,7 +909,7 @@ export function useChatStream({
         }
       }
     },
-    [dispatchFor, handleEvent, matchesContext, message, setBufferFor],
+    [dispatchFor, flushTextDeltas, handleEvent, matchesContext, message, setBufferFor],
   );
 
   const sendMessage = useCallback(
@@ -1272,6 +1311,7 @@ export function useChatStream({
     if (!conversationId) return false;
     const run = activeRunsRef.current.get(conversationId);
     if (!run || run.controller.signal.aborted) return false;
+    flushTextDeltas(conversationId);
     run.controller.abort();
     // abort 后流静默结束：本地先显式收尾，避免卡在 streaming。
     const prev = chatStateRef.current.conversationId === conversationId
@@ -1293,7 +1333,7 @@ export function useChatStream({
       sessionRef.current.setRunStatus(null);
     }
     return true;
-  }, [dispatchFor]);
+  }, [dispatchFor, flushTextDeltas]);
 
   const stopCurrent = useCallback((): boolean => {
     const currentId = sessionRef.current.conversationId

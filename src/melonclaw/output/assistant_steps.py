@@ -1,7 +1,7 @@
 """根 Agent assistant steps 的纯内存投影与终态归约。
 
 一个 step 对应一次根 Agent 的 AIMessage。这个模块只处理展示层需要的安全快照，
-不读取数据库，也不依赖 Web 层；事件适配器和执行服务可以分别使用同一套归约规则。
+不读取数据库，也不依赖 Web 层；事件适配器生成增量，执行服务复用同一快照落库。
 """
 
 from __future__ import annotations
@@ -102,6 +102,8 @@ class AssistantStepAccumulator:
         self.message_id = message_id
         self.run_id = run_id or message_id
         self.steps = _copy_steps(steps)
+        # 通常只增长正文；保守估算新增 repr 字节，接近上限才精确扫描。
+        self._total_bytes = len(str(self.steps).encode("utf-8"))
         self._filters: dict[str, VisibleTextFilter] = {}
         self._had_delta: set[str] = set()
         self._current_step_id: str | None = None
@@ -159,6 +161,7 @@ class AssistantStepAccumulator:
         self.steps.append(step)
         self._current_step_id = step_id
         self._filters[step_id] = VisibleTextFilter()
+        self._enforce_total_limit()
         return {
             "type": "assistant_step_started",
             "message_id": self.message_id,
@@ -172,12 +175,18 @@ class AssistantStepAccumulator:
         existing = str(step.get("content", ""))
         available = max(0, MAX_STEP_TEXT - len(existing))
         visible = sanitize_text(delta[:available])
+        newly_truncated = len(delta) > available and not step.get("truncated")
         if len(delta) > available:
             step["truncated"] = True
         step["content"] = existing + visible
         if visible:
             self._had_delta.add(step_id)
-        self._enforce_total_limit()
+            # repr 对引号的选择可能随整段正文变化；两类引号都计入转义开销，
+            # 保证估算只会早触发精确检查，不会越过总量上限。
+            self._total_bytes += len(repr(visible).encode("utf-8")) - 2
+            self._total_bytes += visible.count("'") + visible.count('"')
+        if newly_truncated or "'" in visible or '"' in visible or self._total_bytes >= MAX_STEPS_BYTES:
+            self._enforce_total_limit()
         return visible
 
     def project_text_delta(self, step_id: str, value: Any) -> dict[str, Any] | None:
@@ -278,6 +287,7 @@ class AssistantStepAccumulator:
             started_at=started_at if started_at is not None else _now_ms(),
         )
         step["status"] = "running"
+        self._enforce_total_limit()
         return {
             "type": "assistant_tool_call",
             "message_id": self.message_id,
@@ -336,6 +346,7 @@ class AssistantStepAccumulator:
                 step.get("tool_calls", []),
                 str(step.get("status", "unknown")),
             )
+        self._enforce_total_limit()
         return {
             "type": "assistant_tool_result",
             "message_id": self.message_id,
@@ -408,7 +419,8 @@ class AssistantStepAccumulator:
         ]
 
     def _enforce_total_limit(self) -> None:
-        while len(str(self.steps).encode("utf-8")) > MAX_STEPS_BYTES:
+        self._total_bytes = len(str(self.steps).encode("utf-8"))
+        while self._total_bytes > MAX_STEPS_BYTES:
             candidates = [item for item in self.steps if item.get("content")]
             if not candidates:
                 break
@@ -417,6 +429,7 @@ class AssistantStepAccumulator:
             keep = max(0, len(content) - max(1024, len(content) // 10))
             largest["content"] = content[:keep] + "\n…（执行轨迹已截断）"
             largest["truncated"] = True
+            self._total_bytes = len(str(self.steps).encode("utf-8"))
 
     def apply_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")
@@ -427,6 +440,7 @@ class AssistantStepAccumulator:
             self.steps.append(step)
             self._filters.setdefault(str(step.get("id")), VisibleTextFilter())
             self._current_step_id = str(step.get("id"))
+            self._enforce_total_limit()
             return
         step_id = str(event.get("step_id", ""))
         step = self._step(step_id)
@@ -462,7 +476,8 @@ class AssistantStepAccumulator:
             step["status"] = event.get("status", step.get("status", "completed"))
             for tool in step["tool_calls"]:
                 self._call_to_step[str(tool.get("call_id", ""))] = step_id
-        self._enforce_total_limit()
+        if event_type != "assistant_text_delta":
+            self._enforce_total_limit()
 
     def terminal_snapshot(self, *, status: str, final_content: str | None = None) -> list[dict[str, Any]]:
         if status == "completed":

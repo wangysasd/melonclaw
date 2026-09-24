@@ -70,7 +70,7 @@ class PreparedExecution:
     worker_id: str
     config: dict[str, Any]
     assistant_message_id: UUID
-    agent: Any
+    agent: Any | None
     model: ResolvedModel
     lock_connection: AsyncConnection | None = None
     user_message_id: UUID | None = None
@@ -144,12 +144,6 @@ class ExecutionService:
         if existing is not None:
             # 幂等重试沿用第一次请求实际绑定的模型和客户端能力。
             model = self.runtime.model_for_message(existing.assistant_message)
-            agent = await self.runtime.agent_for_conversation(
-                conversation,
-                project,
-                model,
-                self.runtime.capabilities_for_message(existing.user_message),
-            )
             return await self._prepare_existing_request(
                 conversation_id,
                 context,
@@ -158,16 +152,11 @@ class ExecutionService:
                 existing,
                 skill_id=skill_id,
                 attachment_ids=normalized_attachment_ids,
-                agent=agent,
                 conversation=conversation,
                 project=project,
                 model=model,
             )
 
-        model = self.runtime.resolve_model(model_id)
-        agent = await self.runtime.agent_for_conversation(
-            conversation, project, model, normalized_capabilities
-        )
         lock_connection = await storage.try_advisory_lock(conversation_id)
         if lock_connection is None:
             raise ConversationBusyError("当前会话正在处理另一条消息，请稍候。")
@@ -182,12 +171,9 @@ class ExecutionService:
                 stored_model = self.runtime.model_for_message(
                     existing.assistant_message
                 )
-                stored_agent = await self.runtime.agent_for_conversation(
-                    conversation,
-                    project,
-                    stored_model,
-                    self.runtime.capabilities_for_message(existing.user_message),
-                )
+                # 该分支的锁由 _prepare_existing_request 接管，包括异常释放。
+                existing_lock = lock_connection
+                lock_connection = None
                 return await self._prepare_existing_request(
                     conversation_id,
                     context,
@@ -196,12 +182,15 @@ class ExecutionService:
                     existing,
                     skill_id=skill_id,
                     attachment_ids=normalized_attachment_ids,
-                    lock_connection=lock_connection,
-                    agent=stored_agent,
+                    lock_connection=existing_lock,
                     conversation=conversation,
                     project=project,
                     model=stored_model,
                 )
+            model = self.runtime.resolve_model(model_id)
+            agent = await self.runtime.agent_for_conversation(
+                conversation, project, model, normalized_capabilities
+            )
             if await aget_pending_interaction(
                 agent,
                 self.runtime.conversation_config(conversation_id),
@@ -240,37 +229,24 @@ class ExecutionService:
                 # 能力随消息落库：恢复执行要沿用提问那一轮的同一份能力。
                 display_metadata = display_metadata or {}
                 display_metadata["capabilities"] = list(normalized_capabilities)
-            if normalized_attachment_ids:
-                if self.runtime.settings is None:
-                    raise RuntimeError("运行配置尚未加载。")
-                pair = await storage.create_message_pair_with_attachments(
-                    conversation_id,
-                    context.user_id,
-                    UUID(project["id"]) if project is not None else None,
-                    request_id,
-                    clean_content,
-                    attachment_ids=normalized_attachment_ids,
-                    model_id=model.profile_id,
-                    model_provider=model.provider,
-                    model_name=model.model_name,
-                    model_display_name=model.display_name,
-                    model_supports_image="image" in model.input_modalities,
-                    max_attachment_count=self.runtime.settings.attachment_max_per_message,
-                    max_total_bytes=self.runtime.settings.attachment_max_total_bytes,
-                    user_display_metadata=display_metadata,
-                )
-            else:
-                pair = await storage.create_message_pair(
-                    conversation_id,
-                    context.user_id,
-                    request_id,
-                    clean_content,
-                    model_id=model.profile_id,
-                    model_provider=model.provider,
-                    model_name=model.model_name,
-                    model_display_name=model.display_name,
-                    user_display_metadata=display_metadata,
-                )
+            if self.runtime.settings is None:
+                raise RuntimeError("运行配置尚未加载。")
+            pair = await storage.create_message_pair(
+                conversation_id,
+                context.user_id,
+                UUID(project["id"]) if project is not None else None,
+                request_id,
+                clean_content,
+                attachment_ids=normalized_attachment_ids,
+                model_id=model.profile_id,
+                model_provider=model.provider,
+                model_name=model.model_name,
+                model_display_name=model.display_name,
+                model_supports_image="image" in model.input_modalities,
+                max_attachment_count=self.runtime.settings.attachment_max_per_message,
+                max_total_bytes=self.runtime.settings.attachment_max_total_bytes,
+                user_display_metadata=display_metadata,
+            )
             return self._execution_from_pair(
                 conversation_id,
                 context,
@@ -285,8 +261,10 @@ class ExecutionService:
                 skill_id=selected_skill.id if selected_skill is not None else None,
                 attachments=list(pair.attachments),
             )
-        except Exception:
-            await storage.release_advisory_lock(lock_connection, conversation_id)
+        except BaseException:
+            # Agent 构建也在持锁区内；请求取消同样必须释放连接级会话锁。
+            if lock_connection is not None:
+                await storage.release_advisory_lock(lock_connection, conversation_id)
             raise
 
     async def _prepare_existing_request(
@@ -300,7 +278,6 @@ class ExecutionService:
         skill_id: str | None,
         attachment_ids: list[UUID],
         lock_connection: AsyncConnection | None = None,
-        agent: Any,
         model: ResolvedModel,
         conversation: dict[str, Any],
         project: dict[str, Any] | None,
@@ -369,7 +346,6 @@ class ExecutionService:
                 conversation_id,
                 context,
                 assistant,
-                agent,
                 model,
                 conversation,
                 project,
@@ -383,7 +359,6 @@ class ExecutionService:
             conversation_id,
             context,
             assistant,
-            agent,
             model,
             conversation,
             project,
@@ -407,7 +382,6 @@ class ExecutionService:
         conversation_id: UUID,
         context: UserContext,
         assistant: dict[str, Any],
-        agent: Any,
         model: ResolvedModel,
         conversation: dict[str, Any],
         project: dict[str, Any] | None,
@@ -430,7 +404,7 @@ class ExecutionService:
             worker_id=self.runtime.worker_id,
             config=self.runtime.conversation_config(conversation_id),
             assistant_message_id=UUID(assistant["id"]),
-            agent=agent,
+            agent=None,
             model=model,
             skill_id=skill_id,
             replay_message=assistant,
@@ -665,6 +639,9 @@ class ExecutionService:
                 finished = True
                 return
 
+            if agent is None:
+                raise AgentExecutionError("执行 Agent 尚未初始化。")
+
             if agent_input is None:
                 messages: list[dict[str, str]] = []
                 if execution.skill_id:
@@ -713,9 +690,8 @@ class ExecutionService:
                 ),
                 assistant_message_id=str(execution.assistant_message_id),
                 run_id=execution.run_id,
-                assistant_steps=execution.assistant_steps,
+                projector=transcript,
             ):
-                transcript.apply_event(event)
                 remember_display_event(event)
                 yield event
 

@@ -387,6 +387,7 @@ async def _iter_v3_research_events(
     assistant_message_id: str | None = None,
     run_id: str | None = None,
     assistant_steps: list[dict[str, Any]] | None = None,
+    projector: AssistantStepAccumulator | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """使用 Deep Agents/LangGraph v3 投影并发消费根 Agent 与子 Agent。"""
 
@@ -398,11 +399,12 @@ async def _iter_v3_research_events(
 
     end_marker = object()
     queue: asyncio.Queue[dict[str, Any] | BaseException | object] = asyncio.Queue()
-    projector = AssistantStepAccumulator(
-        message_id=assistant_message_id or "assistant",
-        run_id=run_id or assistant_message_id or "run",
-        steps=assistant_steps,
-    )
+    if projector is None:
+        projector = AssistantStepAccumulator(
+            message_id=assistant_message_id or "assistant",
+            run_id=run_id or assistant_message_id or "run",
+            steps=assistant_steps,
+        )
     root_tasks = [
         asyncio.create_task(_consume_messages(stream, None, queue, projector)),
         asyncio.create_task(_consume_tool_calls(stream, None, queue, projector)),
@@ -450,6 +452,7 @@ async def iter_research_events(
     assistant_message_id: str | None = None,
     run_id: str | None = None,
     assistant_steps: list[dict[str, Any]] | None = None,
+    projector: AssistantStepAccumulator | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """将模型消息、工具调用和工具结果转换为安全的结构化事件。
 
@@ -466,5 +469,6 @@ async def iter_research_events(
         assistant_message_id=assistant_message_id,
         run_id=run_id,
         assistant_steps=assistant_steps,
+        projector=projector,
     ):
         yield event

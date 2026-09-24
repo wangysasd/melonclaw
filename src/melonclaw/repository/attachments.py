@@ -613,7 +613,7 @@ class AttachmentRepositoryMixin:
             )
         return result.rowcount == 1
 
-    async def create_message_pair_with_attachments(
+    async def create_message_pair(
         self,
         conversation_id: UUID,
         user_id: str,
@@ -725,8 +725,8 @@ class AttachmentRepositoryMixin:
                 str(by_id[attachment_ids[0]]["original_name"]) if attachment_ids else "附件消息"
             )
             title = _conversation_title(title_source) or "附件消息"
-            await connection.execute(
-                insert(chat_messages),
+            inserted = await connection.execute(
+                insert(chat_messages).returning(chat_messages),
                 [
                     {
                         "id": user_message_id,
@@ -766,6 +766,11 @@ class AttachmentRepositoryMixin:
                     },
                 ],
             )
+            message_rows = {
+                UUID(str(row["id"])): row for row in inserted.mappings().all()
+            }
+            if len(message_rows) != 2:
+                raise AttachmentError("消息创建失败。", "message_storage_error", 503)
             if attachment_ids:
                 await connection.execute(
                     insert(chat_message_attachments),
@@ -794,26 +799,14 @@ class AttachmentRepositoryMixin:
                 .where(chat_conversations.c.id == conversation_id)
                 .values(title=title if conversation["title"] == "新会话" else conversation["title"], updated_at=timestamp)
             )
-        # 读取刚写入的两行，避免在这里复制数据库映射逻辑。
-        async with self.engine.connect() as connection:
-            message_rows = (
-                await connection.execute(
-                    select(chat_messages)
-                    .where(chat_messages.c.id.in_([user_message_id, assistant_message_id]))
-                    .order_by(chat_messages.c.seq)
-                )
-            ).mappings().all()
-        if len(message_rows) != 2:
-            raise AttachmentError("消息创建后无法读取。", "message_storage_error", 503)
-        user_row, assistant_row = message_rows
-        summaries: tuple[dict[str, Any], ...] = ()
-        if attachment_ids:
-            summary_rows = await self.list_attachments_for_message(user_message_id)
-            summaries = tuple(_summary(row) for row in summary_rows)
+        summaries = tuple(
+            _summary(_attachment_dict(by_id[attachment_id]))
+            for attachment_id in attachment_ids
+        )
         return PreparedMessagePair(
             request_id,
-            _message_dict(user_row),
-            _message_dict(assistant_row),
+            _message_dict(message_rows[user_message_id]),
+            _message_dict(message_rows[assistant_message_id]),
             summaries,
         )
 

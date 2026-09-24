@@ -27,6 +27,11 @@ Project 或普通 Conversation 的受控 `.attachments/` 目录，`services/atta
 标准 image content block；出站图片经 `services/attachment_images.py` 按文件版本缓存并
 等比缩放，已失效的附件在 hydration 阶段降级为提示而不是让整轮执行失败。
 
+消息准备先检查幂等键并取得会话锁，再构建新运行的 Agent；已结束请求直接回放
+业务消息快照。无论有无附件，user/assistant 消息对都由同一事务写入。v3 事件
+投影器与执行服务共用一份 assistant steps 快照，用于 SSE 增量与最终落库；
+会话锁仍持有到流结束，以保护同一 Checkpoint 的单执行语义。
+
 持久化分两块，职责不重叠：
 
 - `database/` + `repository/`：业务数据（用户、Project、Conversation、消息、审批、用户问题交互、Memory 事件），由 `melonclaw-db-init` 建表。
