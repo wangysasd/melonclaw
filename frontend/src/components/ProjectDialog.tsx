@@ -5,11 +5,12 @@ import { useSession } from "../state/session";
 
 interface ProjectDialogProps {
   open: boolean;
+  moveConversationId?: string | null;
   onClose: () => void;
 }
 
-/** 新增项目对话框（对齐旧 project-dialog 交互）。 */
-export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
+/** 新建项目对话框（对齐旧 project-dialog 交互）。 */
+export function ProjectDialog({ open, moveConversationId, onClose }: ProjectDialogProps) {
   const session = useSession();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,8 +36,9 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
     }
     setSubmitting(true);
     try {
-      const project = await session.createProject(clean);
+      const project = await session.createProject(clean, { openAfterCreate: !moveConversationId });
       if (project) {
+        if (moveConversationId) await session.moveConversationToProject(moveConversationId, project.id);
         onClose();
         return;
       }
@@ -49,7 +51,7 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
   return (
     <Modal
       className="project-create-modal"
-      title="新增项目"
+      title={moveConversationId ? "新建项目并移动会话" : "新建项目"}
       open={open}
       onCancel={() => (submitting ? undefined : onClose())}
       onOk={() => void submit()}

@@ -21,6 +21,15 @@ class ConversationBusyError(RuntimeError):
     """同一会话已有另一个 Agent 执行。"""
 
 
+class ConversationMoveError(RuntimeError):
+    """普通会话加入项目时的可恢复业务冲突。"""
+
+    def __init__(self, message: str, error_code: str, status_code: int = 409) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.status_code = status_code
+
+
 class AssistantStateConflictError(RuntimeError):
     """助手消息已经离开预期状态，拒绝旧执行覆盖新状态。"""
 

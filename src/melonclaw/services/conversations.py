@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 from uuid import UUID
+
+from sqlalchemy.exc import IntegrityError
 
 from melonclaw.core.hitl import (
     aget_pending_interaction,
@@ -15,12 +19,20 @@ from melonclaw.core.user_input import USER_INPUT_RECOVERY_REQUIRED
 from melonclaw.repository import (
     BusinessRepository,
     ConversationBusyError,
+    ConversationMoveError,
     ConversationNotFoundError,
     ProjectNotFoundError,
     UserContext,
 )
 from melonclaw.services.errors import InvalidUserError
 from melonclaw.services.runtime import ChatRuntime
+from melonclaw.storage.workspace_moves import (
+    CopiedWorkspace,
+    WorkspaceMoveConflictError,
+    copy_conversation_workspace,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationService:
@@ -156,6 +168,109 @@ class ConversationService:
         return await storage.update_conversation(
             conversation_id, context.user_id, title=title, is_pinned=is_pinned, delete=delete,
         )
+
+    async def move_conversation_to_project(
+        self,
+        conversation_id: UUID,
+        project_id: UUID,
+        user_id: str,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        """普通会话加入项目；成功后只使用原生项目会话的归属与工作区。"""
+
+        storage = self.runtime.require_ready()
+        context = await self.resolve_user(user_id, tenant_id)
+        lock = await storage.try_advisory_lock(conversation_id)
+        if lock is None:
+            raise ConversationBusyError("会话正在运行，结束后再移动。")
+        copied: CopiedWorkspace | None = None
+        committed = False
+        try:
+            conversation = await storage.get_conversation(conversation_id, context.user_id)
+            if conversation is None:
+                raise ConversationNotFoundError
+            if conversation["project_id"] is not None:
+                raise ConversationMoveError("只支持将普通会话移动到项目。", "conversation_already_in_project")
+            project = await storage.get_project(project_id, context.user_id)
+            if project is None:
+                raise ProjectNotFoundError
+            if (
+                await storage.get_incomplete_assistant(conversation_id, context.user_id)
+                or await storage.get_recovery_required_interaction(conversation_id, context.user_id)
+            ):
+                raise ConversationBusyError("会话仍有未完成的执行或交互，结束后再移动。")
+            attachments = await storage.list_conversation_move_attachments(
+                conversation_id, context.user_id
+            )
+            if any(row["status"] == "staged" for row in attachments):
+                raise ConversationMoveError("请先发送或移除会话中尚未提交的附件。", "conversation_attachment_staged")
+            source = self.runtime.conversation_workspace_dir(conversation_id)
+            destination = self.runtime.project_workspace_dir(project)
+            for row in attachments:
+                if row["status"] in {"staged", "attached"} and not (
+                    source / ".attachments" / str(row["id"])
+                ).is_dir():
+                    raise ConversationMoveError("会话附件文件缺失，无法移动。", "conversation_attachment_missing")
+            attachment_versions = tuple(
+                (row["id"], row["updated_at"]) for row in attachments
+            )
+            copy_task = asyncio.create_task(asyncio.to_thread(
+                copy_conversation_workspace,
+                source,
+                destination,
+                {row["id"] for row in attachments},
+            ))
+            try:
+                copied = await asyncio.shield(copy_task)
+            except asyncio.CancelledError:
+                try:
+                    copied = await asyncio.shield(copy_task)
+                except Exception:  # noqa: BLE001 - 复制失败时已在存储层回滚
+                    pass
+                raise
+            if self.runtime.settings is None:
+                raise RuntimeError("运行配置尚未加载。")
+            move_task = asyncio.create_task(storage.move_conversation_to_project(
+                conversation_id,
+                context.user_id,
+                project_id,
+                attachment_versions=attachment_versions,
+                workspace_max_bytes=self.runtime.settings.attachment_project_max_bytes,
+            ))
+            try:
+                moved = await asyncio.shield(move_task)
+            except asyncio.CancelledError:
+                try:
+                    await asyncio.shield(move_task)
+                except Exception:  # noqa: BLE001 - 事务失败时由 finally 回滚文件
+                    pass
+                else:
+                    committed = True
+                raise
+            committed = True
+            try:
+                await asyncio.to_thread(copied.remove_source)
+            except (OSError, WorkspaceMoveConflictError):
+                logger.warning("会话加入项目成功，但旧工作区清理失败。")
+            return moved
+        except WorkspaceMoveConflictError as exc:
+            raise ConversationMoveError(str(exc), "workspace_move_conflict") from exc
+        except IntegrityError as exc:
+            raise ConversationMoveError("项目附件上传记录冲突，请重试或选择其他项目。", "project_attachment_conflict") from exc
+        except OSError as exc:
+            raise ConversationMoveError("工作区文件移动失败，请稍后重试。", "workspace_move_failed", 503) from exc
+        finally:
+            if copied is not None and not committed:
+                try:
+                    await asyncio.to_thread(copied.rollback)
+                except OSError:
+                    logger.warning("会话加入项目失败，本次复制的目标文件未能全部清理。")
+            try:
+                await storage.release_advisory_lock(lock, conversation_id)
+            except Exception:
+                if not committed:
+                    raise
+                logger.warning("会话加入项目成功，但会话锁释放时连接异常。")
 
     async def list_conversations(
         self,

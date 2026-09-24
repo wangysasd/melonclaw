@@ -185,6 +185,14 @@ class ChatService:
             conversation_id, user_id, tenant_id, title=title, is_pinned=is_pinned, delete=delete,
         )
 
+    async def move_conversation_to_project(
+        self, conversation_id: UUID, project_id: UUID, user_id: str,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
+        return await self.conversations.move_conversation_to_project(
+            conversation_id, project_id, user_id, tenant_id,
+        )
+
     async def create_conversation(
         self,
         user_id: str,

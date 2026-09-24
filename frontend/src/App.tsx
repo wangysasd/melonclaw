@@ -14,6 +14,17 @@ import "./styles/sidebar.css";
 function Workspace() {
   const session = useSession();
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [moveConversationId, setMoveConversationId] = useState<string | null>(null);
+
+  const openProjectDialog = (conversationId?: string) => {
+    setMoveConversationId(conversationId ?? null);
+    setProjectDialogOpen(true);
+  };
+
+  const closeProjectDialog = () => {
+    setProjectDialogOpen(false);
+    setMoveConversationId(null);
+  };
 
   const newConversation = () => {
     session.startNewConversation();
@@ -36,12 +47,13 @@ function Workspace() {
     <div className="app-shell">
       <Sidebar
         onNewConversation={newConversation}
-        onOpenProjectDialog={() => setProjectDialogOpen(true)}
+        onOpenProjectDialog={openProjectDialog}
       />
-      <ChatView onOpenProjectDialog={() => setProjectDialogOpen(true)} />
+      <ChatView onOpenProjectDialog={() => openProjectDialog()} />
       <ProjectDialog
         open={projectDialogOpen}
-        onClose={() => setProjectDialogOpen(false)}
+        moveConversationId={moveConversationId}
+        onClose={closeProjectDialog}
       />
     </div>
   );

@@ -3,16 +3,27 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, insert, or_, select, update
 
 from melonclaw.database.errors import DatabaseSchemaError
-from melonclaw.database.schema import chat_conversations, chat_messages, projects
+from melonclaw.database.schema import (
+    chat_attachments,
+    chat_conversations,
+    chat_messages,
+    projects,
+    user_interactions,
+)
 from melonclaw.repository.errors import (
     AssistantStateConflictError,
+    AttachmentQuotaError,
+    ConversationBusyError,
+    ConversationMoveError,
     ConversationNotFoundError,
+    ProjectNotFoundError,
 )
 from melonclaw.repository.mappers import (
     _as_iso,
@@ -184,6 +195,152 @@ class ConversationRepositoryMixin:
             if result.scalar_one_or_none() is None:
                 raise ConversationNotFoundError
         return None if delete else await self.get_conversation(conversation_id, user_id)
+
+    async def list_conversation_move_attachments(
+        self, conversation_id: UUID, user_id: str,
+    ) -> list[dict[str, Any]]:
+        """取得普通会话附件快照，供服务层复制对应的文件目录。"""
+
+        query = (
+            select(chat_attachments)
+            .where(
+                chat_attachments.c.owner_conversation_id == conversation_id,
+                chat_attachments.c.user_id == user_id,
+            )
+            .order_by(chat_attachments.c.id)
+        )
+        async with self.engine.connect() as connection:
+            return [dict(row) for row in (await connection.execute(query)).mappings()]
+
+    async def move_conversation_to_project(
+        self,
+        conversation_id: UUID,
+        user_id: str,
+        project_id: UUID,
+        *,
+        attachment_versions: tuple[tuple[UUID, datetime], ...],
+        workspace_max_bytes: int,
+    ) -> dict[str, Any]:
+        """在一个事务中切换会话和附件归属，拒绝复制期间发生的变化。"""
+
+        async with self.engine.begin() as connection:
+            conversation = (
+                await connection.execute(
+                    select(chat_conversations)
+                    .where(
+                        chat_conversations.c.id == conversation_id,
+                        chat_conversations.c.user_id == user_id,
+                        chat_conversations.c.status == "active",
+                    )
+                    .with_for_update()
+                )
+            ).mappings().first()
+            if conversation is None:
+                raise ConversationNotFoundError
+            if conversation["project_id"] is not None:
+                raise ConversationMoveError("只支持将普通会话移动到项目。", "conversation_already_in_project")
+            project = (
+                await connection.execute(
+                    select(projects)
+                    .where(
+                        projects.c.id == project_id,
+                        projects.c.user_id == user_id,
+                        projects.c.status == "active",
+                    )
+                    .with_for_update()
+                )
+            ).mappings().first()
+            if project is None:
+                raise ProjectNotFoundError
+            busy = await connection.scalar(
+                select(chat_messages.c.id).where(
+                    chat_messages.c.conversation_id == conversation_id,
+                    chat_messages.c.role == "assistant",
+                    chat_messages.c.status.in_(["pending", "interrupted"]),
+                ).limit(1)
+            )
+            recovery = await connection.scalar(
+                select(user_interactions.c.id).where(
+                    user_interactions.c.conversation_id == conversation_id,
+                    user_interactions.c.status == "recovery_required",
+                ).limit(1)
+            )
+            if busy is not None or recovery is not None:
+                raise ConversationBusyError("会话仍有未完成的执行或交互，结束后再移动。")
+            # 上传会先取得普通会话的附件作用域锁；拿锁后先比对快照，避免
+            # 复制期间新上传且正在解析的附件让移动等待其行锁。
+            await self._lock_attachment_scope(connection, None, conversation_id)
+            current_versions = tuple(
+                (row["id"], row["updated_at"])
+                for row in (
+                    await connection.execute(
+                        select(chat_attachments.c.id, chat_attachments.c.updated_at)
+                        .where(
+                            chat_attachments.c.owner_conversation_id == conversation_id,
+                            chat_attachments.c.user_id == user_id,
+                        )
+                        .order_by(chat_attachments.c.id)
+                    )
+                ).mappings()
+            )
+            if current_versions != attachment_versions:
+                raise ConversationMoveError("会话附件发生变化，请重试移动。", "conversation_attachments_changed")
+            attachments = [
+                dict(row)
+                for row in (
+                    await connection.execute(
+                        select(chat_attachments)
+                        .where(
+                            chat_attachments.c.owner_conversation_id == conversation_id,
+                            chat_attachments.c.user_id == user_id,
+                        )
+                        .order_by(chat_attachments.c.id)
+                        .with_for_update()
+                    )
+                ).mappings()
+            ]
+            current_versions = tuple((row["id"], row["updated_at"]) for row in attachments)
+            if current_versions != attachment_versions:
+                raise ConversationMoveError("会话附件发生变化，请重试移动。", "conversation_attachments_changed")
+            if any(row["status"] == "staged" for row in attachments):
+                raise ConversationMoveError("请先发送或移除会话中尚未提交的附件。", "conversation_attachment_staged")
+
+            await self._lock_attachment_scope(connection, project_id, None)
+            used_bytes = await connection.scalar(
+                select(func.coalesce(func.sum(
+                    chat_attachments.c.size_bytes + chat_attachments.c.derived_size_bytes
+                ), 0)).where(
+                    chat_attachments.c.project_id == project_id,
+                    chat_attachments.c.storage_purged_at.is_(None),
+                )
+            )
+            moving_bytes = sum(
+                int(row["size_bytes"]) + int(row["derived_size_bytes"])
+                for row in attachments if row["storage_purged_at"] is None
+            )
+            if int(used_bytes or 0) + moving_bytes > workspace_max_bytes:
+                raise AttachmentQuotaError()
+            timestamp = _now()
+            if attachments:
+                await connection.execute(
+                    update(chat_attachments)
+                    .where(chat_attachments.c.owner_conversation_id == conversation_id)
+                    .values(project_id=project_id, owner_conversation_id=None, updated_at=timestamp)
+                )
+            moved_row = (
+                await connection.execute(
+                    update(chat_conversations)
+                    .where(chat_conversations.c.id == conversation_id)
+                    .values(project_id=project_id, updated_at=timestamp)
+                    .returning(chat_conversations)
+                )
+            ).mappings().one()
+            moved = _conversation_dict({
+                **moved_row,
+                "project_name": project["name"],
+                "workdir_path": project["workdir_path"],
+            })
+        return moved
 
     async def list_messages(
         self,

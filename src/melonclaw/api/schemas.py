@@ -48,6 +48,14 @@ class ConversationRequest(BaseModel):
     project_id: UUID | None = None
 
 
+class ConversationMoveRequest(BaseModel):
+    """将当前用户的普通会话加入其已有项目。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
+    project_id: UUID
+
+
 class ProjectRequest(BaseModel):
     """创建 Project 时的开发用户、租户和名称。"""
 

@@ -10,9 +10,29 @@ from fastapi.responses import JSONResponse
 
 from melonclaw.api.dependencies import get_chat_service
 from melonclaw.api.errors import error_response
-from melonclaw.api.schemas import ConversationRequest, ResourceUpdateRequest
+from melonclaw.api.schemas import (
+    ConversationMoveRequest,
+    ConversationRequest,
+    ResourceUpdateRequest,
+)
 
 router = APIRouter()
+
+
+@router.post("/api/conversations/{conversation_id}/move-to-project")
+async def move_conversation_to_project(
+    request: Request, conversation_id: UUID, payload: ConversationMoveRequest,
+) -> JSONResponse:
+    manager = get_chat_service(request)
+    if not manager.ready:
+        return JSONResponse(manager.status(), status_code=503)
+    try:
+        moved = await manager.move_conversation_to_project(
+            conversation_id, payload.project_id, payload.user_id, payload.tenant_id,
+        )
+        return JSONResponse(moved)
+    except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
+        return error_response(exc)
 
 
 @router.patch("/api/conversations/{conversation_id}")

@@ -60,7 +60,7 @@ type ResourceKind = "project" | "conversation";
 
 function MoreButton({ label, menu }: { label: string; menu: MenuProps }) {
   return (
-    <Dropdown menu={menu} trigger={["click"]} placement="bottomRight" classNames={{ root: "sidebar-action-dropdown" }}>
+    <Dropdown menu={menu} trigger={["click"]} placement="bottomLeft" classNames={{ root: "sidebar-action-dropdown" }}>
       <button type="button" className="sidebar-more" aria-label={`${label}更多操作`} title="更多操作" onClick={(event) => event.stopPropagation()}>
         <span aria-hidden="true">···</span>
       </button>
@@ -72,7 +72,7 @@ export interface SidebarContentProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onNewConversation: () => void;
-  onOpenProjectDialog: () => void;
+  onOpenProjectDialog: (moveConversationId?: string) => void;
   onSelectConversationCloseMobile?: () => void;
 }
 
@@ -94,6 +94,16 @@ export function SidebarContent({
     items: ConversationSummary[]; cursor: string | null; loading: boolean; failed: boolean;
   } | null>(null);
   const [projectListRefresh, setProjectListRefresh] = useState(0);
+  const [movingConversationId, setMovingConversationId] = useState<string | null>(null);
+  const {
+    projectId: selectedProjectId,
+    contextReady,
+    projects,
+    userId,
+    tenantId,
+    conversationListRevision,
+    acknowledgeConversationRows,
+  } = session;
 
   useEffect(() => {
     if (session.projectId) setExpandedProjectId(session.projectId);
@@ -101,16 +111,14 @@ export function SidebarContent({
 
   useEffect(() => {
     const projectId = expandedProjectId;
-    if (!projectId || projectId === session.projectId || !session.contextReady || !session.projects.some((project) => project.id === projectId)) return;
+    if (!projectId || projectId === selectedProjectId || !contextReady || !projects.some((project) => project.id === projectId)) return;
     const controller = new AbortController();
-    const userId = session.userId;
-    const tenantId = session.tenantId;
     setProjectList({ projectId, userId, tenantId, items: [], cursor: null, loading: true, failed: false });
     void listConversations({ userId, tenantId, projectId, limit: 10 }, controller.signal)
       .then((data) => {
         if (!controller.signal.aborted) {
           setProjectList({ projectId, userId, tenantId, items: data.items, cursor: data.next_cursor, loading: false, failed: false });
-          session.acknowledgeConversationRows(data.items.map((item) => item.id));
+          acknowledgeConversationRows(data.items.map((item) => item.id));
         }
       })
       .catch((error: unknown) => {
@@ -120,7 +128,7 @@ export function SidebarContent({
         }
       });
     return () => controller.abort();
-  }, [expandedProjectId, session.projectId, session.contextReady, session.projects, session.userId, session.tenantId, session.conversationListRevision, session.acknowledgeConversationRows, projectListRefresh, message]);
+  }, [expandedProjectId, selectedProjectId, contextReady, projects, userId, tenantId, conversationListRevision, acknowledgeConversationRows, projectListRefresh, message]);
 
   const loadMoreProjectConversations = async (projectId: string, cursor: string) => {
     const userId = session.userId;
@@ -152,15 +160,45 @@ export function SidebarContent({
     return [...optimisticRows.filter((item) => item.project_id === projectId && !listedIds.has(item.id)), ...items];
   };
   const recentConversations = visibleRows(session.recents, null);
-  const actionMenu = (kind: ResourceKind, id: string, name: string, pinned: boolean): MenuProps => ({
+  const actionMenu = (kind: ResourceKind, id: string, name: string, pinned: boolean, ordinary = false): MenuProps => ({
     items: [
-      { key: "pin", label: pinned ? "取消置顶" : "置顶" },
-      { key: "rename", label: "重命名" },
-      { key: "delete", label: "删除", danger: true },
+      { key: "pin", label: pinned ? "取消置顶" : "置顶", icon: <Icon name="pushpin" size={16} className="sidebar-action-pin" /> },
+      { key: "rename", label: "重命名", icon: <Icon name="pencil-line" size={16} /> },
+      { key: "delete", label: "删除", icon: <Icon name="trash-2" size={16} />, danger: true },
+      ...(ordinary ? [
+        { type: "divider" as const },
+        {
+          key: "move",
+          label: "移动到项目",
+          icon: <Icon name="folder" size={16} />,
+          disabled: runningIds.includes(id) || movingConversationId === id,
+          popupClassName: "sidebar-move-project-submenu",
+          children: [
+            { key: "new-project", label: "新建项目", icon: <Icon name="plus" size={16} /> },
+            { type: "divider" as const },
+            ...session.projects.map((project) => ({
+              key: `project:${project.id}`,
+              label: project.name,
+              icon: <Icon name="folder" size={16} />,
+            })),
+          ],
+        },
+      ] : []),
     ],
     onClick: ({ key, domEvent }) => {
       domEvent.stopPropagation();
-      if (key === "pin") {
+      if (ordinary && key === "new-project") {
+        onOpenProjectDialog(id);
+      } else if (ordinary && key.startsWith("project:")) {
+        const targetProjectId = key.slice("project:".length);
+        setMovingConversationId(id);
+        void session.moveConversationToProject(id, targetProjectId).then((ok) => {
+          if (ok) {
+            setExpandedProjectId(targetProjectId);
+            setProjectListRefresh((value) => value + 1);
+          }
+        }).finally(() => setMovingConversationId(null));
+      } else if (key === "pin") {
         if (kind === "project") void session.updateProject(id, { isPinned: !pinned });
         else void session.updateConversation(id, { isPinned: !pinned }).then((ok) => {
           if (ok) setProjectListRefresh((value) => value + 1);
@@ -224,7 +262,7 @@ export function SidebarContent({
               <span className="conversation-item-time">{formatConversationTime(conversation.updated_at)}</span>
             </button>
             {!optimisticRows.some((item) => item.id === conversation.id) ? (
-              <MoreButton label={`对话「${title}」`} menu={actionMenu("conversation", conversation.id, title, Boolean(conversation.is_pinned))} />
+              <MoreButton label={`对话「${title}」`} menu={actionMenu("conversation", conversation.id, title, Boolean(conversation.is_pinned), isRecent)} />
             ) : null}
           </div>
         );
@@ -297,11 +335,11 @@ export function SidebarContent({
             <button
               type="button"
               className="new-project"
-              onClick={onOpenProjectDialog}
-              title="新增项目"
+              onClick={() => onOpenProjectDialog()}
+              title="新建项目"
             >
               <Icon name="plus" size={14} />
-              <span>新增项目</span>
+              <span>新建项目</span>
             </button>
           </div>
           {session.projects.length === 0 && session.contextReady ? (
@@ -309,7 +347,7 @@ export function SidebarContent({
               type="dashed"
               block
               className="project-empty-create"
-              onClick={onOpenProjectDialog}
+              onClick={() => onOpenProjectDialog()}
             >
               创建新项目
             </Button>
@@ -421,7 +459,7 @@ export function SidebarContent({
 
 export interface SidebarProps {
   onNewConversation: () => void;
-  onOpenProjectDialog: () => void;
+  onOpenProjectDialog: (moveConversationId?: string) => void;
 }
 
 /** 侧栏容器：桌面折叠态 + 移动端抽屉（≤768px）。 */

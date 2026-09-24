@@ -212,6 +212,16 @@ export function updateConversation(id: string, input: ResourceIdentity & { name?
   });
 }
 
+export function moveConversationToProject(
+  id: string,
+  input: ResourceIdentity & { projectId: string },
+): Promise<ConversationSummary> {
+  return apiRequest<ConversationSummary>(`/api/conversations/${encodeURIComponent(id)}/move-to-project`, {
+    method: "POST",
+    body: { user_id: input.userId, tenant_id: input.tenantId, project_id: input.projectId },
+  });
+}
+
 export function deleteConversation(id: string, input: ResourceIdentity): Promise<{ deleted: boolean }> {
   return apiRequest(`/api/conversations/${encodeURIComponent(id)}`, {
     method: "DELETE", query: { user_id: input.userId, tenant_id: input.tenantId },

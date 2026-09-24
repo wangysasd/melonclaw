@@ -16,6 +16,7 @@ import {
   updateProject as apiUpdateProject,
   deleteProject as apiDeleteProject,
   updateConversation as apiUpdateConversation,
+  moveConversationToProject as apiMoveConversationToProject,
   deleteConversation as apiDeleteConversation,
   getStatus,
   listSkills,
@@ -142,6 +143,7 @@ type SessionAction =
   | { type: "conversationSubmissionFailed"; conversationId: string }
   | { type: "conversationListed"; conversationIds: string[] }
   | { type: "conversationStarted"; conversationId: string }
+  | { type: "conversationMoved" }
   | { type: "busy"; busy: boolean }
   | { type: "creating"; creating: boolean }
   | { type: "runStatus"; runStatus: RunStatus | null }
@@ -379,6 +381,8 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         draftConversationId: state.draftConversationId === action.conversationId ? null : state.draftConversationId,
         conversationListRevision: state.conversationListRevision + 1,
       };
+    case "conversationMoved":
+      return { ...state, conversationListRevision: state.conversationListRevision + 1 };
     case "busy":
       return { ...state, busy: action.busy };
     case "runStarted":
@@ -438,10 +442,11 @@ export interface SessionContextValue extends SessionState {
   openProjectConversation: (projectId: string, conversationId: string) => void;
   openRecent: (conversationId: string) => void;
   closeProject: () => void;
-  createProject: (name: string) => Promise<Project | null>;
+  createProject: (name: string, options?: { openAfterCreate?: boolean }) => Promise<Project | null>;
   updateProject: (id: string, changes: { name?: string; isPinned?: boolean }) => Promise<boolean>;
   deleteProject: (id: string) => Promise<boolean>;
   updateConversation: (id: string, changes: { name?: string; isPinned?: boolean }) => Promise<boolean>;
+  moveConversationToProject: (id: string, projectId: string) => Promise<boolean>;
   deleteConversation: (id: string) => Promise<boolean>;
   selectConversation: (conversationId: string) => void;
   loadMoreConversations: () => Promise<void>;
@@ -832,9 +837,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [abortActiveDataRequests, bumpGeneration, dispatchSync],
   );
 
-  /** 新增项目：创建成功后刷新列表并打开新项目。 */
+  /** 新建项目：创建成功后刷新列表并打开新项目。 */
   const createProject = useCallback(
-    async (name: string): Promise<Project | null> => {
+    async (name: string, options?: { openAfterCreate?: boolean }): Promise<Project | null> => {
       const snapshot = stateRef.current;
       if (snapshot.status?.status !== "ready" || !snapshot.contextReady) {
         message.error("服务仍在准备中，请稍候再试。");
@@ -856,7 +861,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!contextMatches(generation, { userId, tenantId })) return null;
         await loadProjectsInternal();
         if (!contextMatches(generation, { userId, tenantId })) return null;
-        await openProject(project.id);
+        if (options?.openAfterCreate !== false) await openProject(project.id);
         return project;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -915,6 +920,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return false;
     }
   }, [loadConversationsInternal, loadRecentsInternal, message]);
+
+  const moveConversationToProject = useCallback(async (id: string, projectId: string) => {
+    const snapshot = stateRef.current;
+    if (!snapshot.projects.some((project) => project.id === projectId)) return false;
+    const { userId, tenantId } = snapshot;
+    try {
+      await apiMoveConversationToProject(id, { userId, tenantId, projectId });
+      const current = stateRef.current;
+      if (current.userId !== userId || current.tenantId !== tenantId) return true;
+      dispatchSync({ type: "conversationMoved" });
+      if (current.conversationId === id && !current.projectId) openProjectConversation(projectId, id);
+      await Promise.all([
+        loadRecentsInternal(),
+        loadConversationsInternal({ refreshOnly: true }),
+      ]);
+      message.success("会话已移动到项目。");
+      return true;
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }, [dispatchSync, loadConversationsInternal, loadRecentsInternal, message, openProjectConversation]);
 
   const deleteConversation = useCallback(async (id: string) => {
     const { userId, tenantId, conversationId } = stateRef.current;
@@ -1209,6 +1236,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       updateProject,
       deleteProject,
       updateConversation,
+      moveConversationToProject,
       deleteConversation,
       selectConversation,
       loadMoreConversations,
@@ -1240,6 +1268,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       updateProject,
       deleteProject,
       updateConversation,
+      moveConversationToProject,
       deleteConversation,
       selectConversation,
       loadMoreConversations,

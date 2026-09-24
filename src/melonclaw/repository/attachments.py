@@ -96,6 +96,17 @@ class AttachmentRepositoryMixin:
             await self._lock_attachment_scope(
                 connection, project_id, owner_conversation_id
             )
+            if owner_conversation_id is not None:
+                ordinary = await connection.scalar(
+                    select(chat_conversations.c.id).where(
+                        chat_conversations.c.id == owner_conversation_id,
+                        chat_conversations.c.user_id == user_id,
+                        chat_conversations.c.project_id.is_(None),
+                        chat_conversations.c.status == "active",
+                    )
+                )
+                if ordinary is None:
+                    raise AttachmentNotFoundError()
             total = await connection.scalar(
                 select(
                     func.coalesce(

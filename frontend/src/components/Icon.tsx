@@ -32,6 +32,7 @@ export const ICON_NAMES = [
   "plug",
   "pencil-line",
   "pin",
+  "pushpin",
   "square",
   "search",
   "scan-search",

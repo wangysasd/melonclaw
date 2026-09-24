@@ -31,6 +31,7 @@ const session = {
   startNewConversation: vi.fn(),
   updateProject: vi.fn().mockResolvedValue(true),
   updateConversation: vi.fn().mockResolvedValue(true),
+  moveConversationToProject: vi.fn().mockResolvedValue(true),
   deleteProject: vi.fn().mockResolvedValue(true),
   deleteConversation: vi.fn().mockResolvedValue(true),
 };
@@ -59,6 +60,8 @@ beforeEach(() => {
   session.conversationsLoading = false;
   session.conversationsLoadFailed = false;
   session.optimisticConversations = [];
+  session.recents = [];
+  session.moveConversationToProject.mockResolvedValue(true);
 });
 
 describe("sidebar resource actions", () => {
@@ -170,6 +173,38 @@ describe("sidebar resource actions", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "新名称" }), { target: { value: "新名称" } });
     fireEvent.click(screen.getByRole("button", { name: /保\s*存/ }));
     await waitFor(() => expect(session.updateConversation).toHaveBeenCalledWith("c1", { name: "新名称" }));
+  });
+
+  it("offers a project submenu only for ordinary conversations", async () => {
+    session.recents = [{ id: "c0", project_id: null, title: "普通对话", is_pinned: false }];
+    const onOpenProjectDialog = vi.fn();
+    render(
+      <AntdApp>
+        <SidebarContent collapsed={false} onToggleCollapse={vi.fn()} onNewConversation={vi.fn()} onOpenProjectDialog={onOpenProjectDialog} />
+      </AntdApp>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "对话「对话甲」更多操作" }));
+    expect(screen.queryByRole("menuitem", { name: "移动到项目" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "对话「对话甲」更多操作" }));
+    fireEvent.click(screen.getByRole("button", { name: "对话「普通对话」更多操作" }));
+    const move = await screen.findByText("移动到项目");
+    fireEvent.mouseEnter(move);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "项目甲" }));
+    await waitFor(() => expect(session.moveConversationToProject).toHaveBeenCalledWith("c0", "p1"));
+  });
+
+  it("opens project creation with the ordinary conversation as its move target", async () => {
+    session.recents = [{ id: "c0", project_id: null, title: "普通对话", is_pinned: false }];
+    const onOpenProjectDialog = vi.fn();
+    render(
+      <AntdApp>
+        <SidebarContent collapsed={false} onToggleCollapse={vi.fn()} onNewConversation={vi.fn()} onOpenProjectDialog={onOpenProjectDialog} />
+      </AntdApp>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "对话「普通对话」更多操作" }));
+    fireEvent.mouseEnter(await screen.findByText("移动到项目"));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "新建项目" }));
+    expect(onOpenProjectDialog).toHaveBeenCalledWith("c0");
   });
 
   it("confirms deletion of a project before calling the service", async () => {

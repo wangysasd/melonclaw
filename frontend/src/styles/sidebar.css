@@ -332,8 +332,23 @@
 .sidebar-more:focus-visible,
 .sidebar-more[aria-expanded="true"] { opacity: 1; }
 .sidebar-more:hover { background: var(--hover); color: var(--ink); }
-.ant-dropdown.sidebar-action-dropdown .ant-dropdown-menu .ant-dropdown-menu-item { font-size: var(--text-md); }
+.ant-dropdown.sidebar-action-dropdown .ant-dropdown-menu {
+  min-width: 180px;
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+}
+.ant-dropdown.sidebar-action-dropdown .ant-dropdown-menu .ant-dropdown-menu-item,
+.ant-dropdown.sidebar-action-dropdown .ant-dropdown-menu .ant-dropdown-menu-submenu-title { font-size: var(--text-md); }
+.sidebar-move-project-submenu.ant-dropdown-menu-submenu-popup .ant-dropdown-menu {
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+}
+.sidebar-move-project-submenu.ant-dropdown-menu-submenu-popup .ant-dropdown-menu .ant-dropdown-menu-item,
+.sidebar-move-project-submenu.ant-dropdown-menu-submenu-popup .ant-dropdown-menu .ant-dropdown-menu-submenu-title {
+  font-size: 14px;
+}
 .sidebar-pinned { color: var(--muted); }
+.sidebar-action-pin { color: var(--muted); }
 @media (hover: none) { .sidebar-more { opacity: 1; } }
 
 .project-item:hover,
