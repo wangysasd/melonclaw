@@ -23,7 +23,7 @@ async def update_project(request: Request, project_id: UUID, payload: ResourceUp
         if payload.name is None and payload.is_pinned is None:
             raise ValueError("请提供名称或置顶状态。")
         return JSONResponse(await manager.update_project(
-            project_id, payload.user_id, payload.tenant_id,
+            project_id, payload.user_id,
             name=payload.name, is_pinned=payload.is_pinned,
         ))
     except Exception as exc:  # noqa: BLE001
@@ -31,12 +31,12 @@ async def update_project(request: Request, project_id: UUID, payload: ResourceUp
 
 
 @router.delete("/api/projects/{project_id}")
-async def delete_project(request: Request, project_id: UUID, user_id: str, tenant_id: str | None = None) -> JSONResponse:
+async def delete_project(request: Request, project_id: UUID, user_id: str) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
         return JSONResponse(manager.status(), status_code=503)
     try:
-        await manager.update_project(project_id, user_id, tenant_id, delete=True)
+        await manager.update_project(project_id, user_id, delete=True)
         return JSONResponse({"deleted": True})
     except Exception as exc:  # noqa: BLE001
         return error_response(exc)
@@ -55,7 +55,6 @@ async def create_project(
             await manager.create_project(
                 payload.user_id,
                 payload.name,
-                payload.tenant_id,
             ),
             status_code=201,
         )
@@ -67,14 +66,13 @@ async def create_project(
 async def list_projects(
     request: Request,
     user_id: str,
-    tenant_id: str | None = None,
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
         return JSONResponse(manager.status(), status_code=503)
     try:
         return JSONResponse(
-            {"items": await manager.list_projects(user_id, tenant_id)}
+            {"items": await manager.list_projects(user_id)}
         )
     except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
         return error_response(exc)

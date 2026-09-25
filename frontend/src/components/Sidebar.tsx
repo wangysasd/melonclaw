@@ -90,7 +90,7 @@ export function SidebarContent({
   const [submittingRename, setSubmittingRename] = useState(false);
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(session.projectId || null);
   const [projectList, setProjectList] = useState<{
-    projectId: string; userId: string; tenantId: string;
+    projectId: string; userId: string;
     items: ConversationSummary[]; cursor: string | null; loading: boolean; failed: boolean;
   } | null>(null);
   const [projectListRefresh, setProjectListRefresh] = useState(0);
@@ -100,7 +100,6 @@ export function SidebarContent({
     contextReady,
     projects,
     userId,
-    tenantId,
     conversationListRevision,
     acknowledgeConversationRows,
   } = session;
@@ -113,29 +112,28 @@ export function SidebarContent({
     const projectId = expandedProjectId;
     if (!projectId || projectId === selectedProjectId || !contextReady || !projects.some((project) => project.id === projectId)) return;
     const controller = new AbortController();
-    setProjectList({ projectId, userId, tenantId, items: [], cursor: null, loading: true, failed: false });
-    void listConversations({ userId, tenantId, projectId, limit: 10 }, controller.signal)
+    setProjectList({ projectId, userId, items: [], cursor: null, loading: true, failed: false });
+    void listConversations({ userId, projectId, limit: 10 }, controller.signal)
       .then((data) => {
         if (!controller.signal.aborted) {
-          setProjectList({ projectId, userId, tenantId, items: data.items, cursor: data.next_cursor, loading: false, failed: false });
+          setProjectList({ projectId, userId, items: data.items, cursor: data.next_cursor, loading: false, failed: false });
           acknowledgeConversationRows(data.items.map((item) => item.id));
         }
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           message.error(error instanceof Error ? error.message : String(error));
-          setProjectList({ projectId, userId, tenantId, items: [], cursor: null, loading: false, failed: true });
+          setProjectList({ projectId, userId, items: [], cursor: null, loading: false, failed: true });
         }
       });
     return () => controller.abort();
-  }, [expandedProjectId, selectedProjectId, contextReady, projects, userId, tenantId, conversationListRevision, acknowledgeConversationRows, projectListRefresh, message]);
+  }, [expandedProjectId, selectedProjectId, contextReady, projects, userId, conversationListRevision, acknowledgeConversationRows, projectListRefresh, message]);
 
   const loadMoreProjectConversations = async (projectId: string, cursor: string) => {
     const userId = session.userId;
-    const tenantId = session.tenantId;
     try {
-      const data = await listConversations({ userId, tenantId, projectId, limit: 10, cursor });
-      setProjectList((current) => current?.projectId === projectId && current.userId === userId && current.tenantId === tenantId && current.cursor === cursor
+      const data = await listConversations({ userId, projectId, limit: 10, cursor });
+      setProjectList((current) => current?.projectId === projectId && current.userId === userId && current.cursor === cursor
         ? { ...current, items: [...current.items, ...data.items], cursor: data.next_cursor }
         : current);
       session.acknowledgeConversationRows(data.items.map((item) => item.id));
@@ -356,7 +354,7 @@ export function SidebarContent({
               {session.projects.map((project) => {
                 const expanded = project.id === expandedProjectId;
                 const currentList = project.id === session.projectId;
-                const remoteList = projectList?.projectId === project.id && projectList.userId === session.userId && projectList.tenantId === session.tenantId ? projectList : null;
+                const remoteList = projectList?.projectId === project.id && projectList.userId === session.userId ? projectList : null;
                 const conversations = visibleRows(currentList ? session.conversations : remoteList?.items ?? [], project.id);
                 const loading = currentList ? session.conversationsLoading : remoteList?.loading ?? true;
                 const failed = currentList ? session.conversationsLoadFailed : remoteList?.failed ?? false;

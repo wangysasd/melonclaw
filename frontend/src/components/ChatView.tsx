@@ -82,13 +82,11 @@ const WELCOME_PROMPTS = [
 function MessageAttachments({
   attachments,
   userId,
-  tenantId,
   projectId,
   conversationId,
 }: {
   attachments: NonNullable<ChatMessage["attachments"]>;
   userId: string;
-  tenantId: string;
   projectId: string;
   conversationId: string | null;
 }) {
@@ -100,7 +98,6 @@ function MessageAttachments({
         {attachments.map((attachment) => {
           const url = attachmentContentUrl(attachment.attachment_id, {
             userId,
-            tenantId,
             projectId: projectId || null,
             conversationId: projectId ? null : conversationId,
           });
@@ -180,7 +177,6 @@ const MessageBubble = memo(function MessageBubble({
   runStatus,
   conversationId,
   userId,
-  tenantId,
   projectId,
 }: {
   message: ChatMessage;
@@ -188,7 +184,6 @@ const MessageBubble = memo(function MessageBubble({
   runStatus: RunStatus;
   conversationId: string | null;
   userId: string;
-  tenantId: string;
   projectId: string;
 }) {
   const metaLabel = message.role === "user" ? userName : "MelonClaw";
@@ -233,7 +228,6 @@ const MessageBubble = memo(function MessageBubble({
         <MessageAttachments
           attachments={message.attachments ?? []}
           userId={userId}
-          tenantId={tenantId}
           projectId={projectId}
           conversationId={conversationId}
         />
@@ -435,7 +429,6 @@ export function ChatView({ onOpenProjectDialog }: { onOpenProjectDialog?: () => 
                 runStatus={runStatus}
                 conversationId={chat.state.conversationId}
                 userId={session.userId}
-                tenantId={session.tenantId}
                 projectId={chat.state.conversationProjectId ?? session.projectId}
               />
             ))}

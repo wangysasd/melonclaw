@@ -37,6 +37,10 @@ Project 或普通 Conversation 的受控 `.attachments/` 目录，`services/atta
 - `database/` + `repository/`：业务数据（用户、Project、Conversation、消息、审批、用户问题交互、Memory 事件），由 `melonclaw-db-init` 建表。
 - LangGraph Checkpointer：Agent 图状态，与业务表分离。
 
+`tenants` 与 `users` 是一对多关系：`users.tenant_id` 是非空外键，租户角色和状态也直接保存在用户行中，不设成员关联表。请求只提供开发模拟 `user_id`；服务层读取该用户唯一且有效的租户归属，生成 Agent 和 Memory 的运行上下文。Tenant Memory 按这个租户 ID 分区并按用户租户角色授权；Memory 操作会再次核对运行上下文与数据库归属。用户租户归属没有运行时变更入口，调整开发数据时重建数据库。
+
+**身份决定租户隔离的实际强度。** 当前浏览器可提交任意 `user_id`，它只是开发模拟身份，不能抵御冒用其他用户。`api/identity.py` 的受信任身份头目前仅接入附件路由；面向共享环境时，必须先让所有受保护路由统一使用可信认证，并隔离 Agent 的文件与 Shell 能力。任何客户端请求、API Schema、查询或表单参数都不得定义或消费 `tenant_id`；租户 ID 只能从服务端读取的用户记录进入运行上下文。
+
 Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conversation_id` 列；
 消息、审批、用户问题和附件关系表使用 `conversation_id` 外键引用它。Conversation 归属由
 `user_id + project_id` 确定：`project_id IS NULL` 表示普通会话，工作区为
@@ -105,7 +109,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 长期记忆 | `memory/` 的 `MemoryService` | 写入必须经过它的固定工具与审计，不直接写 Store |
 | HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission`；用户问题由 `core/user_input.py` 的 `interrupt()` 进入同一 Checkpoint | 写文件、删文件、Shell 等有副作用的操作必须走审批或权限边界；缺少关键用户决策时 Agent 可暂停等待回答；审批恢复必须绑定当前 `approval_batch_id` 与 `assistant_message_id`；用户问题的唯一出口是一次真正的 `Command(resume=...)`，答案可以是选项/文本，也可以是 `{"type": "cancelled"}`（用户跳过或 TTL 过期后由 `services/user_input_execution.py` 代答），只改 `user_interactions` 状态不会解除 Checkpoint 挂起；答案已收但本轮没跑完时账本会被标成 `recovery_required` 并且**禁止自动重放**（不知道副作用执行到哪一步），此时历史表现为失败，唯一的解锁入口是用户发新消息——那时服务层会先代答取消、把 Checkpoint 叫醒收尾 |
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
-| 请求身份 | `api/identity.py` 的 `resolve_request_user_id()` | 决定 `user_id` 从哪里读（查询/表单，或部署方配置的受信任请求头）；**不做身份校验**，成员关系与归属仍由服务层重新校验 |
+| 附件请求身份 | `api/identity.py` 的 `resolve_request_user_id()` | 附件路由决定 `user_id` 从哪里读（查询/表单，或部署方配置的受信任请求头）；**不做身份校验**，用户的唯一租户归属和资源所有权仍由服务层重新校验 |
 
 凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`TAVILY_API_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；给 Agent 的变量名集中在 `core/defaults.py` 声明，值只来自 `.env`。
 
@@ -143,3 +147,5 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 1. 改 `database/schema.py` 的表定义（列、约束、部分唯一索引都写在这里）；
 2. 清空/重建数据库后执行 `uv run melonclaw-db-init`：`create_schema` 只做一次 `metadata.create_all`，`seed_demo_data` 写入演示数据；
 3. 服务启动时 `verify_schema` 只做校验，**不会**自动迁移，也不会补列。
+
+若重建数据库是为了改变用户的租户映射，先备份需要保留的文件，并清理 `MELONCLAW_WORKSPACE_DIR` 指向的旧工作区（未配置时为 `~/.melonclaw/workspaces`），再初始化数据库。建表命令不会清理工作区；沿用旧目录会留下与新数据库无对应记录的文件。工作区路径中的 UUID 和目录层级不是租户安全边界。

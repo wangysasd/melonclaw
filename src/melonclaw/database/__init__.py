@@ -23,7 +23,6 @@ from melonclaw.database.schema import (
     metadata,
     projects,
     tenants,
-    user_tenants,
     users,
 )
 
@@ -48,6 +47,5 @@ __all__ = [
     "open_memory_store",
     "projects",
     "tenants",
-    "user_tenants",
     "users",
 ]

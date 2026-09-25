@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from melonclaw.repository import ConversationMoveError
+from melonclaw.repository import ConversationMoveError, UserContext
 from melonclaw.services.conversations import ConversationService
 from melonclaw.storage.workspace_moves import (
     WorkspaceMoveConflictError,
@@ -71,8 +71,15 @@ class _Repository:
         self.released = False
         self.timestamp = datetime.now(UTC)
 
-    async def get_user_context(self, user_id, tenant_id):
-        return SimpleNamespace(user_id=user_id)
+    async def get_user_context(self, user_id):
+        return UserContext(
+            user_id=user_id,
+            user_name_zh="测试用户",
+            tenant_id="tenant-1",
+            tenant_name_zh="测试租户",
+            tenant_role="member",
+            tenant_status="active",
+        )
 
     async def try_advisory_lock(self, conversation_id):
         return object()

@@ -58,9 +58,9 @@ export interface DevUser {
   user_name_zh: string;
   username: string;
   is_default: boolean;
-  tenant_ids: string[];
-  tenant_id: string | null;
-  default_tenant_id: string | null;
+  tenant_id: string;
+  tenant_role: string;
+  tenant_status: string;
 }
 
 /* ---------- 项目与会话 ---------- */
@@ -284,13 +284,11 @@ export interface ApprovalDecision {
 
 export interface CreateProjectInput {
   userId: string;
-  tenantId?: string | null;
   name: string;
 }
 
 export interface ListConversationsInput {
   userId: string;
-  tenantId?: string | null;
   projectId?: string | null;
   scope?: "unassigned";
   limit?: number;
@@ -299,21 +297,18 @@ export interface ListConversationsInput {
 
 export interface CreateConversationInput {
   userId: string;
-  tenantId?: string | null;
   projectId?: string | null;
 }
 
 export interface ListMessagesInput {
   conversationId: string;
   userId: string;
-  tenantId?: string | null;
   limit?: number;
   beforeSeq?: number | null;
 }
 
 export interface SendMessageInput {
   userId: string;
-  tenantId?: string | null;
   /** 每次发送生成新的 UUID，用于服务端幂等。 */
   requestId: string;
   content: string;
@@ -324,7 +319,6 @@ export interface SendMessageInput {
 
 export interface SendApprovalInput {
   userId: string;
-  tenantId?: string | null;
   approvalBatchId: string;
   assistantMessageId: string;
   decisions: ApprovalDecision[] | { interrupt_id: string; decisions: ApprovalDecision[] }[];
@@ -332,7 +326,6 @@ export interface SendApprovalInput {
 
 export interface SendUserInputInput {
   userId: string;
-  tenantId?: string | null;
   interactionId: string;
   assistantMessageId: string;
   decisionRequestId: string;

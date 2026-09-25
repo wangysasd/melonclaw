@@ -18,7 +18,7 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.session = {
-    conversationId: "c1", userId: "u", tenantId: "t", projectId: "p", epoch: 1,
+    conversationId: "c1", userId: "u", projectId: "p", epoch: 1,
     selectedModelId: "system:deepseek:flash",
     modelOptions: [{ id: "system:deepseek:flash", display_name: "DeepSeek Flash", source: "system", provider: "deepseek", model: "deepseek-v4-flash", available: true, is_default: true }],
     contextReady: true, busy: false, conversationCreating: false, projects: [{ id: "p", name: "p" }], status: { status: "ready" },

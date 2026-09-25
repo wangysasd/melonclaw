@@ -115,11 +115,11 @@ export function getStatus(signal?: AbortSignal): Promise<ServiceStatus> {
 }
 
 export function listModels(
-  input: { userId: string; tenantId?: string | null },
+  input: { userId: string },
   signal?: AbortSignal,
 ): Promise<ModelCatalog> {
   return apiRequest<ModelCatalog>("/api/models", {
-    query: { user_id: input.userId, tenant_id: input.tenantId },
+    query: { user_id: input.userId },
     signal,
   });
 }
@@ -137,11 +137,11 @@ export function listDevUsers(
 }
 
 export function listProjects(
-  input: { userId: string; tenantId?: string | null },
+  input: { userId: string },
   signal?: AbortSignal,
 ): Promise<{ items: Project[] }> {
   return apiRequest<{ items: Project[] }>("/api/projects", {
-    query: { user_id: input.userId, tenant_id: input.tenantId },
+    query: { user_id: input.userId },
     signal,
   });
 }
@@ -151,24 +151,23 @@ export function createProject(input: CreateProjectInput): Promise<Project> {
     method: "POST",
     body: {
       user_id: input.userId,
-      tenant_id: input.tenantId ?? null,
       name: input.name,
     },
   });
 }
 
-type ResourceIdentity = { userId: string; tenantId?: string | null };
+type ResourceIdentity = { userId: string };
 
 export function updateProject(id: string, input: ResourceIdentity & { name?: string; isPinned?: boolean }): Promise<Project> {
   return apiRequest<Project>(`/api/projects/${encodeURIComponent(id)}`, {
     method: "PATCH",
-    body: { user_id: input.userId, tenant_id: input.tenantId, name: input.name, is_pinned: input.isPinned },
+    body: { user_id: input.userId, name: input.name, is_pinned: input.isPinned },
   });
 }
 
 export function deleteProject(id: string, input: ResourceIdentity): Promise<{ deleted: boolean }> {
   return apiRequest(`/api/projects/${encodeURIComponent(id)}`, {
-    method: "DELETE", query: { user_id: input.userId, tenant_id: input.tenantId },
+    method: "DELETE", query: { user_id: input.userId },
   });
 }
 
@@ -182,7 +181,6 @@ export function listConversations(
   }>("/api/conversations", {
     query: {
       user_id: input.userId,
-      tenant_id: input.tenantId,
       project_id: input.projectId,
       scope: input.scope,
       limit: input.limit ?? 10,
@@ -199,7 +197,6 @@ export function createConversation(
     method: "POST",
     body: {
       user_id: input.userId,
-      tenant_id: input.tenantId ?? null,
       project_id: input.projectId,
     },
   });
@@ -208,7 +205,7 @@ export function createConversation(
 export function updateConversation(id: string, input: ResourceIdentity & { name?: string; isPinned?: boolean }): Promise<ConversationSummary> {
   return apiRequest<ConversationSummary>(`/api/conversations/${encodeURIComponent(id)}`, {
     method: "PATCH",
-    body: { user_id: input.userId, tenant_id: input.tenantId, name: input.name, is_pinned: input.isPinned },
+    body: { user_id: input.userId, name: input.name, is_pinned: input.isPinned },
   });
 }
 
@@ -218,13 +215,13 @@ export function moveConversationToProject(
 ): Promise<ConversationSummary> {
   return apiRequest<ConversationSummary>(`/api/conversations/${encodeURIComponent(id)}/move-to-project`, {
     method: "POST",
-    body: { user_id: input.userId, tenant_id: input.tenantId, project_id: input.projectId },
+    body: { user_id: input.userId, project_id: input.projectId },
   });
 }
 
 export function deleteConversation(id: string, input: ResourceIdentity): Promise<{ deleted: boolean }> {
   return apiRequest(`/api/conversations/${encodeURIComponent(id)}`, {
-    method: "DELETE", query: { user_id: input.userId, tenant_id: input.tenantId },
+    method: "DELETE", query: { user_id: input.userId },
   });
 }
 
@@ -237,7 +234,6 @@ export function getConversationHistory(
     {
       query: {
         user_id: input.userId,
-        tenant_id: input.tenantId,
         limit: input.limit ?? 50,
         before_seq: input.beforeSeq,
       },
@@ -252,7 +248,6 @@ export interface UploadedAttachment extends AttachmentSummary {
 
 type AttachmentAccessInput = {
   userId: string;
-  tenantId?: string | null;
   projectId?: string | null;
   conversationId?: string | null;
 };
@@ -260,7 +255,6 @@ type AttachmentAccessInput = {
 function attachmentAccessQuery(input: AttachmentAccessInput) {
   return {
     user_id: input.userId,
-    tenant_id: input.tenantId,
     project_id: input.projectId,
     conversation_id: input.conversationId,
   };
@@ -304,7 +298,6 @@ export function uploadAttachment(
   target: { projectId: string } | { conversationId: string },
   input: {
     userId: string;
-    tenantId?: string | null;
     file: File;
     clientRequestId: string;
     onProgress?: (percent: number) => void;
@@ -314,7 +307,6 @@ export function uploadAttachment(
   const form = new FormData();
   form.append("file", input.file);
   form.append("user_id", input.userId);
-  if (input.tenantId) form.append("tenant_id", input.tenantId);
   form.append("client_request_id", input.clientRequestId);
   const url = "projectId" in target
     ? `${API_BASE_URL}/api/projects/${encodeURIComponent(target.projectId)}/attachments`
@@ -402,7 +394,6 @@ export function attachmentContentUrl(
   input: AttachmentAccessInput,
 ): string {
   const params = new URLSearchParams({ user_id: input.userId });
-  if (input.tenantId) params.set("tenant_id", input.tenantId);
   if (input.projectId) params.set("project_id", input.projectId);
   if (input.conversationId) params.set("conversation_id", input.conversationId);
   return `${API_BASE_URL}/api/attachments/${encodeURIComponent(attachmentId)}/content?${params.toString()}`;

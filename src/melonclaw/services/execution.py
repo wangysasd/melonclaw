@@ -104,7 +104,6 @@ class ExecutionService:
         request_id: str,
         content: str,
         model_id: str | None = None,
-        tenant_id: str | None = None,
         skill_id: str | None = None,
         attachment_ids: list[UUID] | None = None,
         capabilities: list[str] | None = None,
@@ -128,8 +127,7 @@ class ExecutionService:
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
-        # Conversation 不绑定 tenant；每轮执行根据请求上下文选择 Tenant Memory。
-        context = await self.conversations.resolve_user(user_id, tenant_id)
+        context = await self.conversations.resolve_user(user_id)
         project = await self.conversations.project_for_conversation(
             storage,
             conversation,
@@ -458,7 +456,6 @@ class ExecutionService:
         conversation_id: UUID,
         user_id: str,
         decisions: Any,
-        tenant_id: str | None = None,
         *,
         approval_batch_id: UUID | None = None,
         assistant_message_id: UUID | None = None,
@@ -467,8 +464,7 @@ class ExecutionService:
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
-        # 审批恢复同样按当前请求校验租户成员关系，但不改变 Conversation 归属。
-        context = await self.conversations.resolve_user(user_id, tenant_id)
+        context = await self.conversations.resolve_user(user_id)
         project = await self.conversations.project_for_conversation(
             storage,
             conversation,

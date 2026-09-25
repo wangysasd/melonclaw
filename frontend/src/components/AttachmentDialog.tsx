@@ -30,7 +30,6 @@ export interface AttachmentDialogProps {
   initialFiles?: File[];
   capabilities: AttachmentCapabilities;
   userId: string;
-  tenantId: string;
   projectId: string | null;
   conversationId: string;
   /** 输入区已确认的附件，用于合并计算数量与总大小上限。 */
@@ -61,7 +60,6 @@ export function AttachmentDialog({
   initialFiles,
   capabilities,
   userId,
-  tenantId,
   projectId,
   conversationId,
   existingCount,
@@ -77,8 +75,8 @@ export function AttachmentDialog({
   const controllersRef = useRef(new Map<string, AbortController>());
   const dragDepthRef = useRef(0);
   const access = projectId
-    ? { userId, tenantId, projectId }
-    : { userId, tenantId, conversationId };
+    ? { userId, projectId }
+    : { userId, conversationId };
 
   useEffect(() => {
     itemsRef.current = items;
@@ -114,7 +112,6 @@ export function AttachmentDialog({
       projectId ? { projectId } : { conversationId },
       {
         userId,
-        tenantId,
         file,
         clientRequestId,
         onProgress: (percent) => {

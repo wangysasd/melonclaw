@@ -39,31 +39,17 @@ def _conversation_dict(row: Mapping[str, Any]) -> dict[str, Any]:
 
 def _user_dict(
     row: Mapping[str, Any],
-    *,
-    tenant_ids: list[str],
-    tenant_names: list[str],
-    tenant_memberships: list[dict[str, Any]],
 ) -> dict[str, Any]:
     user_name = str(row["user_name_zh"])
-    normalized_tenant_ids = tenant_ids
-    normalized_tenant_names = tenant_names
-    tenant_name = "、".join(normalized_tenant_names)
-    default_tenant_id = normalized_tenant_ids[0]
+    tenant_name = str(row["tenant_name_zh"])
     return {
         "user_id": str(row["user_id"]),
         # username 保留现有开发接口字段，值改为用户中文名。
         "username": user_name,
         "user_name_zh": user_name,
-        # 保留 tenant_id 作为当前开发上下文的默认租户；完整关系见 tenant_ids。
-        "tenant_id": default_tenant_id,
-        "default_tenant_id": default_tenant_id,
-        "tenant_ids": normalized_tenant_ids,
-        "tenant_names": normalized_tenant_names,
-        "tenant_name": tenant_name,
-        "tenant_name_zh": tenant_name,
-        "tenant_role": str(row["role"]),
-        "tenant_status": str(row["status"]),
-        "tenant_memberships": tenant_memberships,
+        "tenant_id": str(row["tenant_id"]),
+        "tenant_role": str(row["tenant_role"]),
+        "tenant_status": str(row["tenant_status"]),
         "is_default": str(row["user_id"]) == DEFAULT_SIMULATED_USER_ID,
         "display_name": f"{user_name}-{tenant_name}",
     }

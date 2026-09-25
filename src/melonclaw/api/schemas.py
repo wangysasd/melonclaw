@@ -41,10 +41,9 @@ class AssistantStepSchema(BaseModel):
 
 
 class ConversationRequest(BaseModel):
-    """创建会话时的开发用户和当前租户运行上下文；会话本身不绑定租户。"""
+    """创建会话时的开发用户和可选 Project。"""
 
     user_id: str = Field(min_length=1, max_length=64)
-    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     project_id: UUID | None = None
 
 
@@ -52,15 +51,13 @@ class ConversationMoveRequest(BaseModel):
     """将当前用户的普通会话加入其已有项目。"""
 
     user_id: str = Field(min_length=1, max_length=64)
-    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     project_id: UUID
 
 
 class ProjectRequest(BaseModel):
-    """创建 Project 时的开发用户、租户和名称。"""
+    """创建 Project 时的开发用户和名称。"""
 
     user_id: str = Field(min_length=1, max_length=64)
-    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=120)
 
 
@@ -68,16 +65,14 @@ class ResourceUpdateRequest(BaseModel):
     """项目或会话的名称与置顶状态；路由按资源选择对应字段。"""
 
     user_id: str = Field(min_length=1, max_length=64)
-    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     name: str | None = Field(default=None, max_length=200)
     is_pinned: bool | None = None
 
 
 class MessageRequest(BaseModel):
-    """浏览器发送给 Agent 的一轮消息、模型选择和用户标签。"""
+    """浏览器发送给 Agent 的一轮消息和模型选择。"""
 
     user_id: str = Field(min_length=1, max_length=64)
-    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     request_id: UUID
     content: str = Field(default="", max_length=12000)
     model_id: str | None = Field(default=None, min_length=1, max_length=160)
@@ -91,10 +86,9 @@ class MessageRequest(BaseModel):
 
 
 class ApprovalRequest(BaseModel):
-    """浏览器提交的 HITL 审批决定和可选用户标签。"""
+    """浏览器提交的 HITL 审批决定。"""
 
     user_id: str = Field(min_length=1, max_length=64)
-    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     # 审批恢复必须绑定当前展示给用户的批次和助手消息，避免刷新后提交旧卡片。
     approval_batch_id: UUID | None = None
     assistant_message_id: UUID | None = None
@@ -105,7 +99,6 @@ class UserInputRequest(BaseModel):
     """浏览器提交的结构化用户问题答案。"""
 
     user_id: str = Field(min_length=1, max_length=64)
-    tenant_id: str | None = Field(default=None, min_length=1, max_length=64)
     interaction_id: UUID
     assistant_message_id: UUID
     decision_request_id: UUID

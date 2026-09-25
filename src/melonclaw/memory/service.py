@@ -189,9 +189,13 @@ class MemoryService:
         self._require_context(context)
         user_id = _safe_component(_context_value(context, "user_id"), "user_id")
         tenant_id = _safe_component(_context_value(context, "tenant_id"), "tenant_id")
-        verified = await self.storage.get_user_context(user_id, tenant_id)
-        if verified is None or verified.tenant_status != "active":
-            raise MemoryAuthorizationError("用户不是当前租户的有效成员。")
+        verified = await self.storage.get_user_context(user_id)
+        if (
+            verified is None
+            or verified.tenant_status != "active"
+            or verified.tenant_id != tenant_id
+        ):
+            raise MemoryAuthorizationError("运行租户与用户的有效归属不一致。")
         return verified
 
     async def _authorize(

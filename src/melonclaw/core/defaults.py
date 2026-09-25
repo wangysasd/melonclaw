@@ -6,7 +6,7 @@ melonclaw 的配置分三层，本模块是最底层：
    模型选择等非敏感默认值，随代码演进、review 和回滚；
 2. **部署者配置层**（``.env``）：凭据的值（如 ``TUSHARE_MCP_TOKEN``）、
    模型 Key、数据库连接等，由部署者在本地维护，不进仓库；
-3. **用户配置层**（未来多租户）：用户自己的凭据、模型选择和上传的
+3. **用户配置层**（尚未实现）：用户自己的凭据、模型选择和上传的
    Skill，存数据库按 ``user_id`` 隔离。
 
 铁律：本文件只允许出现变量**名**和选项**值**（如模型名），凭据的值
@@ -92,7 +92,7 @@ def resolve_agent_env(
     1. 基础变量：HOME / LANG / TZ / LC_*；
     2. 代码默认凭据名：``DEFAULT_AGENT_ENV_VARS`` 与进程环境的交集；
     3. 部署者白名单：``MELONCLAW_SHELL_ENV_ALLOWLIST`` 命中的变量；
-    4. 用户覆盖层：``overrides``（未来多租户时传该用户的 agent_envs，
+    4. 用户覆盖层：``overrides``（将来传该用户的 agent_envs，
        用户值优先于部署者值）。
 
     最终统一剔除 ``SHELL_ENV_DENYLIST``。``overrides`` 中被剔除的键同样

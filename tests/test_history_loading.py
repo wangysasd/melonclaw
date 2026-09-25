@@ -63,7 +63,7 @@ def _service(storage: _Storage):
     )
     service = ConversationService(runtime)
 
-    async def resolve_user(user_id, tenant_id):
+    async def resolve_user(user_id):
         return SimpleNamespace(user_id=user_id)
 
     async def project_for_conversation(*args):

@@ -40,7 +40,6 @@ async def upload_attachment(
     project_id: UUID,
     file: UploadFile = File(...),
     user_id: str | None = Form(None),
-    tenant_id: str | None = Form(None),
     client_request_id: str | None = Form(None),
 ) -> JSONResponse:
     manager = get_chat_service(request)
@@ -53,7 +52,6 @@ async def upload_attachment(
             resolved_user,
             file,
             client_request_id=client_request_id,
-            tenant_id=tenant_id,
         )
         return JSONResponse(result, status_code=201)
     except Exception as exc:  # noqa: BLE001 - 统一返回脱敏错误
@@ -66,7 +64,6 @@ async def upload_conversation_attachment(
     conversation_id: UUID,
     file: UploadFile = File(...),
     user_id: str | None = Form(None),
-    tenant_id: str | None = Form(None),
     client_request_id: str | None = Form(None),
 ) -> JSONResponse:
     """上传到普通会话的独立工作区；项目会话使用项目上传入口。"""
@@ -81,7 +78,6 @@ async def upload_conversation_attachment(
             resolved_user,
             file,
             client_request_id=client_request_id,
-            tenant_id=tenant_id,
             conversation_id=conversation_id,
         )
         return JSONResponse(result, status_code=201)
@@ -94,7 +90,6 @@ async def attachment_metadata(
     request: Request,
     attachment_id: UUID,
     user_id: str | None = None,
-    tenant_id: str | None = None,
     project_id: UUID | None = None,
     conversation_id: UUID | None = None,
 ) -> JSONResponse:
@@ -106,7 +101,6 @@ async def attachment_metadata(
         result = await manager.attachments.metadata(
             attachment_id,
             resolved_user,
-            tenant_id,
             project_id=project_id,
             conversation_id=conversation_id,
         )
@@ -120,7 +114,6 @@ async def attachment_content(
     request: Request,
     attachment_id: UUID,
     user_id: str | None = None,
-    tenant_id: str | None = None,
     project_id: UUID | None = None,
     conversation_id: UUID | None = None,
 ) -> FileResponse | JSONResponse:
@@ -132,7 +125,6 @@ async def attachment_content(
         path, metadata = await manager.attachments.content_path(
             attachment_id,
             resolved_user,
-            tenant_id,
             project_id=project_id,
             conversation_id=conversation_id,
         )
@@ -151,7 +143,6 @@ async def retry_attachment_parse(
     request: Request,
     attachment_id: UUID,
     user_id: str | None = None,
-    tenant_id: str | None = None,
     project_id: UUID | None = None,
     conversation_id: UUID | None = None,
 ) -> JSONResponse:
@@ -165,7 +156,6 @@ async def retry_attachment_parse(
         result = await manager.attachments.retry_parse(
             attachment_id,
             resolved_user,
-            tenant_id,
             project_id=project_id,
             conversation_id=conversation_id,
         )
@@ -179,7 +169,6 @@ async def delete_attachment(
     request: Request,
     attachment_id: UUID,
     user_id: str | None = None,
-    tenant_id: str | None = None,
     project_id: UUID | None = None,
     conversation_id: UUID | None = None,
 ) -> JSONResponse:
@@ -191,7 +180,6 @@ async def delete_attachment(
         result = await manager.attachments.delete(
             attachment_id,
             resolved_user,
-            tenant_id,
             project_id=project_id,
             conversation_id=conversation_id,
         )

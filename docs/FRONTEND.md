@@ -24,7 +24,7 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 | 目录 | 职责 |
 |---|---|
 | `src/api/` | HTTP 与 SSE 客户端：`client.ts`（JSON 请求封装与错误归一化）、`stream.ts`（fetch + ReadableStream 手动解析 SSE 帧） |
-| `src/state/` | 会话级全局状态（`session.tsx`）：用户、租户、Project、Conversation、当前流、`epoch` 失效机制 |
+| `src/state/` | 会话级全局状态（`session.tsx`）：用户、Project、Conversation、当前流、`epoch` 失效机制；用户资料含唯一租户信息，不维护独立租户选择状态 |
 | `src/hooks/` | 流式消息 reducer 与副作用：`useChatStream.ts` 处理 optimistic 消息、增量文本、审批、断线重同步；`useRunClock.ts` 提供只在运行期开启的运行级计时 |
 | `src/components/` | 展示与交互组件（Composer、ChatView、`AgentExecution` 执行过程区域、ToolTimeline 子 Agent 任务卡、审批卡、用户问题卡、技能选择等） |
 | `src/types/` | 与后端契约对应的类型：`api.ts` 里的 `Message`、`SendMessageInput`、`StreamEvent` 判别联合 |
@@ -55,6 +55,7 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 - 输入框上方有一条灰色项目栏，高 32.4px（比原来低 10%），项目控件在栏内纵向居中；左右各缩进一个输入框圆角半径，不绘制外层边框，底边与输入框平直的顶部相接。左侧项目控件与灰色栏同色，沿用 13px 次要控件字号和 10px 控件圆角；选中项目时悬停会把左侧文件夹变为叉号，点击叉号退出项目，点击项目名或箭头仍打开选择器。菜单宽 280px，内部文字统一为 13px，可搜索已有项目、新建项目或退出项目。它使用 `session.projectId` 表示当前聊天的项目；侧栏文件夹展开状态独立维护。参考截图中的 Local、main 和 Full access 不属于此功能。
 - 「新建项目」弹窗内的标题、标签、输入提示、错误提示及按钮文字统一为 14px。
 - 模拟用户下拉项只显示用户名，字号 14px，不显示租户数量。
+- 切换模拟用户时清理旧会话上下文并使迟到响应失效；模型选择按用户保存在本地。请求只发送 `user_id`，租户归属由后端解析。
 - 顶栏靠左显示当前会话名称：项目会话为「项目名称/会话名称」，普通会话只显示会话名称；字号 14px、不加粗、背景色 `#F5F5F7`，高度相较原样式降低 20%。
 - 顶栏右侧提供「系统工具」入口，打开固定工具与当前配置 MCP 服务的分类目录；目录图标与执行时间线共用语义化 SVG 图标映射。
 - 模型选择器的下拉选项与选中后展示的模型名称统一为 14px。

@@ -51,7 +51,6 @@ async def submit_user_input(
             payload.assistant_message_id,
             str(payload.decision_request_id),
             payload.answer,
-            payload.tenant_id,
         )
     except Exception as exc:  # noqa: BLE001 - 准备阶段需要真实 HTTP 状态码
         return error_response(exc)

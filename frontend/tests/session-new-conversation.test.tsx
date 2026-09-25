@@ -72,7 +72,7 @@ beforeEach(() => {
   vi.mocked(client.listDevUsers).mockResolvedValue({
     items: [{
       user_id: "u1", display_name: "U1", user_name_zh: "U1", username: "u1",
-      is_default: true, tenant_ids: ["t1"], tenant_id: "t1", default_tenant_id: "t1",
+      is_default: true, tenant_id: "t1", tenant_role: "member", tenant_status: "active",
     }],
   });
   vi.mocked(client.listModels).mockReset();

@@ -92,9 +92,9 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
   const attachmentAccess = useMemo(
     () =>
       session.projectId
-        ? { userId: session.userId, tenantId: session.tenantId, projectId: session.projectId }
-        : { userId: session.userId, tenantId: session.tenantId, conversationId: session.conversationId },
-    [session.conversationId, session.projectId, session.tenantId, session.userId],
+        ? { userId: session.userId, projectId: session.projectId }
+        : { userId: session.userId, conversationId: session.conversationId },
+    [session.conversationId, session.projectId, session.userId],
   );
   const { message } = AntdApp.useApp();
   const senderRef = useRef<SenderRef>(null);
@@ -203,7 +203,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
     };
     // 首条消息落库后保留已附加文件，因此不随 draftConversationId 清除重跑。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attachmentAccess, session.userId, session.tenantId, session.projectId, session.conversationId]);
+  }, [attachmentAccess, session.userId, session.projectId, session.conversationId]);
 
   // 解析轮询：按附件 ID 集合调度，指数退避并在超过上限后标记超时。
   // 依赖只有稳定的 pendingKey，不会因为每次轮询回写状态而重建定时器。
@@ -264,7 +264,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [attachmentAccess, pendingKey, message, session.userId, session.tenantId]);
+  }, [attachmentAccess, pendingKey, message, session.userId]);
 
   useLayoutEffect(() => {
     if (!selectedSkill) {
@@ -403,7 +403,6 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
     );
     void retryAttachmentParse(attachment.attachment_id, {
       userId: session.userId,
-      tenantId: session.tenantId,
       projectId: session.projectId || null,
       conversationId: session.projectId ? null : session.conversationId,
     }).catch((error: unknown) => {
@@ -525,7 +524,6 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
             {attachments.map((attachment) => {
               const url = attachmentContentUrl(attachment.attachment_id, {
                 userId: session.userId,
-                tenantId: session.tenantId,
                 projectId: session.projectId || null,
                 conversationId: session.projectId ? null : session.conversationId,
               });
@@ -720,7 +718,6 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
         <ImageLightbox
           src={attachmentContentUrl(preview.attachment_id, {
             userId: session.userId,
-            tenantId: session.tenantId,
             projectId: session.projectId || null,
             conversationId: session.projectId ? null : session.conversationId,
           })}
@@ -734,7 +731,6 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
         initialFiles={dialogFiles}
         capabilities={capabilities}
         userId={session.userId}
-        tenantId={session.tenantId}
         projectId={session.projectId || null}
         conversationId={session.conversationId ?? ""}
         existingCount={attachments.length}

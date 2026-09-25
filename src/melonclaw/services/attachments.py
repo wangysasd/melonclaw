@@ -80,13 +80,12 @@ class AttachmentService:
         user_id: str,
         upload: AsyncUpload,
         client_request_id: str | None = None,
-        tenant_id: str | None = None,
         *,
         conversation_id: UUID | None = None,
     ) -> dict[str, Any]:
         settings = self._settings()
         storage = self._repository()
-        context = await self.conversations.resolve_user(user_id, tenant_id)
+        context = await self.conversations.resolve_user(user_id)
         if (project_id is None) == (conversation_id is None):
             raise AttachmentNotFoundError()
         project = None
@@ -194,12 +193,11 @@ class AttachmentService:
         self,
         attachment_id: UUID,
         user_id: str,
-        tenant_id: str | None = None,
         *,
         project_id: UUID | None = None,
         conversation_id: UUID | None = None,
     ) -> dict[str, Any]:
-        context = await self.conversations.resolve_user(user_id, tenant_id)
+        context = await self.conversations.resolve_user(user_id)
         self._require_scope(project_id, conversation_id)
         result = await self._repository().get_attachment_for_user(
             attachment_id,
@@ -215,12 +213,11 @@ class AttachmentService:
         self,
         attachment_id: UUID,
         user_id: str,
-        tenant_id: str | None = None,
         *,
         project_id: UUID | None = None,
         conversation_id: UUID | None = None,
     ) -> tuple[Path, dict[str, Any]]:
-        context = await self.conversations.resolve_user(user_id, tenant_id)
+        context = await self.conversations.resolve_user(user_id)
         record = await self._scoped_record(
             attachment_id, context.user_id, project_id, conversation_id
         )
@@ -236,12 +233,11 @@ class AttachmentService:
         self,
         attachment_id: UUID,
         user_id: str,
-        tenant_id: str | None = None,
         *,
         project_id: UUID | None = None,
         conversation_id: UUID | None = None,
     ) -> dict[str, Any]:
-        context = await self.conversations.resolve_user(user_id, tenant_id)
+        context = await self.conversations.resolve_user(user_id)
         storage = self._repository()
         record = await self._scoped_record(
             attachment_id, context.user_id, project_id, conversation_id
@@ -466,14 +462,13 @@ class AttachmentService:
         self,
         attachment_id: UUID,
         user_id: str,
-        tenant_id: str | None = None,
         *,
         project_id: UUID | None = None,
         conversation_id: UUID | None = None,
     ) -> dict[str, Any]:
         """重置可重试的失败解析并重新排队；已在解析中的直接返回当前状态。"""
 
-        context = await self.conversations.resolve_user(user_id, tenant_id)
+        context = await self.conversations.resolve_user(user_id)
         await self._scoped_record(
             attachment_id, context.user_id, project_id, conversation_id
         )

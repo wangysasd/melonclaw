@@ -28,7 +28,7 @@ def _build_shell_env() -> dict[str, str]:
     """构造 Shell 子进程环境：PATH 加代码默认层解析出的变量。
 
     变量名与合并逻辑见 ``core/defaults.py``：代码默认凭据名取值于
-    部署者 ``.env``，平台自身凭据被硬黑名单剔除。未来多租户时在
+    部署者 ``.env``，平台自身凭据被硬黑名单剔除。未来支持用户级配置时在
     ``resolve_agent_env`` 的 ``overrides`` 参数接入用户级配置。
     """
 

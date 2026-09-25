@@ -5,7 +5,6 @@ from __future__ import annotations
 BUSINESS_TABLES = (
     "tenants",
     "users",
-    "user_tenants",
     "projects",
     "chat_conversations",
     "chat_messages",

@@ -41,23 +41,18 @@ class ConversationService:
     def __init__(self, runtime: ChatRuntime) -> None:
         self.runtime = runtime
 
-    async def resolve_user(
-        self,
-        user_id: str,
-        tenant_id: str | None = None,
-    ) -> UserContext:
-        """解析用户及可选租户标签；Project/Conversation 只归属用户。"""
+    async def resolve_user(self, user_id: str) -> UserContext:
+        """从用户的唯一租户归属解析受信任的运行上下文。"""
 
         storage = self.runtime.storage
         if storage is None:
             raise RuntimeError(self.runtime.startup_error or "数据库仍在启动，请稍候。")
         clean_user_id = user_id.strip()
-        clean_tenant_id = tenant_id.strip() if tenant_id is not None else None
         if not clean_user_id:
             raise InvalidUserError("user_id 不能为空。")
-        context = await storage.get_user_context(clean_user_id, clean_tenant_id)
+        context = await storage.get_user_context(clean_user_id)
         if context is None:
-            raise InvalidUserError("用户不存在或没有租户标签。")
+            raise InvalidUserError("用户不存在或租户归属未启用。")
         return context
 
     async def users(self) -> dict[str, Any]:
@@ -86,10 +81,9 @@ class ConversationService:
         self,
         user_id: str,
         name: str,
-        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         storage = self.runtime.require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
+        context = await self.resolve_user(user_id)
         clean_name = " ".join(name.split()).strip()
         if not clean_name:
             raise ValueError("Project 名称不能为空。")
@@ -102,18 +96,17 @@ class ConversationService:
     async def list_projects(
         self,
         user_id: str,
-        tenant_id: str | None = None,
     ) -> list[dict[str, Any]]:
         storage = self.runtime.require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
+        context = await self.resolve_user(user_id)
         return await storage.list_projects(context.user_id)
 
     async def update_project(
-        self, project_id: UUID, user_id: str, tenant_id: str | None = None,
+        self, project_id: UUID, user_id: str,
         *, name: str | None = None, is_pinned: bool | None = None, delete: bool = False,
     ) -> dict[str, Any] | None:
         storage = self.runtime.require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
+        context = await self.resolve_user(user_id)
         if name is not None:
             name = " ".join(name.split()).strip()
             if not name or len(name) > 120:
@@ -138,10 +131,9 @@ class ConversationService:
         self,
         user_id: str,
         project_id: UUID | None = None,
-        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         storage = self.runtime.require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
+        context = await self.resolve_user(user_id)
         project = None
         if project_id is not None:
             project = await storage.get_project(project_id, context.user_id)
@@ -154,11 +146,11 @@ class ConversationService:
         )
 
     async def update_conversation(
-        self, conversation_id: UUID, user_id: str, tenant_id: str | None = None,
+        self, conversation_id: UUID, user_id: str,
         *, title: str | None = None, is_pinned: bool | None = None, delete: bool = False,
     ) -> dict[str, Any] | None:
         storage = self.runtime.require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
+        context = await self.resolve_user(user_id)
         if title is not None:
             title = " ".join(title.split()).strip()
             if not title or len(title) > 200:
@@ -174,12 +166,11 @@ class ConversationService:
         conversation_id: UUID,
         project_id: UUID,
         user_id: str,
-        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         """普通会话加入项目；成功后只使用原生项目会话的归属与工作区。"""
 
         storage = self.runtime.require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
+        context = await self.resolve_user(user_id)
         lock = await storage.try_advisory_lock(conversation_id)
         if lock is None:
             raise ConversationBusyError("会话正在运行，结束后再移动。")
@@ -276,14 +267,13 @@ class ConversationService:
         self,
         user_id: str,
         *,
-        tenant_id: str | None = None,
         limit: int,
         cursor: str | None,
         project_id: UUID | None = None,
         scope: str | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
         storage = self.runtime.require_ready()
-        context = await self.resolve_user(user_id, tenant_id)
+        context = await self.resolve_user(user_id)
         if project_id is not None and await storage.get_project(
             project_id,
             context.user_id,
@@ -302,14 +292,11 @@ class ConversationService:
         conversation_id: UUID,
         user_id: str,
         *,
-        tenant_id: str | None = None,
         limit: int,
         before_seq: int | None,
     ) -> dict[str, Any]:
         storage = self.runtime.require_ready()
-        # Conversation 只按 user_id + project_id 归属；tenant_id 仅用于
-        # 校验当前运行上下文并加载对应的 Tenant Memory。
-        context = await self.resolve_user(user_id, tenant_id)
+        context = await self.resolve_user(user_id)
         conversation, messages, next_before_seq = await storage.list_messages(
             conversation_id,
             context.user_id,

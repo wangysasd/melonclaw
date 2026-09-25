@@ -1,8 +1,5 @@
-/**
- * localStorage 持久化：保持既有键名，避免用户升级前端后本地状态丢失。
- */
+/** 开发页面的用户和会话选择。 */
 export const USER_STORAGE_KEY = "melonclaw.user_id.v3";
-export const TENANT_STORAGE_KEY = "melonclaw.tenant_id.v1";
 export const SIDEBAR_STORAGE_KEY = "melonclaw.sidebar_collapsed.v1";
 
 export const conversationStorageKey = (userId: string): string =>
@@ -11,9 +8,9 @@ export const conversationStorageKey = (userId: string): string =>
 export const projectStorageKey = (userId: string): string =>
   `melonclaw.project_id.${userId}`;
 
-/** 模型选择按用户+租户隔离，避免切换开发上下文后带入错误模型。 */
-export const modelStorageKey = (userId: string, tenantId: string): string =>
-  `melonclaw.model_id.${userId}.${tenantId}`;
+/** 一个用户只归属一个租户，模型选择按用户隔离。 */
+export const modelStorageKey = (userId: string): string =>
+  `melonclaw.model_id.${userId}`;
 
 export function readStorage(key: string): string | null {
   try {

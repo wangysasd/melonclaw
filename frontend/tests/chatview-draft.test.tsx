@@ -33,7 +33,6 @@ vi.mock("antd", async (importOriginal) => {
 const session = {
   users: [],
   userId: "u1",
-  tenantId: "t1",
   projectId: "",
   conversationId: "c1",
   contextReady: true,

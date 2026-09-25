@@ -4,23 +4,26 @@ from melonclaw.database.schema import (
     chat_attachments,
     chat_conversations,
     chat_messages,
+    metadata,
     projects,
     user_interactions,
-    user_tenants,
+    users,
 )
 
 
 def test_redundant_business_columns_are_not_persisted():
-    assert "id" not in user_tenants.c
+    assert "user_tenants" not in metadata.tables
     assert "kind" not in user_interactions.c
     assert "storage_key" not in chat_attachments.c
 
 
-def test_user_tenants_uses_natural_composite_primary_key():
-    assert {column.name for column in user_tenants.primary_key.columns} == {
-        "user_id",
-        "tenant_id",
+def test_user_has_one_required_tenant():
+    assert users.c.tenant_id.nullable is False
+    assert {fk.target_fullname for fk in users.c.tenant_id.foreign_keys} == {
+        "tenants.tenant_id"
     }
+    assert "tenant_role" in users.c
+    assert "tenant_status" in users.c
 
 
 def test_assistant_steps_are_embedded_in_chat_messages():

@@ -15,13 +15,11 @@ router = APIRouter()
 async def list_models(
     request: Request,
     user_id: str,
-    tenant_id: str | None = None,
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
         return JSONResponse(manager.status(), status_code=503)
     try:
-        return JSONResponse(await manager.models(user_id, tenant_id))
+        return JSONResponse(await manager.models(user_id))
     except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
         return error_response(exc)
-

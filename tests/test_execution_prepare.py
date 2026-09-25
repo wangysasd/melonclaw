@@ -42,7 +42,7 @@ def _service(storage: _Storage):
         calls.append("agent")
         return object()
 
-    async def resolve_user(user_id, tenant_id):
+    async def resolve_user(user_id):
         return SimpleNamespace(
             user_id=user_id,
             tenant_id="tenant",

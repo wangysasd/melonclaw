@@ -486,7 +486,6 @@ interface SendContext {
   epoch: number;
   conversationId: string;
   userId: string;
-  tenantId: string;
   projectId: string;
   modelId: string;
   skillId: string | null;
@@ -562,7 +561,6 @@ export function useChatStream({
     return (
       context.conversationId === current.conversationId &&
       context.userId === current.userId &&
-      context.tenantId === current.tenantId &&
       context.projectId === current.projectId
     );
   }, []);
@@ -942,7 +940,6 @@ export function useChatStream({
         return;
       }
       const startUserId = snapshot.userId;
-      const startTenantId = snapshot.tenantId;
       const startProjectId = snapshot.projectId;
       const startModelId = snapshot.selectedModelId || "";
       const startingConversationId = snapshot.conversationId;
@@ -960,7 +957,6 @@ export function useChatStream({
         !conversationId ||
         conversationId !== current.conversationId ||
         startUserId !== current.userId ||
-        startTenantId !== current.tenantId ||
         startProjectId !== current.projectId
       ) {
         if (localSubmissionId) sessionRef.current.cancelConversationSubmission(localSubmissionId);
@@ -973,7 +969,6 @@ export function useChatStream({
         epoch: current.epoch,
         conversationId,
         userId: current.userId,
-        tenantId: current.tenantId,
         projectId: current.projectId,
         modelId: startModelId,
         skillId,
@@ -1035,7 +1030,6 @@ export function useChatStream({
             conversationId,
             {
               userId: context.userId,
-              tenantId: context.tenantId,
               requestId,
               content: cleanText,
               modelId: context.modelId || null,
@@ -1073,7 +1067,6 @@ export function useChatStream({
         epoch: snapshot.epoch,
         conversationId,
         userId: snapshot.userId,
-        tenantId: snapshot.tenantId,
         projectId: snapshot.projectId,
         modelId: snapshot.selectedModelId || "",
         skillId: null,
@@ -1086,7 +1079,6 @@ export function useChatStream({
             conversationId,
             {
               userId: context.userId,
-              tenantId: context.tenantId,
               approvalBatchId,
               assistantMessageId,
               decisions,
@@ -1116,7 +1108,6 @@ export function useChatStream({
         epoch: snapshot.epoch,
         conversationId,
         userId: snapshot.userId,
-        tenantId: snapshot.tenantId,
         projectId: snapshot.projectId,
         modelId: snapshot.selectedModelId || "",
         skillId: null,
@@ -1129,7 +1120,6 @@ export function useChatStream({
             conversationId,
             {
               userId: context.userId,
-              tenantId: context.tenantId,
               interactionId: question.interaction_id,
               assistantMessageId: question.assistant_message_id,
               decisionRequestId: crypto.randomUUID(),
@@ -1215,7 +1205,6 @@ export function useChatStream({
           {
             conversationId: targetId,
             userId: snapshot.userId,
-            tenantId: snapshot.tenantId,
             limit: 50,
           },
           controller.signal,
@@ -1300,7 +1289,7 @@ export function useChatStream({
     void load();
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.conversationId, session.userId, session.tenantId, session.projectId, session.epoch, historyRevision]);
+  }, [session.conversationId, session.userId, session.projectId, session.epoch, historyRevision]);
 
   /**
    * 显式取消某会话的输出：abort 该会话的 SSE 流并乐观置 cancelled。

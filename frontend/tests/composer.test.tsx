@@ -41,7 +41,6 @@ const session = {
   status: { status: "ready" },
   projects: [{ id: "p", name: "项目" }],
   userId: "u1",
-  tenantId: "t1",
   projectId: "p1",
   conversationId: "c1",
   draftConversationId: null as string | null,
@@ -171,7 +170,6 @@ beforeEach(() => {
   session.draftConversationId = null;
   session.ensureConversation.mockReset();
   session.userId = "u1";
-  session.tenantId = "t1";
 
   vi.mocked(client.getAttachmentCapabilities).mockReset();
   vi.mocked(client.getAttachmentCapabilities).mockResolvedValue(capabilitiesPayload);
@@ -433,7 +431,6 @@ describe("composer", () => {
     await flush();
     expect(client.deleteAttachment).toHaveBeenCalledWith("a-a.txt", {
       userId: "u1",
-      tenantId: "t1",
       projectId: "p1",
     });
     expect(view.container.querySelector(".composer-attachments")).toBeNull();
@@ -450,7 +447,6 @@ describe("composer", () => {
     await flush();
     expect(client.retryAttachmentParse).toHaveBeenCalledWith("a1", {
       userId: "u1",
-      tenantId: "t1",
       projectId: "p1",
       conversationId: null,
     });

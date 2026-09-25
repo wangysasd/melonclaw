@@ -34,7 +34,6 @@ import type {
   ServiceStatus,
 } from "../types/api";
 import {
-  TENANT_STORAGE_KEY,
   USER_STORAGE_KEY,
   conversationStorageKey,
   modelStorageKey,
@@ -73,7 +72,6 @@ export interface SessionState {
   conversationCursor: string | null;
   recentsCursor: string | null;
   userId: string;
-  tenantId: string;
   projectId: string;
   conversationId: string | null;
   /** 已建库但尚未发送首条消息的会话；侧栏列表此时仍不展示它。 */
@@ -83,7 +81,7 @@ export interface SessionState {
   activeLocalSubmissionId: string | null;
   /** 首条消息落库时递增，通知侧栏刷新展开的非当前项目。 */
   conversationListRevision: number;
-  /** projects 加载成功，用户/租户上下文就绪。 */
+  /** projects 加载成功，用户上下文就绪。 */
   contextReady: boolean;
   /** 有流式请求进行中（聊天流与审批恢复置位）。 */
   busy: boolean;
@@ -102,7 +100,6 @@ type SessionAction =
       type: "bootstrapUsers";
       users: DevUser[];
       userId: string;
-      tenantId: string;
     }
   | { type: "bootstrapProjects"; projects: Project[]; projectId: string }
   | { type: "conversationsLoading" }
@@ -136,7 +133,7 @@ type SessionAction =
   | { type: "projectConversationSelected"; projectId: string; conversationId: string }
   | { type: "recentSelected"; conversationId: string }
   | { type: "conversationSelected"; conversationId: string | null }
-  | { type: "userSwitched"; userId: string; tenantId: string; resetContext: boolean }
+  | { type: "userSwitched"; userId: string; resetContext: boolean }
   | { type: "conversationCreated"; conversation: ConversationSummary }
   | { type: "conversationSubmitted"; conversation: ConversationSummary & { localOnly?: boolean } }
   | { type: "conversationSubmissionIdentified"; localId: string; conversationId: string }
@@ -170,7 +167,6 @@ const INITIAL_STATE: SessionState = {
   conversationCursor: null,
   recentsCursor: null,
   userId: readStorage(USER_STORAGE_KEY) ?? "",
-  tenantId: readStorage(TENANT_STORAGE_KEY) ?? "",
   projectId: "",
   conversationId: null,
   draftConversationId: null,
@@ -194,7 +190,6 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
         ...state,
         users: action.users,
         userId: action.userId,
-        tenantId: action.tenantId,
       };
     case "bootstrapProjects":
       return {
@@ -326,7 +321,6 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       return {
         ...state,
         userId: action.userId,
-        tenantId: action.tenantId,
         contextReady: false,
         optimisticConversations: [],
         activeLocalSubmissionId: null,
@@ -427,16 +421,10 @@ export function deriveRunStatus(state: SessionState): RunStatus {
   return "ready";
 }
 
-function tenantCandidates(user: DevUser | null): string[] {
-  if (!user) return [];
-  if (user.tenant_ids.length > 0) return [...user.tenant_ids];
-  return user.tenant_id ? [user.tenant_id] : [];
-}
-
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export interface SessionContextValue extends SessionState {
-  getCurrentContext: () => Pick<SessionState, "conversationId" | "draftConversationId" | "projectId" | "userId" | "tenantId" | "epoch">;
+  getCurrentContext: () => Pick<SessionState, "conversationId" | "draftConversationId" | "projectId" | "userId" | "epoch">;
   changeUser: (userId: string) => Promise<void>;
   openProject: (projectId: string) => Promise<void>;
   openProjectConversation: (projectId: string, conversationId: string) => void;
@@ -495,8 +483,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const getCurrentContext = useCallback(() => {
-    const { conversationId, draftConversationId, projectId, userId, tenantId, epoch } = stateRef.current;
-    return { conversationId, draftConversationId, projectId, userId, tenantId, epoch };
+    const { conversationId, draftConversationId, projectId, userId, epoch } = stateRef.current;
+    return { conversationId, draftConversationId, projectId, userId, epoch };
   }, []);
 
   const bumpGeneration = useCallback(() => {
@@ -508,14 +496,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const contextMatches = useCallback(
     (generation: number, ctx: {
       userId?: string;
-      tenantId?: string;
       projectId?: string;
       conversationId?: string | null;
     }): boolean => {
       const current = stateRef.current;
       if (generation !== generationRef.current) return false;
       if (ctx.userId !== undefined && ctx.userId !== current.userId) return false;
-      if (ctx.tenantId !== undefined && ctx.tenantId !== current.tenantId) return false;
       if (ctx.projectId !== undefined && ctx.projectId !== current.projectId) return false;
       if (
         ctx.conversationId !== undefined &&
@@ -583,7 +569,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const { append = false, refreshOnly = false, autoSelect = false } = options;
       const snapshot = stateRef.current;
       const generation = generationRef.current;
-      const { userId, tenantId, projectId } = snapshot;
+      const { userId, projectId } = snapshot;
       const cursor = append ? snapshot.conversationCursor : null;
       dataControllerRef.current?.abort();
       const controller = new AbortController();
@@ -593,7 +579,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const data = await listConversations(
           {
             userId,
-            tenantId,
             projectId: projectId || null,
             scope: projectId ? undefined : "unassigned",
             limit: 10,
@@ -602,7 +587,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           controller.signal,
         );
         if (
-          !contextMatches(generation, { userId, tenantId, projectId })
+          !contextMatches(generation, { userId, projectId })
         ) {
           return;
         }
@@ -627,7 +612,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
-        if (contextMatches(generation, { userId, tenantId, projectId })) {
+        if (contextMatches(generation, { userId, projectId })) {
           dispatchSync({ type: "conversationsLoadFailed" });
           message.error(error instanceof Error ? error.message : String(error));
         }
@@ -642,10 +627,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const loadProjectsInternal = useCallback(async () => {
     const generation = generationRef.current;
-    const { userId, tenantId } = stateRef.current;
+    const { userId } = stateRef.current;
     try {
-      const data = await listProjects({ userId, tenantId });
-      if (!contextMatches(generation, { userId, tenantId })) return;
+      const data = await listProjects({ userId });
+      if (!contextMatches(generation, { userId })) return;
       const saved = readStorage(projectStorageKey(userId)) ?? "";
       // 记忆项目失效时不做 is_default 回退，留空由发消息兜底。
       const projectId = data.items.some((project) => project.id === saved)
@@ -666,17 +651,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const loadRecentsInternal = useCallback(
     async (append = false) => {
       const generation = generationRef.current;
-      const { userId, tenantId } = stateRef.current;
+      const { userId } = stateRef.current;
       const cursor = append ? stateRef.current.recentsCursor : null;
       try {
         const data = await listConversations({
           userId,
-          tenantId,
           scope: "unassigned",
           limit: 10,
           cursor,
         });
-        if (!contextMatches(generation, { userId, tenantId })) return;
+        if (!contextMatches(generation, { userId })) return;
         dispatchSync({
           type: "recentsLoaded",
           append,
@@ -685,7 +669,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         });
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        if (contextMatches(generation, { userId, tenantId })) {
+        if (contextMatches(generation, { userId })) {
           message.error(error instanceof Error ? error.message : String(error));
         }
       }
@@ -695,11 +679,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const loadModelsInternal = useCallback(async () => {
     const generation = generationRef.current;
-    const { userId, tenantId } = stateRef.current;
+    const { userId } = stateRef.current;
     try {
-      const data = await listModels({ userId, tenantId });
-      if (!contextMatches(generation, { userId, tenantId })) return;
-      const saved = readStorage(modelStorageKey(userId, tenantId)) ?? "";
+      const data = await listModels({ userId });
+      if (!contextMatches(generation, { userId })) return;
+      const saved = readStorage(modelStorageKey(userId)) ?? "";
       const availableItems = data.items.filter((item) => item.available);
       const selectedModelId = data.items.some(
         (item) => item.id === saved && item.available,
@@ -710,7 +694,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             )
           ? data.default_model_id
           : availableItems[0]?.id || "";
-      writeStorage(modelStorageKey(userId, tenantId), selectedModelId);
+      writeStorage(modelStorageKey(userId), selectedModelId);
       dispatchSync({
         type: "modelsLoaded",
         items: data.items,
@@ -718,7 +702,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      if (contextMatches(generation, { userId, tenantId })) {
+      if (contextMatches(generation, { userId })) {
         message.error(error instanceof Error ? error.message : String(error));
       }
     }
@@ -743,17 +727,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const snapshot = stateRef.current;
       abortActiveRequests();
       bumpGeneration();
-      const selected =
-        snapshot.users.find((user) => user.user_id === userId) ?? null;
-      const candidates = tenantCandidates(selected);
-      const previousTenantId = snapshot.tenantId;
-      const tenantId = candidates.includes(previousTenantId)
-        ? previousTenantId
-        : selected?.default_tenant_id || candidates[0] || "";
-      const tenantChanged = userId !== snapshot.userId || tenantId !== previousTenantId;
+      const userChanged = userId !== snapshot.userId;
       writeStorage(USER_STORAGE_KEY, userId);
-      writeStorage(TENANT_STORAGE_KEY, tenantId);
-      dispatchSync({ type: "userSwitched", userId, tenantId, resetContext: tenantChanged });
+      dispatchSync({ type: "userSwitched", userId, resetContext: userChanged });
       try {
         await Promise.all([loadModelsInternal(), loadProjectsInternal()]);
         await Promise.all([
@@ -851,16 +827,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return null;
       }
       const generation = generationRef.current;
-      const { userId, tenantId } = snapshot;
+      const { userId } = snapshot;
       try {
         const project = await apiCreateProject({
           userId,
-          tenantId,
           name: cleanName,
         });
-        if (!contextMatches(generation, { userId, tenantId })) return null;
+        if (!contextMatches(generation, { userId })) return null;
         await loadProjectsInternal();
-        if (!contextMatches(generation, { userId, tenantId })) return null;
+        if (!contextMatches(generation, { userId })) return null;
         if (options?.openAfterCreate !== false) await openProject(project.id);
         return project;
       } catch (error) {
@@ -875,9 +850,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   const updateProject = useCallback(async (id: string, changes: { name?: string; isPinned?: boolean }) => {
-    const { userId, tenantId } = stateRef.current;
+    const { userId } = stateRef.current;
     try {
-      await apiUpdateProject(id, { userId, tenantId, ...changes });
+      await apiUpdateProject(id, { userId, ...changes });
       await loadProjectsInternal();
       return true;
     } catch (error) {
@@ -887,9 +862,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [loadProjectsInternal, message]);
 
   const deleteProject = useCallback(async (id: string) => {
-    const { userId, tenantId, projectId } = stateRef.current;
+    const { userId, projectId } = stateRef.current;
     try {
-      await apiDeleteProject(id, { userId, tenantId });
+      await apiDeleteProject(id, { userId });
       if (projectId === id) {
         abortActiveDataRequests();
         bumpGeneration();
@@ -907,9 +882,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [abortActiveDataRequests, bumpGeneration, dispatchSync, loadConversationsInternal, loadProjectsInternal, message]);
 
   const updateConversation = useCallback(async (id: string, changes: { name?: string; isPinned?: boolean }) => {
-    const { userId, tenantId } = stateRef.current;
+    const { userId } = stateRef.current;
     try {
-      await apiUpdateConversation(id, { userId, tenantId, ...changes });
+      await apiUpdateConversation(id, { userId, ...changes });
       await Promise.all([
         loadConversationsInternal({ refreshOnly: true }),
         loadRecentsInternal(),
@@ -924,11 +899,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const moveConversationToProject = useCallback(async (id: string, projectId: string) => {
     const snapshot = stateRef.current;
     if (!snapshot.projects.some((project) => project.id === projectId)) return false;
-    const { userId, tenantId } = snapshot;
+    const { userId } = snapshot;
     try {
-      await apiMoveConversationToProject(id, { userId, tenantId, projectId });
+      await apiMoveConversationToProject(id, { userId, projectId });
       const current = stateRef.current;
-      if (current.userId !== userId || current.tenantId !== tenantId) return true;
+      if (current.userId !== userId) return true;
       dispatchSync({ type: "conversationMoved" });
       if (current.conversationId === id && !current.projectId) openProjectConversation(projectId, id);
       await Promise.all([
@@ -944,9 +919,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [dispatchSync, loadConversationsInternal, loadRecentsInternal, message, openProjectConversation]);
 
   const deleteConversation = useCallback(async (id: string) => {
-    const { userId, tenantId, conversationId } = stateRef.current;
+    const { userId, conversationId } = stateRef.current;
     try {
-      await apiDeleteConversation(id, { userId, tenantId });
+      await apiDeleteConversation(id, { userId });
       if (conversationId === id) {
         bumpGeneration();
         writeStorage(conversationStorageKey(userId), "");
@@ -1014,15 +989,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     const projectId = snapshot.projectId;
     const generation = bumpGeneration();
-    const { userId, tenantId } = snapshot;
+    const { userId } = snapshot;
     dispatchSync({ type: "creating", creating: true });
     try {
       const conversation = await apiCreateConversation({
         userId,
-        tenantId,
         projectId: projectId || null,
       });
-      if (!contextMatches(generation, { userId, tenantId, projectId })) {
+      if (!contextMatches(generation, { userId, projectId })) {
         return null;
       }
       writeStorage(conversationStorageKey(userId), conversation.id);
@@ -1106,7 +1080,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const snapshot = stateRef.current;
     const option = snapshot.modelOptions.find((item) => item.id === modelId);
     if (!option || !option.available) return;
-    writeStorage(modelStorageKey(snapshot.userId, snapshot.tenantId), modelId);
+    writeStorage(modelStorageKey(snapshot.userId), modelId);
     dispatchSync({
       type: "modelsLoaded",
       items: snapshot.modelOptions,
@@ -1162,14 +1136,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           users[0] ??
           null;
         const userId = selected?.user_id ?? "";
-        const candidates = tenantCandidates(selected);
-        let tenantId = stateRef.current.tenantId;
-        if (!candidates.includes(tenantId)) {
-          tenantId = selected?.default_tenant_id || candidates[0] || "";
-        }
         writeStorage(USER_STORAGE_KEY, userId);
-        writeStorage(TENANT_STORAGE_KEY, tenantId);
-        dispatchSync({ type: "bootstrapUsers", users, userId, tenantId });
+        dispatchSync({ type: "bootstrapUsers", users, userId });
 
         await Promise.all([
           loadModelsInternal(),

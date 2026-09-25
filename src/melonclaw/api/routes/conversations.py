@@ -28,7 +28,7 @@ async def move_conversation_to_project(
         return JSONResponse(manager.status(), status_code=503)
     try:
         moved = await manager.move_conversation_to_project(
-            conversation_id, payload.project_id, payload.user_id, payload.tenant_id,
+            conversation_id, payload.project_id, payload.user_id,
         )
         return JSONResponse(moved)
     except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
@@ -44,7 +44,7 @@ async def update_conversation(request: Request, conversation_id: UUID, payload: 
         if payload.name is None and payload.is_pinned is None:
             raise ValueError("请提供名称或置顶状态。")
         return JSONResponse(await manager.update_conversation(
-            conversation_id, payload.user_id, payload.tenant_id,
+            conversation_id, payload.user_id,
             title=payload.name, is_pinned=payload.is_pinned,
         ))
     except Exception as exc:  # noqa: BLE001
@@ -52,12 +52,12 @@ async def update_conversation(request: Request, conversation_id: UUID, payload: 
 
 
 @router.delete("/api/conversations/{conversation_id}")
-async def delete_conversation(request: Request, conversation_id: UUID, user_id: str, tenant_id: str | None = None) -> JSONResponse:
+async def delete_conversation(request: Request, conversation_id: UUID, user_id: str) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
         return JSONResponse(manager.status(), status_code=503)
     try:
-        await manager.update_conversation(conversation_id, user_id, tenant_id, delete=True)
+        await manager.update_conversation(conversation_id, user_id, delete=True)
         return JSONResponse({"deleted": True})
     except Exception as exc:  # noqa: BLE001
         return error_response(exc)
@@ -76,7 +76,6 @@ async def create_conversation(
             await manager.create_conversation(
                 payload.user_id,
                 payload.project_id,
-                payload.tenant_id,
             ),
             status_code=201,
         )
@@ -88,7 +87,6 @@ async def create_conversation(
 async def list_conversations(
     request: Request,
     user_id: str,
-    tenant_id: str | None = None,
     limit: int = Query(default=10, ge=1, le=100),
     cursor: str | None = None,
     project_id: UUID | None = None,
@@ -102,7 +100,6 @@ async def list_conversations(
     try:
         items, next_cursor = await manager.list_conversations(
             user_id,
-            tenant_id=tenant_id,
             limit=limit,
             cursor=cursor,
             project_id=project_id,
@@ -118,7 +115,6 @@ async def conversation_history(
     request: Request,
     conversation_id: UUID,
     user_id: str,
-    tenant_id: str | None = None,
     limit: int = Query(default=50, ge=1, le=100),
     before_seq: int | None = Query(default=None, ge=1),
 ) -> JSONResponse:
@@ -129,7 +125,6 @@ async def conversation_history(
         result = await manager.history(
             conversation_id,
             user_id,
-            tenant_id=tenant_id,
             limit=limit,
             before_seq=before_seq,
         )

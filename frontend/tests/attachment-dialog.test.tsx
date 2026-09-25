@@ -61,7 +61,6 @@ function renderDialog(
       initialFiles={[]}
       capabilities={capabilities}
       userId="u1"
-      tenantId="t1"
       projectId="p1"
       existingCount={0}
       existingTotalBytes={0}
@@ -148,7 +147,6 @@ describe("attachment dialog", () => {
     expect(screen.queryByText("a.txt")).toBeNull();
     expect(client.deleteAttachment).toHaveBeenCalledWith("a-a.txt", {
       userId: "u1",
-      tenantId: "t1",
       projectId: "p1",
     });
   });
@@ -175,7 +173,6 @@ describe("attachment dialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(client.deleteAttachment).toHaveBeenCalledWith("a-a.txt", {
       userId: "u1",
-      tenantId: "t1",
       projectId: "p1",
     });
     expect(onConfirm).not.toHaveBeenCalled();

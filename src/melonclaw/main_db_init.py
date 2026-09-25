@@ -18,6 +18,7 @@ from melonclaw.database import (
     open_memory_store,
 )
 from melonclaw.repository import seed_demo_data
+from melonclaw.repository.errors import SeedDataConflictError
 
 
 async def initialize_database() -> None:
@@ -55,6 +56,7 @@ def main() -> None:
         DatabaseConfigurationError,
         DatabaseSchemaError,
         DatabaseUnavailableError,
+        SeedDataConflictError,
     ) as exc:
         print(f"数据库初始化失败：{exc}", file=sys.stderr)
         raise SystemExit(1) from exc

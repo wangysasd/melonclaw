@@ -33,7 +33,6 @@ async def submit_approval(
             conversation_id,
             payload.user_id,
             payload.decisions,
-            payload.tenant_id,
             approval_batch_id=payload.approval_batch_id,
             assistant_message_id=payload.assistant_message_id,
         )

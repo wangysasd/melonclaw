@@ -114,7 +114,6 @@ class UserInputExecutionService:
         assistant_message_id: UUID,
         decision_request_id: str,
         answer: Any,
-        tenant_id: str | None = None,
         *,
         allow_expired: bool = False,
     ) -> tuple[PreparedExecution, Any, dict[str, Any]] | dict[str, Any]:
@@ -124,7 +123,7 @@ class UserInputExecutionService:
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             raise ConversationNotFoundError
-        context = await conversations.resolve_user(user_id, tenant_id)
+        context = await conversations.resolve_user(user_id)
         stored_interaction = await storage.get_user_interaction(
             conversation_id,
             context.user_id,
@@ -293,7 +292,6 @@ class UserInputExecutionService:
         self,
         conversation_id: UUID,
         user_id: str,
-        tenant_id: str | None = None,
     ) -> bool:
         """发新消息前一次判断并收尾挂起的提问，正常 waiting 卡片保持不动。
 
@@ -312,13 +310,12 @@ class UserInputExecutionService:
         reason = _cancel_reason(candidate)
         if candidate is None or reason is None:
             return False
-        return await self.cancel(conversation_id, user_id, tenant_id, reason, candidate)
+        return await self.cancel(conversation_id, user_id, reason, candidate)
 
     async def cancel(
         self,
         conversation_id: UUID,
         user_id: str,
-        tenant_id: str | None,
         reason: CancelReason,
         candidate: dict[str, Any],
     ) -> bool:
@@ -336,7 +333,6 @@ class UserInputExecutionService:
         prepared = await self._prepare_cancel(
             conversation_id,
             user_id,
-            tenant_id,
             reason,
             candidate,
         )
@@ -348,7 +344,6 @@ class UserInputExecutionService:
         self,
         conversation_id: UUID,
         user_id: str,
-        tenant_id: str | None,
         reason: CancelReason,
         candidate: dict[str, Any],
     ) -> tuple[PreparedExecution, Any, dict[str, Any]] | dict[str, Any] | None:
@@ -359,7 +354,7 @@ class UserInputExecutionService:
         conversation = await storage.get_conversation(conversation_id, user_id)
         if conversation is None:
             return None
-        context = await conversations.resolve_user(user_id, tenant_id)
+        context = await conversations.resolve_user(user_id)
         if policy.assistant == "latest":
             assistant = await storage.get_latest_assistant(
                 conversation_id,
@@ -450,7 +445,6 @@ class UserInputExecutionService:
             UUID(assistant["id"]),
             str(uuid4()),
             dict(CANCEL_ANSWER),
-            context.tenant_id,
             allow_expired=True,
         )
 

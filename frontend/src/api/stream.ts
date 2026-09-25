@@ -36,7 +36,6 @@ export function sendMessageStream(
     `/api/conversations/${encodeURIComponent(conversationId)}/messages`,
     {
       user_id: input.userId,
-      tenant_id: input.tenantId ?? null,
       request_id: input.requestId,
       content: input.content,
       model_id: input.modelId ?? null,
@@ -57,7 +56,6 @@ export function sendApprovalStream(
     `/api/conversations/${encodeURIComponent(conversationId)}/approval`,
     {
       user_id: input.userId,
-      tenant_id: input.tenantId ?? null,
       approval_batch_id: input.approvalBatchId,
       assistant_message_id: input.assistantMessageId,
       decisions: input.decisions,
@@ -75,7 +73,6 @@ export function sendUserInputStream(
     `/api/conversations/${encodeURIComponent(conversationId)}/user-input`,
     {
       user_id: input.userId,
-      tenant_id: input.tenantId ?? null,
       interaction_id: input.interactionId,
       assistant_message_id: input.assistantMessageId,
       decision_request_id: input.decisionRequestId,

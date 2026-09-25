@@ -1,7 +1,7 @@
 # MelonClaw 开发约定
 
 MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可运行能力、清晰边界和可验证结果展开。
-
+注意不要写兼容性代码，现在是开发阶段，可以清空数据库历史数据。
 本文件是**地图**，不是说明书。先在下面定位，再去对应文档读细节；不要指望本文件包含全部细节。
 
 ## 知识地图
@@ -50,7 +50,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 - 文件写入、删除、Shell 执行、外部写操作和其他有副作用的工具必须明确经过 HITL 或受控权限边界。
 - PTC/Interpreter 只允许加入已经确认无需逐次审批且副作用明确受限的工具；不能因为主 Agent 配置了 HITL 就把写文件、Shell、数据库写入、发消息、交易或部署工具放入 PTC。
 - 任何新增工具都要说明输入校验、权限范围、错误处理、敏感信息脱敏和是否进入审批清单；进入审批清单的工具在 `core/hitl.py` 中登记，不进清单的要写明理由。
-- Web 的 `user_id`、`tenant_id`、Project 和 Conversation 不能只依赖浏览器提交值；服务层必须重新校验用户租户成员关系、Project 和 Conversation 归属。Conversation 只归属 `user_id + project_id`，`tenant_id` 只属于当前请求运行上下文。开发模拟用户不能被描述成生产认证系统。
+- Web 的 `user_id` 是开发模拟身份；服务层必须从用户记录解析唯一且有效的租户归属，并重新校验 Project、Conversation 和附件归属。Conversation 只归属 `user_id + project_id`，`tenant_id` 由服务端解析后用于 Agent 和 Memory 运行上下文。开发模拟用户不能被描述成生产认证系统。
 - 当前 `LocalShellBackend` 不是安全沙箱。若新增面向共享环境的能力，必须说明隔离方案、授权边界和部署限制。
 - 不依赖上游框架按类型自动推断模型能力。涉及多模态、文件类型、工具权限的判断必须由本仓库显式声明，原因见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 第 5.2 节。
 

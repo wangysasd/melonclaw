@@ -470,10 +470,10 @@ class _CancelHarness:
         self.calls.append("agent_for_conversation")
         return SimpleNamespace(capabilities=capabilities or ())
 
-    async def _resolve_user(self, user_id, tenant_id=None):
+    async def _resolve_user(self, user_id):
         return SimpleNamespace(
             user_id=user_id,
-            tenant_id=tenant_id or "tenant-1",
+            tenant_id="tenant-1",
             tenant_name_zh="默认租户",
             tenant_role="owner",
             tenant_status="active",
@@ -808,8 +808,8 @@ def test_busy_conversation_is_rejected_before_any_write():
             raise AssertionError("会话忙时不应写入账本")
 
     class _Conversations:
-        async def resolve_user(self, user_id, tenant_id=None):
-            return SimpleNamespace(user_id=user_id, tenant_id=tenant_id or "tenant-1")
+        async def resolve_user(self, user_id):
+            return SimpleNamespace(user_id=user_id, tenant_id="tenant-1")
 
         async def project_for_conversation(self, storage, conversation, context):
             return {"id": "project-1", "name": "p", "workdir_path": "p1"}

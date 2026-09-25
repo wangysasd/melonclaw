@@ -37,29 +37,15 @@ users = Table(
     "users",
     metadata,
     Column("user_id", String(64), primary_key=True),
-    Column("user_name_zh", String(3), nullable=False),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-)
-
-user_tenants = Table(
-    "user_tenants",
-    metadata,
-    Column(
-        "user_id",
-        String(64),
-        ForeignKey("users.user_id", ondelete="CASCADE"),
-        nullable=False,
-        primary_key=True,
-    ),
     Column(
         "tenant_id",
         String(64),
         ForeignKey("tenants.tenant_id", ondelete="RESTRICT"),
         nullable=False,
-        primary_key=True,
     ),
-    Column("status", String(16), nullable=False, server_default="active"),
-    Column("role", String(32), nullable=False, server_default="member"),
+    Column("user_name_zh", String(3), nullable=False),
+    Column("tenant_role", String(32), nullable=False, server_default="member"),
+    Column("tenant_status", String(16), nullable=False, server_default="active"),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 

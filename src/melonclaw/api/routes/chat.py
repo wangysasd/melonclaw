@@ -35,7 +35,6 @@ async def send_message(
             str(payload.request_id),
             payload.content,
             model_id=payload.model_id,
-            tenant_id=payload.tenant_id,
             skill_id=payload.skill_id,
             attachment_ids=payload.attachment_ids,
             capabilities=payload.capabilities,

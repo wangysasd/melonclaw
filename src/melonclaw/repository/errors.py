@@ -3,6 +3,16 @@
 from __future__ import annotations
 
 
+class SeedDataConflictError(RuntimeError):
+    """演示种子与数据库中已有的固定归属冲突。"""
+
+    def __init__(self, user_id: str) -> None:
+        super().__init__(
+            f"演示用户 {user_id!r} 的租户归属与种子数据不一致；"
+            "请清空数据库后重新初始化。"
+        )
+
+
 class ConversationNotFoundError(LookupError):
     """会话不存在或不属于请求中的 user_id。"""
 

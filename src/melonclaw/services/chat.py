@@ -114,12 +114,8 @@ class ChatService:
     def status(self) -> dict[str, Any]:
         return self.runtime.status()
 
-    async def resolve_user(
-        self,
-        user_id: str,
-        tenant_id: str | None = None,
-    ) -> UserContext:
-        return await self.conversations.resolve_user(user_id, tenant_id)
+    async def resolve_user(self, user_id: str) -> UserContext:
+        return await self.conversations.resolve_user(user_id)
 
     async def users(self) -> dict[str, Any]:
         return await self.conversations.users()
@@ -127,11 +123,10 @@ class ChatService:
     async def models(
         self,
         user_id: str,
-        tenant_id: str | None = None,
     ) -> dict[str, Any]:
-        """校验当前用户租户上下文后返回系统模型目录。"""
+        """校验用户的唯一租户归属后返回系统模型目录。"""
 
-        await self.conversations.resolve_user(user_id, tenant_id)
+        await self.conversations.resolve_user(user_id)
         return self.runtime.models()
 
     def skills(self) -> dict[str, Any]:
@@ -158,58 +153,52 @@ class ChatService:
         self,
         user_id: str,
         name: str,
-        tenant_id: str | None = None,
     ) -> dict[str, Any]:
-        return await self.conversations.create_project(user_id, name, tenant_id)
+        return await self.conversations.create_project(user_id, name)
 
     async def list_projects(
         self,
         user_id: str,
-        tenant_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        return await self.conversations.list_projects(user_id, tenant_id)
+        return await self.conversations.list_projects(user_id)
 
     async def update_project(
-        self, project_id: UUID, user_id: str, tenant_id: str | None = None,
+        self, project_id: UUID, user_id: str,
         *, name: str | None = None, is_pinned: bool | None = None, delete: bool = False,
     ) -> dict[str, Any] | None:
         return await self.conversations.update_project(
-            project_id, user_id, tenant_id, name=name, is_pinned=is_pinned, delete=delete,
+            project_id, user_id, name=name, is_pinned=is_pinned, delete=delete,
         )
 
     async def update_conversation(
-        self, conversation_id: UUID, user_id: str, tenant_id: str | None = None,
+        self, conversation_id: UUID, user_id: str,
         *, title: str | None = None, is_pinned: bool | None = None, delete: bool = False,
     ) -> dict[str, Any] | None:
         return await self.conversations.update_conversation(
-            conversation_id, user_id, tenant_id, title=title, is_pinned=is_pinned, delete=delete,
+            conversation_id, user_id, title=title, is_pinned=is_pinned, delete=delete,
         )
 
     async def move_conversation_to_project(
         self, conversation_id: UUID, project_id: UUID, user_id: str,
-        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         return await self.conversations.move_conversation_to_project(
-            conversation_id, project_id, user_id, tenant_id,
+            conversation_id, project_id, user_id,
         )
 
     async def create_conversation(
         self,
         user_id: str,
         project_id: UUID | None = None,
-        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         return await self.conversations.create_conversation(
             user_id,
             project_id,
-            tenant_id,
         )
 
     async def list_conversations(
         self,
         user_id: str,
         *,
-        tenant_id: str | None = None,
         limit: int,
         cursor: str | None,
         project_id: UUID | None = None,
@@ -217,7 +206,6 @@ class ChatService:
     ) -> tuple[list[dict[str, Any]], str | None]:
         return await self.conversations.list_conversations(
             user_id,
-            tenant_id=tenant_id,
             limit=limit,
             cursor=cursor,
             project_id=project_id,
@@ -229,14 +217,12 @@ class ChatService:
         conversation_id: UUID,
         user_id: str,
         *,
-        tenant_id: str | None = None,
         limit: int,
         before_seq: int | None,
     ) -> dict[str, Any]:
         return await self.conversations.history(
             conversation_id,
             user_id,
-            tenant_id=tenant_id,
             limit=limit,
             before_seq=before_seq,
         )
@@ -248,19 +234,17 @@ class ChatService:
         request_id: str,
         content: str,
         model_id: str | None = None,
-        tenant_id: str | None = None,
         skill_id: str | None = None,
         attachment_ids: list[UUID] | None = None,
         capabilities: list[str] | None = None,
     ) -> PreparedExecution:
-        await self._release_stale_user_interaction(conversation_id, user_id, tenant_id)
+        await self._release_stale_user_interaction(conversation_id, user_id)
         return await self.execution.prepare_message(
             conversation_id,
             user_id,
             request_id,
             content,
             model_id=model_id,
-            tenant_id=tenant_id,
             skill_id=skill_id,
             attachment_ids=attachment_ids,
             capabilities=capabilities,
@@ -270,7 +254,6 @@ class ChatService:
         self,
         conversation_id: UUID,
         user_id: str,
-        tenant_id: str | None,
     ) -> None:
         """发新消息前一次判断并收尾过期问题或待人工结束的失败轮次。"""
 
@@ -278,7 +261,6 @@ class ChatService:
             await self.user_input.cancel_before_new_message(
                 conversation_id,
                 user_id,
-                tenant_id,
             )
         except Exception:  # noqa: BLE001 - 自动解锁失败不应阻塞新消息
             logger.warning(
@@ -292,7 +274,6 @@ class ChatService:
         conversation_id: UUID,
         user_id: str,
         decisions: Any,
-        tenant_id: str | None = None,
         *,
         approval_batch_id: UUID | None = None,
         assistant_message_id: UUID | None = None,
@@ -301,7 +282,6 @@ class ChatService:
             conversation_id,
             user_id,
             decisions,
-            tenant_id,
             approval_batch_id=approval_batch_id,
             assistant_message_id=assistant_message_id,
         )
@@ -314,7 +294,6 @@ class ChatService:
         assistant_message_id: UUID,
         decision_request_id: str,
         answer: Any,
-        tenant_id: str | None = None,
     ):
         return await self.user_input.prepare(
             conversation_id,
@@ -323,7 +302,6 @@ class ChatService:
             assistant_message_id,
             decision_request_id,
             answer,
-            tenant_id,
         )
 
     async def stream_execution(
