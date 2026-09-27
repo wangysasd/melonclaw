@@ -30,7 +30,7 @@ async def attachment_capabilities(request: Request) -> JSONResponse:
 
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     return JSONResponse(manager.attachment_capabilities())
 
 
@@ -44,7 +44,7 @@ async def upload_attachment(
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         resolved_user = resolve_request_user_id(request, user_id)
         result = await manager.attachments.upload(
@@ -70,7 +70,7 @@ async def upload_conversation_attachment(
 
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         resolved_user = resolve_request_user_id(request, user_id)
         result = await manager.attachments.upload(
@@ -95,7 +95,7 @@ async def attachment_metadata(
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         resolved_user = resolve_request_user_id(request, user_id)
         result = await manager.attachments.metadata(
@@ -119,7 +119,7 @@ async def attachment_content(
 ) -> FileResponse | JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         resolved_user = resolve_request_user_id(request, user_id)
         path, metadata = await manager.attachments.content_path(
@@ -150,7 +150,7 @@ async def retry_attachment_parse(
 
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         resolved_user = resolve_request_user_id(request, user_id)
         result = await manager.attachments.retry_parse(
@@ -174,7 +174,7 @@ async def delete_attachment(
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         resolved_user = resolve_request_user_id(request, user_id)
         result = await manager.attachments.delete(

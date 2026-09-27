@@ -173,7 +173,7 @@ class UserInputExecutionService:
             context.user_id,
             assistant["request_id"],
         )
-        model = runtime.model_for_message(assistant)
+        model = await runtime.model_for_message(context.user_id, assistant)
         agent = await runtime.agent_for_conversation(
             conversation,
             project,
@@ -386,7 +386,7 @@ class UserInputExecutionService:
         agent = await runtime.agent_for_conversation(
             conversation,
             project,
-            runtime.model_for_message(assistant),
+            await runtime.model_for_message(context.user_id, assistant),
             runtime.capabilities_for_message(
                 request_record.user_message if request_record is not None else None
             ),

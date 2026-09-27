@@ -19,10 +19,6 @@ from langgraph.store.base import BaseStore
 from melonclaw.core.defaults import resolve_agent_env
 from melonclaw.memory.service import namespace_for_context
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-PROJECT_SKILLS_DIR = PROJECT_ROOT / "skills"
-SKILLS_ROUTE = "/skills/"
-
 
 def _build_shell_env() -> dict[str, str]:
     """构造 Shell 子进程环境：PATH 加代码默认层解析出的变量。
@@ -49,13 +45,15 @@ def build_agent_backend(
     memory_store: BaseStore | None = None,
     installation_id: str = "local",
     agent_id: str = "quickstart-research-agent",
+    skill_dirs: tuple[tuple[str, Path], ...] = (),
 ) -> tuple[BackendProtocol, list[str], list[FilesystemPermission]]:
-    """构造指定工作区，并把虚拟 ``/skills/`` 路由到项目源目录。
+    """构造指定工作区，并把虚拟 Skill 路由挂到调用方给出的目录。
 
-    普通文件操作和 Shell 命令使用调用方提供的持久工作区。项目 Skill 通过
-    ``CompositeBackend`` 的独立路由直接读取仓库根目录下的 ``skills/``，不在
-    工作区中创建副本。DeepAgents 0.7 要求传入已经构造好的 Backend 实例，但
-    不影响使用 ``CompositeBackend`` 做路径路由。
+    普通文件操作和 Shell 命令使用调用方提供的持久工作区。Skill 通过
+    ``CompositeBackend`` 的独立路由只读挂载，不在工作区中创建副本；挂哪些
+    根目录（共享 /skills/、用户 /skills-user/）由调用方按当前用户可见性决定。
+    DeepAgents 0.7 要求传入已经构造好的 Backend 实例，但不影响使用
+    ``CompositeBackend`` 做路径路由。
 
     ``LocalShellBackend`` 的 Shell 能力没有沙箱隔离，Web 入口因此只适合本机
     开发，并默认只监听 127.0.0.1。文件写入和 Shell 执行仍由 HITL 保护。
@@ -157,18 +155,22 @@ def build_agent_backend(
             )
         )
 
-    if PROJECT_SKILLS_DIR.is_dir():
-        routes[SKILLS_ROUTE] = FilesystemBackend(
-            root_dir=PROJECT_SKILLS_DIR,
+    skill_sources: list[str] = []
+    for route_prefix, skills_dir in skill_dirs:
+        if not skills_dir.is_dir():
+            continue
+        routes[route_prefix] = FilesystemBackend(
+            root_dir=skills_dir,
             virtual_mode=True,
         )
         permissions.append(
             FilesystemPermission(
                 operations=["write"],
-                paths=[f"{SKILLS_ROUTE}**"],
+                paths=[f"{route_prefix}**"],
                 mode="deny",
             )
         )
+        skill_sources.append(route_prefix)
 
     if not routes:
         return runtime_backend, [], permissions
@@ -178,10 +180,4 @@ def build_agent_backend(
         routes=routes,
         artifacts_root="/.artifacts",
     )
-    return backend, ([SKILLS_ROUTE] if PROJECT_SKILLS_DIR.is_dir() else []), permissions
-
-
-def project_skills_enabled() -> bool:
-    """返回当前项目是否存在可供 Agent 发现的 Skill。"""
-
-    return PROJECT_SKILLS_DIR.is_dir()
+    return backend, skill_sources, permissions

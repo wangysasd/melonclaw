@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-# 传输层护栏，防止超大 JSON 体进入业务层；真正的业务上限来自
+# 传输层护栏，防止超大 JSON 体进入业务层；附件实际业务上限来自
 # ``Settings.attachment_max_per_message``，由 ExecutionService / Repository 校验。
 MAX_ATTACHMENT_IDS_PER_MESSAGE = 200
 
@@ -103,3 +103,136 @@ class UserInputRequest(BaseModel):
     assistant_message_id: UUID
     decision_request_id: UUID
     answer: dict[str, Any]
+
+
+class SkillImportConfirmRequest(BaseModel):
+    """确认或取消一个待安装的 Skill 导入草稿。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    draft_id: str = Field(min_length=1, max_length=64)
+
+
+class SkillUpdateRequest(BaseModel):
+    """个人启用/停用：共享 Skill 只影响自己，私有 Skill 仅限创建者。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    enabled: bool
+
+
+class SkillGlobalStateRequest(BaseModel):
+    """全员启用/停用共享 Skill（写 skills.enabled）；仅 admin/owner。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    enabled: bool
+
+
+class SkillPublishRequest(BaseModel):
+    """把私有 Skill 发布为全局共享（仅 admin/owner）。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+
+
+class McpServerCreateRequest(BaseModel):
+    """新建 MCP 服务；user scope 仅允许 http/sse，且禁止 ${VAR} 占位符。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    slug: str = Field(min_length=1, max_length=64)
+    scope: str = Field(min_length=1, max_length=16)
+    transport: str = Field(min_length=1, max_length=16)
+    url: str | None = Field(default=None, max_length=2000)
+    command: str | None = Field(default=None, max_length=240)
+    args: list[str] = Field(default_factory=list, max_length=64)
+    env: dict[str, str] = Field(default_factory=dict, max_length=64)
+    headers: dict[str, str] = Field(default_factory=dict, max_length=64)
+    tool_allowlist: list[str] | None = Field(default=None, max_length=200)
+    enabled: bool = True
+
+
+class McpServerUpdateRequest(BaseModel):
+    """更新 MCP 服务的启用状态或工具白名单；tool_allowlist 缺省表示不改动。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    enabled: bool | None = None
+    tool_allowlist: list[str] | None = Field(default=None, max_length=200)
+
+
+class ModelProviderCreateRequest(BaseModel):
+    """新建模型供应商；api_key 只写不回读，允许为空待补。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    provider_key: str = Field(min_length=1, max_length=64)
+    scope: str = Field(min_length=1, max_length=16)
+    display_name: str = Field(min_length=1, max_length=120)
+    provider_type: Literal["openai_compatible"] = "openai_compatible"
+    api_key_env: str = Field(default="", max_length=120)
+    request_headers: dict[str, str] = Field(default_factory=dict, max_length=64)
+    extra_config: dict[str, Any] = Field(default_factory=dict, max_length=64)
+    base_url: str = Field(min_length=1, max_length=400)
+    api_key: str | None = Field(default=None, max_length=240)
+    models_endpoint: str | None = Field(default=None, max_length=300)
+    enabled: bool = True
+
+
+class ModelProviderUpdateRequest(BaseModel):
+    """更新模型供应商；所有字段缺省表示不改动，api_key 缺省保留已存密钥。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    api_key_env: str | None = Field(default=None, max_length=120)
+    request_headers: dict[str, str] | None = Field(default=None, max_length=64)
+    extra_config: dict[str, Any] | None = Field(default=None, max_length=64)
+    enabled: bool | None = None
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    base_url: str | None = Field(default=None, min_length=1, max_length=400)
+    api_key: str | None = Field(default=None, max_length=240)
+    models_endpoint: str | None = Field(default=None, max_length=300)
+
+
+class UserProviderKeyRequest(BaseModel):
+    """普通用户在共享供应商上设置自己的 Key；只写不回读。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    api_key: str = Field(min_length=1, max_length=240)
+
+
+class ModelConfigCreateRequest(BaseModel):
+    """新建自定义模型；连接与凭据归属供应商，模型只记名称。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    model_key: str = Field(min_length=1, max_length=64)
+    provider_key: str = Field(min_length=1, max_length=64)
+    scope: str = Field(min_length=1, max_length=16)
+    display_name: str = Field(min_length=1, max_length=120)
+    model_name: str = Field(min_length=1, max_length=160)
+    enabled: bool = True
+
+
+class ModelConfigUpdateRequest(BaseModel):
+    """更新自定义模型；所有字段缺省表示不改动。
+
+    ``is_default=True`` 把该模型设为平台默认（仅管理员、global scope）。
+    连接与凭据的变更走供应商管理接口。
+    """
+
+    user_id: str = Field(min_length=1, max_length=64)
+    enabled: bool | None = None
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    model_name: str | None = Field(default=None, min_length=1, max_length=160)
+    is_default: bool | None = None
+
+
+class DevUserCreateRequest(BaseModel):
+    """admin 创建普通用户（开发模拟身份，非生产认证）。
+
+    新用户落在系统租户（system），角色 member；user_id 全局唯一。
+    """
+
+    actor_user_id: str = Field(min_length=1, max_length=64)
+    user_id: str = Field(min_length=1, max_length=64)
+    user_name_zh: str = Field(min_length=1, max_length=3)
+
+
+class SkillRemoteInstallRequest(BaseModel):
+    """从远程市场安装 Skill（仅支持 GitHub zipball）。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    repo: str = Field(min_length=1, max_length=200)

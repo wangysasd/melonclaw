@@ -170,17 +170,33 @@ async def load_mcp_tools(
         ) from None
 
 
-async def build_agent_tools(settings: Settings) -> list[ToolDefinition]:
-    """异步组合自定义 callable 和可选 MCP 工具。"""
+async def build_agent_tools(
+    settings: Settings,
+    *,
+    mcp_servers: dict[str, dict[str, Any]] | None = None,
+    mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
+) -> list[ToolDefinition]:
+    """异步组合自定义 callable 和可选 MCP 工具。
+
+    ``mcp_servers`` / ``mcp_tool_allowlists`` 缺省时回退到 ``settings`` 上的
+    兼容字段；运行时装配（按用户可见性从数据库解析）由调用方显式传入。
+    """
+
+    servers = settings.mcp_servers if mcp_servers is None else mcp_servers
+    allowlists = (
+        settings.mcp_tool_allowlists
+        if mcp_tool_allowlists is None
+        else mcp_tool_allowlists
+    )
 
     tools: list[ToolDefinition] = build_custom_tools(settings)
-    if not settings.mcp_servers:
+    if not servers:
         tools.append(build_mcp_catalog_tool({}, {}))
         return tools
 
     mcp_tools, catalog, failures = await _load_mcp_tools_with_catalog(
-        settings.mcp_servers,
-        settings.mcp_tool_allowlists,
+        servers,
+        allowlists,
     )
 
     tools.extend(mcp_tools)
@@ -189,5 +205,5 @@ async def build_agent_tools(settings: Settings) -> list[ToolDefinition]:
             f"{name}（{detail}）" for name, detail in sorted(failures.items())
         )
         print(f"MCP 服务部分加载失败，已跳过：{failed_text}")
-    tools.append(build_mcp_catalog_tool(settings.mcp_servers, catalog, failures))
+    tools.append(build_mcp_catalog_tool(servers, catalog, failures))
     return tools

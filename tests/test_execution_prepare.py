@@ -42,6 +42,9 @@ def _service(storage: _Storage):
         calls.append("agent")
         return object()
 
+    async def async_model(*args, **kwargs):
+        return model
+
     async def resolve_user(user_id):
         return SimpleNamespace(
             user_id=user_id,
@@ -54,11 +57,14 @@ def _service(storage: _Storage):
     async def project_for_conversation(*args):
         return None
 
+    async def resolve_skill(user_id, skill_id):
+        return None
+
     runtime = SimpleNamespace(
         require_ready=lambda: storage,
-        skill=lambda skill_id: None,
-        model_for_message=lambda message: model,
-        resolve_model=lambda model_id=None: model,
+        resolve_skill=resolve_skill,
+        model_for_message=async_model,
+        resolve_model=async_model,
         agent_for_conversation=agent_for_conversation,
         workspace_dir=lambda conversation, project: Path("test-workspace"),
         conversation_config=lambda conversation_id: {"configurable": {"thread_id": str(conversation_id)}},
@@ -80,6 +86,26 @@ def test_busy_message_does_not_build_agent():
         asyncio.run(service.prepare_message(uuid4(), "user", "request", "hello"))
 
     assert storage.calls == ["find_request", "lock"]
+    assert calls == []
+
+
+def test_unavailable_skill_is_rejected_before_any_write():
+    """技能选项可能在选中之后被删除（索引行还在、目录没了）。
+
+    此时既不该构建 Agent，也不该落库或抢锁——准备阶段就拦住。
+    """
+
+    storage = _Storage()
+    service, calls = _service(storage)
+
+    with pytest.raises(ValueError, match="选择的技能不存在或已被移除"):
+        asyncio.run(
+            service.prepare_message(
+                uuid4(), "user", "request", "hello", skill_id="ghost-skill"
+            )
+        )
+
+    assert storage.calls == []
     assert calls == []
 
 

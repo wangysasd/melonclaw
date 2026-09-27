@@ -22,10 +22,26 @@ def test_agent_build_locks_cover_waiters_and_are_released(monkeypatch):
         await release.wait()
         return object()
 
+    class FakeStorage:
+        async def skills_revision(self):
+            return "skills-rev"
+
+        async def mcp_revision(self):
+            return "mcp-rev"
+
+        async def models_revision(self):
+            return "models-rev"
+
+        async def list_visible_mcp_rows(self, user_id):
+            return []
+
     monkeypatch.setattr(runtime_module, "build_research_agent", build_agent)
     runtime = ChatRuntime(
-        settings=SimpleNamespace(agent_cache_entries=1),
-        storage=object(),
+        settings=SimpleNamespace(
+            agent_cache_entries=1,
+            data_root=Path("agent-cache-test-data"),
+        ),
+        storage=FakeStorage(),
         checkpointer=object(),
         memory_store=object(),
         memory_service=object(),

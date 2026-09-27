@@ -17,8 +17,14 @@ from melonclaw.database import (
     open_checkpoint_pool,
     open_memory_store,
 )
-from melonclaw.repository import seed_demo_data
+from melonclaw.repository import (
+    BusinessRepository,
+    seed_builtin_data,
+    seed_demo_data,
+    seed_provider_data,
+)
 from melonclaw.repository.errors import SeedDataConflictError
+from melonclaw.services.skill_index import reindex_skills_from_disk
 
 
 async def initialize_database() -> None:
@@ -30,6 +36,14 @@ async def initialize_database() -> None:
         await database.open()
         await database.create_schema()
         await seed_demo_data(database)
+        await seed_provider_data(database)
+        await seed_builtin_data(database)
+        # 索引重建必须排在种子用户之后：用户 Skill 行的 created_by 有外键约束。
+        report = await reindex_skills_from_disk(
+            BusinessRepository(database), settings.data_root
+        )
+        if report.changed:
+            print(report.summary())
         memory_store_context, memory_store = await open_memory_store(
             settings.database_url
         )

@@ -5,56 +5,9 @@ import { Icon } from "./Icon";
 import { UserPicker } from "./UserPicker";
 import { listConversations } from "../api/client";
 import { formatConversationTime } from "../lib/format";
-import { useServiceStatus } from "../hooks/useServiceStatus";
 import { useSession } from "../state/session";
 import { SIDEBAR_STORAGE_KEY, readStorage, writeStorage } from "../state/storage";
 import type { ConversationSummary } from "../types/api";
-
-function RunDetails() {
-  const { status } = useServiceStatus();
-  const serviceState = status?.status ?? "starting";
-  const model = [status?.provider, status?.model].filter(Boolean).join(":");
-  const mcp =
-    status && status.mcp_servers.length > 0
-      ? `MCP · ${status.mcp_servers.join(" · ")}`
-      : status?.database === "connected"
-        ? "MCP · 未配置"
-        : "综合能力连接中";
-  return (
-    <details className="runtime-details">
-      <summary className="runtime-summary">
-        <Icon name="shield-check" size={14} />
-        <span>运行详情</span>
-        <Icon name="chevron-right" size={15} className="runtime-chevron" />
-      </summary>
-      <div className="runtime-card">
-        <div className="runtime-line">
-          <span
-            className={[
-              "status-dot",
-              serviceState === "starting" ? "is-loading" : "",
-              serviceState === "error" ? "is-error" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          />
-          <span>
-            {serviceState === "error"
-              ? "启动失败"
-              : serviceState === "ready"
-                ? "服务已就绪"
-                : "正在启动助手"}
-          </span>
-        </div>
-        {status?.message ? (
-          <div className="runtime-detail runtime-error-text">{status.message}</div>
-        ) : null}
-        <div className="runtime-model">{model || "连接配置读取中…"}</div>
-        <div className="runtime-detail">{mcp}</div>
-      </div>
-    </details>
-  );
-}
 
 type ResourceKind = "project" | "conversation";
 
@@ -73,15 +26,21 @@ export interface SidebarContentProps {
   onToggleCollapse: () => void;
   onNewConversation: () => void;
   onOpenProjectDialog: (moveConversationId?: string) => void;
+  onOpenResources: () => void;
+  resourcesActive?: boolean;
+  onNavigateChat?: () => void;
   onSelectConversationCloseMobile?: () => void;
 }
 
-/** 侧栏内容：品牌区、新建对话、项目/会话、用户选择器、运行详情。 */
+/** 侧栏内容：品牌区、新建对话、插件、项目/会话、用户选择器。 */
 export function SidebarContent({
   collapsed,
   onToggleCollapse,
   onNewConversation,
   onOpenProjectDialog,
+  onOpenResources,
+  resourcesActive = false,
+  onNavigateChat,
   onSelectConversationCloseMobile,
 }: SidebarContentProps) {
   const session = useSession();
@@ -147,6 +106,7 @@ export function SidebarContent({
     session.status?.status === "ready";
 
   const conversationClick = (id: string, projectId?: string) => {
+    onNavigateChat?.();
     if (projectId && projectId !== session.projectId) session.openProjectConversation(projectId, id);
     else session.selectConversation(id);
     onSelectConversationCloseMobile?.();
@@ -250,6 +210,7 @@ export function SidebarContent({
           <div key={conversation.id} className={["conversation-item", conversation.id === session.conversationId ? "is-active" : ""].filter(Boolean).join(" ")}>
             <button type="button" className="conversation-item-main" disabled={conversation.localOnly} onClick={() => {
               if (isRecent) {
+                onNavigateChat?.();
                 session.openRecent(conversation.id);
                 onSelectConversationCloseMobile?.();
               } else conversationClick(conversation.id, projectId);
@@ -315,16 +276,32 @@ export function SidebarContent({
         </button>
       </div>
 
-      <button
-        type="button"
-        className="new-session"
-        onClick={onNewConversation}
-        disabled={!canCreate}
-      >
-        <Icon name="plus" size={16} />
-        <span className="new-session-label">新建对话</span>
-        <span className="shortcut">⌘ K</span>
-      </button>
+      <div className="sidebar-primary-actions">
+        <button
+          type="button"
+          className="new-session"
+          onClick={onNewConversation}
+          disabled={!canCreate}
+        >
+          <Icon name="message-circle-plus" size={16} />
+          <span className="new-session-label">新建对话</span>
+          <span className="shortcut" aria-hidden="true">
+            <kbd>⌘</kbd>
+            <kbd>K</kbd>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className={["sidebar-resource-entry", resourcesActive ? "is-active" : ""].filter(Boolean).join(" ")}
+          onClick={onOpenResources}
+          aria-pressed={resourcesActive}
+          title="插件（Skills、MCP 服务与自定义模型）"
+        >
+          <Icon name="plug" size={16} />
+          <span>插件</span>
+        </button>
+      </div>
 
       <div className="sidebar-scroll">
         <section className="project-section" aria-label="项目">
@@ -371,7 +348,10 @@ export function SidebarContent({
                       <button
                         type="button"
                         className="project-item-new"
-                        onClick={() => session.startNewConversation(project.id)}
+                        onClick={() => {
+                          onNavigateChat?.();
+                          session.startNewConversation(project.id);
+                        }}
                         disabled={!canCreate}
                         title={`在「${project.name}」中新建会话`}
                         aria-label={`在「${project.name}」中新建会话`}
@@ -389,7 +369,10 @@ export function SidebarContent({
                           <Button type="text" block size="small" className="load-more" onClick={() => void (currentList ? session.loadMoreConversations() : loadMoreProjectConversations(project.id, cursor))}>加载更多会话</Button>
                         ) : null}
                         {!loading && !failed && conversations.length === 0 ? (
-                          <button type="button" className="project-child-new" onClick={() => session.startNewConversation(project.id)} disabled={!canCreate}>
+                          <button type="button" className="project-child-new" onClick={() => {
+                            onNavigateChat?.();
+                            session.startNewConversation(project.id);
+                          }} disabled={!canCreate}>
                             <Icon name="plus" size={13} /> 在此项目中新建首个对话
                           </button>
                         ) : null}
@@ -449,7 +432,6 @@ export function SidebarContent({
 
       <div className="sidebar-footer">
         <UserPicker />
-        <RunDetails />
       </div>
     </div>
   );
@@ -458,10 +440,13 @@ export function SidebarContent({
 export interface SidebarProps {
   onNewConversation: () => void;
   onOpenProjectDialog: (moveConversationId?: string) => void;
+  onOpenResources: () => void;
+  resourcesActive?: boolean;
+  onNavigateChat?: () => void;
 }
 
 /** 侧栏容器：桌面折叠态 + 移动端抽屉（≤768px）。 */
-export function Sidebar({ onNewConversation, onOpenProjectDialog }: SidebarProps) {
+export function Sidebar({ onNewConversation, onOpenProjectDialog, onOpenResources, resourcesActive, onNavigateChat }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(() =>
     !window.matchMedia("(max-width: 768px)").matches &&
     readStorage(SIDEBAR_STORAGE_KEY) === "true"
@@ -504,6 +489,9 @@ export function Sidebar({ onNewConversation, onOpenProjectDialog }: SidebarProps
           onToggleCollapse={toggleCollapse}
           onNewConversation={onNewConversation}
           onOpenProjectDialog={onOpenProjectDialog}
+          onOpenResources={onOpenResources}
+          resourcesActive={resourcesActive}
+          onNavigateChat={onNavigateChat}
         />
       </aside>
       <Drawer
@@ -534,6 +522,12 @@ export function Sidebar({ onNewConversation, onOpenProjectDialog }: SidebarProps
             setMobileOpen(false);
           }}
           onOpenProjectDialog={onOpenProjectDialog}
+          onOpenResources={() => {
+            onOpenResources();
+            setMobileOpen(false);
+          }}
+          resourcesActive={resourcesActive}
+          onNavigateChat={onNavigateChat}
           onSelectConversationCloseMobile={() => setMobileOpen(false)}
         />
       </Drawer>

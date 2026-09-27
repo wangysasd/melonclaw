@@ -349,7 +349,7 @@ class ConversationService:
             agent = await self.runtime.agent_for_conversation(
                 conversation,
                 project,
-                self.runtime.model_for_message(incomplete),
+                await self.runtime.model_for_message(context.user_id, incomplete),
                 self.runtime.capabilities_for_message(user_message),
             )
             pending = await aget_pending_interaction(

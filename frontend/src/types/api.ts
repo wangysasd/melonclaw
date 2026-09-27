@@ -24,15 +24,19 @@ export interface ServiceStatus {
 
 /* ---------- 模型目录 ---------- */
 
-/** 第一阶段只返回代码定义的系统模型；后续用户模型沿用同一契约。 */
+/** 系统内置模型 + 用户在插件管理中自建的自定义模型共用同一契约。 */
 export interface ModelOption {
   id: string;
   display_name: string;
-  source: "system";
+  source: "system" | "custom";
   provider: string;
+  /** 归属供应商标识，用于匹配 logo（`providerIcons.ts`）。 */
+  provider_key: string;
   model: string;
   available: boolean;
   is_default: boolean;
+  /** 仅自定义模型返回：global=全员共享，user=当前用户私有。 */
+  scope?: "global" | "user" | "tenant";
   config_version?: number;
   input_modalities?: string[];
 }
@@ -42,11 +46,103 @@ export interface ModelCatalog {
   default_model_id: string;
 }
 
-/** GET /api/skills 返回的项目 Skill 摘要；正文仍只由 Agent 通过 /skills/ 读取。 */
+/** GET /api/skills 返回的 Skill 摘要；正文仍只由 Agent 通过虚拟路径读取。 */
 export interface SkillOption {
   id: string;
   display_name: string;
   description: string;
+  /** global=全员共享（管理员发布），user=当前用户私有。 */
+  scope: "global" | "user" | "tenant";
+}
+
+/** POST /api/skills/import/prepare 返回的两段式安装草稿预览。 */
+export interface SkillImportDraft {
+  draft_id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  file_count: number;
+  expires_at: number;
+}
+
+/** GET /api/mcp 返回的 MCP 服务摘要；env/headers 只回显键名，不回显值。 */
+export interface McpServer {
+  slug: string;
+  scope: "global" | "user" | "tenant";
+  source_type: string;
+  transport: "http" | "sse" | "stdio";
+  url: string | null;
+  command: string | null;
+  args: string[];
+  env_keys: string[];
+  headers_keys: string[];
+  tool_allowlist: string[];
+  enabled: boolean;
+  created_by: string;
+}
+
+/** GET /api/skills/manage 返回的可管理 Skill（含停用项）。 */
+export interface ManageableSkill {
+  name: string;
+  scope: "global" | "user" | "tenant";
+  source_type: string;
+  /** 共享项的全员开关（仅管理员可改）；私有项即创建者的启停。 */
+  enabled: boolean;
+  /** 共享项的个人启停偏好（null = 默认启用）；私有项恒为 null。 */
+  user_enabled: boolean | null;
+  created_by: string;
+  display_name: string;
+  description: string;
+  /**
+   * 磁盘状态。"missing" = 目录已丢失（只能删）；"invalid" = 目录还在但读不出
+   * 合法 SKILL.md（修好文件就能用）；两者都不会出现在选择器里。
+   */
+  availability: "ready" | "missing" | "invalid";
+}
+
+/** GET /api/model-providers 返回的可管理模型供应商；api_key 绝不回显。 */
+export interface ManageableProvider {
+  provider_key: string;
+  scope: "global" | "user" | "tenant";
+  /** system=平台种子供应商（不可删除），manual=管理员新建。 */
+  source_type: string;
+  display_name: string;
+  provider_type: string;
+  api_key_env: string;
+  has_request_headers: boolean;
+  extra_config: Record<string, unknown>;
+  base_url: string;
+  /** 远端模型列表端点；null = 不支持拉取。 */
+  models_endpoint: string | null;
+  /** admin 配的共享 Key 有无（只回显有无，不回显值）。 */
+  has_api_key: boolean;
+  /** 当前用户覆盖的 Key 有无。 */
+  has_my_key: boolean;
+  /** 两者任一有即 True，前端据此判断可用性。 */
+  effective_has_key: boolean;
+  /** 该供应商下已启用模型数（卡片 footer 用）。 */
+  enabled_models_count: number;
+  enabled: boolean;
+  created_by: string;
+}
+
+/** GET /api/models/manage 返回的可管理自定义模型；连接与凭据归供应商。 */
+export interface ManageableModel {
+  model_key: string;
+  /** 归属的模型供应商。 */
+  provider_key: string;
+  /** 供应商展示名（联查得出）。 */
+  provider_display_name: string;
+  scope: "global" | "user" | "tenant";
+  /** system=平台种子模型（不可删除），manual=用户自建。 */
+  source_type: string;
+  display_name: string;
+  model_name: string;
+  enabled: boolean;
+  /** 是否为平台默认模型（全表至多一个）。 */
+  is_default: boolean;
+  input_modalities: string[];
+  created_by: string;
 }
 
 /* ---------- 开发用户 ---------- */

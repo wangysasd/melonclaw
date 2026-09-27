@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
@@ -24,6 +25,7 @@ from melonclaw.repository import (
     RequestRecord,
     UserContext,
 )
+from melonclaw.repository.constants import SYSTEM_TENANT_ID
 from melonclaw.services.attachments import AttachmentService
 from melonclaw.services.conversations import ConversationService
 from melonclaw.services.errors import (
@@ -32,10 +34,25 @@ from melonclaw.services.errors import (
     RequestInProgressError,
 )
 from melonclaw.services.execution import ExecutionService, PreparedExecution
+from melonclaw.services.resource_service import (
+    ADMIN_ROLES,
+    McpServerPayload,
+    ModelConfigPayload,
+    ProviderConfigPayload,
+    ResourcePermissionError,
+    ResourceService,
+)
 from melonclaw.services.runtime import ChatRuntime
+from melonclaw.services.skill_import import SkillImportService
+from melonclaw.services.skill_remote import (
+    fetch_remote_skill_archive,
+    github_zipball_url,
+)
 from melonclaw.services.user_input_execution import UserInputExecutionService
 
 logger = logging.getLogger(__name__)
+
+USER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
 class ChatService:
@@ -52,6 +69,25 @@ class ChatService:
             attachments=self.attachments,
         )
         self.user_input = UserInputExecutionService(self.execution)
+        self._resources: ResourceService | None = None
+        self._skill_imports: SkillImportService | None = None
+
+    @property
+    def resources(self) -> ResourceService:
+        if self._resources is None:
+            self._resources = ResourceService(self.runtime)
+        return self._resources
+
+    @property
+    def skill_imports(self) -> SkillImportService:
+        """ZIP 导入草稿服务；初始化需要 data_root，首次使用时惰性创建。"""
+
+        if self._skill_imports is None:
+            settings = self.runtime.settings
+            if settings is None:
+                raise RuntimeError("运行配置尚未加载。")
+            self._skill_imports = SkillImportService(settings.data_root)
+        return self._skill_imports
 
     @property
     def settings(self) -> Settings | None:
@@ -111,8 +147,8 @@ class ChatService:
     def ready(self) -> bool:
         return self.runtime.ready
 
-    def status(self) -> dict[str, Any]:
-        return self.runtime.status()
+    async def status(self) -> dict[str, Any]:
+        return await self.runtime.status()
 
     async def resolve_user(self, user_id: str) -> UserContext:
         return await self.conversations.resolve_user(user_id)
@@ -120,19 +156,234 @@ class ChatService:
     async def users(self) -> dict[str, Any]:
         return await self.conversations.users()
 
+    async def create_user(
+        self,
+        actor_user_id: str,
+        user_id: str,
+        user_name_zh: str,
+    ) -> None:
+        """admin 创建普通用户：落在系统租户，角色 member。
+
+        权限矩阵与全局资源一致：仅 admin/owner 可创建用户；
+        用户 ID 全局唯一且只允许小写字母、数字、下划线和连字符。
+        """
+
+        actor = await self.conversations.resolve_user(actor_user_id)
+        if actor.tenant_role not in ADMIN_ROLES:
+            raise ResourcePermissionError("该操作需要管理员权限。")
+        if not USER_ID_RE.fullmatch(user_id):
+            raise ValueError("用户 ID 只能包含小写字母、数字、下划线和连字符。")
+        if not user_name_zh or len(user_name_zh) > 3:
+            raise ValueError("显示名称长度须在 1 到 3 个字符之间。")
+        storage = self._require_ready()
+        if await storage.user_exists(user_id):
+            raise ValueError(f"用户 {user_id!r} 已存在。")
+        await storage.create_user(
+            user_id=user_id,
+            user_name_zh=user_name_zh,
+            tenant_id=SYSTEM_TENANT_ID,
+            tenant_role="member",
+        )
+
     async def models(
         self,
         user_id: str,
     ) -> dict[str, Any]:
-        """校验用户的唯一租户归属后返回系统模型目录。"""
+        """校验用户的唯一租户归属后返回其可见的模型目录。"""
 
         await self.conversations.resolve_user(user_id)
-        return self.runtime.models()
+        return await self.runtime.models(user_id)
 
-    def skills(self) -> dict[str, Any]:
-        """返回只读的项目 Skill 目录。"""
+    async def skills(self, user_id: str) -> dict[str, Any]:
+        """返回该用户可见的 Skill 目录（共享 + 私有）。"""
 
-        return self.runtime.skills()
+        await self.conversations.resolve_user(user_id)
+        return await self.runtime.skills(user_id)
+
+    async def manageable_skills(self, user_id: str) -> dict[str, Any]:
+        """返回该用户可管理的 Skill 全集（资源管理界面用）。"""
+
+        await self.conversations.resolve_user(user_id)
+        return await self.resources.manageable_skills(user_id)
+
+    async def download_skill_archive(self, user_id: str, name: str) -> bytes:
+        await self.conversations.resolve_user(user_id)
+        return await self.resources.download_skill_archive(user_id, name)
+
+    async def set_skill_enabled(
+        self, user_id: str, name: str, enabled: bool
+    ) -> None:
+        await self.resources.set_skill_enabled(user_id, name, enabled)
+
+    async def set_skill_global_enabled(
+        self, user_id: str, name: str, enabled: bool
+    ) -> None:
+        """全员启停共享 Skill；仅 admin/owner。"""
+
+        await self.resources.set_skill_global_enabled(user_id, name, enabled)
+
+    async def delete_skill(self, user_id: str, name: str) -> None:
+        await self.resources.delete_skill(user_id, name)
+
+    async def publish_skill(self, user_id: str, name: str) -> None:
+        await self.resources.publish_skill(user_id, name)
+
+    async def prepare_skill_import(
+        self, user_id: str, archive_bytes: bytes
+    ) -> dict[str, Any]:
+        await self.conversations.resolve_user(user_id)
+        draft = await self.skill_imports.prepare(
+            user_id=user_id,
+            archive_bytes=archive_bytes,
+            storage=self.runtime.require_ready(),
+        )
+        return draft.public_dict()
+
+    async def prepare_remote_skill_install(
+        self, user_id: str, repo: str
+    ) -> dict[str, Any]:
+        """从 GitHub 远程市场下载 Skill 包并进入两段式确认。"""
+
+        await self.conversations.resolve_user(user_id)
+        url = github_zipball_url(repo)
+        archive = await fetch_remote_skill_archive(url)
+        draft = await self.skill_imports.prepare(
+            user_id=user_id,
+            archive_bytes=archive,
+            storage=self.runtime.require_ready(),
+            source_type="remote",
+        )
+        return draft.public_dict()
+
+    async def confirm_skill_import(self, user_id: str, draft_id: str) -> None:
+        await self.skill_imports.confirm(
+            draft_id=draft_id,
+            user_id=user_id,
+            storage=self.runtime.require_ready(),
+        )
+
+    async def cancel_skill_import(self, user_id: str, draft_id: str) -> None:
+        await self.skill_imports.cancel(draft_id=draft_id, user_id=user_id)
+
+    async def list_mcp(self, user_id: str) -> dict[str, Any]:
+        return await self.resources.list_mcp(user_id)
+
+    async def create_mcp(self, user_id: str, payload: McpServerPayload) -> None:
+        await self.resources.create_mcp(user_id, payload)
+
+    async def update_mcp(
+        self,
+        user_id: str,
+        slug: str,
+        *,
+        enabled: bool | None = None,
+        tool_allowlist: Any = None,
+    ) -> None:
+        kwargs: dict[str, Any] = {}
+        if enabled is not None:
+            kwargs["enabled"] = enabled
+        if tool_allowlist is not None:
+            kwargs["tool_allowlist"] = tool_allowlist
+        await self.resources.update_mcp(user_id, slug, **kwargs)
+
+    async def delete_mcp(self, user_id: str, slug: str) -> None:
+        await self.resources.delete_mcp(user_id, slug)
+
+    async def manageable_models(self, user_id: str) -> dict[str, Any]:
+        """返回该用户可管理的自定义模型全集（资源管理界面用）。"""
+
+        await self.conversations.resolve_user(user_id)
+        return await self.resources.list_models(user_id)
+
+    async def create_model(self, user_id: str, payload: ModelConfigPayload) -> None:
+        await self.conversations.resolve_user(user_id)
+        await self.resources.create_model(user_id, payload)
+
+    async def update_model(
+        self,
+        user_id: str,
+        model_key: str,
+        *,
+        enabled: bool | None = None,
+        display_name: str | None = None,
+        model_name: str | None = None,
+        is_default: bool | None = None,
+    ) -> None:
+        await self.conversations.resolve_user(user_id)
+        await self.resources.update_model(
+            user_id,
+            model_key,
+            enabled=enabled,
+            display_name=display_name,
+            model_name=model_name,
+            is_default=is_default,
+        )
+
+    async def manageable_providers(self, user_id: str) -> dict[str, Any]:
+        """返回该用户可管理的模型供应商全集（资源管理界面用）。"""
+
+        await self.conversations.resolve_user(user_id)
+        return await self.resources.list_providers(user_id)
+
+    async def create_provider(
+        self, user_id: str, payload: ProviderConfigPayload
+    ) -> None:
+        await self.conversations.resolve_user(user_id)
+        await self.resources.create_provider(user_id, payload)
+
+    async def update_provider(
+        self,
+        user_id: str,
+        provider_key: str,
+        *,
+        enabled: bool | None = None,
+        display_name: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        models_endpoint: str | None = None,
+        api_key_env: str | None = None,
+        request_headers: dict[str, str] | None = None,
+        extra_config: dict[str, Any] | None = None,
+    ) -> None:
+        await self.conversations.resolve_user(user_id)
+        await self.resources.update_provider(
+            user_id,
+            provider_key,
+            enabled=enabled,
+            display_name=display_name,
+            base_url=base_url,
+            api_key=api_key,
+            models_endpoint=models_endpoint,
+            api_key_env=api_key_env,
+            request_headers=request_headers,
+            extra_config=extra_config,
+        )
+
+    async def delete_provider(self, user_id: str, provider_key: str) -> None:
+        await self.conversations.resolve_user(user_id)
+        await self.resources.delete_provider(user_id, provider_key)
+
+    async def set_user_provider_key(
+        self, user_id: str, provider_key: str, api_key: str
+    ) -> None:
+        await self.conversations.resolve_user(user_id)
+        await self.resources.set_user_provider_key(user_id, provider_key, api_key)
+
+    async def delete_user_provider_key(
+        self, user_id: str, provider_key: str
+    ) -> None:
+        await self.conversations.resolve_user(user_id)
+        await self.resources.delete_user_provider_key(user_id, provider_key)
+
+    async def fetch_remote_models(
+        self, user_id: str, provider_key: str
+    ) -> dict[str, Any]:
+        await self.conversations.resolve_user(user_id)
+        return await self.resources.fetch_remote_models(user_id, provider_key)
+
+    async def delete_model(self, user_id: str, model_key: str) -> None:
+        await self.conversations.resolve_user(user_id)
+        await self.resources.delete_model(user_id, model_key)
 
     def attachment_capabilities(self) -> dict[str, Any]:
         """返回附件支持类型与限制清单，供前端做上传前预校验。"""

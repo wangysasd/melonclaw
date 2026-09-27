@@ -121,7 +121,7 @@ class ExecutionService:
             raise AttachmentStateError("消息正文和附件不能同时为空。", "message_empty")
         if len(clean_content) > 12000:
             raise ValueError("消息不能超过 12000 个字符。")
-        selected_skill = self.runtime.skill(skill_id)
+        selected_skill = await self.runtime.resolve_skill(user_id, skill_id)
         if skill_id and selected_skill is None:
             raise ValueError("选择的技能不存在或已被移除。")
         conversation = await storage.get_conversation(conversation_id, user_id)
@@ -141,7 +141,9 @@ class ExecutionService:
         )
         if existing is not None:
             # 幂等重试沿用第一次请求实际绑定的模型和客户端能力。
-            model = self.runtime.model_for_message(existing.assistant_message)
+            model = await self.runtime.model_for_message(
+                context.user_id, existing.assistant_message
+            )
             return await self._prepare_existing_request(
                 conversation_id,
                 context,
@@ -166,8 +168,8 @@ class ExecutionService:
                 request_id,
             )
             if existing is not None:
-                stored_model = self.runtime.model_for_message(
-                    existing.assistant_message
+                stored_model = await self.runtime.model_for_message(
+                    context.user_id, existing.assistant_message
                 )
                 # 该分支的锁由 _prepare_existing_request 接管，包括异常释放。
                 existing_lock = lock_connection
@@ -185,7 +187,7 @@ class ExecutionService:
                     project=project,
                     model=stored_model,
                 )
-            model = self.runtime.resolve_model(model_id)
+            model = await self.runtime.resolve_model(context.user_id, model_id)
             agent = await self.runtime.agent_for_conversation(
                 conversation, project, model, normalized_capabilities
             )
@@ -487,7 +489,7 @@ class ExecutionService:
             context.user_id,
             assistant["request_id"],
         )
-        model = self.runtime.model_for_message(assistant)
+        model = await self.runtime.model_for_message(context.user_id, assistant)
         agent = await self.runtime.agent_for_conversation(
             conversation,
             project,
@@ -641,10 +643,14 @@ class ExecutionService:
             if agent_input is None:
                 messages: list[dict[str, str]] = []
                 if execution.skill_id:
-                    skill = self.runtime.skill(execution.skill_id)
+                    skill = await self.runtime.resolve_skill(
+                        execution.user_id, execution.skill_id
+                    )
                     if skill is None:
+                        # 用户重新选一个技能就能继续，不是服务端故障。
                         raise AgentExecutionError(
-                            "选择的技能已不可用，请重新选择技能后重试。"
+                            "选择的技能已不可用，请重新选择技能后重试。",
+                            status_code=409,
                         )
                     messages.append(
                         {

@@ -1,8 +1,9 @@
-"""平台内置模型目录与当前运行时模型解析。
+"""模型目录条目与运行时模型解析。
 
-第一阶段的模型目录由代码维护，供应商连接信息和每个模型的实际名称
-由 ``Settings`` 从环境变量加载。这样前端拿到的是稳定的 ``model_id``，
-而不是可以被任意伪造的 provider、Base URL 或模型参数。
+模型目录以数据库 ``model_providers`` + ``model_configs`` 两张表为唯一事实
+来源：供应商持有连接（base_url）与凭据（api_key），模型通过 ``provider_key``
+引用供应商。初始化不创建模型。管理员配置全局内置模型，普通用户配置个人模型。
+对外模型 ID 统一为 ``custom:{model_key}``。
 """
 
 from __future__ import annotations
@@ -10,78 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from melonclaw.core.config import ProviderConfig, Settings
-from melonclaw.core.defaults import (
-    DEEPSEEK_FLASH_MODEL_ID,
-    DEEPSEEK_PRO_MODEL_ID,
-    MINIMAX_M3_MODEL_ID,
-    MINIMAX_M27_MODEL_ID,
-    OPENAI_MODEL_ID,
-)
+MODEL_SOURCE = Literal["system", "custom"]
 
-MODEL_SOURCE = Literal["system"]
-
-# 这是兼容第一版下拉框的旧 ID。新请求使用具体的供应商/模型槽位 ID。
-LEGACY_SYSTEM_DEFAULT_MODEL_ID = "system:default"
-# 对外保留这个名字，避免已有调用方把它当作“默认模型 ID”时失效；当前
-# 默认槽位由 Settings.default_model_id 决定，通常是 DeepSeek Flash。
-SYSTEM_DEFAULT_MODEL_ID = DEEPSEEK_FLASH_MODEL_ID
-
-
-@dataclass(frozen=True)
-class SystemModelDefinition:
-    """代码中声明的系统模型条目。"""
-
-    model_id: str
-    display_name: str
-    provider: str
-    model_key: str
-    source: MODEL_SOURCE = "system"
-    adapter_type: str = "openai_compatible"
-    visible_in_catalog: bool = True
-    input_modalities: frozenset[str] = frozenset({"text"})
-
-
-# 第一阶段的系统模型目录。后续增加系统模型时，在这里增加代码条目，
-# 并在 Settings 中声明对应的环境变量；不通过前端传入任意模型名。
-SYSTEM_MODEL_CATALOG: tuple[SystemModelDefinition, ...] = (
-    SystemModelDefinition(
-        model_id=DEEPSEEK_FLASH_MODEL_ID,
-        display_name="DeepSeek Flash",
-        provider="deepseek",
-        model_key="flash",
-        input_modalities=frozenset({"text", "image"}),
-    ),
-    SystemModelDefinition(
-        model_id=DEEPSEEK_PRO_MODEL_ID,
-        display_name="DeepSeek Pro",
-        provider="deepseek",
-        model_key="pro",
-    ),
-    SystemModelDefinition(
-        model_id=MINIMAX_M3_MODEL_ID,
-        display_name="MiniMax M3",
-        provider="minimax",
-        model_key="m3",
-        input_modalities=frozenset({"text", "image"}),
-    ),
-    SystemModelDefinition(
-        model_id=MINIMAX_M27_MODEL_ID,
-        display_name="MiniMax M2.7",
-        provider="minimax",
-        model_key="m27",
-    ),
-    SystemModelDefinition(
-        model_id=OPENAI_MODEL_ID,
-        display_name="OpenAI",
-        provider="openai",
-        model_key="default",
-        # 保留 OpenAI 兼容适配器给旧部署使用，但第一阶段不放进模型下拉框。
-        visible_in_catalog=False,
-        input_modalities=frozenset({"text", "image"}),
-    ),
-)
-
+CUSTOM_MODEL_ID_PREFIX = "custom:"
 
 @dataclass(frozen=True)
 class ResolvedModel:
@@ -97,18 +29,26 @@ class ResolvedModel:
     api_key: str = field(repr=False)
     input_modalities: frozenset[str] = frozenset({"text"})
     config_version: int = 1
+    provider_version: int = 1
+    request_headers: dict[str, str] = field(default_factory=dict, repr=False)
+    extra_config: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @property
     def model_spec(self) -> str:
         return f"{self.provider}:{self.model_name}"
 
     @property
-    def cache_key(self) -> tuple[str, int, str, str, str]:
-        """返回不含密钥的 Agent 缓存键，区分历史模型快照。"""
+    def cache_key(self) -> tuple[str, int, int, str, str, str]:
+        """返回不含密钥的 Agent 缓存键，区分历史模型快照。
+
+        同时携带模型版本与供应商版本：供应商换 Key/改地址后旧缓存
+        即时失效，无需等待模型行自身变更。
+        """
 
         return (
             self.profile_id,
             self.config_version,
+            self.provider_version,
             self.provider,
             self.model_name,
             self.base_url or "",
@@ -124,82 +64,76 @@ class ResolvedModel:
             "provider": self.provider,
             "model": self.model_name,
             "config_version": self.config_version,
+            "provider_version": self.provider_version,
             "input_modalities": sorted(self.input_modalities),
         }
 
 
-def _definition(model_id: str) -> SystemModelDefinition:
-    for item in SYSTEM_MODEL_CATALOG:
-        if item.model_id == model_id:
-            return item
-    raise ValueError("所选模型不存在或当前不可用。")
+def custom_model_id(model_key: str) -> str:
+    return f"{CUSTOM_MODEL_ID_PREFIX}{model_key}"
 
 
-def _provider_config(
-    settings: Settings,
-    definition: SystemModelDefinition,
-) -> ProviderConfig:
-    config = settings.provider_configs.get(definition.provider)
-    if config is None:
-        raise ValueError("所选模型的供应商未配置。")
-    return config
+def is_custom_model_id(model_id: str) -> bool:
+    return model_id.startswith(CUSTOM_MODEL_ID_PREFIX)
 
 
-def list_system_models(settings: Settings) -> list[dict[str, Any]]:
-    """返回当前部署可展示的完整模型目录，不泄露凭据。
-
-    非默认模型可以没有配置，此时它不会阻止服务启动，也不会进入 API
-    返回值和前端下拉框。默认模型是否完整由 ``Settings.validate`` 单独校验。
-    """
-
-    items: list[dict[str, Any]] = []
-    for item in SYSTEM_MODEL_CATALOG:
-        if not item.visible_in_catalog:
-            continue
-        config = settings.provider_configs.get(item.provider)
-        model_name = config.models.get(item.model_key, "") if config else ""
-        if not config or not config.api_key or not model_name:
-            continue
-        items.append(
-            {
-                "id": item.model_id,
-                "display_name": item.display_name,
-                "source": item.source,
-                "provider": item.provider,
-                "model": model_name,
-                "available": True,
-                "is_default": item.model_id == settings.default_model_id,
-                "input_modalities": sorted(item.input_modalities),
-            }
-        )
-    return items
+def _row_modalities(row: dict[str, Any]) -> list[str]:
+    return [str(item) for item in row["input_modalities"]]
 
 
-def resolve_system_model(
-    settings: Settings,
-    model_id: str | None = None,
-    *,
-    model_name: str | None = None,
+def catalog_item(
+    row: dict[str, Any], provider_row: dict[str, Any]
+) -> dict[str, Any]:
+    """把 model_configs 行 + 供应商行转成模型目录条目，绝不携带 api_key。"""
+
+    source: MODEL_SOURCE = (
+        "system" if row["scope"] == "global" else "custom"
+    )
+    return {
+        "id": custom_model_id(str(row["model_key"])),
+        "display_name": row["display_name"],
+        "source": source,
+        "provider": provider_row["display_name"],
+        "provider_key": str(provider_row["provider_key"]),
+        "model": row["model_name"],
+        # 全局模型受供应商开关控制；个人模型只依赖自身开关与个人 Key。
+        # api_key 由运行时按模型 scope 解析，目录与实际调用保持一致。
+        "available": bool(row["enabled"])
+        and (row["scope"] == "user" or bool(provider_row["enabled"]))
+        and bool(provider_row["api_key"]),
+        "is_default": bool(row["is_default"]),
+        "scope": row["scope"],
+        "input_modalities": _row_modalities(row),
+    }
+
+
+def resolve_model_row(
+    row: dict[str, Any], provider_row: dict[str, Any]
 ) -> ResolvedModel:
-    """解析请求或历史消息中的系统模型 ID。"""
+    """把可见且启用的 model_configs 行 + 供应商行解析成运行模型。"""
 
-    selected_id = model_id or settings.default_model_id or SYSTEM_DEFAULT_MODEL_ID
-    if selected_id == LEGACY_SYSTEM_DEFAULT_MODEL_ID:
-        selected_id = settings.default_model_id or SYSTEM_DEFAULT_MODEL_ID
-    item = _definition(selected_id)
-    config = _provider_config(settings, item)
-    selected_model_name = model_name or config.models.get(item.model_key, "")
-    config.validate(item.model_key, selected_model_name)
-    if not selected_model_name:
-        raise ValueError("系统模型名称未配置。")
+    if not row["enabled"]:
+        raise ValueError("所选模型已被停用。")
+    if row["scope"] == "global" and not provider_row["enabled"]:
+        raise ValueError("所选模型所属供应商已被停用。")
+    api_key = provider_row["api_key"]
+    if not api_key:
+        raise ValueError("所选模型所属供应商未配置 API Key。")
+    source: MODEL_SOURCE = (
+        "system" if row["scope"] == "global" else "custom"
+    )
     return ResolvedModel(
-        profile_id=item.model_id,
-        display_name=item.display_name,
-        source=item.source,
-        adapter_type=item.adapter_type,
-        provider=item.provider,
-        model_name=selected_model_name,
-        base_url=config.base_url,
-        api_key=config.api_key,
-        input_modalities=item.input_modalities,
+        profile_id=custom_model_id(str(row["model_key"])),
+        display_name=row["display_name"],
+        source=source,
+        adapter_type=str(provider_row["provider_type"]),
+        provider=str(provider_row["provider_key"]),
+        model_name=row["model_name"],
+        base_url=provider_row["base_url"],
+        api_key=api_key,
+        input_modalities=frozenset(_row_modalities(row)),
+        config_version=int(row["version"]),
+        provider_version=int(provider_row["version"]),
+        request_headers=dict(provider_row["request_headers"]),
+        extra_config=dict(provider_row["extra_config"]),
     )

@@ -20,7 +20,7 @@ import { formatMessageTime } from "../lib/format";
 import { useUserQuestionExpired } from "../lib/userQuestionExpiry";
 import { useSession, type RunStatus } from "../state/session";
 import { attachmentContentUrl } from "../api/client";
-import type { PendingApproval, UserQuestionRequest } from "../types/api";
+import type { PendingApproval, SkillOption, UserQuestionRequest } from "../types/api";
 
 const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   starting: "正在准备",
@@ -252,7 +252,20 @@ const MessageBubble = memo(function MessageBubble({
 });
 
 /** 聊天主视图：消息与审批共用阅读流，底部保留输入区与状态提醒。 */
-export function ChatView({ onOpenProjectDialog }: { onOpenProjectDialog?: () => void } = {}) {
+interface ChatViewProps {
+  onOpenProjectDialog?: () => void;
+  /** 打开插件页的模型供应商 TAB。 */
+  onOpenModelSettings?: () => void;
+  initialSkill?: SkillOption | null;
+  onInitialSkillApplied?: () => void;
+}
+
+export function ChatView({
+  onOpenProjectDialog,
+  onOpenModelSettings,
+  initialSkill = null,
+  onInitialSkillApplied,
+}: ChatViewProps = {}) {
   const session = useSession();
   const { runStatus, status } = useServiceStatus();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -384,15 +397,17 @@ export function ChatView({ onOpenProjectDialog }: { onOpenProjectDialog?: () => 
           onClick={() => setToolCatalogOpen(true)}
           aria-haspopup="dialog"
           aria-expanded={toolCatalogOpen}
+          aria-label="系统状态"
         >
-          <Icon name="wrench" size={15} />
-          <span>系统工具</span>
+          <Icon name="shield-check" size={15} />
+          <span>系统状态</span>
         </button>
       </header>
 
       <ToolCatalogDialog
         open={toolCatalogOpen}
-        mcpServers={status?.mcp_servers ?? []}
+        status={status}
+        modelOptions={session.modelOptions}
         onClose={() => setToolCatalogOpen(false)}
       />
 
@@ -473,6 +488,9 @@ export function ChatView({ onOpenProjectDialog }: { onOpenProjectDialog?: () => 
 
       <Composer
         onOpenProjectDialog={onOpenProjectDialog}
+        onOpenModelSettings={onOpenModelSettings}
+        initialSkill={initialSkill}
+        onInitialSkillApplied={onInitialSkillApplied}
         value={draft}
         onChange={setDraft}
         onSend={handleSend}

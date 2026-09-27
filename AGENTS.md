@@ -2,6 +2,7 @@
 
 MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可运行能力、清晰边界和可验证结果展开。
 注意不要写兼容性代码，现在是开发阶段，可以清空数据库历史数据。
+系统的字号以14号为主。
 本文件是**地图**，不是说明书。先在下面定位，再去对应文档读细节；不要指望本文件包含全部细节。
 
 ## 知识地图
@@ -24,7 +25,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 - 用户要求新增能力时，应在现有应用上迭代、扩展或重构，保持 Web、数据库和 Agent 组装链路的一致性；不要为单个链接或单个功能创建独立项目。
 - 新增功能完成后，更新 `note/note.md`，记录功能背景、问题定义、方案、关键取舍、实现位置、验证方式、可观察点和当前边界，语气让人容易理解。结论稳定后，把需要长期存在的部分搬进 `docs/`，并在 [docs/design-docs/index.md](docs/design-docs/index.md) 更新状态。
 - README.md 面向首次使用者，持续维护安装、配置、启动、功能使用、排障和安全边界；不要把实现过程流水账堆进 README，实现细节放进 `docs/`。
-- 未指定模型时，运行命令默认使用 `.env` 中的 DeepSeek 配置：`DEEPSEEK_BASE_URL`、`DEEPSEEK_API_KEY`、`DEEPSEEK_MODEL`。
+- 模型只从数据库 `model_configs` 解析。初始化只写入无凭据、未启用的供应商模板，不创建默认模型、不读取模型环境变量。管理员配置的是全局内置模型，普通用户配置的是个人模型；没有可用模型时提示用户先配置，不提供环境变量兜底。
 - 不得把 `.env` 中的 API Key、Token、数据库密码或完整凭据 URL 输出到终端、日志、文档、示例代码或回复中；示例只能读取环境变量。
 
 ## 代码与目录
@@ -41,7 +42,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 
 - 不写入个人机器的绝对路径、用户名、数据库账号或本地密钥。项目根目录使用 `Path(__file__).resolve()` 或明确的配置项推导。
 - 外部服务地址、模型、数据库、工作区和 Web 监听参数通过环境变量或根目录配置文件提供。
-- `mcp.json` 保存 MCP 服务定义；`.env` 只保存凭据和占位符值。MCP 配置必须支持无 MCP 时正常启动。
+- `mcp.json` 保存内置 MCP 种子，`melonclaw-db-init` 把它单向同步进数据库，运行时只读数据库（`services/mcp.py` 装配 MCP，`skills` 表索引 Skill）。系统级 Skill 的唯一存储是 `MELONCLAW_DATA_DIR`（默认 `.data/`）下的 `skills/shared/`，新增/更新走资源管理 UI 或 skill_import 服务；`shared/` 正文纳入版本控制（`cicc-*`/`htsc-*` 除外），`users/`、`tmp/` 只保留空目录占位不进版本控制。`.env` 只保存凭据和占位符值。MCP 配置必须支持无 MCP 时正常启动。
 - 新增持久化路径时，区分临时 runtime、Web Project 持久 workspace、项目源文件和数据库数据，避免把用户数据写进仓库。
 - 保持跨用户运行所需的相对路径和用户目录默认值；不要假设仓库位于某个固定用户名目录下。
 
@@ -50,7 +51,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 - 文件写入、删除、Shell 执行、外部写操作和其他有副作用的工具必须明确经过 HITL 或受控权限边界。
 - PTC/Interpreter 只允许加入已经确认无需逐次审批且副作用明确受限的工具；不能因为主 Agent 配置了 HITL 就把写文件、Shell、数据库写入、发消息、交易或部署工具放入 PTC。
 - 任何新增工具都要说明输入校验、权限范围、错误处理、敏感信息脱敏和是否进入审批清单；进入审批清单的工具在 `core/hitl.py` 中登记，不进清单的要写明理由。
-- Web 的 `user_id` 是开发模拟身份；服务层必须从用户记录解析唯一且有效的租户归属，并重新校验 Project、Conversation 和附件归属。Conversation 只归属 `user_id + project_id`，`tenant_id` 由服务端解析后用于 Agent 和 Memory 运行上下文。开发模拟用户不能被描述成生产认证系统。
+- Web 的 `user_id` 是开发模拟身份；服务层必须从用户记录解析唯一且有效的租户归属，并重新校验 Project、Conversation 和附件归属。Conversation 只归属 `user_id + project_id`，`tenant_id` 由服务端解析后用于 Agent 和 Memory 运行上下文。开发模拟用户不能被描述成生产认证系统。初次上线只有 `system` 租户下的 `admin`（种子写入）；其他用户由 admin 通过 `POST /api/dev/users` 创建（系统租户 member），服务端校验 admin/owner 身份。
 - 当前 `LocalShellBackend` 不是安全沙箱。若新增面向共享环境的能力，必须说明隔离方案、授权边界和部署限制。
 - 不依赖上游框架按类型自动推断模型能力。涉及多模态、文件类型、工具权限的判断必须由本仓库显式声明，原因见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 第 5.2 节。
 

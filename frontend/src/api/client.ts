@@ -6,8 +6,13 @@ import type {
   DevUser,
   ListConversationsInput,
   ListMessagesInput,
+  ManageableModel,
+  ManageableProvider,
+  ManageableSkill,
+  McpServer,
   ModelCatalog,
   Project,
+  SkillImportDraft,
   SkillOption,
   ServiceStatus,
   AttachmentCapabilities,
@@ -38,7 +43,7 @@ export class ApiError extends Error {
 }
 
 interface ApiRequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   query?: Record<string, string | number | undefined | null>;
   body?: unknown;
   signal?: AbortSignal;
@@ -125,15 +130,417 @@ export function listModels(
 }
 
 export function listSkills(
+  input: { userId: string },
   signal?: AbortSignal,
 ): Promise<{ items: SkillOption[] }> {
-  return apiRequest<{ items: SkillOption[] }>("/api/skills", { signal });
+  return apiRequest<{ items: SkillOption[] }>("/api/skills", {
+    query: { user_id: input.userId },
+    signal,
+  });
+}
+
+export function listManageableSkills(input: {
+  userId: string;
+}): Promise<{ items: ManageableSkill[] }> {
+  return apiRequest<{ items: ManageableSkill[] }>("/api/skills/manage", {
+    query: { user_id: input.userId },
+  });
+}
+
+export async function downloadSkill(
+  name: string,
+  input: { userId: string },
+): Promise<void> {
+  const url = `${API_BASE_URL}/api/skills/${encodeURIComponent(name)}/download${buildQuery({ user_id: input.userId })}`;
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new ApiError(0, "无法连接到 MelonClaw 服务，请检查网络或服务状态。");
+  }
+  if (!response.ok) throw await parseErrorResponse(response);
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = `${name}.zip`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+/** POST /api/skills/import/prepare：multipart ZIP 上传，返回待确认草稿。 */
+export async function prepareSkillImport(input: {
+  userId: string;
+  file: File;
+}): Promise<SkillImportDraft> {
+  const form = new FormData();
+  form.append("user_id", input.userId);
+  form.append("file", input.file);
+  const response = await fetch(`${API_BASE_URL}/api/skills/import/prepare`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) throw await parseErrorResponse(response);
+  return (await response.json()) as SkillImportDraft;
+}
+
+export function prepareRemoteSkillInstall(input: {
+  userId: string;
+  repo: string;
+}): Promise<SkillImportDraft> {
+  return apiRequest<SkillImportDraft>("/api/skills/install/remote", {
+    method: "POST",
+    body: { user_id: input.userId, repo: input.repo },
+  });
+}
+
+export function confirmSkillImport(input: {
+  userId: string;
+  draftId: string;
+}): Promise<{ ok: boolean }> {
+  return apiRequest("/api/skills/import/confirm", {
+    method: "POST",
+    body: { user_id: input.userId, draft_id: input.draftId },
+  });
+}
+
+export function cancelSkillImport(input: {
+  userId: string;
+  draftId: string;
+}): Promise<{ ok: boolean }> {
+  return apiRequest("/api/skills/import/cancel", {
+    method: "POST",
+    body: { user_id: input.userId, draft_id: input.draftId },
+  });
+}
+
+export function updateSkill(
+  name: string,
+  input: { userId: string; enabled: boolean },
+): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/skills/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: { user_id: input.userId, enabled: input.enabled },
+  });
+}
+
+/** 全员启停共享 Skill；仅 admin/owner。 */
+export function updateSkillGlobalState(
+  name: string,
+  input: { userId: string; enabled: boolean },
+): Promise<{ ok: boolean }> {
+  return apiRequest(
+    `/api/skills/${encodeURIComponent(name)}/global-state`,
+    {
+      method: "PATCH",
+      body: { user_id: input.userId, enabled: input.enabled },
+    },
+  );
+}
+
+export function deleteSkill(
+  name: string,
+  input: { userId: string },
+): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/skills/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    query: { user_id: input.userId },
+  });
+}
+
+/** 把私有 Skill 发布为全局共享（仅 admin/owner）。 */
+export function publishSkill(
+  name: string,
+  input: { userId: string },
+): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/skills/${encodeURIComponent(name)}/publish`, {
+    method: "POST",
+    body: { user_id: input.userId },
+  });
+}
+
+export function listMcp(
+  input: { userId: string },
+  signal?: AbortSignal,
+): Promise<{ items: McpServer[] }> {
+  return apiRequest<{ items: McpServer[] }>("/api/mcp", {
+    query: { user_id: input.userId },
+    signal,
+  });
+}
+
+export function createMcp(input: {
+  userId: string;
+  slug: string;
+  scope: string;
+  transport: string;
+  url?: string | null;
+  command?: string | null;
+  args?: string[];
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  tool_allowlist?: string[] | null;
+  enabled?: boolean;
+}): Promise<{ ok: boolean }> {
+  return apiRequest("/api/mcp", {
+    method: "POST",
+    body: {
+      user_id: input.userId,
+      slug: input.slug,
+      scope: input.scope,
+      transport: input.transport,
+      url: input.url ?? null,
+      command: input.command ?? null,
+      args: input.args ?? [],
+      env: input.env ?? {},
+      headers: input.headers ?? {},
+      tool_allowlist: input.tool_allowlist ?? null,
+      enabled: input.enabled ?? true,
+    },
+  });
+}
+
+export function updateMcp(
+  slug: string,
+  input: { userId: string; enabled?: boolean; toolAllowlist?: string[] | null },
+): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/mcp/${encodeURIComponent(slug)}`, {
+    method: "PATCH",
+    body: {
+      user_id: input.userId,
+      enabled: input.enabled,
+      tool_allowlist: input.toolAllowlist ?? null,
+    },
+  });
+}
+
+export function deleteMcp(
+  slug: string,
+  input: { userId: string },
+): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/mcp/${encodeURIComponent(slug)}`, {
+    method: "DELETE",
+    query: { user_id: input.userId },
+  });
+}
+
+export function listManageableModels(
+  input: { userId: string },
+  signal?: AbortSignal,
+): Promise<{ items: ManageableModel[] }> {
+  return apiRequest<{ items: ManageableModel[] }>("/api/models/manage", {
+    query: { user_id: input.userId },
+    signal,
+  });
+}
+
+export function createModel(input: {
+  userId: string;
+  modelKey: string;
+  providerKey: string;
+  scope: string;
+  displayName: string;
+  modelName: string;
+  enabled?: boolean;
+}): Promise<{ ok: boolean }> {
+  return apiRequest("/api/models", {
+    method: "POST",
+    body: {
+      user_id: input.userId,
+      model_key: input.modelKey,
+      provider_key: input.providerKey,
+      scope: input.scope,
+      display_name: input.displayName,
+      model_name: input.modelName,
+      enabled: input.enabled ?? true,
+    },
+  });
+}
+
+export function updateModel(
+  modelKey: string,
+  input: {
+    userId: string;
+    enabled?: boolean;
+    displayName?: string;
+    modelName?: string;
+    /** 设为平台默认模型（仅管理员、global scope）。 */
+    isDefault?: boolean;
+  },
+): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/models/${encodeURIComponent(modelKey)}`, {
+    method: "PATCH",
+    body: {
+      user_id: input.userId,
+      enabled: input.enabled,
+      display_name: input.displayName,
+      model_name: input.modelName,
+      is_default: input.isDefault,
+    },
+  });
+}
+
+export function deleteModel(
+  modelKey: string,
+  input: { userId: string },
+): Promise<{ ok: boolean }> {
+  return apiRequest(`/api/models/${encodeURIComponent(modelKey)}`, {
+    method: "DELETE",
+    query: { user_id: input.userId },
+  });
+}
+
+export function listManageableProviders(
+  input: { userId: string },
+  signal?: AbortSignal,
+): Promise<{ items: ManageableProvider[] }> {
+  return apiRequest<{ items: ManageableProvider[] }>("/api/model-providers", {
+    query: { user_id: input.userId },
+    signal,
+  });
+}
+
+export function createProvider(input: {
+  userId: string;
+  providerKey: string;
+  scope: string;
+  displayName: string;
+  providerType?: string;
+  baseUrl: string;
+  apiKey?: string | null;
+  modelsEndpoint?: string | null;
+  apiKeyEnv?: string;
+  requestHeaders?: Record<string, string>;
+  extraConfig?: Record<string, unknown>;
+  enabled?: boolean;
+}): Promise<{ ok: boolean }> {
+  return apiRequest("/api/model-providers", {
+    method: "POST",
+    body: {
+      user_id: input.userId,
+      provider_key: input.providerKey,
+      scope: input.scope,
+      display_name: input.displayName,
+      provider_type: input.providerType ?? "openai_compatible",
+      base_url: input.baseUrl,
+      api_key: input.apiKey ?? null,
+      models_endpoint: input.modelsEndpoint ?? null,
+      api_key_env: input.apiKeyEnv,
+      request_headers: input.requestHeaders,
+      extra_config: input.extraConfig,
+      enabled: input.enabled ?? true,
+    },
+  });
+}
+
+export function updateProvider(
+  providerKey: string,
+  input: {
+    userId: string;
+    enabled?: boolean;
+    displayName?: string;
+    baseUrl?: string;
+    apiKey?: string | null;
+    modelsEndpoint?: string | null;
+    apiKeyEnv?: string;
+    requestHeaders?: Record<string, string>;
+    extraConfig?: Record<string, unknown>;
+  },
+): Promise<{ ok: boolean }> {
+  return apiRequest(
+    `/api/model-providers/${encodeURIComponent(providerKey)}`,
+    {
+      method: "PATCH",
+      body: {
+        user_id: input.userId,
+        enabled: input.enabled,
+        display_name: input.displayName,
+        base_url: input.baseUrl,
+        api_key: input.apiKey ?? null,
+        models_endpoint: input.modelsEndpoint ?? null,
+        api_key_env: input.apiKeyEnv,
+        request_headers: input.requestHeaders,
+        extra_config: input.extraConfig,
+      },
+    },
+  );
+}
+
+export function deleteProvider(
+  providerKey: string,
+  input: { userId: string },
+): Promise<{ ok: boolean }> {
+  return apiRequest(
+    `/api/model-providers/${encodeURIComponent(providerKey)}`,
+    {
+      method: "DELETE",
+      query: { user_id: input.userId },
+    },
+  );
+}
+
+/** 实时拉取供应商远端 /models 清单，不落库。 */
+export function fetchRemoteModels(
+  providerKey: string,
+  input: { userId: string },
+): Promise<{ items: { id: string; display_name: string }[] }> {
+  return apiRequest<{ items: { id: string; display_name: string }[] }>(
+    `/api/model-providers/${encodeURIComponent(providerKey)}/remote-models`,
+    { query: { user_id: input.userId } },
+  );
+}
+
+/** 普通用户在共享供应商上设置自己的 Key；只写不回读。 */
+export function setMyProviderKey(
+  providerKey: string,
+  input: { userId: string; apiKey: string },
+): Promise<{ ok: boolean }> {
+  return apiRequest(
+    `/api/model-providers/${encodeURIComponent(providerKey)}/my-key`,
+    {
+      method: "PUT",
+      body: { user_id: input.userId, api_key: input.apiKey },
+    },
+  );
+}
+
+/** 清除自己的 Key 覆盖，回落到共享 Key。 */
+export function deleteMyProviderKey(
+  providerKey: string,
+  input: { userId: string },
+): Promise<{ ok: boolean }> {
+  return apiRequest(
+    `/api/model-providers/${encodeURIComponent(providerKey)}/my-key`,
+    {
+      method: "DELETE",
+      query: { user_id: input.userId },
+    },
+  );
 }
 
 export function listDevUsers(
   signal?: AbortSignal,
 ): Promise<{ items: DevUser[] }> {
   return apiRequest<{ items: DevUser[] }>("/api/dev/users", { signal });
+}
+
+export function createDevUser(input: {
+  actorUserId: string;
+  userId: string;
+  userNameZh: string;
+}): Promise<{ ok: boolean }> {
+  return apiRequest("/api/dev/users", {
+    method: "POST",
+    body: {
+      actor_user_id: input.actorUserId,
+      user_id: input.userId,
+      user_name_zh: input.userNameZh,
+    },
+  });
 }
 
 export function listProjects(

@@ -10,6 +10,10 @@ from melonclaw.services import conversations as conversation_module
 from melonclaw.services.conversations import ConversationService
 
 
+async def _async_model(*args, **kwargs):
+    return object()
+
+
 class _Storage:
     def __init__(self, latest_status: str):
         self.conversation_id = uuid4()
@@ -57,7 +61,7 @@ def _service(storage: _Storage):
     runtime = SimpleNamespace(
         require_ready=lambda: storage,
         agent_for_conversation=agent_for_conversation,
-        model_for_message=lambda message: object(),
+        model_for_message=_async_model,
         capabilities_for_message=lambda message: tuple(message["display_metadata"]["capabilities"]),
         conversation_config=lambda conversation_id: {},
     )

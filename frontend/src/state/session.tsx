@@ -440,6 +440,12 @@ export interface SessionContextValue extends SessionState {
   loadMoreConversations: () => Promise<void>;
   loadMoreRecents: () => Promise<void>;
   refreshConversations: () => Promise<void>;
+  /** 重新加载 Skill 目录（上传/删除/发布后刷新 Picker）。 */
+  refreshSkills: () => Promise<void>;
+  /** 重新加载模型目录（自定义模型增删改后刷新选择器）。 */
+  refreshModels: () => Promise<void>;
+  /** 重新加载用户列表（admin 创建用户后刷新选择器）。 */
+  refreshUsers: () => Promise<void>;
   selectModel: (modelId: string) => void;
   startNewConversation: (projectId?: string | null) => void;
   ensureConversation: () => Promise<ConversationSummary | null>;
@@ -677,23 +683,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [contextMatches, dispatchSync, message],
   );
 
+  const refreshUsersInternal = useCallback(async () => {
+    const usersData = await listDevUsers();
+    const current = stateRef.current.userId;
+    const userId = usersData.items.some((user) => user.user_id === current)
+      ? current
+      : (usersData.items.find((user) => user.is_default)?.user_id ??
+        usersData.items[0]?.user_id ??
+        "");
+    writeStorage(USER_STORAGE_KEY, userId);
+    dispatchSync({ type: "bootstrapUsers", users: usersData.items, userId });
+  }, [dispatchSync]);
+
   const loadModelsInternal = useCallback(async () => {
     const generation = generationRef.current;
     const { userId } = stateRef.current;
     try {
       const data = await listModels({ userId });
       if (!contextMatches(generation, { userId })) return;
-      const saved = readStorage(modelStorageKey(userId)) ?? "";
       const availableItems = data.items.filter((item) => item.available);
-      const selectedModelId = data.items.some(
-        (item) => item.id === saved && item.available,
-      )
-        ? saved
-        : data.items.some(
-              (item) => item.id === data.default_model_id && item.available,
-            )
-          ? data.default_model_id
-          : availableItems[0]?.id || "";
+      const selectedModelId = availableItems.find(
+        (item) => item.id === data.default_model_id,
+      )?.id || availableItems[0]?.id || "";
       writeStorage(modelStorageKey(userId), selectedModelId);
       dispatchSync({
         type: "modelsLoaded",
@@ -711,7 +722,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const loadSkillsInternal = useCallback(async () => {
     dispatchSync({ type: "skillsLoading", loading: true });
     try {
-      const data = await listSkills();
+      const data = await listSkills({ userId: stateRef.current.userId });
       dispatchSync({ type: "skillsLoaded", items: data.items });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
@@ -1210,6 +1221,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadMoreConversations,
       loadMoreRecents,
       refreshConversations,
+      refreshSkills: loadSkillsInternal,
+      refreshModels: loadModelsInternal,
+      refreshUsers: refreshUsersInternal,
       selectModel,
       startNewConversation,
       ensureConversation,
@@ -1242,6 +1256,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadMoreConversations,
       loadMoreRecents,
       refreshConversations,
+      loadSkillsInternal,
+      loadModelsInternal,
+      refreshUsersInternal,
       selectModel,
       startNewConversation,
       ensureConversation,

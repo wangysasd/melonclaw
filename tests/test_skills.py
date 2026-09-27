@@ -15,7 +15,7 @@ class SkillCatalogTests(unittest.TestCase):
                 "name: alpha-skill\n"
                 "description: Alpha description\n"
                 "---\n"
-                "# Alpha display name skill\n",
+                "# Alpha display name\n",
                 encoding="utf-8",
             )
             catalog = SkillCatalog(root)
@@ -33,6 +33,7 @@ class SkillCatalogTests(unittest.TestCase):
                     "id": "alpha-skill",
                     "display_name": "Alpha display name",
                     "description": "Alpha description",
+                    "scope": "global",
                 },
             )
 

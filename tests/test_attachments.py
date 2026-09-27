@@ -157,10 +157,6 @@ class AttachmentCapabilitiesTests(unittest.TestCase):
     def test_capabilities_expose_supported_types_and_runtime_limits(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = Settings(
-                provider="deepseek",
-                model_name="test-model",
-                api_key="test-key",
-                base_url=None,
                 workspace_root=Path(directory),
                 attachment_max_file_bytes=1234,
                 attachment_max_per_message=3,

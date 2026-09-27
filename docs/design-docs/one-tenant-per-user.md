@@ -39,3 +39,8 @@
 停止服务并清空目标开发数据库后，执行 `uv run melonclaw-db-init` 建表和写入演示用户，再启动 Web。预期 `users.tenant_id` 非空、`user_tenants` 不存在、演示用户各有一个租户，前端请求不包含 `tenant_id`。检查项目、会话、附件、消息和恢复路径是否从当前用户解析同一租户；检查无效用户和租户不匹配的 Memory 上下文被拒绝。
 
 代码契约检查见 `tests/test_schema.py`、`tests/test_bootstrap.py`、`tests/test_tenant_contract.py` 及前端测试；真实 PostgreSQL 初始化与应用请求的观察结果以执行计划的记录为准。
+
+
+## 当前开发数据中的部门租户
+
+开发数据库中另有两个显式部门租户：`market`（市场部）和 `research`（研发部）。李四的 `users.tenant_id` 指向 `market`，张三指向 `research`；两人的 `user_id` 和中文用户名不变。新租户 ID 与中文名称在 `repository/seed_data.py` 登记，确保重复执行 db-init 时租户记录仍在。用户租户关系以 `users.tenant_id` 为准；改归属需要在事务中先确保租户存在，再更新该列。当前用户创建接口仍将新用户放入 `system` 租户，没有面向普通用户的换租户 API。

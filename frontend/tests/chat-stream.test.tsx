@@ -19,8 +19,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.session = {
     conversationId: "c1", userId: "u", projectId: "p", epoch: 1,
-    selectedModelId: "system:deepseek:flash",
-    modelOptions: [{ id: "system:deepseek:flash", display_name: "DeepSeek Flash", source: "system", provider: "deepseek", model: "deepseek-v4-flash", available: true, is_default: true }],
+    selectedModelId: "custom:deepseek-flash",
+    modelOptions: [{ id: "custom:deepseek-flash", display_name: "DeepSeek Flash", source: "system", provider: "deepseek", provider_key: "deepseek", model: "deepseek-v4-flash", available: true, is_default: true }],
     contextReady: true, busy: false, conversationCreating: false, projects: [{ id: "p", name: "p" }], status: { status: "ready" },
     runningConversationIds: [],
     setBusy: vi.fn((value) => { mocks.session.busy = value; }),
@@ -118,7 +118,7 @@ describe("chat run lifecycle", () => {
         user_message_id: "u1",
         message_id: "a1",
         model: {
-          id: "system:deepseek:flash",
+          id: "custom:deepseek-flash",
           display_name: "DeepSeek Flash",
           provider: "deepseek",
           model: "deepseek-v4-flash",
@@ -131,12 +131,12 @@ describe("chat run lifecycle", () => {
     await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
     await act(() => result.current.sendMessage("test", "tushare-fetcher"));
     expect(vi.mocked(sendMessageStream).mock.calls[0]?.[1]).toMatchObject({
-      modelId: "system:deepseek:flash",
+      modelId: "custom:deepseek-flash",
       skillId: "tushare-fetcher",
     });
     expect(result.current.state.messages[1]).toMatchObject({
       content: "你好",
-      model: { id: "system:deepseek:flash", model: "deepseek-v4-flash" },
+      model: { id: "custom:deepseek-flash", model: "deepseek-v4-flash" },
     });
   });
 
@@ -403,15 +403,15 @@ describe("chat run lifecycle", () => {
     const { result, rerender } = renderHook(() => useChatStream({ scroll }));
     await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
     let firstTask!: Promise<void>; act(() => { firstTask = result.current.sendMessage("one"); });
-    mocks.session = { ...mocks.session, conversationId: "c2", epoch: 2, selectedModelId: "system:deepseek:pro" };
+    mocks.session = { ...mocks.session, conversationId: "c2", epoch: 2, selectedModelId: "custom:deepseek-pro" };
     rerender(); await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
     // busy 跟随当前视图：旧会话在后台跑不影响新会话的发送态。
     expect(mocks.session.busy).toBe(false);
     expect(result.current.runningConversationIds).toEqual(["c1"]);
     // 多会话并发：切走后新会话仍可发送，不被旧会话阻塞。
     let secondTask!: Promise<void>; act(() => { secondTask = result.current.sendMessage("two"); });
-    expect(vi.mocked(sendMessageStream).mock.calls[0]?.[1].modelId).toBe("system:deepseek:flash");
-    expect(vi.mocked(sendMessageStream).mock.calls[1]?.[1].modelId).toBe("system:deepseek:pro");
+    expect(vi.mocked(sendMessageStream).mock.calls[0]?.[1].modelId).toBe("custom:deepseek-flash");
+    expect(vi.mocked(sendMessageStream).mock.calls[1]?.[1].modelId).toBe("custom:deepseek-pro");
     // 旧会话的终态事件只写旧会话缓存，不影响当前视图与新会话的流。
     act(() => emitFirst({ type: "completed", message_id: "old", content: "old answer", assistant_steps: [] }));
     expect(mocks.session.busy).toBe(true);

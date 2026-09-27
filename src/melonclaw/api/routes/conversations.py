@@ -25,7 +25,7 @@ async def move_conversation_to_project(
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         moved = await manager.move_conversation_to_project(
             conversation_id, payload.project_id, payload.user_id,
@@ -39,7 +39,7 @@ async def move_conversation_to_project(
 async def update_conversation(request: Request, conversation_id: UUID, payload: ResourceUpdateRequest) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         if payload.name is None and payload.is_pinned is None:
             raise ValueError("请提供名称或置顶状态。")
@@ -55,7 +55,7 @@ async def update_conversation(request: Request, conversation_id: UUID, payload: 
 async def delete_conversation(request: Request, conversation_id: UUID, user_id: str) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         await manager.update_conversation(conversation_id, user_id, delete=True)
         return JSONResponse({"deleted": True})
@@ -70,7 +70,7 @@ async def create_conversation(
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         return JSONResponse(
             await manager.create_conversation(
@@ -94,7 +94,7 @@ async def list_conversations(
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     if scope is not None and project_id is not None:
         raise HTTPException(422, "scope 与 project_id 不能同时指定。")
     try:
@@ -120,7 +120,7 @@ async def conversation_history(
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         result = await manager.history(
             conversation_id,

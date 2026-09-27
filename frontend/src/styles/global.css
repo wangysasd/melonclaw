@@ -148,3 +148,743 @@ body {
 .ant-modal.project-create-modal .ant-modal-footer .ant-btn {
   font-size: var(--text-md);
 }
+
+/* ---------- 插件管理（Skills / MCP / 模型） ---------- */
+
+.resource-view {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  background: #f5f5f7;
+}
+
+.resource-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.resource-view-header > .ant-btn {
+  font-size: 14px;
+}
+
+.resource-view-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resource-view-title h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.resource-view-tabs {
+  flex: 1;
+  min-height: 0;
+  padding: 0 20px;
+  overflow-y: auto;
+}
+
+.resource-view-tabs > .ant-tabs-content-holder {
+  padding-bottom: 24px;
+}
+
+.resource-warning {
+  color: var(--brand-coral);
+  font-size: 12px;
+}
+
+.resource-toggle-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.resource-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.resource-toggle-label {
+  color: #86868b;
+  font-size: 12px;
+}
+
+.user-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.resource-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.resource-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-resource-actions .ant-btn {
+  font-size: 14px;
+}
+
+.skill-resource-actions .skill-search {
+  flex: 0 1 28%;
+  min-width: 180px;
+}
+
+.skill-resource-actions .skill-search .ant-input,
+.skill-resource-actions .skill-search .ant-input::placeholder {
+  font-size: 14px;
+}
+
+.skill-actions-trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.resource-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.resource-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+}
+
+.resource-form-row {
+  display: flex;
+  gap: 8px;
+}
+
+.resource-form-row select {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.resource-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.resource-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+}
+
+.resource-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.resource-title {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.resource-description {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--muted);
+}
+
+.resource-badge.is-global {
+  background: rgba(52, 120, 246, 0.12);
+  color: var(--brand-primary);
+}
+
+.resource-badge.is-broken {
+  background: var(--status-error-bg);
+  color: var(--status-error);
+}
+
+/* 坏行的说明写的是「该做什么」，被截断就丢了关键动作，允许换行。 */
+.resource-item.is-broken .resource-description {
+  white-space: normal;
+}
+
+.resource-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------- 技能卡片 ---------- */
+
+.skill-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.skill-group-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.skill-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 1120px) {
+  .skill-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .skill-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.skill-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  box-shadow: var(--shadow-card);
+}
+
+.skill-card.is-broken {
+  border-color: var(--status-error);
+}
+
+.skill-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-right: 104px;
+}
+
+.skill-card-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.skill-card-content:hover .skill-card-name {
+  color: var(--brand-primary);
+}
+
+.skill-card-content:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 4px;
+}
+
+.skill-card-top-actions {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.skill-card-icon-action.ant-btn {
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.skill-card-icon-action.ant-btn:hover {
+  color: var(--brand-primary);
+  background: rgba(0, 113, 227, 0.08);
+}
+
+.skill-card-icon-action.ant-btn:disabled {
+  color: #b8b8bd;
+  background: transparent;
+}
+
+.skill-card-more.ant-btn {
+  font-size: 21px;
+  line-height: 1;
+}
+
+.skill-card-menu-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.skill-card-menu .ant-dropdown-menu-item {
+  font-size: 14px;
+}
+
+.skill-card-primary-action.ant-btn {
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: #f1f1f3;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 500;
+  gap: 3px;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.skill-card-primary-action.ant-btn:hover:not(:disabled) {
+  color: var(--brand-primary);
+  background: #e9e9ec;
+}
+
+.skill-card-primary-action.is-use.ant-btn {
+  color: var(--brand-primary);
+  background: var(--brand-soft);
+}
+
+.skill-card-primary-action.is-use.ant-btn:hover:not(:disabled) {
+  color: var(--brand-primary);
+  background: rgba(0, 113, 227, 0.16);
+}
+
+.skill-card-primary-action.is-add.ant-btn {
+  color: #248a3d;
+  background: rgba(52, 199, 89, 0.14);
+}
+
+.skill-card-primary-action.is-add.ant-btn:hover:not(:disabled) {
+  color: #1f7a35;
+  background: rgba(52, 199, 89, 0.22);
+}
+
+.skill-card-primary-action.ant-btn:disabled {
+  color: #a1a1a6;
+  background: #f1f1f3;
+}
+
+.skill-card-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-card-meta {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  min-height: 22px;
+  margin-top: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f1f3;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.skill-card-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.skill-detail-modal-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding-top: 4px;
+}
+
+.skill-detail-modal-content p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 坏卡片的说明写的是「该做什么」，被截断会丢掉关键动作，允许展开。 */
+.skill-card.is-broken .skill-card-desc {
+  display: block;
+}
+
+.skill-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.resource-draft p {
+  margin: 4px 0;
+}
+
+.resource-draft-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- 模型供应商卡片（学 Yuxi） ---------- */
+
+.provider-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6d5df6, #8b5cf6);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  flex: none;
+  overflow: hidden;
+}
+
+.provider-avatar.has-logo img {
+  object-fit: contain;
+  flex: none;
+}
+
+.provider-card-head {
+  padding-right: 0;
+}
+
+.provider-card-actions {
+  justify-content: flex-start;
+}
+
+.provider-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  margin-left: auto;
+  flex: none;
+}
+
+.provider-dot.is-on {
+  background: #52c41a;
+}
+
+.provider-card-manage-button.ant-btn {
+  font-size: 14px;
+}
+
+.provider-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.provider-card-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.provider-card-label {
+  flex: none;
+  width: 56px;
+  color: var(--muted);
+}
+
+.provider-card-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.skill-card.provider-card-mini {
+  padding: 0;
+}
+
+.provider-card-mini .skill-card-content {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 4px;
+  align-content: center;
+  min-height: 76px;
+  padding: 16px;
+  border-radius: inherit;
+}
+
+.provider-card-mini .provider-card-head {
+  display: contents;
+}
+
+.provider-card-mini .provider-avatar {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  align-self: center;
+  width: 32px;
+  height: 32px;
+}
+
+.provider-card-mini .skill-card-name {
+  grid-column: 2;
+  grid-row: 1;
+  line-height: 20px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.provider-card-mini .skill-card-meta {
+  display: block;
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.provider-modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-modal-footer-spacer {
+  flex: 1;
+}
+
+.resource-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* 供应商编辑：带标签的双列表单，小屏单列。 */
+.provider-edit-modal .ant-modal-title,
+.provider-edit-modal .ant-input,
+.provider-edit-modal .ant-btn,
+.provider-edit-modal .ant-switch-inner {
+  font-size: 14px;
+}
+
+.provider-edit-modal .ant-input-affix-wrapper,
+.provider-edit-modal .ant-input-affix-wrapper > input.ant-input,
+.provider-edit-modal .ant-input-affix-wrapper > input.ant-input::placeholder {
+  font-size: 14px;
+}
+
+.provider-edit-form {
+  padding-top: 16px;
+}
+
+.provider-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 16px;
+}
+
+.provider-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.provider-edit-field .ant-input,
+.provider-edit-field .ant-input-affix-wrapper {
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+.provider-edit-field .ant-input-affix-wrapper .ant-input {
+  min-height: auto;
+}
+
+.provider-edit-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.provider-edit-modal .provider-modal-footer {
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+@media (max-width: 560px) {
+  .provider-edit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.provider-edit-advanced summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  list-style: none;
+  font-size: 14px;
+  padding: 12px 0;
+}
+
+.provider-edit-advanced summary::-webkit-details-marker {
+  display: none;
+}
+
+.provider-edit-advanced summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.provider-edit-advanced[open] summary::after {
+  transform: rotate(45deg);
+}
+.provider-edit-advanced .provider-edit-field {
+  margin: 16px 0;
+}
+.provider-edit-modal .ant-modal-body {
+  max-height: calc(100dvh - 240px);
+  overflow-y: auto;
+}
+
+
+.model-manage-modal .ant-modal-title {
+  font-size: 16px;
+}
+
+.model-manage-modal .ant-btn,
+.model-manage-modal .ant-input,
+.model-manage-modal .ant-input-affix-wrapper,
+.model-manage-modal .ant-input-affix-wrapper > input.ant-input,
+.model-manage-modal .ant-input::placeholder {
+  font-size: 14px;
+}
+
+.model-remote-toolbar .skill-search {
+  flex: 0 1 72%;
+  min-width: 0;
+}
+
+.model-remote-toolbar .resource-hint {
+  margin-left: auto;
+  flex: none;
+  white-space: nowrap;
+  text-align: right;
+}
+
+
+.provider-key-modal .ant-modal-title {
+  font-size: 16px;
+}
+
+.provider-key-modal .ant-btn,
+.provider-key-modal .ant-input-affix-wrapper,
+.provider-key-modal .ant-input-affix-wrapper > input.ant-input,
+.provider-key-modal .ant-input-affix-wrapper > input.ant-input::placeholder {
+  font-size: 14px;
+}
+
+.provider-key-url {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.provider-key-modal .provider-key-clear {
+  align-self: flex-start;
+  width: auto;
+}

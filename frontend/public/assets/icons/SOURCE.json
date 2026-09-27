@@ -7,6 +7,10 @@
       "git_blob_sha": "50a81cb370d77bccdab4e91c1aeff36b763cdfbf"
     },
     {
+      "path": "icons/blocks.svg",
+      "git_blob_sha": "5dbf8e211ca434bbf8394575227ffe95ae854ff3"
+    },
+    {
       "path": "icons/calendar-days.svg",
       "git_blob_sha": "78c5420d4c5020d7db7f223495a88ea21fd2562d"
     },
@@ -55,12 +59,20 @@
       "git_blob_sha": "0ec97458f92564242574b65de900afbfd7123715"
     },
     {
+      "path": "icons/message-circle-plus.svg",
+      "git_blob_sha": "a63b321c0ef6d34716c8e4abaa7a4e35b536286d"
+    },
+    {
       "path": "icons/message-circle.svg",
       "git_blob_sha": "d269b8b0f3651b6ff136036da05efe9e02214ae1"
     },
     {
       "path": "icons/plus.svg",
       "git_blob_sha": "41f92bb93eb6626368d71c9884127bbcf7d3ccdf"
+    },
+    {
+      "path": "icons/refresh-cw.svg",
+      "git_blob_sha": "c27b3a9677e35fb2353167b01553d3d4cc4e3091"
     },
     {
       "path": "icons/search.svg",
@@ -73,6 +85,10 @@
     {
       "path": "icons/terminal.svg",
       "git_blob_sha": "c02c54768923cdf58432908c2e394afc5baf322f"
+    },
+    {
+      "path": "icons/upload.svg",
+      "git_blob_sha": "a6d8b543120f1bc9c2489b16f54c73c4949abfeb"
     },
     {
       "path": "icons/wrench.svg",

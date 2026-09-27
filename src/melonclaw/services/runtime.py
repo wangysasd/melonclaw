@@ -11,13 +11,13 @@ from uuid import UUID, uuid4
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
-from melonclaw.backend import project_skills_enabled
 from melonclaw.core.agent import build_research_agent
 from melonclaw.core.config import Settings, load_settings
 from melonclaw.core.model_catalog import (
     ResolvedModel,
-    list_system_models,
-    resolve_system_model,
+    catalog_item,
+    is_custom_model_id,
+    resolve_model_row,
 )
 from melonclaw.core.user_input import normalize_capabilities
 from melonclaw.database import (
@@ -32,7 +32,14 @@ from melonclaw.database import (
 from melonclaw.memory import MemoryService
 from melonclaw.output.formatting import sanitize_text
 from melonclaw.repository import BusinessRepository
-from melonclaw.services.skills import SkillCatalog, skill_catalog
+from melonclaw.services.mcp import resolve_user_mcp_servers
+from melonclaw.services.skills import (
+    GLOBAL_SKILLS_ROUTE,
+    USER_SKILLS_ROUTE,
+    SkillCatalog,
+    SkillDefinition,
+    SkillRoot,
+)
 
 
 @dataclass
@@ -54,18 +61,16 @@ class ChatRuntime:
     memory_store: Any | None = None
     memory_service: MemoryService | None = None
     attachment_hydration_provider: Any | None = None
-    workspace_agents: dict[tuple[str, tuple[str, int, str, str, str], tuple[str, ...]], Any] | None = None
+    workspace_agents: dict[Any, Any] | None = None
     agent_build_locks: dict[Any, _AgentBuildLock] = field(default_factory=dict)
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
-    skills_catalog: SkillCatalog = field(default_factory=lambda: skill_catalog)
 
     async def initialize(self) -> None:
         """打开连接池并校验数据库、Memory 和模型配置。"""
 
         try:
             self.settings = load_settings()
-            self.settings.validate()
             self.database = Database(self.settings.database_url)
             await self.database.open()
             self.storage = BusinessRepository(self.database)
@@ -133,7 +138,7 @@ class ChatRuntime:
             and self.startup_error is None
         )
 
-    def status(self) -> dict[str, Any]:
+    async def status(self) -> dict[str, Any]:
         """返回不含凭据的服务状态。"""
 
         if self.startup_error:
@@ -142,64 +147,235 @@ class ChatRuntime:
             state = "starting"
         else:
             state = "ready"
-        settings = self.settings
+        skill_routes = self._mounted_skill_routes("")
+        mcp_slugs: list[str] = []
+        if self.storage is not None and state == "ready":
+            rows = await self.storage.list_visible_mcp_rows("")
+            mcp_slugs = [str(row["slug"]) for row in rows]
         return {
             "status": state,
             "message": self.startup_error or "",
-            "provider": settings.provider if settings else "",
-            "model": settings.model_name if settings else "",
-            "mcp_servers": sorted(settings.mcp_servers) if settings else [],
-            "skills": ["/skills/"] if project_skills_enabled() else [],
+            "provider": "",
+            "model": "",
+            "mcp_servers": sorted(mcp_slugs),
+            "skills": skill_routes,
             "database": "connected" if self.storage is not None else "",
             "memory_store": "connected" if self.memory_store is not None else "",
         }
 
-    def models(self) -> dict[str, Any]:
-        """返回当前部署的系统模型目录，不包含任何凭据。"""
+    def _mounted_skill_routes(self, user_id: str) -> list[str]:
+        """返回会为该用户挂载的 Skill 虚拟路由（目录存在才挂载）。"""
+
+        if self.settings is None:
+            return []
+        return [
+            route
+            for route, directory in self._skill_dirs(user_id)
+            if directory.is_dir()
+        ]
+
+    def _skill_dirs(self, user_id: str) -> tuple[tuple[str, Path], ...]:
+        """共享 Skill 根与用户私有 Skill 根（虚拟路由前缀 → 目录）。"""
+
+        assert self.settings is not None
+        skills_root = self.settings.data_root / "skills"
+        return (
+            (GLOBAL_SKILLS_ROUTE, skills_root / "shared"),
+            (USER_SKILLS_ROUTE, skills_root / "users" / user_id),
+        )
+
+    def _catalog_for(self, user_id: str) -> SkillCatalog:
+        return SkillCatalog(
+            SkillRoot(
+                scope="global",
+                route_prefix=GLOBAL_SKILLS_ROUTE,
+                directory=directory,
+            )
+            if route == GLOBAL_SKILLS_ROUTE
+            else SkillRoot(
+                scope="user",
+                route_prefix=USER_SKILLS_ROUTE,
+                directory=directory,
+            )
+            for route, directory in self._skill_dirs(user_id)
+        )
+
+    async def visible_skills(self, user_id: str) -> list[SkillDefinition]:
+        """某用户可见且启用的 Skill：磁盘扫描 ∩ 数据库可见行。"""
+
+        storage = self.require_ready()
+        rows = await storage.list_visible_skill_rows(user_id)
+        allowed = {str(row["name"]) for row in rows}
+        return [
+            definition
+            for definition in self._catalog_for(user_id).list()
+            if definition.id in allowed
+        ]
+
+    async def resolve_skill(
+        self, user_id: str, skill_id: str | None
+    ) -> SkillDefinition | None:
+        """按用户可见性解析单个 Skill，供消息执行白名单校验。"""
+
+        if not skill_id or not isinstance(skill_id, str):
+            return None
+        return next(
+            (
+                item
+                for item in await self.visible_skills(user_id)
+                if item.id == skill_id
+            ),
+            None,
+        )
+
+    async def config_revision(self, user_id: str) -> tuple[str, str, str]:
+        """Skill/MCP/模型配置版本戳，Agent 缓存键用它做配置变更失效。
+
+        用全局 max(updated_at) 做代际：任何用户的配置变更都会让所有缓存键
+        变化一次（多重建一个 Agent），换取实现简单和多进程一致。
+        """
+
+        storage = self.require_ready()
+        return (
+            await storage.skills_revision(),
+            await storage.mcp_revision(),
+            await storage.models_revision(),
+        )
+
+    async def _model_api_key(
+        self, row: dict[str, Any], provider: dict[str, Any], user_id: str
+    ) -> str | None:
+        """个人模型只能使用本人的 Key；全局模型保留个人覆盖规则。"""
+        storage = self.require_ready()
+        if row["scope"] == "user":
+            personal = await storage.get_user_provider_key(
+                str(provider["provider_key"]), user_id
+            )
+            return str(personal["api_key"]) if personal else None
+        return await storage.effective_provider_api_key(provider, user_id)
+
+    async def models(self, user_id: str) -> dict[str, Any]:
+        """返回指定用户可见的完整模型目录，不包含任何凭据。
+
+        模型目录以数据库为唯一事实来源：全局共享模型（admin 配置，默认给
+        全员）+ 该用户自建的私有模型，因此每个人看到的可用集合不一样。
+        个人模型仅使用个人 Key，不受供应商全局开关影响；
+        全局模型受供应商开关控制，保留个人 Key 优先、共享 Key 其次的规则。
+        没有可用模型时返回空默认选择，等待用户配置。
+        """
 
         if self.settings is None:
             return {"items": [], "default_model_id": ""}
-        items = list_system_models(self.settings)
+        storage = self.require_ready()
+        rows = await storage.list_visible_model_rows(user_id)
+        items = []
+        for row in rows:
+            provider_row = await storage.get_provider_row(row["provider_key"])
+            if provider_row is not None:
+                effective = await self._model_api_key(row, provider_row, user_id)
+                items.append(
+                    catalog_item(row, {**provider_row, "api_key": effective})
+                )
+        available = sorted(
+            [item for item in items if item["available"]],
+            key=lambda item: (not item["is_default"], item["scope"] != "user" if item["is_default"] else item["scope"] != "global"),
+        )
         default_model_id = next(
-            (item["id"] for item in items if item.get("is_default")),
-            items[0]["id"] if items else "",
+            (
+                item["id"]
+                for item in available
+                if item.get("is_default")
+            ),
+            available[0]["id"] if available else "",
         )
         return {"items": items, "default_model_id": default_model_id}
 
-    def skills(self) -> dict[str, Any]:
-        """返回当前项目可供前端选择的 Skill 元数据。"""
+    async def skills(self, user_id: str) -> dict[str, Any]:
+        """返回指定用户可供前端选择的 Skill 元数据。"""
 
-        return {"items": self.skills_catalog.public_items()}
+        items = await self.visible_skills(user_id)
+        return {"items": [item.public_dict() for item in items]}
 
-    def skill(self, skill_id: str | None):
-        """解析一个已发现的 Skill，供消息执行服务做白名单校验。"""
-
-        return self.skills_catalog.get(skill_id)
-
-    def resolve_model(
+    async def resolve_model(
         self,
+        user_id: str,
         model_id: str | None = None,
-        *,
-        model_name: str | None = None,
     ) -> ResolvedModel:
+        """按用户解析模型：统一从 model_configs 表查询。
+
+        - ``model_id=None``：取默认行（is_default 的可见启用行），无则
+          第一条可见有 Key 的行，再无则提示先配置模型；
+        - ``custom:`` 前缀：行不存在、不可见或已停用时报错；
+        - 其他 ID：报错，模型目录只认数据库行。
+        """
+
         if self.settings is None:
             raise RuntimeError("运行配置尚未加载。")
-        return resolve_system_model(
-            self.settings,
-            model_id,
-            model_name=model_name,
+        if model_id and is_custom_model_id(model_id):
+            model_key = model_id.removeprefix("custom:")
+            storage = self.require_ready()
+            pair = await storage.get_model_with_provider(model_key)
+            if pair is None:
+                raise ValueError("所选模型不存在或当前不可用。")
+            row, provider_row = pair
+            if row["scope"] != "global" and row["created_by"] != user_id:
+                raise ValueError("所选模型不存在或当前不可用。")
+            effective = await self._model_api_key(row, provider_row, user_id)
+            return resolve_model_row(
+                row, {**provider_row, "api_key": effective}
+            )
+        elif model_id:
+            raise ValueError("所选模型不存在或当前不可用。")
+        return await self._resolve_default_model(user_id)
+
+    async def _resolve_default_model(self, user_id: str) -> ResolvedModel:
+        """解析当前默认模型：默认行 → 第一条可见有有效 Key 的行；没有则提示配置。"""
+
+        assert self.settings is not None
+        storage = self.require_ready()
+        rows = await storage.list_visible_model_rows(user_id)
+        candidates = []
+        for row in rows:
+            provider_row = await storage.get_provider_row(row["provider_key"])
+            if provider_row is None or (
+                row["scope"] == "global" and not provider_row["enabled"]
+            ):
+                continue
+            effective = await self._model_api_key(row, provider_row, user_id)
+            if effective:
+                candidates.append(
+                    (row, {**provider_row, "api_key": effective})
+                )
+        candidates.sort(key=lambda pair: (
+            not pair[0]["is_default"],
+            pair[0]["scope"] != "user" if pair[0]["is_default"] else pair[0]["scope"] != "global",
+        ))
+        default_pair = next(
+            (pair for pair in candidates if pair[0]["is_default"]), None
         )
+        selected = default_pair or (candidates[0] if candidates else None)
+        if selected is not None:
+            return resolve_model_row(*selected)
+        raise ValueError("暂无可用模型，请先在插件 → 模型中配置供应商 Key 并添加模型。")
 
-    def model_for_message(self, message: dict[str, Any]) -> ResolvedModel:
-        """从消息的模型快照恢复模型绑定；快照为空时回落到当前默认模型。"""
+    async def model_for_message(
+        self, user_id: str, message: dict[str, Any]
+    ) -> ResolvedModel:
+        """从消息的模型快照恢复模型绑定；快照为空时回落到当前默认模型。
 
-        return self.resolve_model(
-            message.get("model", {}).get("id") if message.get("model") else None,
-            model_name=(
-                message.get("model", {}).get("model")
-                if message.get("model")
-                else None
-            ),
+        自定义模型被删除或停用后，历史消息回放回落到当前默认系统模型，
+        避免旧会话因配置消失而无法打开。
+        """
+
+        snapshot = message.get("model") or {}
+        model_id = snapshot.get("id")
+        if model_id and is_custom_model_id(str(model_id)):
+            try:
+                return await self.resolve_model(user_id, str(model_id))
+            except ValueError:
+                return await self._resolve_default_model(user_id)
+        return await self.resolve_model(
+            user_id, str(model_id) if model_id else None
         )
 
     def require_ready(self) -> BusinessRepository:
@@ -265,14 +441,26 @@ class ChatRuntime:
             raise RuntimeError("Memory Store 仍在启动，请稍候。")
         if self.workspace_agents is None:
             self.workspace_agents = {}
-        resolved_model = model or self.resolve_model()
         normalized_capabilities = normalize_capabilities(capabilities)
+        user_id = str(conversation["user_id"])
+        resolved_model = model or await self.resolve_model(user_id)
         workspace_key = (
-            f"project:{conversation['user_id']}:{project['id']}"
+            f"project:{user_id}:{project['id']}"
             if project is not None
-            else f"conversation:{conversation['user_id']}:{conversation['id']}"
+            else f"conversation:{user_id}:{conversation['id']}"
         )
-        key = (workspace_key, resolved_model.cache_key, normalized_capabilities)
+        storage = self.require_ready()
+        skills_revision, mcp_revision, models_revision = await self.config_revision(
+            user_id
+        )
+        key = (
+            workspace_key,
+            resolved_model.cache_key,
+            normalized_capabilities,
+            skills_revision,
+            mcp_revision,
+            models_revision,
+        )
         cached = self.workspace_agents.get(key)
         if cached is not None:
             self.workspace_agents.pop(key)
@@ -285,6 +473,8 @@ class ChatRuntime:
                 cached = self.workspace_agents.get(key)
                 if cached is not None:
                     return cached
+                mcp_rows = await storage.list_visible_mcp_rows(user_id)
+                mcp_servers, mcp_allowlists = resolve_user_mcp_servers(mcp_rows)
                 agent = await build_research_agent(
                     self.settings,
                     checkpointer=self.checkpointer,
@@ -293,6 +483,9 @@ class ChatRuntime:
                     memory_service=self.memory_service,
                     attachment_hydration_provider=self.attachment_hydration_provider,
                     client_capabilities=normalized_capabilities,
+                    mcp_servers=mcp_servers,
+                    mcp_tool_allowlists=mcp_allowlists,
+                    skill_dirs=self._skill_dirs(user_id),
                 )
                 self.workspace_agents[key] = agent
                 cache_limit = max(1, getattr(self.settings, "agent_cache_entries", 32))

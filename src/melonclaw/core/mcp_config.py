@@ -53,6 +53,45 @@ def expand_env_placeholders(
     return _ENV_PLACEHOLDER.sub(replace, value)
 
 
+def load_builtin_mcp_seed(
+    config_path: str | Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    """读取仓库 ``mcp.json`` 作为内置 MCP 种子，不展开环境变量占位符。
+
+    占位符原样存进数据库，运行时装配由 services/mcp.py 按 scope 决定
+    展开所用的环境（global 用进程环境，user 用空环境直接拒绝）。
+    """
+
+    catalog = _load_server_catalog(config_path)
+    if not catalog:
+        return {}
+    return _validate_servers(catalog)
+
+
+def row_to_client_config(row: Mapping[str, Any]) -> dict[str, Any]:
+    """把 mcp_servers 表行转换为 MultiServerMCPClient 配置。
+
+    不做环境变量展开——展开时机和可用环境由调用方按 scope 决定。
+    """
+
+    transport = str(row["transport"])
+    config: dict[str, Any] = {"transport": transport}
+    if transport == "stdio":
+        config["command"] = row["command"]
+        args = row.get("args")
+        if args:
+            config["args"] = list(args)
+    else:
+        config["url"] = row["url"]
+    env = row.get("env") or {}
+    if env:
+        config["env"] = dict(env)
+    headers = row.get("headers") or {}
+    if headers:
+        config["headers"] = dict(headers)
+    return config
+
+
 def redact_mcp_sensitive_text(
     value: str,
     environ: Mapping[str, str] | None = None,

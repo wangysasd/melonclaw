@@ -42,7 +42,7 @@ async def submit_user_input(
 ) -> JSONResponse | StreamingResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         result = await manager.prepare_user_input(
             conversation_id,

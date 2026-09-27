@@ -50,25 +50,27 @@ const session = {
   conversationCreating: false,
   modelOptions: [
     {
-      id: "system:deepseek:flash",
+      id: "custom:deepseek-flash",
       display_name: "DeepSeek Flash",
       source: "system",
       provider: "deepseek",
+      provider_key: "deepseek",
       model: "deepseek-v4-flash",
       available: true,
       is_default: true,
     },
     {
-      id: "system:deepseek:pro",
+      id: "custom:deepseek-pro",
       display_name: "DeepSeek Pro",
       source: "system",
       provider: "deepseek",
+      provider_key: "deepseek",
       model: "deepseek-v4-pro",
       available: true,
       is_default: false,
     },
   ],
-  selectedModelId: "system:deepseek:flash",
+  selectedModelId: "custom:deepseek-flash",
   selectModel: vi.fn(),
   skills: [
     { id: "deep-research", display_name: "深度研究", description: "研究并总结一个主题" },
@@ -202,8 +204,8 @@ describe("composer", () => {
     const picker = screen.getByRole("combobox", { name: "选择模型" }) as HTMLSelectElement;
     expect(picker.disabled).toBe(false);
     fireEvent.mouseDown(picker);
-    fireEvent.click(screen.getByText("deepseek-v4-pro"));
-    expect(session.selectModel).toHaveBeenCalledWith("system:deepseek:pro");
+    fireEvent.click(screen.getByText("DeepSeek Pro"));
+    expect(session.selectModel).toHaveBeenCalledWith("custom:deepseek-pro");
     fireEvent.change(input, { target: { value: "next draft" } });
     expect(onChange).toHaveBeenCalledWith("next draft");
     fireEvent.keyDown(input, { key: "Enter" }); expect(onSend).not.toHaveBeenCalled();
@@ -239,6 +241,29 @@ describe("composer", () => {
     view.unmount();
   });
 
+  it("keeps model setup accessible and blocks sending without a configured model", async () => {
+    const models = session.modelOptions;
+    const contextReady = session.contextReady;
+    session.modelOptions = [];
+    session.contextReady = false;
+    const onSend = vi.fn();
+    const onOpenModelSettings = vi.fn();
+    try {
+      const view = await renderComposer({ value: "你好", onSend, onOpenModelSettings });
+      expect((screen.getByRole("button", { name: "发送" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByText("请先配置模型")).toBeTruthy();
+      fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+      expect(onSend).not.toHaveBeenCalled();
+      fireEvent.mouseDown(screen.getByRole("combobox", { name: "选择模型" }));
+      fireEvent.click(screen.getByText("添加自定义模型"));
+      expect(onOpenModelSettings).toHaveBeenCalled();
+      view.unmount();
+    } finally {
+      session.modelOptions = models;
+      session.contextReady = contextReady;
+    }
+  });
+
   it("keeps whitespace-only drafts unsendable", async () => {
     const onSend = vi.fn();
     const view = await renderComposer({ value: "   \n", onSend, disabled: false });
@@ -270,15 +295,65 @@ describe("composer", () => {
     const view = await renderComposer({ value: "你好", disabled: false });
     const picker = screen.getByRole("combobox", { name: "选择模型" }) as HTMLSelectElement;
     const sendButton = screen.getByRole("button", { name: "发送" });
-    expect(screen.getByText("deepseek-v4-flash")).toBeTruthy();
+    // 收起态只显示显示名（labelRender），不显示远端模型名。
+    expect(screen.getByText("DeepSeek Flash")).toBeTruthy();
     expect(sendButton.textContent).toBe("");
     expect(
       picker.compareDocumentPosition(sendButton) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     fireEvent.mouseDown(picker);
-    fireEvent.click(screen.getByText("deepseek-v4-pro"));
-    expect(session.selectModel).toHaveBeenCalledWith("system:deepseek:pro");
+    fireEvent.click(screen.getByText("DeepSeek Pro"));
+    expect(session.selectModel).toHaveBeenCalledWith("custom:deepseek-pro");
     view.unmount();
+  });
+
+  it("groups models into 内置模型 and 自定义模型 with a footer entry", async () => {
+    session.modelOptions.push({
+      id: "custom:my-glm",
+      display_name: "我的 GLM",
+      source: "custom",
+      provider: "Zhipu",
+      provider_key: "zhipuai",
+      model: "glm-5.2",
+      available: true,
+      is_default: false,
+      scope: "user",
+    });
+    session.modelOptions.push({
+      id: "custom:admin-minimax",
+      display_name: "MiniMax-M2.7",
+      source: "custom",
+      provider: "MiniMax",
+      provider_key: "minimax",
+      model: "MiniMax-M2.7",
+      available: true,
+      is_default: false,
+      scope: "global",
+    });
+    try {
+      const onOpenModelSettings = vi.fn();
+      const view = await renderComposer({ value: "你好", disabled: false, onOpenModelSettings });
+      fireEvent.mouseDown(screen.getByRole("combobox", { name: "选择模型" }));
+      expect(screen.getByText("内置模型")).toBeTruthy();
+      expect(screen.getByText("自定义模型")).toBeTruthy();
+      expect(screen.getByText("我的 GLM")).toBeTruthy();
+      const menu = document.querySelector(".model-picker-dropdown")!;
+      const rows = Array.from(menu.querySelectorAll(".ant-select-item"));
+      const labels = rows.map((row) => row.textContent);
+      expect(labels.indexOf("MiniMax-M2.7")).toBeGreaterThan(labels.indexOf("内置模型"));
+      expect(labels.indexOf("MiniMax-M2.7")).toBeLessThan(labels.indexOf("自定义模型"));
+      expect(menu.querySelector(".resource-badge")).toBeNull();
+      const logo = document.querySelector(
+        '.model-option-logo img[src*="provider-logos/zhipu.svg"]',
+      );
+      expect(logo).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "添加自定义模型" }));
+      expect(onOpenModelSettings).toHaveBeenCalledTimes(1);
+      view.unmount();
+    } finally {
+      session.modelOptions.pop();
+      session.modelOptions.pop();
+    }
   });
 
   it("opens a two-level menu from the plus button", async () => {

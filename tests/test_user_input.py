@@ -59,6 +59,10 @@ from melonclaw.tool.user_input import (
 )
 
 
+async def _async_model(*args, **kwargs):
+    return SimpleNamespace(cache_key=("m",))
+
+
 def test_approval_batch_id_is_stable_for_same_assistant_and_interrupts():
     request = [
         {"id": "interrupt-b", "action_requests": [], "review_configs": []},
@@ -452,7 +456,7 @@ class _CancelHarness:
                 conversation_config=lambda conversation_id: {
                     "configurable": {"thread_id": str(conversation_id)}
                 },
-                model_for_message=lambda message: SimpleNamespace(cache_key=("m",)),
+                model_for_message=_async_model,
                 capabilities_for_message=lambda message: (USER_INPUT_CAPABILITY,),
                 agent_for_conversation=self._agent_for_conversation,
                 workspace_dir=lambda conversation, project: Path(project["workdir_path"]),
@@ -819,7 +823,7 @@ def test_busy_conversation_is_rejected_before_any_write():
         settings=SimpleNamespace(user_input_ttl_seconds=60),
         worker_id="worker-1",
         conversation_config=lambda conversation_id: {"configurable": {"thread_id": str(conversation_id)}},
-        model_for_message=lambda message: SimpleNamespace(cache_key=("m",)),
+        model_for_message=_async_model,
         capabilities_for_message=lambda message: (),
     )
 
@@ -943,14 +947,28 @@ def test_agent_cache_key_includes_client_capabilities(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runtime_module, "build_research_agent", fake_build_research_agent)
     monkeypatch.setattr(ChatRuntime, "ready", property(lambda self: True))
-    monkeypatch.setattr(
-        ChatRuntime, "resolve_model", lambda self, *args, **kwargs: SimpleNamespace(cache_key=("model-1",))
-    )
+    async def fake_resolve_model(self, *args, **kwargs):
+        return SimpleNamespace(cache_key=("model-1",))
+
+    monkeypatch.setattr(ChatRuntime, "resolve_model", fake_resolve_model)
     monkeypatch.setattr(ChatRuntime, "project_workspace_dir", lambda self, project: tmp_path)
 
+    class FakeStorage:
+        async def skills_revision(self):
+            return "rev"
+
+        async def mcp_revision(self):
+            return "rev"
+
+        async def models_revision(self):
+            return "rev"
+
+        async def list_visible_mcp_rows(self, user_id):
+            return []
+
     runtime = ChatRuntime(
-        settings=SimpleNamespace(workspace_root=tmp_path),
-        storage=object(),
+        settings=SimpleNamespace(workspace_root=tmp_path, data_root=tmp_path),
+        storage=FakeStorage(),
         checkpointer=object(),
         memory_service=object(),
         workspace_agents={},
@@ -985,15 +1003,31 @@ def test_ordinary_conversation_uses_its_own_workspace(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runtime_module, "build_research_agent", fake_build_research_agent)
     monkeypatch.setattr(ChatRuntime, "ready", property(lambda self: True))
+    async def fake_resolve_model(self, *args, **kwargs):
+        return SimpleNamespace(cache_key=("model-1",))
+
     monkeypatch.setattr(
         ChatRuntime,
         "resolve_model",
-        lambda self, *args, **kwargs: SimpleNamespace(cache_key=("model-1",)),
+        fake_resolve_model,
     )
 
+    class FakeStorage:
+        async def skills_revision(self):
+            return "rev"
+
+        async def mcp_revision(self):
+            return "rev"
+
+        async def models_revision(self):
+            return "rev"
+
+        async def list_visible_mcp_rows(self, user_id):
+            return []
+
     runtime = ChatRuntime(
-        settings=SimpleNamespace(workspace_root=tmp_path, agent_cache_entries=4),
-        storage=object(),
+        settings=SimpleNamespace(workspace_root=tmp_path, agent_cache_entries=4, data_root=tmp_path),
+        storage=FakeStorage(),
         checkpointer=object(),
         memory_service=object(),
         workspace_agents={},

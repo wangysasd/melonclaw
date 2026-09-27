@@ -8,12 +8,12 @@ import {
   type DragEvent,
 } from "react";
 import { App as AntdApp } from "antd";
-import { Select } from "antd";
 import Sender, { type SenderRef } from "@ant-design/x/es/sender";
 
 import { AttachmentDialog, type StagedAttachment } from "./AttachmentDialog";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
+import { ModelPicker } from "./ModelPicker";
 import { PlusMenu } from "./PlusMenu";
 import { ProjectPicker } from "./ProjectPicker";
 import { SkillPicker } from "./SkillPicker";
@@ -37,6 +37,9 @@ const PARSE_POLL_INITIAL_MS = 1000;
 const PARSE_POLL_MAX_MS = 5000;
 
 export interface ComposerProps {
+  /** 从 Skill 管理页的“尝试”入口带入新会话的初始 Skill。 */
+  initialSkill?: SkillOption | null;
+  onInitialSkillApplied?: () => void;
   value: string;
   onChange: (value: string) => void;
   onSend: (
@@ -51,6 +54,8 @@ export interface ComposerProps {
   /** 显式取消当前会话输出；只在停止模式下调用。 */
   onStop?: () => void;
   onOpenProjectDialog?: () => void;
+  /** 打开插件页的模型供应商 TAB（模型选择器底部「添加自定义模型」）。 */
+  onOpenModelSettings?: () => void;
 }
 
 /** 已通过弹窗确认、进入输入区等待随消息发送的附件。 */
@@ -87,7 +92,18 @@ function statusText(attachment: ComposerAttachment): string {
 }
 
 /** Sender 仅负责输入展示；模型快照与发送恢复仍由现有聊天流管理。 */
-export function Composer({ value, onChange, onSend, disabled, isRunning, onStop, onOpenProjectDialog }: ComposerProps) {
+export function Composer({
+  initialSkill = null,
+  onInitialSkillApplied,
+  value,
+  onChange,
+  onSend,
+  disabled,
+  isRunning,
+  onStop,
+  onOpenProjectDialog,
+  onOpenModelSettings,
+}: ComposerProps) {
   const session = useSession();
   const attachmentAccess = useMemo(
     () =>
@@ -183,6 +199,13 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
     // draftConversationId 清除于首条消息落库，不代表切换聊天。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.userId, session.projectId, session.conversationId]);
+
+  useEffect(() => {
+    if (!initialSkill) return;
+    setSelectedSkill(initialSkill);
+    setSkillTrigger(null);
+    onInitialSkillApplied?.();
+  }, [initialSkill, onInitialSkillApplied]);
 
   useEffect(() => {
     // 空白页因附件上传取得 ID 后仍是同一张草稿，弹窗和暂存附件应保留。
@@ -304,7 +327,8 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
   const canAttach = canUse && !session.conversationCreating;
   const modelOptions = session.modelOptions ?? [];
   const selectedModelId =
-    session.selectedModelId || modelOptions.find((item) => item.available)?.id || "";
+    modelOptions.find((item) => item.id === session.selectedModelId && item.available)?.id
+    || modelOptions.find((item) => item.available)?.id || "";
   const selectedModel = modelOptions.find((item) => item.id === selectedModelId);
   const hasUnsupportedImage = attachments.some(
     (attachment) => attachment.kind === "image" &&
@@ -313,7 +337,7 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
   const readyAttachments = attachments.length > 0 && attachments.every(isReady) && !hasUnsupportedImage;
   const sendDisabled = stopMode
     ? false
-    : (inputDisabled || disabled || running || waiting || session.conversationCreating || (!value.trim() && !readyAttachments));
+    : (!selectedModel?.available || inputDisabled || disabled || running || waiting || session.conversationCreating || (!value.trim() && !readyAttachments));
   const sendLabel = stopMode
     ? "停止生成"
     : session.conversationCreating
@@ -671,22 +695,12 @@ export function Composer({ value, onChange, onSend, disabled, isRunning, onStop,
                 </button>
               </div>
               <div className="composer-bottom-right">
-                {modelOptions.length > 0 ? (
-                  <Select
-                    className="model-picker"
-                    aria-label="选择模型"
-                    value={selectedModelId || undefined}
-                    disabled={inputDisabled || session.conversationCreating}
-                    title="模型选择从下一条消息生效"
-                    options={modelOptions.map((option) => ({
-                      key: option.id,
-                      value: option.id,
-                      label: option.model,
-                      disabled: !option.available,
-                    }))}
+                <ModelPicker
+                    options={modelOptions}
+                    value={selectedModelId}
                     onChange={(modelId) => session.selectModel?.(modelId)}
-                  />
-                ) : null}
+                    onAddCustomModel={onOpenModelSettings}
+                />
                 <button
                   className="send-button"
                   type="button"

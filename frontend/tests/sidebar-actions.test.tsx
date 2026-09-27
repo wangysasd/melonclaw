@@ -11,6 +11,8 @@ vi.mock("../src/api/client", () => ({ listConversations: vi.fn() }));
 const session = {
   contextReady: true,
   status: { status: "ready" },
+  userId: "u1",
+  users: [],
   projectId: "p1",
   conversationId: "c1",
   conversationListRevision: 0,

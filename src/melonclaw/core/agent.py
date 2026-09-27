@@ -8,7 +8,6 @@ from typing import Any
 
 from deepagents import create_deep_agent
 from deepagents.backends.protocol import BackendProtocol
-from langchain.agents.middleware import LLMToolSelectorMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
@@ -23,9 +22,7 @@ from melonclaw.core.interpreter import (
     build_interpreter_middleware,
 )
 from melonclaw.core.model_catalog import (
-    SYSTEM_DEFAULT_MODEL_ID,
     ResolvedModel,
-    resolve_system_model,
 )
 from melonclaw.core.prompts import build_system_prompt
 from melonclaw.core.user_input import UserInputMiddleware, supports_user_input
@@ -38,11 +35,9 @@ from melonclaw.middleware import (
 )
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
-from melonclaw.tool.user_input import USER_INPUT_TOOL_NAME
 
 TOOL_NAMES_PREVIEW_LIMIT = 12
 MAX_SELECTED_TOOLS_PER_MODEL_CALL = 16
-TOOL_SELECTOR_TAG = "tool-selector"
 
 
 @dataclass(frozen=True)
@@ -62,7 +57,7 @@ class AgentContext:
     worker_id: str = ""
     tenant_role: str = "member"
     tenant_status: str = "active"
-    model_id: str = SYSTEM_DEFAULT_MODEL_ID
+    model_id: str = ""
     model_spec: str = ""
     memory_enabled: bool = False
     memory_admin: bool = False
@@ -88,54 +83,25 @@ def _tool_name(tool: object) -> str:
 
 
 def _build_tool_selector_middleware(
-    provider: str,
     model: BaseChatModel,
     tools: list[object],
-    *,
-    include_user_input: bool,
 ) -> AgentMiddleware:
-    """按实际模型 provider 选择动态工具选择器。
+    """构造动态工具选择器。
 
-    ``include_user_input`` 为 False 时不能把 ``ask_user`` 写进 ``always_include``：
-    未注入该工具时，选择器会去挑选一个根本不存在的工具。
+    所有模型都经 ``chat_model.py`` 的 OpenAI 兼容 ``ChatOpenAI`` 适配，目录行的
+    ``provider`` 只是展示标签（用户自建行由运营者填写），因此这里不按 provider
+    分派，统一使用项目的目录型选择器。
     """
 
-    if provider == "openai":
-        # 官方 selector 的内部结构化输出也会进入 LangGraph 消息流。只给它使用
-        # 的模型副本增加标签，让 Web 事件适配器隐藏这段内部 JSON；主模型不受影响。
-        selector_model = model.model_copy(
-            update={
-                "tags": [*(getattr(model, "tags", None) or []), TOOL_SELECTOR_TAG],
-                "metadata": {
-                    **(getattr(model, "metadata", None) or {}),
-                    "tool_selector": True,
-                },
-            }
-        )
-        return LLMToolSelectorMiddleware(
-            model=selector_model,
-            max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
-            always_include=[USER_INPUT_TOOL_NAME] if include_user_input else [],
-        )
-
-    if provider in {"deepseek", "minimax"}:
-        return CatalogToolSelectorMiddleware(
-            model=model,
-            catalog_tool_names=[
-                _tool_name(tool)
-                for tool in tools
-                if _tool_name(tool) != MCP_CATALOG_TOOL_NAME
-            ],
-            max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
-        )
-
-    raise ValueError(f"没有为 provider={provider!r} 配置工具选择器。")
-
-
-def _tool_selector_summary(provider: str) -> str:
-    if provider == "openai":
-        return "LangChain 官方 LLMToolSelectorMiddleware"
-    return "项目自定义 CatalogToolSelectorMiddleware"
+    return CatalogToolSelectorMiddleware(
+        model=model,
+        catalog_tool_names=[
+            _tool_name(tool)
+            for tool in tools
+            if _tool_name(tool) != MCP_CATALOG_TOOL_NAME
+        ],
+        max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
+    )
 
 
 async def build_research_agent(
@@ -143,11 +109,14 @@ async def build_research_agent(
     *,
     checkpointer: Any | None = None,
     workspace_dir: Path,
-    model: ResolvedModel | None = None,
+    model: ResolvedModel,
     runtime_backend: BackendProtocol | None = None,
     memory_service: MemoryService | None = None,
     attachment_hydration_provider: AttachmentHydrationProvider | None = None,
     client_capabilities: object = None,
+    mcp_servers: dict[str, dict[str, Any]] | None = None,
+    mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
+    skill_dirs: tuple[tuple[str, Path], ...] = (),
 ) -> CompiledStateGraph:
     """异步发现工具并构建绑定到指定工作区的通用助手。
 
@@ -165,16 +134,18 @@ async def build_research_agent(
         )
 
     workspace_dir.mkdir(parents=True, exist_ok=True)
-    resolved_model = model or resolve_system_model(settings)
+    resolved_model = model
     chat_model: BaseChatModel = build_chat_model(resolved_model)
-    tools = await build_agent_tools(settings)
-    user_input_enabled = supports_user_input(client_capabilities)
-    tool_selector = _build_tool_selector_middleware(
-        resolved_model.provider,
-        chat_model,
-        tools,
-        include_user_input=user_input_enabled,
+    tools = await build_agent_tools(
+        settings,
+        mcp_servers=mcp_servers,
+        mcp_tool_allowlists=mcp_tool_allowlists,
     )
+    resolved_mcp_servers = (
+        settings.mcp_servers if mcp_servers is None else mcp_servers
+    )
+    user_input_enabled = supports_user_input(client_capabilities)
+    tool_selector = _build_tool_selector_middleware(chat_model, tools)
     interpreter = build_interpreter_middleware()
     backend, skill_sources, skill_permissions = build_agent_backend(
         workspace_dir,
@@ -190,10 +161,12 @@ async def build_research_agent(
             if memory_service is not None
             else "quickstart-research-agent"
         ),
+        skill_dirs=skill_dirs,
     )
     print(
         "运行时后端: CompositeBackend（默认虚拟根目录: "
-        f"{workspace_dir}；/skills/ 直读项目源目录）"
+        f"{workspace_dir}；Skill 路由: "
+        f"{', '.join(skill_sources) if skill_sources else '无'}）"
     )
     if skill_sources:
         print(f"已启用 Agent Skill: {', '.join(skill_sources)}")
@@ -202,15 +175,15 @@ async def build_research_agent(
         f"{', '.join(INTERPRETER_PTC_TOOLS)}；每次 eval 最多 "
         f"{INTERPRETER_MAX_PTC_CALLS} 次 PTC 调用）"
     )
-    if settings.mcp_servers:
-        server_names = ", ".join(sorted(settings.mcp_servers))
+    if resolved_mcp_servers:
+        server_names = ", ".join(sorted(resolved_mcp_servers))
         print(f"已启用 MCP 服务: {server_names}")
         print(f"已注入 Agent 工具: {_format_tool_summary(tools)}")
         print(
             "每轮主模型动态选择工具上限: "
             f"{MAX_SELECTED_TOOLS_PER_MODEL_CALL}"
         )
-        print(f"动态工具选择器: {_tool_selector_summary(resolved_model.provider)}")
+        print("动态工具选择器: CatalogToolSelectorMiddleware")
 
     middleware: list[AgentMiddleware] = [
         tool_selector,
@@ -236,7 +209,7 @@ async def build_research_agent(
         skills=skill_sources or None,
         permissions=skill_permissions or None,
         system_prompt=build_system_prompt(
-            settings.mcp_servers,
+            resolved_mcp_servers,
             memory_enabled=memory_service is not None,
         ),
         context_schema=AgentContext,

@@ -1,12 +1,14 @@
 import { App as AntdApp, ConfigProvider } from "antd";
 import XProvider from "@ant-design/x/es/x-provider";
 import zhCN from "antd/locale/zh_CN";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ChatView } from "./components/ChatView";
 import { ProjectDialog } from "./components/ProjectDialog";
+import { ResourceView } from "./components/ResourceView";
 import { Sidebar } from "./components/Sidebar";
 import { SessionProvider, useSession } from "./state/session";
+import type { SkillOption } from "./types/api";
 import { antdTheme } from "./theme/antd";
 import "./styles/chat.css";
 import "./styles/sidebar.css";
@@ -15,6 +17,9 @@ function Workspace() {
   const session = useSession();
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [moveConversationId, setMoveConversationId] = useState<string | null>(null);
+  const [view, setView] = useState<"chat" | "resources">("chat");
+  const [resourceTab, setResourceTab] = useState("skills");
+  const [initialSkill, setInitialSkill] = useState<SkillOption | null>(null);
 
   const openProjectDialog = (conversationId?: string) => {
     setMoveConversationId(conversationId ?? null);
@@ -27,8 +32,12 @@ function Workspace() {
   };
 
   const newConversation = () => {
+    setInitialSkill(null);
+    setView("chat");
     session.startNewConversation();
   };
+
+  const clearInitialSkill = useCallback(() => setInitialSkill(null), []);
 
   // 全局快捷键：⌘K / Ctrl+K 新建对话。
   useEffect(() => {
@@ -48,8 +57,34 @@ function Workspace() {
       <Sidebar
         onNewConversation={newConversation}
         onOpenProjectDialog={openProjectDialog}
+        onOpenResources={() => {
+          setResourceTab("skills");
+          setView("resources");
+        }}
+        resourcesActive={view === "resources"}
+        onNavigateChat={() => setView("chat")}
       />
-      <ChatView onOpenProjectDialog={() => openProjectDialog()} />
+      {view === "resources" ? (
+        <ResourceView
+          initialTab={resourceTab}
+          onClose={() => setView("chat")}
+          onTrySkill={(skill) => {
+            session.startNewConversation();
+            setInitialSkill(skill);
+            setView("chat");
+          }}
+        />
+      ) : (
+        <ChatView
+          onOpenProjectDialog={() => openProjectDialog()}
+          onOpenModelSettings={() => {
+            setResourceTab("models");
+            setView("resources");
+          }}
+          initialSkill={initialSkill}
+          onInitialSkillApplied={clearInitialSkill}
+        />
+      )}
       <ProjectDialog
         open={projectDialogOpen}
         moveConversationId={moveConversationId}

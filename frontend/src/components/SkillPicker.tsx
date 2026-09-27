@@ -44,7 +44,12 @@ export function SkillPicker({
               onClick={() => onSelect(skill)}
             >
               <span className="skill-picker-copy">
-                <span className="skill-picker-title">{skill.display_name}</span>
+                <span className="skill-picker-title">
+                  {skill.display_name}
+                  {skill.scope === "user" ? (
+                    <span className="skill-picker-scope">我的</span>
+                  ) : null}
+                </span>
                 <span className="skill-picker-description">{skill.description}</span>
               </span>
             </button>

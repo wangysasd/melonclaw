@@ -18,7 +18,7 @@ router = APIRouter()
 async def update_project(request: Request, project_id: UUID, payload: ResourceUpdateRequest) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         if payload.name is None and payload.is_pinned is None:
             raise ValueError("请提供名称或置顶状态。")
@@ -34,7 +34,7 @@ async def update_project(request: Request, project_id: UUID, payload: ResourceUp
 async def delete_project(request: Request, project_id: UUID, user_id: str) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         await manager.update_project(project_id, user_id, delete=True)
         return JSONResponse({"deleted": True})
@@ -49,7 +49,7 @@ async def create_project(
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         return JSONResponse(
             await manager.create_project(
@@ -69,7 +69,7 @@ async def list_projects(
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
-        return JSONResponse(manager.status(), status_code=503)
+        return JSONResponse(await manager.status(), status_code=503)
     try:
         return JSONResponse(
             {"items": await manager.list_projects(user_id)}

@@ -13,6 +13,7 @@ from melonclaw.api.routes.approvals import router as approvals_router
 from melonclaw.api.routes.attachments import router as attachments_router
 from melonclaw.api.routes.chat import router as chat_router
 from melonclaw.api.routes.conversations import router as conversations_router
+from melonclaw.api.routes.mcp import router as mcp_router
 from melonclaw.api.routes.models import router as models_router
 from melonclaw.api.routes.projects import router as projects_router
 from melonclaw.api.routes.skills import router as skills_router
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
     application.include_router(status_router)
     application.include_router(models_router)
     application.include_router(skills_router)
+    application.include_router(mcp_router)
     application.include_router(projects_router)
     application.include_router(attachments_router)
     application.include_router(conversations_router)

@@ -116,7 +116,7 @@
   letter-spacing: -0.02em;
 }
 
-/* 系统工具目录 */
+/* 系统状态弹窗 */
 
 .tool-catalog-backdrop {
   position: fixed;
@@ -378,6 +378,113 @@
   border: 1px dashed var(--line);
   border-radius: 9px;
   font-size: 12px;
+}
+
+/* 系统状态摘要与当前可选模型 */
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-success);
+  flex-shrink: 0;
+}
+
+.status-dot.is-loading {
+  background: #ff9500;
+  animation: mc-pulse 1.2s ease-in-out infinite;
+}
+
+.status-dot.is-error {
+  background: #ff3b30;
+}
+
+@keyframes mc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.is-loading {
+    animation: none;
+  }
+}
+
+.tool-catalog-summary-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+}
+
+.tool-catalog-model-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-catalog-model-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 42px;
+  padding: 7px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.tool-catalog-runtime-key {
+  flex: 0 0 64px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tool-catalog-runtime-value {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.tool-catalog-model-values {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tool-catalog-model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 3px 9px;
+  color: var(--brand-primary);
+  border: 1px solid rgba(0, 113, 227, 0.14);
+  border-radius: 999px;
+  background: rgba(0, 113, 227, 0.045);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tool-catalog-model-default {
+  padding: 1px 5px;
+  color: var(--muted);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.055);
+  font-size: 10px;
 }
 
 .prompt-grid {
@@ -1639,6 +1746,17 @@
 .model-picker.ant-select-disabled { cursor: not-allowed; opacity: 0.55; }
 .model-picker.ant-select:focus-visible { outline: 2px solid rgba(0, 113, 227, 0.35); outline-offset: 2px; }
 
+/* 模型下拉行：logo + 显示名；收起态只显示显示名（labelRender）。 */
+.model-option { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.model-option-logo { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, #6d5df6, #8b5cf6); color: #fff; font-size: 12px; font-weight: 600; flex: none; overflow: hidden; }
+.model-option-logo img { width: 75%; height: 75%; object-fit: contain; }
+.model-option-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-picker-footer { border-top: 1px solid var(--line); padding: 4px; }
+.model-picker-footer .ant-btn { width: 100%; justify-content: flex-start; text-align: left; font-size: 14px; }
+.model-picker-dropdown.ant-select-dropdown .ant-select-item-group { font-size: 12px; }
+.model-picker-dropdown.ant-select-dropdown .ant-select-item-group,
+.model-picker-dropdown.ant-select-dropdown .ant-select-item-option { padding-inline: 12px; }
+
 .composer-meta {
   display: flex;
   align-items: center;
@@ -1957,4 +2075,13 @@
 
 @media (max-width: 640px) {
   .execution-node-subtitle { display: none; }
+}
+
+.skill-picker-scope {
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--muted);
 }

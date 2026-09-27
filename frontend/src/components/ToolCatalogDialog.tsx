@@ -7,11 +7,58 @@ import {
   type ToolCategory,
   type ToolDefinition,
 } from "../lib/toolCatalog";
+import type { ModelOption, ServiceStatus } from "../types/api";
 
 interface ToolCatalogDialogProps {
   open: boolean;
-  mcpServers: string[];
+  status: ServiceStatus | null;
+  modelOptions: ModelOption[];
   onClose: () => void;
+}
+
+const SERVICE_STATE_LABELS: Record<string, string> = {
+  starting: "正在启动助手",
+  ready: "服务已就绪",
+  error: "启动失败",
+};
+
+function serviceStateLabel(state: string): string {
+  return SERVICE_STATE_LABELS[state] ?? state;
+}
+
+/** 当前可由模型选择器使用的模型目录。 */
+function SupportedModelsSection({ modelOptions }: { modelOptions: ModelOption[] }) {
+  const availableModels = modelOptions.filter((model) => model.available);
+  return (
+    <section className="tool-catalog-section" aria-labelledby="tool-runtime-models-title">
+      <div className="tool-catalog-section-heading">
+        <span className="tool-catalog-category-icon" aria-hidden="true">
+          <Icon name="brain" size={17} />
+        </span>
+        <span>
+          <h3 id="tool-runtime-models-title">当前支持模型情况</h3>
+          <p>以下是当前已配置并可在模型选择器中使用的模型。</p>
+        </span>
+      </div>
+      <ul className="tool-catalog-model-list" aria-label="当前可选模型">
+        <li>
+          <span className="tool-catalog-runtime-key">可选模型</span>
+          {availableModels.length > 0 ? (
+            <span className="tool-catalog-model-values">
+              {availableModels.map((model) => (
+                <span className="tool-catalog-model-chip" key={model.id}>
+                  {model.display_name}
+                  {model.is_default ? <span className="tool-catalog-model-default">默认</span> : null}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span className="tool-catalog-runtime-value">当前没有可选择的模型。</span>
+          )}
+        </li>
+      </ul>
+    </section>
+  );
 }
 
 function ToolCard({ tool }: { tool: ToolDefinition }) {
@@ -57,9 +104,13 @@ function CategorySection({ category }: { category: ToolCategory }) {
 
 export function ToolCatalogDialog({
   open,
-  mcpServers,
+  status,
+  modelOptions,
   onClose,
 }: ToolCatalogDialogProps) {
+  const mcpServers = status?.mcp_servers ?? [];
+  const serviceState = status?.status ?? "starting";
+
   useEffect(() => {
     if (!open) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -83,23 +134,37 @@ export function ToolCatalogDialog({
         <header className="tool-catalog-header">
           <div>
             <p className="tool-catalog-eyebrow">MELONCLAW CAPABILITIES</p>
-            <h2 id="tool-catalog-title">系统工具目录</h2>
+            <h2 id="tool-catalog-title">系统状态</h2>
             <p className="tool-catalog-intro">
-              当前 Agent 可调用的固定工具，以及运行时接入的外部服务。
+              查看当前支持的模型、Agent 可调用的固定工具，以及已配置的 MCP 服务。
             </p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭工具目录" title="关闭">
+          <button type="button" className="icon-button" onClick={onClose} aria-label="关闭系统状态" title="关闭">
             <Icon name="x" size={17} />
           </button>
         </header>
 
-        <div className="tool-catalog-summary" aria-label="工具目录摘要">
+        <div className="tool-catalog-summary" aria-label="系统状态摘要">
+          <span className="tool-catalog-summary-state">
+            <span
+              className={[
+                "status-dot",
+                serviceState === "starting" ? "is-loading" : "",
+                serviceState === "error" ? "is-error" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            />
+            {serviceStateLabel(serviceState)}
+          </span>
           <span><strong>{TOOL_CATALOG.length}</strong> 个固定工具</span>
           <span><strong>{mcpServers.length}</strong> 个 MCP 服务</span>
           <span className="tool-catalog-summary-note">MCP 工具名称在运行时发现</span>
         </div>
 
         <div className="tool-catalog-content">
+          <SupportedModelsSection modelOptions={modelOptions} />
+
           {TOOL_CATEGORIES.map((category) => (
             <CategorySection key={category.id} category={category} />
           ))}
