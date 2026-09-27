@@ -92,7 +92,7 @@ it("keeps one confirm action and saves the selected provider status", async () =
 it("opens personal key dialogs with an empty input after closing an unsaved draft", async () => {
   await show(false, false);
   const open = () => fireEvent.click(screen.getByRole("button", { name: "配置供应商：DeepSeek" }));
-  const input = () => screen.getByPlaceholderText("输入你在该供应商的 API Key（只保存不回显）") as HTMLInputElement;
+  const input = () => screen.getByPlaceholderText("输入供应商API-Key(只保存不回显)") as HTMLInputElement;
   open();
   expect(input().value).toBe("");
   expect(input().autocomplete).toBe("new-password");
