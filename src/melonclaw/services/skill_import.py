@@ -52,10 +52,21 @@ class SkillImportDraft:
     source_url: str
     source_ref: str
     preview: dict
+    conversation_id: str
+    enable_on_install: bool
+
+    def confirmation(self) -> dict[str, object]:
+        return {
+            "draft_id": self.draft_id, "name": self.name, "scope": self.scope,
+            "source_url": self.source_url, "source_ref": self.source_ref,
+            "content_hash": self.preview["content_hash"], "enable": self.enable_on_install,
+        }
 
     def public_dict(self) -> dict[str, object]:
         result = asdict(self)
         result.pop("user_id")
+        if self.conversation_id:
+            result["installation"] = self.confirmation()
         result["operation"] = "update" if self.target_id else "install"
         return result
 
@@ -113,6 +124,8 @@ class SkillImportService:
         target_id: str | None = None,
         source_url: str = "",
         source_ref: str = "",
+        conversation_id: str = "",
+        enable_on_install: bool = False,
     ) -> SkillImportDraft:
         async with self.operations.locked():
             await self.operations.recover(storage)
@@ -149,6 +162,8 @@ class SkillImportService:
                     source_url,
                     source_ref,
                     preview,
+                    conversation_id,
+                    enable_on_install,
                 )
                 write_json(directory / "draft.json", asdict(draft))
                 return draft
@@ -160,11 +175,16 @@ class SkillImportService:
                 raise
 
     async def confirm(
-        self, *, draft_id: str, user_id: str, storage: BusinessRepository
+        self, *, draft_id: str, user_id: str, storage: BusinessRepository,
+        conversation_id: str = "", confirmation: dict | None = None,
     ) -> SkillImportDraft:
         async with self.operations.locked():
             await self.operations.recover(storage)
             draft, extracted = self._require_draft(draft_id, user_id)
+            if draft.conversation_id != conversation_id:
+                raise SkillImportError("安装草稿不属于当前会话或入口，请重新准备。")
+            if conversation_id and confirmation != draft.confirmation():
+                raise SkillImportError("审批清单与安装草稿不一致，请重新预览。")
             scope, row = await self._target(storage, user_id, draft.target_id)
             if scope != draft.scope:
                 raise SkillImportError("安装范围已变化，请重新预览后确认。")
@@ -189,6 +209,7 @@ class SkillImportService:
                 storage,
                 source,
                 row=row,
+                enabled=draft.enable_on_install,
                 fields={
                     "name": draft.name,
                     "scope": scope,

@@ -68,6 +68,24 @@ export const TOOL_CATEGORIES: readonly ToolCategory[] = [
 
 export const TOOL_CATALOG: readonly ToolDefinition[] = [
   {
+    name: "prepare_skill_install",
+    label: "预览 Skill 安装",
+    description: "从 GitHub 或聊天 ZIP 附件下载、校验并准备安装清单。",
+    category: "workspace",
+    icon: "file-text",
+    availability: "core",
+    availabilityLabel: "核心工具",
+  },
+  {
+    name: "confirm_skill_install",
+    label: "安装 Skill",
+    description: "人工确认安装范围与启用选项后，提交已预览的 Skill。",
+    category: "workspace",
+    icon: "shield-check",
+    availability: "core",
+    availabilityLabel: "需要审批",
+  },
+  {
     name: "ls",
     label: "查看目录",
     description: "列出工作区中的文件和目录。",

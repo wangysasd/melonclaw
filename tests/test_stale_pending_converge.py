@@ -63,7 +63,7 @@ def test_converge_only_touches_pending_assistant_messages():
     assert bound["status_1"] == "pending"
 
 
-def test_runtime_initialize_converges_stale_pending_after_schema_check(monkeypatch):
+def test_runtime_initialize_converges_stale_pending_after_schema_check(monkeypatch, tmp_path):
     calls: list[str] = []
 
     async def _converge():
@@ -96,7 +96,9 @@ def test_runtime_initialize_converges_stale_pending_after_schema_check(monkeypat
     monkeypatch.setattr(
         runtime_module,
         "load_settings",
-        lambda: SimpleNamespace(database_url="postgresql://unused"),
+        lambda: SimpleNamespace(
+            database_url="postgresql://unused", data_root=tmp_path
+        ),
     )
     monkeypatch.setattr(runtime_module, "Database", _FakeDatabase)
     monkeypatch.setattr(

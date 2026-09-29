@@ -70,6 +70,7 @@ export function attachmentKindOf(extension: string): AttachmentSummary["kind"] {
     return "image";
   }
   if (extension === ".pdf") return "pdf";
+  if (extension === ".zip") return "archive";
   if (
     extension === ".txt" ||
     extension === ".md" ||

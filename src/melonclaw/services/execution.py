@@ -679,6 +679,7 @@ class ExecutionService:
                 execution.config,
                 context=AgentContext(
                     user_id=execution.user_id,
+                    conversation_id=str(execution.conversation_id),
                     tenant_id=execution.tenant_id,
                     tenant_name=execution.tenant_name,
                     project_id=str(execution.project_id) if execution.project_id else "",

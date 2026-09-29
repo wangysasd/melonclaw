@@ -155,3 +155,43 @@ scripts/start.sh
 ```
 
 新增 Skill 接口：`GET /api/skills/{name}/details?user_id=...&scope=global|user` 返回有界正文/文件预览；`POST /api/skills/recover?user_id=...` 仅管理员恢复操作并返回索引诊断。ZIP `import/prepare` 表单与远程 `install/remote` JSON 可带 `target_id`（管理接口返回的数据库 UUID）进入更新流程；确认、取消仍按 `draft_id` 操作。
+
+
+## 聊天安装 Skill 与内置教程
+
+可以直接问“怎么配置 Skill / MCP / 模型”，AI 会按需读取内置 `melonclaw-tutorial`，给出页面入口、操作步骤和排障方法。它由 db-init 从共享目录补登记，新增时默认启用；已有停用或个人偏好不被覆盖。没有可用模型时先从聊天模型选择器的“添加自定义模型”进入“拓展 → 模型”配置，静态提示不依赖 AI。
+
+聊天安装支持两种方式：
+
+- 上传 Skill ZIP 附件，发送“帮我安装并启用这个 Skill”。
+- 发送公开 GitHub 仓库或 Skill 子目录链接，并说明“帮我安装”。集合仓库需指定单个 Skill 子目录；纯仓库默认 main。
+
+AI 准备预览后显示一次审批：确认名称、来源、安装范围和是否启用，选择允许并提交。默认安装并启用，想暂不启用可说明“只安装”。管理员／owner 安装为共享资源，启用会对全员开放；普通用户仅自己可用。安装并启用后，下一条消息可自动发现或从技能选择器选择。拒绝审批不会安装；安装不会执行包内脚本或自动装依赖。同名更新请使用“拓展 → Skills”的卡片菜单。
+
+ZIP 不作为文档解析，不要求视觉模型；聊天上传默认单文件 20MB，仍受附件弹窗显示的数量、总大小和压缩比限制及 Skill 导入校验。草稿 15 分钟过期后重新准备。若中断后不确定是否安装成功，先到 Skills 管理页核实，管理员可用“恢复与检查”。当前开发模拟身份和 LocalShellBackend 的部署限制不变。
+
+**已有开发库需要重建附件表的 CHECK 约束。** 本次增加 archive 附件类型，仅运行 db-init 不会修改旧约束。先停服、备份需要保留的数据，在数据库管理客户端对目标开发库执行以下 SQL（会清空附件及消息附件绑定，不清空模型和聊天文本）：
+
+```sql
+DROP TABLE chat_message_attachments;
+DROP TABLE chat_attachments;
+```
+
+随后在项目根目录执行：
+
+```bash
+uv run melonclaw-db-init
+scripts/restart.sh
+```
+
+新数据库直接运行初始化即可。旧附件文件不会被上述 SQL 自动删除，应在停服时按保留需求单独处理；旧聊天附件不再可用。旧 Skill 暂存草稿也应在更新前过期或清理，用户重新准备即可。无需安装新的 Python 或前端依赖。
+
+如果使用自定义数据根，初始化前将仓库的教程目录部署到该数据根（不要把数据根本身设为教程目录）：
+
+```bash
+mkdir -p "${MELONCLAW_DATA_DIR:?请先设置自定义数据根}/skills/shared"
+cp -R .data/skills/shared/melonclaw-tutorial "${MELONCLAW_DATA_DIR:?请先设置自定义数据根}/skills/shared/"
+uv run melonclaw-db-init
+```
+
+上述复制命令要求先设置 `MELONCLAW_DATA_DIR`；默认 `.data/` 无需复制。实现及验证见 [聊天安装设计](docs/design-docs/chat-skill-install.md)。

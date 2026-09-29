@@ -91,7 +91,7 @@ class AttachmentRepositoryMixin:
         workspace_max_bytes: int,
     ) -> dict[str, Any]:
         timestamp = _now()
-        parse_status = "not_required" if kind == "image" else "pending"
+        parse_status = "not_required" if kind in {"image", "archive"} else "pending"
         async with self.engine.begin() as connection:
             await self._lock_attachment_scope(
                 connection, project_id, owner_conversation_id
@@ -708,6 +708,9 @@ class AttachmentRepositoryMixin:
                         raise AttachmentStateError(
                             "当前模型不支持多模态图片输入。", "model_image_unsupported"
                         )
+                elif row["kind"] == "archive":
+                    if row["parse_status"] != "not_required":
+                        raise AttachmentStateError("ZIP 附件状态无效。", "attachment_parse_failed")
                 elif row["parse_status"] != "processed":
                     if row["parse_status"] in {"pending", "processing"}:
                         raise AttachmentStateError(

@@ -65,7 +65,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | `memory/` | Global / Tenant / User 三级长期记忆的中间件、工具与服务 | `service.py`、`middleware.py`、`tools.py` |
 | `middleware/` | Agent 中间件：文件操作顺序、工具动态选择、用户提问批次护栏 | `file_ordering.py`、`tool_selection.py`、`user_input_guard.py` |
 | `backend/` | Deep Agents Backend 的构造与路径路由 | `factory.py` |
-| `tool/` | 注入 Agent 的工具（联网搜索、MCP 目录工具） | `tools.py`、`search.py` |
+| `tool/` | 注入 Agent 的工具（联网搜索、MCP 目录、受控 Skill 安装） | `tools.py`、`search.py` |
 
 ## 3. 依赖方向
 
@@ -115,6 +115,10 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 
 凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`TAVILY_API_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；给 Agent 的变量名集中在 `core/defaults.py` 声明，值只来自 `.env`。
 
+### 聊天安装 Skill 与教程
+
+`ChatService` 向 runtime 注入 `ChatSkillInstallService` provider，`core/agent.py` 使用 `tool/skill_install.py` 的协议创建准备和确认工具。身份由 `ToolRuntime` 的 `AgentContext.user_id/tenant_id/conversation_id/project_id` 提供，每次执行重新查询用户、会话与项目；模型不提供身份。聊天与页面共用导入服务，confirm 通过 `core/hitl.py` 审批，按草稿核对完整清单及会话，不进入 PTC。ZIP 附件使用 archive 类型，仓储绑定时无需文档解析或视觉模型，hydration 仅传附件 ID。安装并启用在原操作日志 ready 提交中完成，下一轮快照生效。教程通过现有内置索引默认启用。详见 [设计与边界](design-docs/chat-skill-install.md)。
+
 ## 5. 关键取舍与历史教训
 
 ### 5.1 `LocalShellBackend` 不是安全沙箱
@@ -156,7 +160,7 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 
 清库会丢掉两类"看起来在代码里、实际只在数据库里"的东西，`db-init` 对它们的处理不同：**结构**必须由 `schema.py` 定义（漂移由 `verify_schema` 拦截），**索引类数据**由 `db-init` 从磁盘或仓库种子重建（内置 MCP 来自 `mcp.json`，Skill 索引来自 `data_root/skills/`）。新增任何"DB 只是投影"的资源时，都要同时给出重建入口，否则清库后它会静默消失而不是报错。
 
-`metadata.create_all` 只建缺失的表，从不 ALTER 已有表，因此 `verify_schema` 的列比对（缺列和多列都报）是结构漂移唯一的拦截点。它逐表比对 `database/constants.py` 的 `BUSINESS_TABLES`，**业务表和资源表都必须登记在该清单里**：漏登记的表不会被校验，漂移会一路带到种子 INSERT 才以一条裸数据库错误暴露（`model_configs` 曾缺 `is_default` 列就是这样发生的）。新增业务表时，同时把它加入 `BUSINESS_TABLES`。
+`metadata.create_all` 只建缺失的表，从不 ALTER 已有表。`verify_schema` 对 `BUSINESS_TABLES` 逐表比对列（缺列和多列都报），并检查 ZIP 上传必需的附件类型约束是否包含 `archive`，让旧库在启动时直接报重建提示。**业务表和资源表都必须登记在 `database/constants.py` 的 `BUSINESS_TABLES`**：漏登记的表不会做列校验，漂移可能到种子 INSERT 才以裸数据库错误暴露（`model_configs` 曾缺 `is_default` 列就是这样发生的）。新增业务表时，同时把它加入 `BUSINESS_TABLES`。
 
 若重建数据库是为了改变用户的租户映射，先备份需要保留的文件，并清理 `MELONCLAW_WORKSPACE_DIR` 指向的旧工作区（未配置时为 `~/.melonclaw/workspaces`），再初始化数据库。建表命令不会清理工作区；沿用旧目录会留下与新数据库无对应记录的文件。工作区路径中的 UUID 和目录层级不是租户安全边界。
 

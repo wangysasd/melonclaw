@@ -104,3 +104,17 @@ class SchemaMigrationMixin:
                 f"{details}。请清空/重建数据库后重新运行 "
                 "uv run melonclaw-db-init。"
             )
+
+        # create_all 不会更新已有 CHECK；旧附件表会在 ZIP 上传时才拒绝 archive。
+        constraint_query = text(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conrelid = 'public.chat_attachments'::regclass "
+            "AND conname = 'ck_chat_attachments_kind'"
+        )
+        async with self.engine.connect() as connection:
+            constraint_rows = (await connection.execute(constraint_query, {})).fetchall()
+        if len(constraint_rows) != 1 or "archive" not in str(constraint_rows[0][0]):
+            raise DatabaseSchemaError(
+                "chat_attachments 的附件类型约束仍是旧版本，ZIP 无法上传。"
+                "请按 README 停服重建附件两表，再运行 uv run melonclaw-db-init。"
+            )

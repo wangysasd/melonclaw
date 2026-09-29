@@ -287,7 +287,7 @@ export interface AttachmentSummary {
   attachment_id: string;
   file_name: string;
   media_type: string;
-  kind: "image" | "pdf" | "text" | "document";
+  kind: "image" | "pdf" | "text" | "document" | "archive";
   size_bytes: number;
   parse_status: "not_required" | "pending" | "processing" | "processed" | "failed";
   parse_error_code?: string | null;

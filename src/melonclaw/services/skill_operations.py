@@ -108,7 +108,7 @@ class SkillOperations:
                     await storage.update_skill_row(row["id"], **operation["old"])
         shutil.rmtree(journal)
 
-    async def install(self, storage, source: Path, *, row: dict | None, fields: dict) -> dict:
+    async def install(self, storage, source: Path, *, row: dict | None, fields: dict, enabled: bool = False) -> dict:
         """调用者持锁且完成版本校验。启停/归属/ID 更新时保持不变。"""
         target = self.target(fields["storage_path"])
         if row is None and target.exists():
@@ -121,6 +121,8 @@ class SkillOperations:
             key: fields[key] for key in ("content_hash", "source_type", "source_url", "source_ref")
         }
         new.update(version=row["version"] + 1 if row else 1, status="ready")
+        if row is None:
+            new["enabled"] = enabled
         old = {key: row[key] for key in new} if row else None
         operation = {
             "kind": "update" if row else "install",

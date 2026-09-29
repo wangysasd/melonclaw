@@ -183,7 +183,8 @@ class AttachmentService:
             except Exception:
                 local.remove_attachment(attachment_id)
                 raise
-            self.schedule_parse(UUID(created["attachment_id"]))
+            if created["parse_status"] != "not_required":
+                self.schedule_parse(UUID(created["attachment_id"]))
             return created
         finally:
             if candidate.exists():
@@ -407,6 +408,13 @@ class AttachmentService:
         except AttachmentNotFoundError:
             return self._unavailable_block(record)
         local = LocalAttachmentStorage(workspace)
+        if record["kind"] == "archive":
+            if not local.original_path(record["id"]).is_file():
+                return self._unavailable_block(record)
+            return {
+                "type": "archive", "file_name": record["original_name"],
+                "attachment_id": str(record["id"]),
+            }
         if record["kind"] != "image":
             return {
                 "type": "document",

@@ -34,6 +34,7 @@ SUPPORTED_TYPES: dict[str, AttachmentType] = {
     ".jpg": AttachmentType(".jpg", "image/jpeg", "image", False),
     ".jpeg": AttachmentType(".jpeg", "image/jpeg", "image", False),
     ".png": AttachmentType(".png", "image/png", "image", False),
+    ".zip": AttachmentType(".zip", "application/zip", "archive", False),
     ".pdf": AttachmentType(".pdf", "application/pdf", "pdf", True),
     ".txt": AttachmentType(".txt", "text/plain", "text", True),
     ".md": AttachmentType(".md", "text/markdown", "text", True),
@@ -191,6 +192,8 @@ def validate_attachment(
     spec = SUPPORTED_TYPES.get(extension)
     if spec is None:
         raise AttachmentValidationError("暂不支持该附件类型。", "unsupported_attachment_type", 415)
+    if extension == ".zip" and declared_media_type == "application/x-zip-compressed":
+        declared_media_type = "application/zip"
     _check_declared_mime(declared_media_type, spec.media_type)
     if source.stat().st_size == 0:
         raise AttachmentValidationError("附件不能为空。", "attachment_invalid")
@@ -222,6 +225,15 @@ def validate_attachment(
             raise
         except Exception as exc:
             raise AttachmentValidationError("PDF 文件损坏。", "attachment_invalid") from exc
+    elif spec.kind == "archive":
+        from melonclaw.parsers.archives import validate_zip
+
+        validate_zip(
+            source, max_entries=archive_max_entries,
+            max_bytes=archive_max_uncompressed_bytes,
+            max_entry_bytes=archive_max_entry_bytes,
+            max_ratio=archive_max_compression_ratio,
+        )
     elif spec.kind == "document":
         _validate_ooxml(
             source,

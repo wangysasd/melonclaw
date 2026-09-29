@@ -69,6 +69,12 @@ class AttachmentHydrationMiddleware(AgentMiddleware):
                     }
                 )
                 index_lines.append(f"- {name}：图片已作为当前请求的图片内容提供。")
+            elif attachment.get("type") == "archive":
+                index_lines.append(
+                    f"- {name}：ZIP 附件，attachment_id={attachment['attachment_id']}。"
+                    "用户要求安装 Skill 时将此 ID 交给 prepare_skill_install；"
+                    "未解析正文，不要用 Shell 解压安装。"
+                )
             elif attachment.get("type") == "unavailable":
                 index_lines.append(f"- {name}：附件已不可用，无法读取其内容。")
             else:

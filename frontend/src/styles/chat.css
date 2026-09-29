@@ -2085,3 +2085,12 @@
   background: rgba(0, 0, 0, 0.06);
   color: var(--muted);
 }
+
+.skill-install-approval {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.skill-install-approval p {
+  margin: 4px 0;
+}

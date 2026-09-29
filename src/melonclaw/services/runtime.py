@@ -34,7 +34,7 @@ from melonclaw.memory import MemoryService
 from melonclaw.output.formatting import sanitize_text
 from melonclaw.repository import BusinessRepository
 from melonclaw.services.mcp import resolve_user_mcp_servers
-from melonclaw.services.skill_snapshot import skill_snapshot
+from melonclaw.services.skill_snapshot import clear_stale_snapshots, skill_snapshot
 from melonclaw.services.skill_state import evaluate_skills
 from melonclaw.services.skills import (
     GLOBAL_SKILLS_ROUTE,
@@ -66,6 +66,7 @@ class ChatRuntime:
     memory_store: Any | None = None
     memory_service: MemoryService | None = None
     attachment_hydration_provider: Any | None = None
+    skill_install_provider: Any | None = None
     workspace_agents: dict[Any, Any] | None = None
     agent_build_locks: dict[Any, _AgentBuildLock] = field(default_factory=dict)
     startup_error: str | None = None
@@ -76,6 +77,9 @@ class ChatRuntime:
 
         try:
             self.settings = load_settings()
+            removed = clear_stale_snapshots(self.settings.data_root)
+            if removed:
+                logger.info("cleared %d stale skill snapshot(s) from previous process", removed)
             self.database = Database(self.settings.database_url)
             await self.database.open()
             self.storage = BusinessRepository(self.database)
@@ -496,6 +500,7 @@ class ChatRuntime:
                     model=resolved_model,
                     memory_service=self.memory_service,
                     attachment_hydration_provider=self.attachment_hydration_provider,
+                    skill_install_provider=self.skill_install_provider,
                     client_capabilities=normalized_capabilities,
                     mcp_servers=mcp_servers,
                     mcp_tool_allowlists=mcp_allowlists,

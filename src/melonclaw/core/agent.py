@@ -36,6 +36,7 @@ from melonclaw.middleware import (
 from melonclaw.middleware.skill_refresh import SkillRefreshMiddleware
 from melonclaw.middleware.tool_name_guard import ToolNameGuardMiddleware
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
+from melonclaw.tool.skill_install import SkillInstallProvider, build_skill_install_tools
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
 
 TOOL_NAMES_PREVIEW_LIMIT = 12
@@ -49,6 +50,7 @@ class AgentContext:
     user_id: str
     tenant_id: str
     tenant_name: str
+    conversation_id: str = ""
     project_id: str = ""
     project_name: str = ""
     workdir_path: str = ""
@@ -100,7 +102,7 @@ def _build_tool_selector_middleware(
         catalog_tool_names=[
             _tool_name(tool)
             for tool in tools
-            if _tool_name(tool) != MCP_CATALOG_TOOL_NAME
+            if _tool_name(tool) not in {MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "confirm_skill_install"}
         ],
         max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
     )
@@ -115,6 +117,7 @@ async def build_research_agent(
     runtime_backend: BackendProtocol | None = None,
     memory_service: MemoryService | None = None,
     attachment_hydration_provider: AttachmentHydrationProvider | None = None,
+    skill_install_provider: SkillInstallProvider | None = None,
     client_capabilities: object = None,
     mcp_servers: dict[str, dict[str, Any]] | None = None,
     mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
@@ -143,6 +146,8 @@ async def build_research_agent(
         mcp_servers=mcp_servers,
         mcp_tool_allowlists=mcp_tool_allowlists,
     )
+    if skill_install_provider is not None:
+        tools.extend(build_skill_install_tools(skill_install_provider))
     resolved_mcp_servers = (
         settings.mcp_servers if mcp_servers is None else mcp_servers
     )

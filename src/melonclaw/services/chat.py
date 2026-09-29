@@ -44,6 +44,7 @@ from melonclaw.services.resource_service import (
 )
 from melonclaw.services.runtime import ChatRuntime
 from melonclaw.services.skill_import import SkillImportService
+from melonclaw.services.skill_install import ChatSkillInstallService
 from melonclaw.services.skill_remote import (
     fetch_remote_skill_archive,
     filter_archive_subdir,
@@ -73,6 +74,7 @@ class ChatService:
         self.user_input = UserInputExecutionService(self.execution)
         self._resources: ResourceService | None = None
         self._skill_imports: SkillImportService | None = None
+        self.runtime.skill_install_provider = ChatSkillInstallService(self)
 
     @property
     def resources(self) -> ResourceService:
@@ -232,19 +234,22 @@ class ChatService:
         await self.resources.delete_skill(user_id, name, scope)
 
     async def prepare_skill_import(
-        self, user_id: str, archive_bytes: bytes, target_id: str | None = None
+        self, user_id: str, archive_bytes: bytes, target_id: str | None = None,
+        *, conversation_id: str = "", enable_on_install: bool = False,
     ) -> dict[str, Any]:
         await self.conversations.resolve_user(user_id)
         draft = await self.skill_imports.prepare(
             user_id=user_id,
             archive_bytes=archive_bytes,
+            conversation_id=conversation_id, enable_on_install=enable_on_install,
             target_id=target_id,
             storage=self.runtime.require_ready(),
         )
         return draft.public_dict()
 
     async def prepare_remote_skill_install(
-        self, user_id: str, repo: str, target_id: str | None = None
+        self, user_id: str, repo: str, target_id: str | None = None,
+        *, conversation_id: str = "", enable_on_install: bool = False,
     ) -> dict[str, Any]:
         """从 GitHub 远程市场下载 Skill 包并进入两段式确认。"""
 
@@ -256,6 +261,7 @@ class ChatService:
         draft = await self.skill_imports.prepare(
             user_id=user_id,
             archive_bytes=archive,
+            conversation_id=conversation_id, enable_on_install=enable_on_install,
             storage=self.runtime.require_ready(),
             source_type="remote",
             target_id=target_id,

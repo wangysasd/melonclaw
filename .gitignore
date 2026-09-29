@@ -43,7 +43,7 @@ dist/
 .DS_Store
 .playwright-cli/
 # 本地资源数据根（Skill/MCP 内容），可用 MELONCLAW_DATA_DIR 重定向。
-# 共享 Skill 中只有 tushare-fetcher 进版本控制，其余（含 CICC/HTSC 内部研报类）不提交。
+# 版本化内置共享 Skill；其他本地内容（含 CICC/HTSC 内部研报类）不提交。
 # users/、tmp/ 只保留目录占位（.gitkeep），其内容不提交。
 .data/*
 !.data/skills/
@@ -51,6 +51,7 @@ dist/
 !.data/skills/shared/
 .data/skills/shared/*
 !.data/skills/shared/tushare-fetcher/
+!.data/skills/shared/melonclaw-tutorial/
 !.data/skills/users/
 !.data/skills/tmp/
 .data/skills/users/*

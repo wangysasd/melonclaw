@@ -9,6 +9,7 @@ export const FALLBACK_ATTACHMENT_CAPABILITIES: AttachmentCapabilities = {
     { extension: ".jpg", media_type: "image/jpeg", kind: "image" },
     { extension: ".jpeg", media_type: "image/jpeg", kind: "image" },
     { extension: ".png", media_type: "image/png", kind: "image" },
+    { extension: ".zip", media_type: "application/zip", kind: "archive" },
     { extension: ".pdf", media_type: "application/pdf", kind: "pdf" },
     { extension: ".txt", media_type: "text/plain", kind: "text" },
     { extension: ".md", media_type: "text/markdown", kind: "text" },

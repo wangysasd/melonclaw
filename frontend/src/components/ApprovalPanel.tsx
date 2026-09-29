@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef, useState } from "react";
 
+import { SkillInstallApproval } from "./SkillInstallApproval";
 import { Icon } from "./Icon";
 import { toolSummary } from "../lib/toolDisplay";
 import type {
@@ -213,6 +214,7 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
                   {row.action.name || "unknown"}
                 </div>
               </div>
+              <SkillInstallApproval action={row.action} />
               <div className="approval-choices" role="group" aria-label={`第 ${index + 1} 项 ${row.action.name} 的处理方式`}>
                   {choices.map((choice) => (
                     <button type="button" key={choice} className="approval-choice"

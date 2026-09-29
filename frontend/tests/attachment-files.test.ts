@@ -112,3 +112,14 @@ describe("attachment file helpers", () => {
     ).toBeNull();
   });
 });
+
+it("accepts ZIP only when advertised and identifies it as an archive", () => {
+  const zipCapabilities: AttachmentCapabilities = {
+    ...capabilities,
+    items: [{ extension: ".zip", media_type: "application/zip", kind: "archive" }],
+  };
+  const zip = file("skill.zip", 20, "application/zip");
+  expect(validateAttachmentFile(zip, zipCapabilities, { currentCount: 0, currentTotalBytes: 0 })).toBeNull();
+  expect(validateAttachmentFile(zip, capabilities, { currentCount: 0, currentTotalBytes: 0 })).not.toBeNull();
+  expect(attachmentKindOf(".zip")).toBe("archive");
+});

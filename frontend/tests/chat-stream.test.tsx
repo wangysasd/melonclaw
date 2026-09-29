@@ -540,3 +540,20 @@ describe("chat run lifecycle", () => {
     await act(async () => { await task; });
   });
 });
+
+it("refreshes the current user's skills after the install tool returns", async () => {
+  mocks.session.refreshSkills = vi.fn().mockResolvedValue(undefined);
+  vi.mocked(sendMessageStream).mockImplementation(async (_id, _input, { onEvent }) => {
+    onEvent({ type: "message_started", conversation_id: "c1", request_id: "r1", user_message_id: "u1", message_id: "a1" });
+    onEvent({ type: "assistant_tool_result", message_id: "a1", step_id: "step", call_id: "install", result: {
+      call_id: "install", name: "confirm_skill_install", batch_index: 0, status: "completed",
+      result_preview: '{"status":"installed"}',
+    } });
+    onEvent({ type: "completed", message_id: "a1", content: "安装成功", assistant_steps: [] });
+    onEvent({ type: "done", terminal_reason: "completed" });
+  });
+  const { result } = renderHook(() => useChatStream({ scroll }));
+  await act(async () => { await Promise.resolve(); });
+  await act(() => result.current.sendMessage("安装 Skill"));
+  expect(mocks.session.refreshSkills).toHaveBeenCalledTimes(1);
+});

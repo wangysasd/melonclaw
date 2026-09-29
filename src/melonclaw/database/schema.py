@@ -257,7 +257,7 @@ chat_attachments = Table(
         ondelete="RESTRICT",
     ),
     CheckConstraint(
-        "kind IN ('image', 'pdf', 'text', 'document')",
+        "kind IN ('image', 'pdf', 'text', 'document', 'archive')",
         name="ck_chat_attachments_kind",
     ),
     CheckConstraint(

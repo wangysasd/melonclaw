@@ -13,6 +13,27 @@ from melonclaw.services.skill_state import evaluate_skills
 from melonclaw.services.skills import GLOBAL_SKILLS_ROUTE, USER_SKILLS_ROUTE
 
 
+def clear_stale_snapshots(data_root: Path) -> int:
+    """启动时清空 .snapshots/。运行期快照只被内存中的 Agent 缓存引用，
+    进程退出后即成死数据；启动阶段尚无请求和缓存，直接全量删除（含 .tmp-* 半成品）。
+    删除失败静默跳过，不阻塞启动。"""
+
+    snapshot_root = data_root / "skills" / ".snapshots"
+    if not snapshot_root.is_dir():
+        return 0
+    removed = 0
+    for child in snapshot_root.iterdir():
+        try:
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 async def skill_snapshot(storage, user_id: str, data_root: Path, catalog):
     operations = SkillOperations(data_root)
     async with operations.locked():

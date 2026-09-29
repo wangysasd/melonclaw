@@ -52,3 +52,22 @@ it("edits the backend's sanitized JSON string without double serialization", asy
   await user.click(screen.getByRole("button", { name: "提交 1 项决定并继续" }));
   expect(onSubmit).toHaveBeenCalledWith([{ type: "edit", edited_action: { name: "write_file", args: action.args } }]);
 });
+
+it("shows shared installation effects and submits only an explicit approval", async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn().mockResolvedValue(undefined);
+  render(<ApprovalPanel approval={{ id: "skill-approval", actions: [{
+    name: "confirm_skill_install", allowed_decisions: ["approve", "reject"],
+    args: JSON.stringify({ installation: {
+      draft_id: "draft", name: "report", scope: "global", enable: true,
+      source_url: "https://github.com/example/report", source_ref: "commit", content_hash: "hash",
+    } }),
+  }] }} onSubmit={onSubmit} />);
+  expect(screen.getByLabelText("Skill 安装清单").textContent).toContain("系统共享");
+  expect(screen.getByLabelText("Skill 安装清单").textContent).toContain("全员启用");
+  expect((screen.getByRole("button", { name: "提交 1 项决定并继续" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole("button", { name: "编辑参数" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "允许本次" }));
+  await user.click(screen.getByRole("button", { name: "提交 1 项决定并继续" }));
+  expect(onSubmit).toHaveBeenCalledWith([{ type: "approve" }]);
+});
