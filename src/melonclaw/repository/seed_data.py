@@ -12,8 +12,6 @@ from melonclaw.repository.constants import SYSTEM_TENANT_ID
 
 TENANT_SEEDS: tuple[dict[str, str], ...] = (
     {"tenant_id": SYSTEM_TENANT_ID, "tenant_name_zh": "系统"},
-    {"tenant_id": "market", "tenant_name_zh": "市场部"},
-    {"tenant_id": "research", "tenant_name_zh": "研发部"},
 )
 
 ADMIN_USER_SEED: dict[str, str] = {
@@ -27,7 +25,7 @@ ADMIN_USER_SEED: dict[str, str] = {
 USER_SEEDS: tuple[dict[str, str], ...] = (ADMIN_USER_SEED,)
 
 # ---------------------------------------------------------------------------
-# 平台默认模型供应商与模型种子
+# 平台模型供应商模板
 # ---------------------------------------------------------------------------
 
 # 初始化只写供应商模板，不读取任何模型凭据、不创建模型。

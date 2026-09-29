@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,8 @@ from melonclaw.memory import MemoryService
 from melonclaw.output.formatting import sanitize_text
 from melonclaw.repository import BusinessRepository
 from melonclaw.services.mcp import resolve_user_mcp_servers
+from melonclaw.services.skill_snapshot import skill_snapshot
+from melonclaw.services.skill_state import evaluate_skills
 from melonclaw.services.skills import (
     GLOBAL_SKILLS_ROUTE,
     USER_SKILLS_ROUTE,
@@ -40,6 +43,8 @@ from melonclaw.services.skills import (
     SkillDefinition,
     SkillRoot,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -83,6 +88,12 @@ class ChatRuntime:
                 require_checkpointer=True,
                 require_store=True,
             )
+            converged = await self.storage.converge_stale_pending_messages()
+            if converged:
+                logger.info(
+                    "converged %d stale pending assistant message(s) from previous process",
+                    converged,
+                )
             self.memory_service = MemoryService(
                 self.storage,
                 self.memory_store,
@@ -201,16 +212,16 @@ class ChatRuntime:
         )
 
     async def visible_skills(self, user_id: str) -> list[SkillDefinition]:
-        """某用户可见且启用的 Skill：磁盘扫描 ∩ 数据库可见行。"""
+        """某用户可见且启用的 Skill：磁盘扫描 ∩ 数据库可见行。
 
-        storage = self.require_ready()
-        rows = await storage.list_visible_skill_rows(user_id)
-        allowed = {str(row["name"]) for row in rows}
-        return [
-            definition
-            for definition in self._catalog_for(user_id).list()
-            if definition.id in allowed
-        ]
+        同名共存时私有遮蔽共享：管理员发布的共享 Skill 不受个人私有
+        占用影响，但拥有同名私有 Skill 的用户继续使用自己的版本，
+        其 Agent 目录里只出现私有那一个，保证 skill id 无二义。
+        """
+
+        rows = await self.require_ready().list_visible_skill_rows(user_id, include_disabled=True)
+        states = evaluate_skills(rows, self._catalog_for(user_id), self.settings.data_root / "skills")
+        return [state.definition for state in states if state.effective_enabled and state.definition is not None]
 
     async def resolve_skill(
         self, user_id: str, skill_id: str | None
@@ -223,7 +234,7 @@ class ChatRuntime:
             (
                 item
                 for item in await self.visible_skills(user_id)
-                if item.id == skill_id
+                if item.key == skill_id
             ),
             None,
         )
@@ -363,7 +374,7 @@ class ChatRuntime:
     ) -> ResolvedModel:
         """从消息的模型快照恢复模型绑定；快照为空时回落到当前默认模型。
 
-        自定义模型被删除或停用后，历史消息回放回落到当前默认系统模型，
+        自定义模型被删除或停用后，历史消息回放回落到当前默认模型，
         避免旧会话因配置消失而无法打开。
         """
 
@@ -453,6 +464,9 @@ class ChatRuntime:
         skills_revision, mcp_revision, models_revision = await self.config_revision(
             user_id
         )
+        skills_revision, skill_dirs, skill_references = await skill_snapshot(
+            storage, user_id, self.settings.data_root, self._catalog_for(user_id)
+        )
         key = (
             workspace_key,
             resolved_model.cache_key,
@@ -485,8 +499,9 @@ class ChatRuntime:
                     client_capabilities=normalized_capabilities,
                     mcp_servers=mcp_servers,
                     mcp_tool_allowlists=mcp_allowlists,
-                    skill_dirs=self._skill_dirs(user_id),
+                    skill_dirs=skill_dirs,
                 )
+                agent.melonclaw_skill_references = skill_references
                 self.workspace_agents[key] = agent
                 cache_limit = max(1, getattr(self.settings, "agent_cache_entries", 32))
                 while len(self.workspace_agents) > cache_limit:

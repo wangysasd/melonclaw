@@ -15,7 +15,7 @@ core/agent.py   用 create_deep_agent 组装 Agent（模型 + 工具 + middlewar
         ▼
 runtime.py      按 Project 或普通 Conversation 解析工作区，按工作区/模型/能力缓存 Agent
         ▼
-backend/        CompositeBackend：默认 LocalShellBackend(当前工作区) + 受保护目录与 /skills/、/skills-user/ 路由
+backend/        CompositeBackend：默认 LocalShellBackend(当前工作区) + 受保护目录与有效 Skill 快照的 /skills/、/skills-user/ 路由
         ▼
 output/         把 LangGraph 消息流投影成有序 assistant steps 与 SSE 事件
 ```
@@ -103,13 +103,13 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 关注点 | 唯一入口 | 说明 |
 |---|---|---|
 | 配置与环境变量 | `core/config.py` 的 `Settings` / `load_settings()` | 新增环境变量在这里解析，不要在各模块直接读 `os.environ`（`MELONCLAW_*` 风格） |
-| 模型与能力 | `core/model_catalog.py` 的 `ResolvedModel` + 目录条目转换；模型目录以 `model_providers` + `model_configs` 两张表为唯一事实来源（供应商持有 base_url/api_key/模型列表端点，模型经 `provider_key` 引用供应商；db-init 只写无凭据、未启用的供应商模板，不创建模型），runtime 按 user_id 查可见行并联查供应商行 | 请求只能提交目录模型 ID（`custom:` 前缀），不接受前端传任意模型名；`model_providers.api_key` 只写不回读，模型或供应商任一停用、供应商未配 Key 都不进可用目录；`ResolvedModel.cache_key` 同时携带模型版本与供应商版本，供应商换 Key 后旧 Agent 缓存即时失效；DB 无可用行时返回空选择并提示配置；Agent 构建必须显式接收数据库解析后的模型 |
+| 模型与能力 | `core/model_catalog.py` 的 `ResolvedModel` + 目录条目转换；模型目录以 `model_providers` + `model_configs` 两张表为唯一事实来源（供应商持有 base_url/api_key/模型列表端点，模型经 `provider_key` 引用供应商；db-init 只写无凭据、未启用的供应商模板，不创建模型），runtime 按 user_id 查可见行并联查供应商行 | 请求只能提交目录模型 ID（`custom:` 前缀），不接受前端传任意模型名；`model_providers.api_key` 只写不回读，模型停用或缺少有效 Key 时不可用，全局模型另受供应商开关控制；`ResolvedModel.cache_key` 同时携带模型版本与供应商版本，供应商换 Key 后旧 Agent 缓存即时失效；DB 无可用行时返回空选择并提示配置；Agent 构建必须显式接收数据库解析后的模型 |
 | 模型实例 | `core/chat_model.py` 的 `build_chat_model()` | 所有 provider（含 custom）统一经此构造 |
 | MCP 服务定义 | `services/mcp.py` 的运行时装配（数据来自 `mcp_servers` 表）；根目录 `mcp.json` 只是 db-init 的内置种子 | 无 MCP 时必须能正常启动；user scope 仅 http/sse 且禁止 `${VAR}`，global scope 允许 stdio 与 `${VAR}`（管理员发布） |
 | 长期记忆 | `memory/` 的 `MemoryService` | 写入必须经过它的固定工具与审计，不直接写 Store |
 | HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission`；用户问题由 `core/user_input.py` 的 `interrupt()` 进入同一 Checkpoint | 写文件、删文件、Shell 等有副作用的操作必须走审批或权限边界；缺少关键用户决策时 Agent 可暂停等待回答；审批恢复必须绑定当前 `approval_batch_id` 与 `assistant_message_id`；用户问题的唯一出口是一次真正的 `Command(resume=...)`，答案可以是选项/文本，也可以是 `{"type": "cancelled"}`（用户跳过或 TTL 过期后由 `services/user_input_execution.py` 代答），只改 `user_interactions` 状态不会解除 Checkpoint 挂起；答案已收但本轮没跑完时账本会被标成 `recovery_required` 并且**禁止自动重放**（不知道副作用执行到哪一步），此时历史表现为失败，唯一的解锁入口是用户发新消息——那时服务层会先代答取消、把 Checkpoint 叫醒收尾 |
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
-| Skill 资源 | `services/skills.py` 的目录扫描 + `skills` 表索引 + `skill_user_states` 个人偏好表；索引重建走 `services/skill_index.py` | 文件系统是 SKILL.md 唯一事实来源（`data_root/skills/`，仓库不保留副本），DB 只做存在/enabled/scope/个人偏好索引；因为索引是投影而非事实，`melonclaw-db-init` 会用 `reindex_skills_from_disk()` 从磁盘补缺（只补不覆盖、也不删孤儿行，可重跑），否则清库会让全部共享 Skill 静默消失；共享 Skill 两层启停：管理员全员开关（`skills.enabled`）+ 用户个人停用（`skill_user_states`）；用户上传内容先经 `services/skill_import.py` 两段式校验 |
+| Skill 资源 | `services/skills.py` 解析正文；`skill_state.py` 统一有效状态；`skill_import.py` 导入更新；`skill_operations.py` 文件日志恢复；`skill_index.py` 索引重建 | 正文在文件系统，DB 保存归属、启停、版本和来源。持久草稿与内容提交受同数据根文件锁保护；更新保留 ID/偏好，删除先隔离目录。管理、Picker 和 Agent 共用有效状态；`skill_snapshot.py` 固定有效目录内容与摘要，`middleware/skill_refresh.py` 每轮刷新 Checkpoint 摘要。详见 [Skill 生命周期](design-docs/skill-lifecycle.md)。 |
 | Skill/MCP/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
 | 附件请求身份 | `api/identity.py` 的 `resolve_request_user_id()` | 附件路由决定 `user_id` 从哪里读（查询/表单，或部署方配置的受信任请求头）；**不做身份校验**，用户的唯一租户归属和资源所有权仍由服务层重新校验 |
 
@@ -144,7 +144,7 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 
 ### 5.5 错误响应的脱敏边界
 
-`api/errors.py` 的 `error_response` 会对异常文本调用 `output/formatting.py` 的 `sanitize_text`，但它只脱敏环境变量、Token 和授权字段的值，**不管文件系统路径**。而 `shutil`、`open()`、`os` 抛出的原生异常恰好都带完整绝对路径。所以任何会被交给 `error_response` 的异常都不得携带宿主机路径：涉及文件的写操作要在调用前显式检查并抛业务异常（如 `publish_skill` 先确认源目录存在，再改数据库行），不要让原生异常冒到 API 边界。同理，用户能自己纠正的失败（如已选技能在执行前被移除）应通过异常上的 `status_code` 映射成 4xx，而不是落到默认的 500 让前端当成服务端故障重试。
+`api/errors.py` 的 `error_response` 会对异常文本调用 `output/formatting.py` 的 `sanitize_text`，但它只脱敏环境变量、Token 和授权字段的值，**不管文件系统路径**。而 `shutil`、`open()`、`os` 抛出的原生异常恰好都带完整绝对路径。所以任何会被交给 `error_response` 的异常都不得携带宿主机路径：涉及文件的写操作要在调用前显式检查并抛业务异常（如下载 Skill 前先确认源目录存在），不要让原生异常冒到 API 边界。同理，用户能自己纠正的失败（如已选技能在执行前被移除）应通过异常上的 `status_code` 映射成 4xx，而不是落到默认的 500 让前端当成服务端故障重试。
 
 ## 6. 数据库变更流程
 
@@ -162,6 +162,6 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 
 ### 供应商高级参数
 
-供应商持有 `api_key_env`、`request_headers`、`extra_config`。配置校验集中在 `services/provider_config.py`；环境变量凭据通过 `core/config.py` 读取，仓储统一按个人 Key → 共享 Key → 指定环境变量解析。`core/model_catalog.py` 把高级参数带入 ResolvedModel，`core/chat_model.py` 分别通过 default_headers 和 extra_body 注入；远端模型列表请求复用 request_headers。请求头值与 Key 不进入公共响应，扩展请求体不可覆盖模型/消息/工具/流协议或凭据字段。
+供应商持有 `api_key_env`、`request_headers`、`extra_config`。配置校验集中在 `services/provider_config.py`；全局模型的凭据由仓储按个人 Key → 数据库共享 Key → 指定环境变量解析，环境变量读取统一走 `core/config.py`。这只补充凭据，不从环境变量生成模型。供应商的 scope 在数据库与 API 均限定为 `global`，模型限定为 `global/user`，不保留私有供应商或租户模型分支。`core/model_catalog.py` 把高级参数带入 ResolvedModel，`core/chat_model.py` 分别通过 default_headers 和 extra_body 注入；远端模型列表请求复用 request_headers。请求头值与 Key 不进入公共响应，扩展请求体不可覆盖模型/消息/工具/流协议或凭据字段。
 
 普通用户配置个人 Key 后可独立添加和使用个人模型，不受供应商全局 enabled 开关影响；管理员开关仅控制内置模型。个人模型仅使用个人 Key，清除后不可用，不借用共享 Key。连接地址仍由管理员维护。

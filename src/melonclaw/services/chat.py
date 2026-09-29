@@ -46,7 +46,9 @@ from melonclaw.services.runtime import ChatRuntime
 from melonclaw.services.skill_import import SkillImportService
 from melonclaw.services.skill_remote import (
     fetch_remote_skill_archive,
-    github_zipball_url,
+    filter_archive_subdir,
+    pin_remote_source,
+    resolve_remote_skill_source,
 )
 from melonclaw.services.user_input_execution import UserInputExecutionService
 
@@ -206,14 +208,16 @@ class ChatService:
         await self.conversations.resolve_user(user_id)
         return await self.resources.manageable_skills(user_id)
 
-    async def download_skill_archive(self, user_id: str, name: str) -> bytes:
+    async def download_skill_archive(
+        self, user_id: str, name: str, scope: str
+    ) -> bytes:
         await self.conversations.resolve_user(user_id)
-        return await self.resources.download_skill_archive(user_id, name)
+        return await self.resources.download_skill_archive(user_id, name, scope)
 
     async def set_skill_enabled(
-        self, user_id: str, name: str, enabled: bool
+        self, user_id: str, name: str, enabled: bool, scope: str
     ) -> None:
-        await self.resources.set_skill_enabled(user_id, name, enabled)
+        await self.resources.set_skill_enabled(user_id, name, enabled, scope)
 
     async def set_skill_global_enabled(
         self, user_id: str, name: str, enabled: bool
@@ -222,38 +226,49 @@ class ChatService:
 
         await self.resources.set_skill_global_enabled(user_id, name, enabled)
 
-    async def delete_skill(self, user_id: str, name: str) -> None:
-        await self.resources.delete_skill(user_id, name)
-
-    async def publish_skill(self, user_id: str, name: str) -> None:
-        await self.resources.publish_skill(user_id, name)
+    async def delete_skill(
+        self, user_id: str, name: str, scope: str
+    ) -> None:
+        await self.resources.delete_skill(user_id, name, scope)
 
     async def prepare_skill_import(
-        self, user_id: str, archive_bytes: bytes
+        self, user_id: str, archive_bytes: bytes, target_id: str | None = None
     ) -> dict[str, Any]:
         await self.conversations.resolve_user(user_id)
         draft = await self.skill_imports.prepare(
             user_id=user_id,
             archive_bytes=archive_bytes,
+            target_id=target_id,
             storage=self.runtime.require_ready(),
         )
         return draft.public_dict()
 
     async def prepare_remote_skill_install(
-        self, user_id: str, repo: str
+        self, user_id: str, repo: str, target_id: str | None = None
     ) -> dict[str, Any]:
         """从 GitHub 远程市场下载 Skill 包并进入两段式确认。"""
 
         await self.conversations.resolve_user(user_id)
-        url = github_zipball_url(repo)
-        archive = await fetch_remote_skill_archive(url)
+        source = await pin_remote_source(resolve_remote_skill_source(repo))
+        archive = await fetch_remote_skill_archive(source.url)
+        if source.subpath is not None:
+            archive = filter_archive_subdir(archive, source.subpath)
         draft = await self.skill_imports.prepare(
             user_id=user_id,
             archive_bytes=archive,
             storage=self.runtime.require_ready(),
             source_type="remote",
+            target_id=target_id,
+            source_url=source.source_url,
+            source_ref=source.ref,
         )
         return draft.public_dict()
+
+    async def skill_details(self, user_id: str, name: str, scope: str) -> dict[str, Any]:
+        return await self.resources.skill_details(user_id, name, scope)
+
+    async def recover_skills(self, user_id: str) -> dict[str, Any]:
+        return await self.resources.recover_skills(user_id)
 
     async def confirm_skill_import(self, user_id: str, draft_id: str) -> None:
         await self.skill_imports.confirm(
@@ -453,7 +468,7 @@ class ChatService:
         limit: int,
         cursor: str | None,
         project_id: UUID | None = None,
-        scope: str | None = None,
+        scope: str,
     ) -> tuple[list[dict[str, Any]], str | None]:
         return await self.conversations.list_conversations(
             user_id,

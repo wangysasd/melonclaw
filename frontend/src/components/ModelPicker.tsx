@@ -78,7 +78,7 @@ export function ModelPicker({
       className="model-picker"
       classNames={{ popup: { root: "model-picker-dropdown" } }}
       aria-label="选择模型"
-      popupMatchSelectWidth={260}
+      popupMatchSelectWidth={338}
       styles={{ popup: { root: { maxWidth: "calc(100vw - 24px)" } } }}
       placeholder="请先配置模型"
       value={value || undefined}

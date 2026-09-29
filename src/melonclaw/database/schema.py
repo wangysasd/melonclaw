@@ -315,7 +315,9 @@ skills = Table(
     "skills",
     metadata,
     Column("id", PGUUID(as_uuid=True), primary_key=True),
-    Column("name", String(64), nullable=False, unique=True),
+    # 唯一性规则（部分唯一索引表达）：scope='global' 时 name 全局唯一；
+    # scope='user' 时 (created_by, name) 唯一——不同用户的私有 Skill 允许重名。
+    Column("name", String(64), nullable=False),
     Column("scope", String(16), nullable=False),
     Column("source_type", String(16), nullable=False),
     Column(
@@ -328,15 +330,34 @@ skills = Table(
     # 相对 data_root/skills 的路径，绝不存宿主机绝对路径。
     Column("storage_path", String(240), nullable=False),
     Column("version", Integer, nullable=False, server_default="1"),
+    Column("status", String(16), nullable=False, server_default="ready"),
+    Column("content_hash", String(64), nullable=False, server_default=""),
+    Column("source_url", Text, nullable=False, server_default=""),
+    Column("source_ref", String(200), nullable=False, server_default=""),
+    CheckConstraint("status IN ('ready', 'installing', 'updating')", name="ck_skills_status"),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
-    CheckConstraint("scope IN ('global', 'user', 'tenant')", name="ck_skills_scope"),
+    CheckConstraint("scope IN ('global', 'user')", name="ck_skills_scope"),
     CheckConstraint(
         "source_type IN ('builtin', 'upload', 'remote')",
         name="ck_skills_source_type",
     ),
     Index("ix_skills_scope_enabled", "scope", "enabled"),
     Index("ix_skills_created_by", "created_by"),
+    Index("ix_skills_name", "name"),
+    Index(
+        "uq_skills_global_name",
+        "name",
+        unique=True,
+        postgresql_where=text("scope = 'global'"),
+    ),
+    Index(
+        "uq_skills_user_owner_name",
+        "created_by",
+        "name",
+        unique=True,
+        postgresql_where=text("scope = 'user'"),
+    ),
 )
 
 # 用户对共享（global）Skill 的个人启停偏好：默认启用（无行即启用），
@@ -352,9 +373,9 @@ skill_user_states = Table(
         primary_key=True,
     ),
     Column(
-        "skill_name",
-        String(64),
-        ForeignKey("skills.name", ondelete="CASCADE"),
+        "skill_id",
+        PGUUID(as_uuid=True),
+        ForeignKey("skills.id", ondelete="CASCADE"),
         primary_key=True,
     ),
     Column("enabled", Boolean, nullable=False, server_default="true"),
@@ -437,7 +458,7 @@ model_providers = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(
-        "scope IN ('global', 'user', 'tenant')",
+        "scope = 'global'",
         name="ck_model_providers_scope",
     ),
     CheckConstraint(
@@ -452,8 +473,7 @@ model_configs = Table(
     "model_configs",
     metadata,
     Column("id", PGUUID(as_uuid=True), primary_key=True),
-    # 用户可见的稳定标识；对外模型 ID 为 f"custom:{model_key}"，
-    # 与内置 "system:" 前缀天然区分。
+    # 全局与个人模型统一通过 custom:<model_key> 作为对外模型 ID。
     Column("model_key", String(64), nullable=False, unique=True),
     # 归属的模型供应商；供应商下还有模型时删除被 RESTRICT 拒绝。
     Column(
@@ -482,7 +502,7 @@ model_configs = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(
-        "scope IN ('global', 'user', 'tenant')",
+        "scope IN ('global', 'user')",
         name="ck_model_configs_scope",
     ),
     CheckConstraint(

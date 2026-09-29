@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import io
 import re
-import shutil
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,7 +25,11 @@ import httpx
 from melonclaw.core.config import provider_env_key
 from melonclaw.services.mcp import McpConfigError, validate_mcp_payload
 from melonclaw.services.provider_config import ModelConfigError, validate_provider_advanced
+from melonclaw.services.skill_content import check_requirements, preview_content
 from melonclaw.services.skill_import import MAX_ARCHIVE_ENTRIES, MAX_ARCHIVE_TOTAL_BYTES
+from melonclaw.services.skill_index import reindex_skills_from_disk
+from melonclaw.services.skill_operations import SkillOperations
+from melonclaw.services.skill_state import evaluate_skills
 from melonclaw.services.skills import SAFE_DIRECTORY_RE
 
 ADMIN_ROLES = frozenset({"admin", "owner"})
@@ -269,13 +272,50 @@ class ResourceService:
             raise SkillStateError("技能存储路径无效。")
         return directory
 
-    async def download_skill_archive(self, user_id: str, name: str) -> bytes:
+    async def _resolve_skill_row(
+        self, user_id: str, name: str, scope: str
+    ) -> dict[str, Any]:
+        """把 (name, scope) 解析成唯一一行。
+
+        scope 必填：global 取共享行，user 只取调用者的私有行。
+        """
+
+        rows = await self.storage.list_skill_rows_by_name(name)
+        if scope == "global":
+            candidates = [row for row in rows if row["scope"] == "global"]
+        elif scope == "user":
+            # 不同用户的私有 Skill 允许同名，优先解析自己的；只有他人的
+            # 私有行时报权限错（与“私有仅创建者可管理”一致）。
+            own = [
+                row
+                for row in rows
+                if row["scope"] == "user" and row["created_by"] == user_id
+            ]
+            if own:
+                candidates = own
+            elif any(row["scope"] == "user" for row in rows):
+                raise ResourcePermissionError("不能修改他人创建的私有技能。")
+            else:
+                candidates = []
+        else:
+            raise SkillStateError(f"不支持的 scope：{scope!r}。")
+        if not candidates:
+            raise ResourceNotFoundError(f"技能 {name!r} 不存在。")
+        return candidates[0]
+
+    async def download_skill_archive(self, user_id: str, name: str, scope: str) -> bytes:
+        async with SkillOperations(self.data_root).locked():
+            return await self._download_skill_archive(user_id, name, scope)
+
+    async def _download_skill_archive(
+        self, user_id: str, name: str, scope: str
+    ) -> bytes:
         """Build a bounded ZIP for a Skill visible to the current user."""
 
-        await self._role(user_id)
-        row = await self.storage.get_skill_row(name)
-        if row is None:
-            raise ResourceNotFoundError(f"技能 {name!r} 不存在。")
+        role = await self._role(user_id)
+        row = await self._resolve_skill_row(user_id, name, scope)
+        if row["scope"] == "global" and not row["enabled"] and role not in ADMIN_ROLES:
+            raise ResourceNotFoundError("技能不可用。")
         if row["scope"] != "global" and row["created_by"] != user_id:
             raise ResourcePermissionError("不能下载他人创建的私有技能。")
         directory = self._checked_skill_dir(row)
@@ -323,87 +363,29 @@ class ResourceService:
 
     # ---- Skill 管理 ----
 
-    def _skill_availability(self, row: dict[str, Any], definition: Any) -> str:
-        """行对应的磁盘状态：``ready`` / ``missing`` / ``invalid``。
-
-        ``missing``（目录没了）和 ``invalid``（目录还在但读不出合法 SKILL.md）
-        该做的动作相反——前者只能删行，后者修好文件就能用。合成一个布尔会
-        逼前端一律说成"目录已丢失"，把用户引去删一个其实还在的技能。
-        """
-
-        if definition is not None:
-            return "ready"
-        directory = self._skill_dir(row)
-        return "invalid" if directory.is_dir() else "missing"
-
     async def manageable_skills(self, user_id: str) -> dict[str, Any]:
-        """返回该用户可管理的 Skill 全集（含停用项），附展示元数据。
-
-        共享项额外携带 ``user_enabled``：当前用户的个人启停偏好
-        （``None`` 表示默认启用），前端据此渲染个人开关。每项都带
-        ``availability``，供界面标出"行还在、磁盘上已经没了/读不出来"
-        的条目——这类项不会出现在选择器里，不标出来用户无从发现。
-        """
-
-        await self._role(user_id)
-        rows = await self.storage.list_visible_skill_rows(
-            user_id, include_disabled=True
-        )
-        definitions = {
-            item.id: item for item in self.runtime._catalog_for(user_id).list()
-        }
-        items = []
-        for row in rows:
-            definition = definitions.get(str(row["name"]))
-            personal_state = row.get("user_enabled")
-            items.append(
-                {
-                    "name": row["name"],
-                    "scope": row["scope"],
-                    "source_type": row["source_type"],
-                    "enabled": bool(row["enabled"]),
-                    "user_enabled": (
-                        bool(personal_state) if personal_state is not None else None
-                    ),
-                    "created_by": row["created_by"],
-                    "display_name": definition.display_name if definition else row["name"],
-                    "description": definition.description if definition else "",
-                    "availability": self._skill_availability(row, definition),
-                }
-            )
-        return {"items": items}
-
-    async def _require_skill_row(
-        self, user_id: str, name: str, role: str
-    ) -> dict[str, Any]:
-        row = await self.storage.get_skill_row(name)
-        if row is None:
-            raise ResourceNotFoundError(f"技能 {name!r} 不存在。")
-        if row["scope"] == "global":
-            self._require_admin(role)
-        elif row["created_by"] != user_id:
-            raise ResourcePermissionError("不能修改他人创建的私有技能。")
-        return row
+        role = await self._role(user_id)
+        rows = await self.storage.list_visible_skill_rows(user_id, include_disabled=True)
+        rows = [row for row in rows if row["scope"] != "global" or row["enabled"] or role in {"admin", "owner"}]
+        states = evaluate_skills(rows, self.runtime._catalog_for(user_id), self.runtime.settings.data_root / "skills")
+        return {"items": [state.public_dict() for state in states]}
 
     async def set_skill_enabled(
-        self, user_id: str, name: str, enabled: bool
+        self, user_id: str, name: str, enabled: bool, scope: str
     ) -> None:
         """个人启停：共享 Skill 写个人偏好（只影响自己），私有 Skill 由创建者改行。
 
         共享 Skill 对所有用户默认启用；任何用户都可以选择“我自己不用”，
         落到 ``skill_user_states``，不影响其他用户，也不需要管理员权限。
+        私有 Skill 与共享 Skill 同名共存时调用方必须传 scope 消歧。
         """
 
         await self._role(user_id)
-        row = await self.storage.get_skill_row(name)
-        if row is None:
-            raise ResourceNotFoundError(f"技能 {name!r} 不存在。")
+        row = await self._resolve_skill_row(user_id, name, scope)
         if row["scope"] == "global":
-            await self.storage.set_skill_user_state(user_id, name, enabled)
+            await self.storage.set_skill_user_state(user_id, row["id"], enabled)
             return
-        if row["created_by"] != user_id:
-            raise ResourcePermissionError("不能修改他人创建的私有技能。")
-        await self.storage.update_skill_row(name, enabled=enabled)
+        await self.storage.update_skill_row(row["id"], enabled=enabled)
 
     async def set_skill_global_enabled(
         self, user_id: str, name: str, enabled: bool
@@ -416,53 +398,38 @@ class ResourceService:
 
         role = await self._role(user_id)
         self._require_admin(role)
-        row = await self.storage.get_skill_row(name)
-        if row is None:
-            raise ResourceNotFoundError(f"技能 {name!r} 不存在。")
-        if row["scope"] != "global":
-            raise SkillStateError("全员启停仅适用于共享 Skill。")
-        await self.storage.update_skill_row(name, enabled=enabled)
+        row = await self._resolve_skill_row(user_id, name, "global")
+        await self.storage.update_skill_row(row["id"], enabled=enabled)
 
-    async def delete_skill(self, user_id: str, name: str) -> None:
+    async def delete_skill(
+        self, user_id: str, name: str, scope: str
+    ) -> None:
         role = await self._role(user_id)
-        row = await self._require_skill_row(user_id, name, role)
-        directory = self._skill_dir(row)
-        await self.storage.delete_skill_row(name)
-        shutil.rmtree(directory, ignore_errors=True)
-
-    async def publish_skill(self, user_id: str, name: str) -> None:
-        """把私有技能发布为全局共享（user → global，移动目录）。"""
-
-        role = await self._role(user_id)
-        self._require_admin(role)
-        row = await self._require_skill_row(user_id, name, role)
+        row = await self._resolve_skill_row(user_id, name, scope)
         if row["scope"] == "global":
-            raise ValueError(f"技能 {name!r} 已经是全局共享。")
-        source = self._skill_dir(row)
-        # 目录缺失要在改行之前拦住：否则 shutil.move 抛出的 FileNotFoundError
-        # 会带着宿主机绝对路径冒到 API 边界，而 sanitize_text 不脱敏文件路径。
-        if not source.is_dir():
-            raise ResourceNotFoundError(f"技能 {name!r} 的目录已丢失，无法发布。")
-        target = self.data_root / "skills" / "shared" / name
-        if target.exists():
-            raise ValueError(f"全局技能目录已存在 {name!r}。")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        await self.storage.update_skill_row(
-            name,
-            scope="global",
-            storage_path=f"shared/{name}",
-            version=int(row.get("version") or 1) + 1,
-        )
-        try:
-            shutil.move(str(source), str(target))
-        except Exception:
-            await self.storage.update_skill_row(
-                name,
-                scope="user",
-                storage_path=str(row["storage_path"]),
-                version=int(row.get("version") or 1),
-            )
-            raise
+            self._require_admin(role)
+        operations = SkillOperations(self.runtime.settings.data_root)
+        async with operations.locked():
+            await operations.recover(self.storage)
+            row = await self._resolve_skill_row(user_id, name, scope)
+            await operations.delete(self.storage, row)
+
+    async def skill_details(self, user_id: str, name: str, scope: str) -> dict[str, Any]:
+        role = await self._role(user_id)
+        row = await self._resolve_skill_row(user_id, name, scope)
+        if row["scope"] == "global" and not row["enabled"] and role not in {"admin", "owner"}:
+            raise ResourceNotFoundError("技能不可用。")
+        operations = SkillOperations(self.runtime.settings.data_root)
+        async with operations.locked():
+            preview = preview_content(self._checked_skill_dir(row))
+            preview["dependency_checks"] = await check_requirements(preview["requirements"], self.storage, user_id)
+        return preview
+
+    async def recover_skills(self, user_id: str) -> dict[str, Any]:
+        self._require_admin(await self._role(user_id))
+        report = await reindex_skills_from_disk(self.storage, self.runtime.settings.data_root)
+        return {"summary": report.summary(), "missing": list(report.missing),
+                "orphaned": list(report.orphaned), "registered": list(report.registered), "invalid": list(report.invalid)}
 
     # ---- MCP 管理 ----
 
@@ -544,9 +511,7 @@ class ResourceService:
 
     async def list_providers(self, user_id: str) -> dict[str, Any]:
         await self._role(user_id)
-        rows = await self.storage.list_visible_provider_rows(
-            user_id, include_disabled=True
-        )
+        rows = await self.storage.list_provider_rows(include_disabled=True)
         my_keys = await self.storage.list_user_provider_keys(user_id)
         items = []
         for row in rows:
@@ -656,7 +621,7 @@ class ResourceService:
                 raise ModelConfigError("模型列表端点必须以 http(s):// 开头。")
             fields["models_endpoint"] = endpoint or None
         if enabled is False:
-            # 停用共享配置时撤销凭据，包括环境变量回退；个人 Key 独立保留。
+            # 停用共享配置时撤销共享 Key 和环境变量引用；个人 Key 独立保留。
             fields["api_key"] = None
             fields["api_key_env"] = ""
         if fields:
@@ -709,11 +674,6 @@ class ResourceService:
         provider = await self.storage.get_provider_row(provider_key)
         if provider is None:
             raise ResourceNotFoundError(f"供应商 {provider_key!r} 不存在。")
-        if (
-            provider["scope"] != "global"
-            and provider["created_by"] != user_id
-        ):
-            raise ResourcePermissionError("不能查看他人创建的私有供应商。")
         endpoint = provider.get("models_endpoint")
         if not endpoint:
             raise ModelConfigError("该供应商未配置模型列表端点。")
@@ -783,11 +743,6 @@ class ResourceService:
         provider_row = await self.storage.get_provider_row(payload.provider_key)
         if provider_row is None:
             raise ModelConfigError(f"供应商 {payload.provider_key!r} 不存在。")
-        if (
-            provider_row["scope"] != "global"
-            and provider_row["created_by"] != user_id
-        ):
-            raise ResourcePermissionError("不能使用他人创建的私有供应商。")
         if payload.scope == "global" and not provider_row["enabled"]:
             raise ModelConfigError("所选供应商已停用，不能新建内置模型。")
         if payload.scope == "user":

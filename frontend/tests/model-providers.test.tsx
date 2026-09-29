@@ -55,10 +55,11 @@ it("edits provider advanced settings and preserves the selected status when savi
   fireEvent.click(screen.getByRole("button", { name: "配置供应商：DeepSeek" }));
   expect(await screen.findByText("编辑供应商")).toBeTruthy();
   fireEvent.change(screen.getByLabelText("API Key Env"), { target: { value: "TEST_API_KEY" } });
+  fireEvent.click(screen.getByText("高级配置"));
   fireEvent.change(screen.getByLabelText("请求头 JSON"), { target: { value: '{"X-Client":"test"}' } });
   fireEvent.change(screen.getByLabelText("扩展配置 JSON"), { target: { value: '{"enable_thinking":true}' } });
   fireEvent.click(screen.getByRole("switch", { name: "状态" }));
-  fireEvent.click(screen.getByRole("button", { name: "确定" }));
+  fireEvent.click(screen.getByRole("button", { name: /确\s*定/ }));
   await waitFor(() => expect(updateProvider).toHaveBeenCalledWith("deepseek", expect.objectContaining({
     enabled: false, apiKeyEnv: "TEST_API_KEY", requestHeaders: { "X-Client": "test" }, extraConfig: { enable_thinking: true },
   })));
@@ -68,8 +69,9 @@ it("rejects invalid JSON before saving", async () => {
   await show(true, false);
   vi.mocked(updateProvider).mockClear();
   fireEvent.click(screen.getByRole("button", { name: "配置供应商：DeepSeek" }));
+  fireEvent.click(screen.getByText("高级配置"));
   fireEvent.change(screen.getByLabelText("扩展配置 JSON"), { target: { value: '[]' } });
-  fireEvent.click(screen.getByRole("button", { name: "确定" }));
+  fireEvent.click(screen.getByRole("button", { name: /确\s*定/ }));
   expect(updateProvider).not.toHaveBeenCalled();
   expect(notify.error).toHaveBeenCalledWith("扩展配置必须是 JSON 对象");
 });
@@ -81,10 +83,10 @@ it("keeps one confirm action and saves the selected provider status", async () =
   fireEvent.click(screen.getByRole("button", { name: "配置供应商：DeepSeek" }));
   const status = screen.getByRole("switch", { name: "状态" });
   fireEvent.click(status);
-  expect(screen.getAllByRole("button", { name: "确定" })).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: /确\s*定/ })).toHaveLength(1);
   fireEvent.click(status);
-  expect(screen.getAllByRole("button", { name: "确定" })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "确定" }));
+  expect(screen.getAllByRole("button", { name: /确\s*定/ })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: /确\s*定/ }));
   await waitFor(() => expect(updateProvider).toHaveBeenCalledWith("deepseek", expect.objectContaining({ enabled: true })));
 });
 
@@ -92,7 +94,7 @@ it("keeps one confirm action and saves the selected provider status", async () =
 it("opens personal key dialogs with an empty input after closing an unsaved draft", async () => {
   await show(false, false);
   const open = () => fireEvent.click(screen.getByRole("button", { name: "配置供应商：DeepSeek" }));
-  const input = () => screen.getByPlaceholderText("输入供应商API-Key(只保存不回显)") as HTMLInputElement;
+  const input = () => screen.getByPlaceholderText("输入供应商API_Key(只保存不回显)") as HTMLInputElement;
   open();
   expect(input().value).toBe("");
   expect(input().autocomplete).toBe("new-password");

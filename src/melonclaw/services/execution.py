@@ -219,12 +219,12 @@ class ExecutionService:
                     pass
             display_metadata: dict[str, Any] | None = None
             if selected_skill is not None:
-                display_metadata = {
-                    "skill": {
-                        "id": selected_skill.id,
-                        "display_name": selected_skill.display_name,
-                    }
-                }
+                pinned = next((item for item in agent.melonclaw_skill_references if item["id"] == selected_skill.key), None)
+                if pinned is None:
+                    raise ValueError("选择的技能已不可用，请重新选择。")
+                display_metadata = {"skill": pinned}
+            display_metadata = display_metadata or {}
+            display_metadata["skill_catalog"] = agent.melonclaw_skill_references
             if normalized_capabilities:
                 # 能力随消息落库：恢复执行要沿用提问那一轮的同一份能力。
                 display_metadata = display_metadata or {}
@@ -258,7 +258,7 @@ class ExecutionService:
                 model,
                 run_id=str(uuid4()),
                 worker_id=self.runtime.worker_id,
-                skill_id=selected_skill.id if selected_skill is not None else None,
+                skill_id=selected_skill.key if selected_skill is not None else None,
                 attachments=list(pair.attachments),
             )
         except BaseException:
@@ -652,6 +652,9 @@ class ExecutionService:
                             "选择的技能已不可用，请重新选择技能后重试。",
                             status_code=409,
                         )
+                    pinned = next((item for item in agent.melonclaw_skill_references if item["id"] == execution.skill_id), None)
+                    if pinned is None or pinned["content_hash"] != skill.content_hash:
+                        raise AgentExecutionError("技能内容已更新，请重新发送消息。", status_code=409)
                     messages.append(
                         {
                             "role": "system",

@@ -954,6 +954,9 @@ def test_agent_cache_key_includes_client_capabilities(monkeypatch, tmp_path):
     monkeypatch.setattr(ChatRuntime, "project_workspace_dir", lambda self, project: tmp_path)
 
     class FakeStorage:
+        async def list_visible_skill_rows(self, user_id, **kwargs):
+            return []
+
         async def skills_revision(self):
             return "rev"
 
@@ -1013,6 +1016,9 @@ def test_ordinary_conversation_uses_its_own_workspace(monkeypatch, tmp_path):
     )
 
     class FakeStorage:
+        async def list_visible_skill_rows(self, user_id, **kwargs):
+            return []
+
         async def skills_revision(self):
             return "rev"
 

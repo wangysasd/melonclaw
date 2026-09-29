@@ -14,8 +14,9 @@
 | [执行准备与流式归约去重](execution-stream-performance.md) | 已实现 | 幂等回放与锁后构建、单一消息对事务、共享步骤投影、历史懒加载和前端文本批量归约 |
 | [会话与项目工作区](conversations-and-project-workspaces.md) | 已实现 | 普通会话独立持久工作区，Project 内会话共享项目工作区；包含普通会话加入项目、附件作用域、Agent 缓存与安全边界 |
 | [侧栏项目与会话管理](sidebar-resource-management.md) | 已实现 | 项目展开、资源操作、普通会话的移动级联菜单，以及输入框项目选择器与侧栏的联动 |
-| [用户 Skill 与 MCP 资源管理](user-skills-and-mcp.md) | 已实现 | 管理员发布全局共享 Skill/MCP，用户上传私有 Skill（ZIP/远程两段式）与自建 HTTP MCP；两级 scope、内置源单向同步、按 scope 的 `${VAR}` 安全边界 |
-| [用户自定义模型](custom-models.md) | 已实现 | 供应商+模型两层（学 Yuxi 交互）：23 家纯 chat 内置供应商，供应商双列表单及高级配置（环境变量 Key、请求头和扩展请求体），admin 配全局共享默认给全员，用户可配私有；各人启用集合不一样；`custom:` 模型 ID 解析到 `model_configs` 表，api_key 只写不回读 |
+| [Skill 生命周期与一致性](skill-lifecycle.md) | 已实现 | 范围身份、统一有效状态、保留身份的内容更新、持久草稿与操作恢复、正文/差异/依赖预览、运行时只读快照 |
+| [用户 Skill 与 MCP 资源管理](user-skills-and-mcp.md) | 已实现 | 管理员直接安装全局共享 Skill、管理全局 MCP，普通用户安装私有 Skill（ZIP/远程两段式）与自建 HTTP MCP；Skill 严格两级 scope、管理操作显式范围、内置源单向同步、按 scope 的 `${VAR}` 安全边界 |
+| [用户自定义模型](custom-models.md) | 已实现 | 供应商固定 global、模型 global/user（数据库与 API 约束）：23 家纯 chat 内置供应商，供应商双列表单及高级配置（显式环境变量凭据兜底、请求头和扩展请求体），admin 配全局共享默认给全员，用户可配私有；各人启用集合不一样；`custom:` 模型 ID 解析到 `model_configs` 表，api_key 只写不回读 |
 
 ## 状态取值
 
@@ -40,3 +41,5 @@
 个人与管理员供应商启用状态解耦已实现，见 [自定义模型设计](custom-models.md#个人供应商与全局供应商独立启用2026-09-27)。
 
 空模型初始化已实现：不创建默认模型、不加载 DeepSeek 环境兜底，见 [模型设计](custom-models.md)。
+
+空工具名快速失败护栏已实现，见 [空工具名快速失败](tool-name-guard.md)。

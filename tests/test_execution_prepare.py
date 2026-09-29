@@ -40,7 +40,7 @@ def _service(storage: _Storage):
 
     async def agent_for_conversation(*args):
         calls.append("agent")
-        return object()
+        return SimpleNamespace(melonclaw_skill_references=[])
 
     async def async_model(*args, **kwargs):
         return model

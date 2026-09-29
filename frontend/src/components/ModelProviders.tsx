@@ -531,7 +531,7 @@ function ProviderModal({
             <Input.Password
               autoComplete="new-password"
               name="provider-api-key"
-              placeholder={editing ? "输入供应商API-Key(只保存不回显)" : "可留空稍后补"}
+              placeholder={editing ? "输入供应商API_Key(只保存不回显)" : "可留空稍后补"}
               value={form.apiKey}
               disabled={saving}
               onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))}
@@ -916,7 +916,7 @@ function MyKeyModal({
         <Input.Password
           autoComplete="new-password"
           name={`provider-api-key-${provider.provider_key}`}
-          placeholder="输入供应商API-Key(只保存不回显)"
+          placeholder="输入供应商API_Key(只保存不回显)"
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
         />

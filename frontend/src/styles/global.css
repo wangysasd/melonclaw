@@ -264,6 +264,49 @@ body {
   color: var(--muted);
 }
 
+.remote-skill-guide {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.remote-skill-guide p {
+  margin: 0;
+}
+
+.remote-skill-guide-row,
+.remote-skill-guide-example {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.remote-skill-guide-row {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+
+.remote-skill-guide strong { color: var(--ink); }
+
+.remote-skill-guide code {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 2px 6px;
+}
+
+.remote-skill-modal .ant-modal-footer .ant-btn { font-size: 14px; }
+
 .resource-form {
   display: flex;
   flex-direction: column;
@@ -470,15 +513,17 @@ body {
   line-height: 1;
 }
 
+.skill-card-menu .ant-dropdown-menu,
+.skill-card-menu .ant-dropdown-menu-item,
+.skill-card-menu .ant-dropdown-menu-item .ant-dropdown-menu-title-content,
+.skill-card-menu .ant-dropdown-menu-item .skill-card-menu-label {
+  font-size: var(--text-md);
+}
+
 .skill-card-menu-label {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-size: 14px;
-}
-
-.skill-card-menu .ant-dropdown-menu-item {
-  font-size: 14px;
 }
 
 .skill-card-primary-action.ant-btn {
@@ -560,6 +605,15 @@ body {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.skill-delete-modal .ant-modal-confirm-title {
+  font-size: 16px;
+}
+
+.skill-delete-modal .ant-modal-confirm-content,
+.skill-delete-modal .ant-modal-confirm-btns .ant-btn {
+  font-size: 14px;
 }
 
 .skill-detail-modal-content {
@@ -888,3 +942,9 @@ body {
   align-self: flex-start;
   width: auto;
 }
+
+.skill-preview { font-size: 14px; overflow-wrap: anywhere; }
+.skill-preview details { margin-block: 12px; }
+.skill-preview summary { cursor: pointer; }
+.skill-preview pre { max-height: 320px; overflow: auto; white-space: pre-wrap; font-size: 14px; padding: 12px; background: #f5f5f7; border-radius: 8px; }
+.skill-preview ul { max-height: 240px; overflow: auto; padding-left: 24px; }

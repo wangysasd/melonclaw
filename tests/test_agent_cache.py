@@ -11,7 +11,7 @@ from melonclaw.services import runtime as runtime_module
 from melonclaw.services.runtime import ChatRuntime
 
 
-def test_agent_build_locks_cover_waiters_and_are_released(monkeypatch):
+def test_agent_build_locks_cover_waiters_and_are_released(monkeypatch, tmp_path):
     builds: list[str] = []
     started = asyncio.Event()
     release = asyncio.Event()
@@ -20,9 +20,12 @@ def test_agent_build_locks_cover_waiters_and_are_released(monkeypatch):
         builds.append(str(workspace_dir))
         started.set()
         await release.wait()
-        return object()
+        return SimpleNamespace()
 
     class FakeStorage:
+        async def list_visible_skill_rows(self, user_id, **kwargs):
+            return []
+
         async def skills_revision(self):
             return "skills-rev"
 
@@ -39,7 +42,7 @@ def test_agent_build_locks_cover_waiters_and_are_released(monkeypatch):
     runtime = ChatRuntime(
         settings=SimpleNamespace(
             agent_cache_entries=1,
-            data_root=Path("agent-cache-test-data"),
+            data_root=tmp_path,
         ),
         storage=FakeStorage(),
         checkpointer=object(),

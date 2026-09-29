@@ -1,4 +1,4 @@
-"""系统租户、admin、模型供应商与平台默认模型的种子初始化约束。"""
+"""系统租户、admin 与模型供应商模板的种子初始化约束。"""
 
 from __future__ import annotations
 

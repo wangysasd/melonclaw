@@ -4,8 +4,10 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 from test_model_configs import make_provider_row, make_row
 
+from melonclaw.api.schemas import ModelConfigCreateRequest, ModelProviderCreateRequest
 from melonclaw.core.chat_model import build_chat_model
 from melonclaw.core.model_catalog import resolve_model_row
 from melonclaw.repository.resources import ResourceRepositoryMixin
@@ -76,3 +78,20 @@ def test_web_service_forwards_advanced_fields():
     assert fields["api_key_env"] == "TEST_API_KEY"
     assert fields["request_headers"] == {"X-Client": "test"}
     assert fields["extra_config"] == {"enable_thinking": True}
+
+
+@pytest.mark.parametrize("scope", ["user", "tenant"])
+def test_provider_api_rejects_non_global_scope(scope):
+    with pytest.raises(ValidationError, match="scope"):
+        ModelProviderCreateRequest(
+            user_id="admin", provider_key="gateway", scope=scope,
+            display_name="Gateway", base_url="https://example.com/v1",
+        )
+
+
+def test_model_api_rejects_tenant_scope():
+    with pytest.raises(ValidationError, match="scope"):
+        ModelConfigCreateRequest(
+            user_id="admin", model_key="example", provider_key="gateway",
+            scope="tenant", display_name="Example", model_name="example",
+        )

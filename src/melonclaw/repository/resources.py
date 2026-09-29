@@ -1,6 +1,6 @@
 """Skill、MCP 与自定义模型配置的仓储：可见性查询、CRUD 和配置版本戳。
 
-可见性规则（两级 scope，tenant 预留）：
+Skill 可见性规则（供应商统一共享，模型按 global/user 区分）：
 - ``scope='global'`` 的行对所有用户可见，但受两层启停约束：
   管理员全员开关（``skills.enabled``）+ 用户个人偏好
   （``skill_user_states.enabled``，无行即默认启用）；
@@ -12,9 +12,9 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, func, insert, or_, select, update
+from sqlalchemy import and_, delete, func, insert, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from melonclaw.core.config import provider_env_key
@@ -50,6 +50,10 @@ def _skill_row(
         "enabled": enabled,
         "storage_path": storage_path,
         "version": 1,
+        "status": "ready",
+        "content_hash": "",
+        "source_url": "",
+        "source_ref": "",
         "created_at": timestamp,
         "updated_at": timestamp,
     }
@@ -72,7 +76,7 @@ class ResourceRepositoryMixin:
             select(skills, skill_user_states.c.enabled.label("user_enabled"))
             .outerjoin(
                 skill_user_states,
-                (skill_user_states.c.skill_name == skills.c.name)
+                (skill_user_states.c.skill_id == skills.c.id)
                 & (skill_user_states.c.user_id == user_id),
             )
             .order_by(skills.c.name.asc())
@@ -92,7 +96,7 @@ class ResourceRepositoryMixin:
                             skill_user_states.c.enabled.is_(True),
                         ),
                     ),
-                    and_(skills.c.created_by == user_id, skills.c.enabled.is_(True)),
+                    and_(skills.c.scope == "user", skills.c.created_by == user_id, skills.c.enabled.is_(True)),
                 )
             )
         async with self.engine.connect() as connection:
@@ -100,44 +104,53 @@ class ResourceRepositoryMixin:
         return [dict(row) for row in rows]
 
     async def get_skill_user_state(
-        self, user_id: str, skill_name: str
+        self, user_id: str, skill_id: Any
     ) -> bool | None:
         query = select(skill_user_states.c.enabled).where(
             (skill_user_states.c.user_id == user_id)
-            & (skill_user_states.c.skill_name == skill_name)
+            & (skill_user_states.c.skill_id == skill_id)
         )
         async with self.engine.connect() as connection:
             value = (await connection.execute(query)).scalar()
         return bool(value) if value is not None else None
 
     async def set_skill_user_state(
-        self, user_id: str, skill_name: str, enabled: bool
+        self, user_id: str, skill_id: Any, enabled: bool
     ) -> None:
-        """写入个人启停偏好；同 (user_id, skill_name) 冲突时覆盖。"""
+        """写入个人启停偏好；同 (user_id, skill_id) 冲突时覆盖。"""
 
         timestamp = _now()
         statement = (
             pg_insert(skill_user_states)
             .values(
                 user_id=user_id,
-                skill_name=skill_name,
+                skill_id=skill_id,
                 enabled=enabled,
                 created_at=timestamp,
                 updated_at=timestamp,
             )
             .on_conflict_do_update(
-                index_elements=["user_id", "skill_name"],
+                index_elements=["user_id", "skill_id"],
                 set_={"enabled": enabled, "updated_at": timestamp},
             )
         )
         async with self.engine.begin() as connection:
             await connection.execute(statement)
 
-    async def get_skill_row(self, name: str) -> dict[str, Any] | None:
+    async def list_skill_rows_by_name(self, name: str) -> list[dict[str, Any]]:
+        """取该名字的全部行（全局共享 + 各用户私有），供导入查重与消歧。"""
+
         query = select(skills).where(skills.c.name == name)
         async with self.engine.connect() as connection:
-            row = (await connection.execute(query)).mappings().first()
-        return dict(row) if row is not None else None
+            rows = (await connection.execute(query)).mappings().all()
+        return [dict(row) for row in rows]
+
+    async def get_skill_row(self, skill_id: str) -> dict[str, Any] | None:
+        async with self.engine.connect() as connection:
+            row = (await connection.execute(
+                select(skills).where(skills.c.id == UUID(str(skill_id)))
+            )).mappings().first()
+        return dict(row) if row else None
 
     async def list_all_skill_rows(self) -> list[dict[str, Any]]:
         """返回全部 Skill 行，供索引重建核对目录是否还在。
@@ -160,6 +173,11 @@ class ResourceRepositoryMixin:
         created_by: str,
         storage_path: str,
         enabled: bool = True,
+        skill_id: UUID | None = None,
+        status: str = "ready",
+        content_hash: str = "",
+        source_url: str = "",
+        source_ref: str = "",
     ) -> dict[str, Any]:
         row = _skill_row(
             name=name,
@@ -169,6 +187,9 @@ class ResourceRepositoryMixin:
             storage_path=storage_path,
             enabled=enabled,
         )
+        row.update(status=status, content_hash=content_hash, source_url=source_url, source_ref=source_ref)
+        if skill_id is not None:
+            row["id"] = skill_id
         async with self.engine.begin() as connection:
             await connection.execute(insert(skills).values(**row))
         return row
@@ -183,10 +204,11 @@ class ResourceRepositoryMixin:
         storage_path: str,
         enabled: bool = True,
     ) -> bool:
-        """索引重建用：仅当 name 尚无行时登记，返回是否真的插入。
+        """索引重建用：按唯一性规则补缺登记，返回是否真的插入。
 
-        已存在的行一律不覆盖——启用状态、scope（可能已被 publish 改成
-        global）等运营字段由使用者通过资源管理 API 维护。
+        冲突目标随 scope 不同：global 行与全局共享名冲突，user 行与
+        同一创建者的私有名冲突。已存在的行一律不覆盖——启用状态等运营
+        字段由使用者通过资源管理 API 维护。
         """
 
         row = _skill_row(
@@ -197,28 +219,36 @@ class ResourceRepositoryMixin:
             storage_path=storage_path,
             enabled=enabled,
         )
+        if scope == "global":
+            conflict = {
+                "index_elements": ["name"],
+                "index_where": text("scope = 'global'"),
+            }
+        else:
+            conflict = {
+                "index_elements": ["created_by", "name"],
+                "index_where": text("scope = 'user'"),
+            }
         statement = (
             pg_insert(skills)
             .values(**row)
-            .on_conflict_do_nothing(index_elements=["name"])
+            .on_conflict_do_nothing(**conflict)
             .returning(skills.c.name)
         )
         async with self.engine.begin() as connection:
             result = await connection.execute(statement)
             return result.scalar_one_or_none() is not None
 
-    async def update_skill_row(self, name: str, **fields: Any) -> None:
+    async def update_skill_row(self, skill_id: Any, **fields: Any) -> None:
         fields["updated_at"] = _now()
         async with self.engine.begin() as connection:
             await connection.execute(
-                update(skills).where(skills.c.name == name).values(**fields)
+                update(skills).where(skills.c.id == skill_id).values(**fields)
             )
 
-    async def delete_skill_row(self, name: str) -> None:
+    async def delete_skill_row(self, skill_id: Any) -> None:
         async with self.engine.begin() as connection:
-            await connection.execute(
-                delete(skills).where(skills.c.name == name)
-            )
+            await connection.execute(delete(skills).where(skills.c.id == skill_id))
 
     async def skills_revision(self) -> str:
         """全局 Skill 配置版本戳：Agent 缓存键用它做配置变更失效。"""
@@ -324,15 +354,12 @@ class ResourceRepositoryMixin:
 
     # ---- 模型供应商 ----
 
-    async def list_visible_provider_rows(
-        self, user_id: str, *, include_disabled: bool = False
+    async def list_provider_rows(
+        self, *, include_disabled: bool = False
     ) -> list[dict[str, Any]]:
-        """返回某用户可见的供应商行（global + 自己的 user scope）。"""
+        """返回共享供应商；供应商统一由管理员维护，对所有用户可见。"""
 
-        query = select(model_providers).where(
-            (model_providers.c.scope == "global")
-            | (model_providers.c.created_by == user_id)
-        )
+        query = select(model_providers)
         if not include_disabled:
             query = query.where(model_providers.c.enabled.is_(True))
         query = query.order_by(model_providers.c.provider_key.asc())

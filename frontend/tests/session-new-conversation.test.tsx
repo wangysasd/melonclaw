@@ -87,6 +87,29 @@ beforeEach(() => {
 });
 
 describe("project conversation navigation", () => {
+  it("reloads the skill picker for each user and ignores the previous user's late response", async () => {
+    const oldSkills = deferred<{ items: { id: string; display_name: string; description: string }[] }>();
+    vi.mocked(client.listSkills).mockResolvedValueOnce({ items: [{ id: "global:writing-guidelines", display_name: "Writing Guidelines", description: "" }] });
+    const view = await renderBootstrapped();
+    await waitFor(() => expect(session?.skills).toHaveLength(1));
+
+    vi.mocked(client.listSkills).mockImplementationOnce(() => oldSkills.promise)
+      .mockResolvedValueOnce({ items: [] });
+    let firstSwitch!: Promise<void>;
+    act(() => { firstSwitch = session!.changeUser("u2"); });
+    expect(session?.skills).toEqual([]);
+    await waitFor(() => expect(client.listSkills).toHaveBeenCalledWith({ userId: "u2" }));
+
+    await act(async () => { await session!.changeUser("u3"); });
+    expect(session?.skills).toEqual([]);
+    await act(async () => {
+      oldSkills.resolve({ items: [{ id: "global:writing-guidelines", display_name: "Writing Guidelines", description: "" }] });
+      await firstSwitch;
+    });
+    expect(session?.skills).toEqual([]);
+    view.unmount();
+  });
+
   it("selects a conversation in another project without an intermediate empty chat", async () => {
     localStorage.setItem(projectStorageKey("u1"), "p1");
     vi.mocked(client.listProjects).mockResolvedValue({ items: [

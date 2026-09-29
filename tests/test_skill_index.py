@@ -93,8 +93,8 @@ class SkillReindexTests(unittest.IsolatedAsyncioTestCase):
         storage = FakeStorage(users=["u1"])
         await reindex_skills_from_disk(storage, self.data_root)
 
-        # 模拟使用者改过运营状态：共享项被全员停用、私有项被发布成 global
-        # 并挪了目录（publish 会同时改 storage_path 和移动目录）。
+        # 模拟使用者改过运营状态：共享项被全员停用、另一项索引范围被调整
+        # 并调整了索引目录；重建不应覆盖现有记录。
         storage.rows["shared-a"]["enabled"] = False
         storage.rows["private-a"]["scope"] = "global"
         storage.rows["private-a"]["storage_path"] = "shared/private-a"

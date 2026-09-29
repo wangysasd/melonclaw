@@ -188,6 +188,30 @@ describe("chat run lifecycle", () => {
     expect(result.current.state.userQuestion).toBeNull();
   });
 
+  it("turns a stale pending round into a notice and keeps the composer usable", async () => {
+    // 服务端遗留的 pending 轮次（如 Web 进程重启）：不能设置全局 error——
+    // ChatView 在 error 存在时禁用输入框，会把「发新消息解锁」这唯一的出口堵死。
+    vi.mocked(getConversationHistory).mockResolvedValue({
+      ...emptyHistory,
+      items: [
+        {
+          role: "assistant",
+          id: "a1",
+          status: "pending",
+          content: "",
+          assistant_steps: [],
+          display_metadata: {},
+        },
+      ],
+      pending_interaction: null,
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.messages[0]?.content).toContain("发送新消息"));
+    expect(result.current.state.error).toBeNull();
+    expect(mocks.session.busy).toBe(false);
+    expect(mocks.session.runStatus).toBeNull();
+  });
+
   it("allows a new message to replace an expired question", async () => {
     mocks.session.busy = true;
     vi.mocked(getConversationHistory).mockResolvedValue({

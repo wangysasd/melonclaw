@@ -113,10 +113,14 @@ class SkillImportConfirmRequest(BaseModel):
 
 
 class SkillUpdateRequest(BaseModel):
-    """个人启用/停用：共享 Skill 只影响自己，私有 Skill 仅限创建者。"""
+    """个人启用/停用：共享 Skill 只影响自己，私有 Skill 仅限创建者。
+
+    scope 必填，明确选择共享或自己的私有 Skill。
+    """
 
     user_id: str = Field(min_length=1, max_length=64)
     enabled: bool
+    scope: Literal["global", "user"]
 
 
 class SkillGlobalStateRequest(BaseModel):
@@ -124,12 +128,6 @@ class SkillGlobalStateRequest(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=64)
     enabled: bool
-
-
-class SkillPublishRequest(BaseModel):
-    """把私有 Skill 发布为全局共享（仅 admin/owner）。"""
-
-    user_id: str = Field(min_length=1, max_length=64)
 
 
 class McpServerCreateRequest(BaseModel):
@@ -161,7 +159,7 @@ class ModelProviderCreateRequest(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=64)
     provider_key: str = Field(min_length=1, max_length=64)
-    scope: str = Field(min_length=1, max_length=16)
+    scope: Literal["global"]
     display_name: str = Field(min_length=1, max_length=120)
     provider_type: Literal["openai_compatible"] = "openai_compatible"
     api_key_env: str = Field(default="", max_length=120)
@@ -200,7 +198,7 @@ class ModelConfigCreateRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=64)
     model_key: str = Field(min_length=1, max_length=64)
     provider_key: str = Field(min_length=1, max_length=64)
-    scope: str = Field(min_length=1, max_length=16)
+    scope: Literal["global", "user"]
     display_name: str = Field(min_length=1, max_length=120)
     model_name: str = Field(min_length=1, max_length=160)
     enabled: bool = True
@@ -209,7 +207,7 @@ class ModelConfigCreateRequest(BaseModel):
 class ModelConfigUpdateRequest(BaseModel):
     """更新自定义模型；所有字段缺省表示不改动。
 
-    ``is_default=True`` 把该模型设为平台默认（仅管理员、global scope）。
+    ``is_default=True`` 设置默认模型：管理员管理全局默认，用户管理个人默认。
     连接与凭据的变更走供应商管理接口。
     """
 
@@ -236,3 +234,4 @@ class SkillRemoteInstallRequest(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=64)
     repo: str = Field(min_length=1, max_length=200)
+    target_id: UUID | None = None

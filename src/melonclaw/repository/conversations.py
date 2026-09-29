@@ -452,6 +452,29 @@ class ConversationRepositoryMixin:
             row = (await connection.execute(query)).mappings().first()
         return _message_dict(row) if row else None
 
+    async def converge_stale_pending_messages(self) -> int:
+        """把进程重启遗留的 pending 助手消息收敛为 failed。
+
+        运行中等待审批/用户输入的消息是 interrupted（可恢复），
+        只有 actively running 的执行才是 pending；本进程启动时
+        不存在任何活执行，因此所有 pending 行都是上一个进程的
+        遗留。单进程部署假设：多进程共享一个库时，一个 worker
+        会误杀另一个 worker 正在执行的轮次。
+        """
+
+        async with self.engine.begin() as connection:
+            result = await connection.execute(
+                update(chat_messages)
+                .where(
+                    and_(
+                        chat_messages.c.role == "assistant",
+                        chat_messages.c.status == "pending",
+                    )
+                )
+                .values(status="failed", error_code="stale_pending", updated_at=_now())
+            )
+        return int(result.rowcount or 0)
+
     async def get_incomplete_assistant(
         self,
         conversation_id: UUID,

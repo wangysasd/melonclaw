@@ -13,6 +13,7 @@ import type {
   ModelCatalog,
   Project,
   SkillImportDraft,
+  SkillContentPreview,
   SkillOption,
   ServiceStatus,
   AttachmentCapabilities,
@@ -149,9 +150,9 @@ export function listManageableSkills(input: {
 
 export async function downloadSkill(
   name: string,
-  input: { userId: string },
+  input: { userId: string; scope: "global" | "user" },
 ): Promise<void> {
-  const url = `${API_BASE_URL}/api/skills/${encodeURIComponent(name)}/download${buildQuery({ user_id: input.userId })}`;
+  const url = `${API_BASE_URL}/api/skills/${encodeURIComponent(name)}/download${buildQuery({ user_id: input.userId, scope: input.scope })}`;
   let response: Response;
   try {
     response = await fetch(url);
@@ -176,10 +177,12 @@ export async function downloadSkill(
 export async function prepareSkillImport(input: {
   userId: string;
   file: File;
+  targetId?: string;
 }): Promise<SkillImportDraft> {
   const form = new FormData();
   form.append("user_id", input.userId);
   form.append("file", input.file);
+  if (input.targetId) form.append("target_id", input.targetId);
   const response = await fetch(`${API_BASE_URL}/api/skills/import/prepare`, {
     method: "POST",
     body: form,
@@ -191,10 +194,12 @@ export async function prepareSkillImport(input: {
 export function prepareRemoteSkillInstall(input: {
   userId: string;
   repo: string;
-}): Promise<SkillImportDraft> {
+  targetId?: string;
+}, signal?: AbortSignal): Promise<SkillImportDraft> {
   return apiRequest<SkillImportDraft>("/api/skills/install/remote", {
     method: "POST",
-    body: { user_id: input.userId, repo: input.repo },
+    body: { user_id: input.userId, repo: input.repo, target_id: input.targetId },
+    signal,
   });
 }
 
@@ -220,11 +225,11 @@ export function cancelSkillImport(input: {
 
 export function updateSkill(
   name: string,
-  input: { userId: string; enabled: boolean },
+  input: { userId: string; enabled: boolean; scope: "global" | "user" },
 ): Promise<{ ok: boolean }> {
   return apiRequest(`/api/skills/${encodeURIComponent(name)}`, {
     method: "PATCH",
-    body: { user_id: input.userId, enabled: input.enabled },
+    body: { user_id: input.userId, enabled: input.enabled, scope: input.scope },
   });
 }
 
@@ -244,23 +249,22 @@ export function updateSkillGlobalState(
 
 export function deleteSkill(
   name: string,
-  input: { userId: string },
+  input: { userId: string; scope: "global" | "user" },
 ): Promise<{ ok: boolean }> {
   return apiRequest(`/api/skills/${encodeURIComponent(name)}`, {
     method: "DELETE",
-    query: { user_id: input.userId },
+    query: { user_id: input.userId, scope: input.scope },
   });
 }
 
-/** 把私有 Skill 发布为全局共享（仅 admin/owner）。 */
-export function publishSkill(
-  name: string,
-  input: { userId: string },
-): Promise<{ ok: boolean }> {
-  return apiRequest(`/api/skills/${encodeURIComponent(name)}/publish`, {
-    method: "POST",
-    body: { user_id: input.userId },
+export function skillDetails(name: string, input: { userId: string; scope: "global" | "user" }): Promise<SkillContentPreview> {
+  return apiRequest(`/api/skills/${encodeURIComponent(name)}/details`, {
+    query: { user_id: input.userId, scope: input.scope },
   });
+}
+
+export function recoverSkills(userId: string): Promise<{ summary: string; missing: string[]; orphaned: string[]; registered: string[] }> {
+  return apiRequest("/api/skills/recover", { method: "POST", query: { user_id: userId } });
 }
 
 export function listMcp(
@@ -342,7 +346,7 @@ export function createModel(input: {
   userId: string;
   modelKey: string;
   providerKey: string;
-  scope: string;
+  scope: "global" | "user";
   displayName: string;
   modelName: string;
   enabled?: boolean;
@@ -407,7 +411,7 @@ export function listManageableProviders(
 export function createProvider(input: {
   userId: string;
   providerKey: string;
-  scope: string;
+  scope: "global";
   displayName: string;
   providerType?: string;
   baseUrl: string;

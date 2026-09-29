@@ -32,7 +32,7 @@ export interface SidebarContentProps {
   onSelectConversationCloseMobile?: () => void;
 }
 
-/** 侧栏内容：品牌区、新建对话、插件、项目/会话、用户选择器。 */
+/** 侧栏内容：品牌区、新建对话、拓展、项目/会话、用户选择器。 */
 export function SidebarContent({
   collapsed,
   onToggleCollapse,
@@ -296,10 +296,10 @@ export function SidebarContent({
           className={["sidebar-resource-entry", resourcesActive ? "is-active" : ""].filter(Boolean).join(" ")}
           onClick={onOpenResources}
           aria-pressed={resourcesActive}
-          title="插件（Skills、MCP 服务与自定义模型）"
+          title="拓展（Skills、MCP 服务与自定义模型）"
         >
           <Icon name="plug" size={16} />
-          <span>插件</span>
+          <span>拓展</span>
         </button>
       </div>
 

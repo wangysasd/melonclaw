@@ -36,6 +36,13 @@ import { useSession } from "../state/session";
 const USER_INPUT_RECOVERY_REQUIRED = "user_input_recovery_required";
 const RECOVERY_REQUIRED_NOTICE =
   "这一轮的回答已经收到，但 Agent 没能继续跑完。为了避免把可能带副作用的操作再执行一遍，系统不会自动重放这一轮：请直接发新消息开始新一轮。";
+/**
+ * 服务端遗留的 pending 轮次（如 Web 进程重启导致执行中断）。
+ * 只作为消息内的提示展示：发新消息时后端会自动把这一轮收敛为失败，
+ * 不能用全局 error 横幅——那会禁用输入框，反而堵死唯一的解锁出口。
+ */
+const STALE_PENDING_NOTICE =
+  "上一轮请求已中断，未产生回复。直接发送新消息即可继续，系统会自动收尾这一轮。";
 
 /** 展示给用户的安全执行阶段；不包含模型的隐藏推理文本。 */
 export type ReasoningPhase =
@@ -1216,6 +1223,11 @@ export function useChatStream({
         ) {
           return;
         }
+        const ownActiveRun = activeRunsRef.current.get(targetId);
+        const activeStream =
+          ownActiveRun && !ownActiveRun.controller.signal.aborted;
+        // 同会话的活流：历史只提供已落库内容，后续事件继续由原 SSE 补上。
+        const activeForSnapshot = Boolean(activeStream);
         const messages: ChatMessage[] = data.items.flatMap((item) => {
           let content = item.role === "user" ? item.content || "" : visibleAssistantText(item.content || "");
           if (item.role !== "user" && classifyToolSelectorText(content) === "selector") {
@@ -1225,6 +1237,17 @@ export function useChatStream({
           // 用户唯一的出口——发新消息即可解锁这一轮。
           if (item.role !== "user" && item.error_code === USER_INPUT_RECOVERY_REQUIRED && !content.trim()) {
             content = RECOVERY_REQUIRED_NOTICE;
+          }
+          // 服务端遗留的 pending 轮次且本地没有活流：补提示文案并放行输入框，
+          // 发新消息时后端会把这一轮收敛为失败。不能走全局 error——那禁用输入框，
+          // 反而把唯一的解锁出口堵死。
+          if (
+            !activeForSnapshot &&
+            item.role !== "user" &&
+            item.status === "pending" &&
+            !content.trim()
+          ) {
+            content = STALE_PENDING_NOTICE;
           }
           return {
             id: item.id,
@@ -1252,21 +1275,13 @@ export function useChatStream({
           approval: data.pending_approval,
           userQuestion: data.pending_interaction ?? null,
         });
-        const ownActiveRun = activeRunsRef.current.get(targetId);
-        const activeStream =
-          ownActiveRun && !ownActiveRun.controller.signal.aborted;
-        // 同会话的活流：历史只提供已落库内容，后续事件继续由原 SSE 补上。
-        const activeForSnapshot = Boolean(activeStream);
         if (data.pending_approval || data.pending_interaction) {
           sessionRef.current.setBusy(true);
           sessionRef.current.setRunStatus("waiting");
         } else if (!activeForSnapshot) {
           sessionRef.current.setBusy(false);
-          const pending = messages.some((item) => item.status === "pending");
-          sessionRef.current.setRunStatus(pending ? "processing" : null);
-          if (pending) {
-            dispatchFor(targetId, { type: "historyFailed", conversationId: targetId, error: "上次请求尚未结束，当前未连接其输出。请稍后重新同步会话。" });
-          }
+          // pending 只是服务端遗留，本地没有活流：按空闲处理，输入框保持可用。
+          sessionRef.current.setRunStatus(null);
         } else if (activeForSnapshot) {
           sessionRef.current.setBusy(true);
           sessionRef.current.setRunStatus("processing");

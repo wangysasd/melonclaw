@@ -57,7 +57,21 @@ def test_skills_table_scopes_and_unique_name():
     assert "scope" in skills.c
     assert "source_type" in skills.c
     assert "storage_path" in skills.c
-    assert skills.c.name.unique is True
+    # name 不再表级唯一：共享名全局唯一、私有名 (created_by, name) 唯一，
+    # 由两个部分唯一索引表达。
+    assert not skills.c.name.unique
+    partial_uniques = {}
+    for index in skills.indexes:
+        where = index.dialect_options.get("postgresql", {}).get("where")
+        if index.unique and where is not None:
+            partial_uniques[index.name] = (
+                [column.name for column in index.columns],
+                str(where),
+            )
+    assert partial_uniques["uq_skills_global_name"][0] == ["name"]
+    assert "scope = 'global'" in partial_uniques["uq_skills_global_name"][1]
+    assert partial_uniques["uq_skills_user_owner_name"][0] == ["created_by", "name"]
+    assert "scope = 'user'" in partial_uniques["uq_skills_user_owner_name"][1]
     assert any(
         constraint.name == "ck_skills_scope" for constraint in skills.constraints
     )
@@ -71,16 +85,16 @@ def test_skills_table_scopes_and_unique_name():
 
 
 def test_skill_user_states_is_per_user_preference_overlay():
-    """共享 Skill 个人启停偏好：(user_id, skill_name) 联合主键，两列都级联删除。"""
+    """共享 Skill 个人启停偏好：(user_id, skill_id) 联合主键，两列都级联删除。"""
     assert [column.name for column in skill_user_states.primary_key.columns] == [
         "user_id",
-        "skill_name",
+        "skill_id",
     ]
     assert {fk.target_fullname for fk in skill_user_states.c.user_id.foreign_keys} == {
         "users.user_id"
     }
-    assert {fk.target_fullname for fk in skill_user_states.c.skill_name.foreign_keys} == {
-        "skills.name"
+    assert {fk.target_fullname for fk in skill_user_states.c.skill_id.foreign_keys} == {
+        "skills.id"
     }
     assert skill_user_states.c.enabled.nullable is False
 
@@ -105,10 +119,12 @@ def test_mcp_servers_stdio_requires_global_scope():
 def test_model_providers_table_shape():
     assert model_providers.c.provider_key.unique is True
     assert "api_key" in model_providers.c
+    assert "api_key_env" in model_providers.c
     assert "models_endpoint" in model_providers.c
     assert "version" in model_providers.c
     assert any(
         constraint.name == "ck_model_providers_scope"
+        and str(constraint.sqltext) == "scope = 'global'"
         for constraint in model_providers.constraints
     )
     assert any(
@@ -144,6 +160,7 @@ def test_model_configs_table_shape():
     assert "input_modalities" in model_configs.c
     assert any(
         constraint.name == "ck_model_configs_scope"
+        and str(constraint.sqltext) == "scope IN ('global', 'user')"
         for constraint in model_configs.constraints
     )
     assert any(

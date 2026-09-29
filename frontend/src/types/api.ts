@@ -35,8 +35,8 @@ export interface ModelOption {
   model: string;
   available: boolean;
   is_default: boolean;
-  /** 仅自定义模型返回：global=全员共享，user=当前用户私有。 */
-  scope?: "global" | "user" | "tenant";
+  /** 模型归属：global=全员共享，user=当前用户私有。 */
+  scope?: "global" | "user";
   config_version?: number;
   input_modalities?: string[];
 }
@@ -52,7 +52,7 @@ export interface SkillOption {
   display_name: string;
   description: string;
   /** global=全员共享（管理员发布），user=当前用户私有。 */
-  scope: "global" | "user" | "tenant";
+  scope: "global" | "user";
 }
 
 /** POST /api/skills/import/prepare 返回的两段式安装草稿预览。 */
@@ -63,6 +63,24 @@ export interface SkillImportDraft {
   description: string;
   file_count: number;
   expires_at: number;
+  scope: "global" | "user";
+  operation: "install" | "update";
+  target_id: string | null;
+  base_version: number | null;
+  source_type: string;
+  source_url: string;
+  source_ref: string;
+  preview: SkillContentPreview;
+}
+
+export interface SkillContentPreview {
+  content_hash: string;
+  body: string;
+  body_truncated: boolean;
+  files: { path: string; size: number; sha256: string }[];
+  changes: { added: string[]; removed: string[]; modified: string[] };
+  diff: string;
+  dependency_checks: { kind: string; name: string; status: "available" | "missing" | "manual" }[];
 }
 
 /** GET /api/mcp 返回的 MCP 服务摘要；env/headers 只回显键名，不回显值。 */
@@ -81,10 +99,20 @@ export interface McpServer {
   created_by: string;
 }
 
-/** GET /api/skills/manage 返回的可管理 Skill（含停用项）。 */
+/** GET /api/skills/manage 返回的可展示 Skill（不含全员停用的共享项）。 */
 export interface ManageableSkill {
+  id: string;
+  selection_id: string;
+  version: number;
+  content_hash: string;
+  source_url: string;
+  source_ref: string;
+  personally_enabled: boolean;
+  effective_enabled: boolean;
+  unavailable_reason: string | null;
+  diagnostic: string;
   name: string;
-  scope: "global" | "user" | "tenant";
+  scope: "global" | "user";
   source_type: string;
   /** 共享项的全员开关（仅管理员可改）；私有项即创建者的启停。 */
   enabled: boolean;
@@ -97,13 +125,16 @@ export interface ManageableSkill {
    * 磁盘状态。"missing" = 目录已丢失（只能删）；"invalid" = 目录还在但读不出
    * 合法 SKILL.md（修好文件就能用）；两者都不会出现在选择器里。
    */
-  availability: "ready" | "missing" | "invalid";
+  availability: "ready" | "missing" | "invalid" | "pending";
+  /** 共享项专属：true 表示被当前用户自己的同名私有 Skill 遮蔽，
+   * 不会出现在该用户的 Agent 目录里；删除/改名私有 Skill 后恢复。 */
+  shadowed?: boolean;
 }
 
 /** GET /api/model-providers 返回的可管理模型供应商；api_key 绝不回显。 */
 export interface ManageableProvider {
   provider_key: string;
-  scope: "global" | "user" | "tenant";
+  scope: "global";
   /** system=平台种子供应商（不可删除），manual=管理员新建。 */
   source_type: string;
   display_name: string;
@@ -133,13 +164,13 @@ export interface ManageableModel {
   provider_key: string;
   /** 供应商展示名（联查得出）。 */
   provider_display_name: string;
-  scope: "global" | "user" | "tenant";
-  /** system=平台种子模型（不可删除），manual=用户自建。 */
+  scope: "global" | "user";
+  /** 创建来源；当前模型均由用户手动配置（manual）。 */
   source_type: string;
   display_name: string;
   model_name: string;
   enabled: boolean;
-  /** 是否为平台默认模型（全表至多一个）。 */
+  /** 是否为默认模型（全局至多一个，每个用户的个人模型至多一个）。 */
   is_default: boolean;
   input_modalities: string[];
   created_by: string;

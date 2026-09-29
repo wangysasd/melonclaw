@@ -1,36 +1,29 @@
-"""Skill ZIP 两段式导入：prepare 解析校验生成草稿，confirm 落库生效。
-
-安全边界（全部在 prepare 阶段执行，confirm 不再碰 zip）：
-- 不调用 ``extractall``，逐 entry 做路径规范化校验后手动写盘，拒绝绝对路径、
-  ``..`` 穿越、反斜杠变体；
-- 压缩比、解压后总大小、单文件大小、文件数量都有硬上限；
-- frontmatter 复用 SkillCatalog 的解析规则，name 与目录名必须一致；
-- name 全局唯一（数据库唯一约束兜底，prepare 时提前给出友好错误）。
-"""
+"""Skill ZIP 导入与更新：持久草稿、内容预览、版本检查、可恢复提交。"""
 
 from __future__ import annotations
 
 import io
-import logging
+import json
 import shutil
 import time
 import zipfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import yaml
 
 from melonclaw.repository import BusinessRepository
+from melonclaw.services.skill_content import check_requirements, content_manifest, preview_content
+from melonclaw.services.skill_operations import SkillOperations, write_json
 from melonclaw.services.skills import (
     FRONTMATTER_RE,
     MAX_SKILL_FILE_SIZE,
     SAFE_DIRECTORY_RE,
     SkillCatalog,
     SkillDefinition,
+    read_skill,
 )
-
-logger = logging.getLogger(__name__)
 
 DRAFT_TTL_SECONDS = 15 * 60
 MAX_ARCHIVE_TOTAL_BYTES = 50 * 1024 * 1024
@@ -39,8 +32,6 @@ MAX_ARCHIVE_ENTRIES = 5000
 
 
 class SkillImportError(ValueError):
-    """上传的 Skill 包不合法。"""
-
     status_code = 422
 
 
@@ -54,41 +45,63 @@ class SkillImportDraft:
     file_count: int
     source_type: str
     expires_at: float
+    scope: str
+    target_id: str | None
+    base_version: int | None
+    base_hash: str | None
+    source_url: str
+    source_ref: str
+    preview: dict
 
     def public_dict(self) -> dict[str, object]:
-        return {
-            "draft_id": self.draft_id,
-            "name": self.name,
-            "display_name": self.display_name,
-            "description": self.description,
-            "file_count": self.file_count,
-            "expires_at": self.expires_at,
-        }
+        result = asdict(self)
+        result.pop("user_id")
+        result["operation"] = "update" if self.target_id else "install"
+        return result
 
 
 class SkillImportService:
-    """内存草稿表 + 临时目录；进程重启草稿即废，TTL 到期惰性清理。"""
-
     def __init__(self, data_root: Path) -> None:
+        self.operations = SkillOperations(data_root)
         self.tmp_root = data_root / "skills" / "tmp"
         self.tmp_root.mkdir(parents=True, exist_ok=True)
-        self._drafts: dict[str, tuple[SkillImportDraft, Path]] = {}
-        self._sweep_expired()
+
+    def _directory(self, draft_id: str) -> Path:
+        try:
+            identifier = UUID(draft_id).hex
+        except ValueError as exc:
+            raise SkillImportError("导入草稿标识不合法。") from exc
+        return self.tmp_root / identifier
 
     def _sweep_expired(self) -> None:
-        now = time.time()
-        for draft_id, (draft, _) in list(self._drafts.items()):
-            if draft.expires_at <= now:
-                self._discard(draft_id)
-        live = {path for _, path in self._drafts.values()}
+        # 调用者持数据根锁；不根据进程内存判定其他 worker 的草稿。
         for child in self.tmp_root.iterdir():
-            if child.is_dir() and child not in live:
-                shutil.rmtree(child, ignore_errors=True)
+            if not child.is_dir() or child.is_symlink():
+                continue
+            manifest = child / "draft.json"
+            if manifest.is_file():
+                expires = json.loads(manifest.read_text())["expires_at"]
+            else:
+                expires = child.stat().st_mtime + DRAFT_TTL_SECONDS
+            if expires <= time.time():
+                shutil.rmtree(child)
 
-    def _discard(self, draft_id: str) -> None:
-        entry = self._drafts.pop(draft_id, None)
-        if entry is not None:
-            shutil.rmtree(entry[1].parent, ignore_errors=True)
+    async def _target(self, storage, user_id: str, target_id: str | None):
+        context = await storage.get_user_context(user_id)
+        if context is None:
+            raise SkillImportError("用户不存在或租户归属无效。")
+        scope = "global" if context.tenant_role in {"admin", "owner"} else "user"
+        row = None
+        if target_id is not None:
+            row = await storage.get_skill_row(target_id)
+            if (
+                row is None
+                or (row["scope"] == "global" and scope != "global")
+                or (row["scope"] == "user" and row["created_by"] != user_id)
+            ):
+                raise SkillImportError("待更新技能不存在或无权更新。")
+            scope = row["scope"]
+        return scope, row
 
     async def prepare(
         self,
@@ -97,98 +110,137 @@ class SkillImportService:
         archive_bytes: bytes,
         storage: BusinessRepository,
         source_type: str = "upload",
+        target_id: str | None = None,
+        source_url: str = "",
+        source_ref: str = "",
     ) -> SkillImportDraft:
-        """校验 ZIP 并解压到临时区，返回可预览的草稿。"""
-
-        self._sweep_expired()
-        draft_id = uuid4().hex
-        draft_dir = self.tmp_root / draft_id
-        extracted = draft_dir / "extracted"
-        extracted.mkdir(parents=True, exist_ok=True)
-        try:
-            definition = self._extract_and_validate(archive_bytes, extracted)
-            existing = await storage.get_skill_row(definition.id)
-            if existing is not None:
-                raise SkillImportError(
-                    f"技能 {definition.id!r} 已存在，请改名后重试。"
+        async with self.operations.locked():
+            await self.operations.recover(storage)
+            self._sweep_expired()
+            scope, row = await self._target(storage, user_id, target_id)
+            draft_id = uuid4().hex
+            directory = self._directory(draft_id)
+            extracted = directory / "extracted"
+            extracted.mkdir(parents=True)
+            try:
+                definition = self._extract_and_validate(archive_bytes, extracted)
+                if row is not None and row["name"] != definition.id:
+                    raise SkillImportError("更新包的 name 必须与现有技能相同。")
+                if row is None:
+                    await self._reject_name_conflict(storage, user_id, definition.id, scope)
+                old = self.operations.target(row["storage_path"]) if row else None
+                preview = preview_content(extracted / definition.id, old)
+                preview["dependency_checks"] = await check_requirements(
+                    preview["requirements"], storage, user_id
                 )
-            draft = SkillImportDraft(
-                draft_id=draft_id,
-                user_id=user_id,
-                name=definition.id,
-                display_name=definition.display_name,
-                description=definition.description,
-                file_count=sum(
-                    1 for path in extracted.rglob("*") if path.is_file()
-                ),
-                source_type=source_type,
-                expires_at=time.time() + DRAFT_TTL_SECONDS,
-            )
-        except Exception:
-            shutil.rmtree(draft_dir, ignore_errors=True)
-            raise
-        self._drafts[draft_id] = (draft, extracted)
-        return draft
+                draft = SkillImportDraft(
+                    draft_id,
+                    user_id,
+                    definition.id,
+                    definition.display_name,
+                    definition.description,
+                    len(preview["files"]),
+                    source_type,
+                    time.time() + DRAFT_TTL_SECONDS,
+                    scope,
+                    target_id,
+                    row["version"] if row else None,
+                    content_manifest(old)[0] if old is not None and old.is_dir() else None,
+                    source_url,
+                    source_ref,
+                    preview,
+                )
+                write_json(directory / "draft.json", asdict(draft))
+                return draft
+            except OSError as exc:
+                shutil.rmtree(directory, ignore_errors=True)
+                raise SkillImportError("无法读取技能包，请检查目录结构和存储权限。") from exc
+            except Exception:
+                shutil.rmtree(directory)
+                raise
 
     async def confirm(
-        self,
-        *,
-        draft_id: str,
-        user_id: str,
-        storage: BusinessRepository,
+        self, *, draft_id: str, user_id: str, storage: BusinessRepository
     ) -> SkillImportDraft:
-        """把草稿原子移动到用户 Skill 目录并落库；任何失败整体回滚。"""
+        async with self.operations.locked():
+            await self.operations.recover(storage)
+            draft, extracted = self._require_draft(draft_id, user_id)
+            scope, row = await self._target(storage, user_id, draft.target_id)
+            if scope != draft.scope:
+                raise SkillImportError("安装范围已变化，请重新预览后确认。")
+            if row is not None:
+                old = self.operations.target(row["storage_path"])
+                digest = content_manifest(old)[0] if old.is_dir() else None
+                if row["version"] != draft.base_version or digest != draft.base_hash:
+                    raise SkillImportError("技能内容已变化，请重新上传并查看差异。")
+            else:
+                await self._reject_name_conflict(storage, user_id, draft.name, scope)
+            source = extracted / draft.name
+            if content_manifest(source)[0] != draft.preview["content_hash"]:
+                raise SkillImportError("草稿内容已变化，请重新上传。")
+            path = (
+                row["storage_path"]
+                if row
+                else (
+                    f"shared/{draft.name}" if scope == "global" else f"users/{user_id}/{draft.name}"
+                )
+            )
+            await self.operations.install(
+                storage,
+                source,
+                row=row,
+                fields={
+                    "name": draft.name,
+                    "scope": scope,
+                    "created_by": row["created_by"] if row else user_id,
+                    "storage_path": path,
+                    "source_type": draft.source_type,
+                    "source_url": draft.source_url,
+                    "source_ref": draft.source_ref,
+                    "content_hash": draft.preview["content_hash"],
+                },
+            )
+            shutil.rmtree(extracted.parent)
+            return draft
 
-        draft, extracted = self._require_draft(draft_id, user_id)
-        source = extracted / draft.name
-        target = self.tmp_root.parent / "users" / user_id / draft.name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            self._discard(draft_id)
-            raise SkillImportError(f"技能 {draft.name!r} 已存在。")
+    @staticmethod
+    async def _reject_name_conflict(storage, user_id: str, name: str, scope: str):
+        rows = await storage.list_skill_rows_by_name(name)
+        for row in rows:
+            if scope == "global" and row["scope"] == "global":
+                raise SkillImportError("共享技能已存在，请在卡片菜单选择更新内容。")
+            if scope == "user":
+                if row["scope"] == "user" and row["created_by"] == user_id:
+                    raise SkillImportError("你已安装同名技能，请在卡片菜单选择更新内容。")
+                if row["scope"] == "global" and row["enabled"]:
+                    raise SkillImportError("与共享技能重名，请改名后重试。")
 
-        await storage.create_skill_row(
-            name=draft.name,
-            scope="user",
-            source_type=draft.source_type,
-            created_by=user_id,
-            storage_path=f"users/{user_id}/{draft.name}",
-            enabled=False,
-        )
-        try:
-            shutil.move(str(source), str(target))
-            await storage.update_skill_row(draft.name, enabled=True)
-        except Exception:
-            shutil.rmtree(target, ignore_errors=True)
-            await storage.delete_skill_row(draft.name)
-            raise
-        self._drafts.pop(draft_id, None)
-        shutil.rmtree(extracted.parent, ignore_errors=True)
-        return draft
+    async def cancel(self, *, draft_id: str, user_id: str):
+        async with self.operations.locked():
+            _, extracted = self._require_draft(draft_id, user_id)
+            shutil.rmtree(extracted.parent)
 
-    async def cancel(self, *, draft_id: str, user_id: str) -> None:
-        draft, _ = self._require_draft(draft_id, user_id)
-        self._discard(draft.draft_id)
-
-    def _require_draft(
-        self, draft_id: str, user_id: str
-    ) -> tuple[SkillImportDraft, Path]:
-        entry = self._drafts.get(draft_id)
-        if entry is None or entry[0].user_id != user_id:
+    def _require_draft(self, draft_id: str, user_id: str) -> tuple[SkillImportDraft, Path]:
+        directory = self._directory(draft_id)
+        manifest = directory / "draft.json"
+        if not manifest.is_file():
             raise SkillImportError("导入草稿不存在或已过期。")
-        if entry[0].expires_at <= time.time():
-            self._discard(draft_id)
+        draft = SkillImportDraft(**json.loads(manifest.read_text()))
+        if draft.user_id != user_id:
+            raise SkillImportError("导入草稿不存在或已过期。")
+        if draft.expires_at <= time.time():
+            shutil.rmtree(directory)
             raise SkillImportError("导入草稿已过期，请重新上传。")
-        return entry
+        return draft, directory / "extracted"
 
-    def _extract_and_validate(
-        self, archive_bytes: bytes, extracted: Path
-    ) -> SkillDefinition:
+    def _extract_and_validate(self, archive_bytes: bytes, extracted: Path) -> SkillDefinition:
         """解压并做全部静态校验；失败抛 SkillImportError 并清理临时目录。"""
 
         if not archive_bytes:
             raise SkillImportError("上传的 ZIP 为空。")
         archive_size = len(archive_bytes)
+        if archive_size > MAX_ARCHIVE_TOTAL_BYTES:
+            raise SkillImportError("上传 ZIP 超过 50MB 上限。")
         try:
             archive = zipfile.ZipFile(io.BytesIO(archive_bytes))
         except zipfile.BadZipFile as exc:
@@ -207,41 +259,52 @@ class SkillImportService:
             total_size = sum(entry.file_size for entry in entries)
             if total_size > MAX_ARCHIVE_TOTAL_BYTES:
                 raise SkillImportError("ZIP 解压后总大小超过 50MB 上限。")
-            if (
-                archive_size > 0
-                and total_size / archive_size > MAX_ARCHIVE_COMPRESSION_RATIO
-            ):
+            if archive_size > 0 and total_size / archive_size > MAX_ARCHIVE_COMPRESSION_RATIO:
                 raise SkillImportError("ZIP 压缩比异常，已拒绝。")
 
-            # 兼容两种打包形态：整体套一层顶层目录，或文件直接拍平在根部。
-            names = [entry.filename for entry in entries]
-            top_levels = {name.split("/")[0] for name in names}
-            has_single_wrapper = (
-                len(top_levels) == 1 and all("/" in name for name in names)
-            )
+            # 元数据仍参与安全校验，但不参与目录识别或安装。
+            files = []
             for entry in entries:
-                relative = self._safe_relative_path(
-                    entry.filename, strip_prefix=has_single_wrapper
-                )
+                relative = self._safe_relative_path(entry.filename)
                 if entry.file_size > MAX_SKILL_FILE_SIZE:
-                    raise SkillImportError(
-                        f"文件 {entry.filename!r} 超过单文件大小上限。"
-                    )
+                    raise SkillImportError(f"文件 {entry.filename!r} 超过单文件大小上限。")
+                if any(
+                    part in {"__MACOSX", ".DS_Store"} or part.startswith("._")
+                    for part in relative.parts
+                ):
+                    continue
+                files.append((entry, relative))
+            if not files:
+                raise SkillImportError("ZIP 中没有有效的 Skill 文件（仅含系统元数据）。")
+
+            # 支持根目录直接放文件，或整体套一层顶层目录。
+            top_levels = {relative.parts[0] for _, relative in files}
+            has_single_wrapper = len(top_levels) == 1 and all(
+                len(relative.parts) > 1 for _, relative in files
+            )
+            for entry, relative in files:
+                if has_single_wrapper:
+                    relative = Path(*relative.parts[1:])
                 target = extracted / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(entry) as source, open(target, "wb") as sink:
                     shutil.copyfileobj(source, sink)
 
         if not (extracted / "SKILL.md").is_file():
-            raise SkillImportError("ZIP 中找不到顶层 SKILL.md。")
+            raise SkillImportError(
+                "ZIP 中找不到顶层 SKILL.md。请将 SKILL.md 放在 ZIP 根目录，"
+                "或仅包一层 Skill 目录；每次只上传一个 Skill。"
+            )
 
         self._normalize_flat_layout(extracted)
 
+        try:
+            read_skill(next(extracted.iterdir()))
+        except ValueError as exc:
+            raise SkillImportError(str(exc)) from exc
         definitions = SkillCatalog(extracted).list()
         if len(definitions) != 1:
-            raise SkillImportError(
-                "ZIP 必须恰好包含一个 Skill，且目录名与 frontmatter name 一致。"
-            )
+            raise SkillImportError("ZIP 必须恰好包含一个 Skill，且目录名与 frontmatter name 一致。")
         definition = definitions[0]
         if not SAFE_DIRECTORY_RE.fullmatch(definition.id):
             raise SkillImportError(f"技能名 {definition.id!r} 不合法。")
@@ -260,11 +323,11 @@ class SkillImportService:
         try:
             content = root_skill.read_text(encoding="utf-8")
             match = FRONTMATTER_RE.match(content)
-            frontmatter = (
-                yaml.safe_load(match.group(1)) if match is not None else None
-            )
+            frontmatter = yaml.safe_load(match.group(1)) if match is not None else None
         except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-            raise SkillImportError(f"无法解析 SKILL.md frontmatter：{exc}") from exc
+            raise SkillImportError(
+                "无法解析 SKILL.md frontmatter，请检查 YAML 格式与文本编码。"
+            ) from exc
         name = frontmatter.get("name") if isinstance(frontmatter, dict) else None
         if not isinstance(name, str) or not name.strip():
             raise SkillImportError("SKILL.md frontmatter 缺少有效的 name。")
@@ -279,23 +342,11 @@ class SkillImportService:
             shutil.move(str(child), str(target / child.name))
 
     @staticmethod
-    def _safe_relative_path(filename: str, *, strip_prefix: bool) -> Path:
+    def _safe_relative_path(filename: str) -> Path:
         normalized = filename.replace("\\", "/")
         if normalized.startswith(("/", "~")):
             raise SkillImportError(f"ZIP 包含非法路径：{filename!r}")
         parts = [part for part in normalized.split("/") if part not in ("", ".")]
-        if not parts or any(part == ".." for part in parts):
-            raise SkillImportError(f"ZIP 包含非法路径：{filename!r}")
-        if strip_prefix:
-            parts = parts[1:]
-        if not parts:
+        if not parts or any(part == ".." or ":" in part for part in parts):
             raise SkillImportError(f"ZIP 包含非法路径：{filename!r}")
         return Path(*parts)
-
-
-__all__ = [
-    "DRAFT_TTL_SECONDS",
-    "SkillImportDraft",
-    "SkillImportError",
-    "SkillImportService",
-]

@@ -333,6 +333,9 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
               recentsCursor: null,
               modelOptions: [],
               selectedModelId: "",
+              skills: [],
+              skillsLoading: false,
+              skillsError: null,
             }
           : {}),
       };
@@ -720,18 +723,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [contextMatches, dispatchSync, message]);
 
   const loadSkillsInternal = useCallback(async () => {
+    const userId = stateRef.current.userId;
+    const generation = generationRef.current;
     dispatchSync({ type: "skillsLoading", loading: true });
     try {
-      const data = await listSkills({ userId: stateRef.current.userId });
+      const data = await listSkills({ userId });
+      if (!contextMatches(generation, { userId })) return;
       dispatchSync({ type: "skillsLoaded", items: data.items });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
+      if (!contextMatches(generation, { userId })) return;
       dispatchSync({
         type: "skillsFailed",
         error: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [dispatchSync]);
+  }, [contextMatches, dispatchSync]);
 
   const changeUser = useCallback(
     async (userId: string) => {
@@ -742,7 +749,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       writeStorage(USER_STORAGE_KEY, userId);
       dispatchSync({ type: "userSwitched", userId, resetContext: userChanged });
       try {
-        await Promise.all([loadModelsInternal(), loadProjectsInternal()]);
+        await Promise.all([loadModelsInternal(), loadProjectsInternal(), loadSkillsInternal()]);
         await Promise.all([
           loadConversationsInternal({ append: false, refreshOnly: false }),
           loadRecentsInternal(),
@@ -758,6 +765,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loadConversationsInternal,
       loadModelsInternal,
       loadProjectsInternal,
+      loadSkillsInternal,
       loadRecentsInternal,
       message,
     ],

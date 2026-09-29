@@ -33,6 +33,8 @@ from melonclaw.middleware import (
     FileOperationOrderingMiddleware,
     UserInputGuardMiddleware,
 )
+from melonclaw.middleware.skill_refresh import SkillRefreshMiddleware
+from melonclaw.middleware.tool_name_guard import ToolNameGuardMiddleware
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
 
@@ -186,6 +188,8 @@ async def build_research_agent(
         print("动态工具选择器: CatalogToolSelectorMiddleware")
 
     middleware: list[AgentMiddleware] = [
+        SkillRefreshMiddleware(backend, skill_sources),
+        ToolNameGuardMiddleware(),
         tool_selector,
         FileOperationOrderingMiddleware(),
         interpreter,

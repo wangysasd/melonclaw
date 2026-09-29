@@ -72,7 +72,15 @@ scripts/shutdown.sh   # 停止
 - 端口占用时脚本拒绝启动，先跑 `scripts/shutdown.sh`
 - 验证：`curl http://127.0.0.1:8000/api/status` 返回 `"ready"`
 - 发一条消息能正常回复即跑通
-- 管理 Skill：打开侧栏「插件」→「Skills」，可搜索、远程安装或上传；卡片右上角「添加」按权限启用技能，「使用」会新建一个已选中该技能的对话；「…」菜单可下载或删除，删除前需要确认。
+- 管理 Skill：打开侧栏「插件」→「Skills」，可搜索、上传或远程安装。安装后默认停用；私有 Skill 点击「添加到我的技能」，共享 Skill 由管理员从「…」菜单「全员启用」后开放。管理员的「我不使用」也只影响自己，「全员停用」才影响所有用户。「使用」会创建已选中技能的新对话。
+  - 点击卡片查看正文、文件清单、来源、版本和依赖提示；文件损坏或缺失会显示诊断，可通过「上传更新内容」修复，或删除资源。
+  - 更新：在目标卡片「…」菜单选择「上传更新内容」或「从远程更新内容」，查看正文差异和文件增删后确认。包内 `name` 必须保持不变；更新保留资源 ID、归属、启停和个人偏好。如果预览后其他人更新了内容，需重新预览。
+  - 远程地址支持 `owner/repo`、`https://github.com/owner/repo`（默认 main）和 `https://github.com/owner/repo/tree/<分支或commit>/<子目录>`。服务先通过 GitHub API 解析 commit 再下载固定版本；不执行远程安装脚本。当前不支持名称含 `/` 的分支。GitHub API 限流或无法解析版本时会明确失败，可改为上传 ZIP。
+  - 上传预览显示范围、正文、文件清单、来源和依赖。草稿有效期 15 分钟，重启后可在有效期内继续确认；多个 Web worker 必须共享同一数据根和支持 POSIX 文件锁的文件系统。远程下载阶段可以取消，确认已提交后不能撤销。
+  - `SKILL.md` 可选声明 `melonclaw_requirements.commands`、`melonclaw_requirements.mcp`、`melonclaw_requirements.config` 名称列表。检查只探测命令是否存在和当前用户启用的 MCP 是否已配置；配置项需自行确认，不读取或展示服务器密钥。缺少依赖仅提示，不授予权限或自动安装。
+  - 同名时只有有效启用、文件正常的私有 Skill 才遮蔽共享项；停用或损坏私有项后恢复共享项。管理页、Picker、显式选择与 Agent 自动发现共用同一有效状态；消息请求的 `skill_id` 使用目录返回的范围化 ID（如 `global:report`），不能自行省略范围。
+  - 管理员可用「恢复与检查」处理未完成操作并重建索引。它不会删除缺失文件的记录；`missing`、`invalid` 和孤立用户目录需要按报告处理。正文与数据库之间的写入由操作日志恢复；删除先隔离目录，避免索引重建重新登记已删除技能。
+  - 每轮消息记录选中技能和可用目录的资源 ID、版本、内容摘要；Agent 使用只读内容快照，更新从后续构建生效。快照属于可再生成的运行缓存，不是正文的编辑入口；不要在有运行或暂停的会话时清理。
 
 ## ⚙️ 必要文件
 
@@ -89,9 +97,12 @@ scripts/shutdown.sh   # 停止
 
 排障：
 
+- 主助手提示「模型工具调用协议异常：工具名称为空」→ 本轮已终止，该批工具未执行，不会自动重试；可切换模型后重试，或由管理员排查供应商接口与流式解析。此前已完成的工具操作不会回滚。
+
 - 端口被占用 → `scripts/shutdown.sh` 后再启动
 - 启动提示表结构不一致 → 备份后清空数据库，重跑 `uv run melonclaw-db-init`
 - 模型下拉为空 → 确认已运行 `uv run melonclaw-db-init`，并在资源管理界面检查模型是否已配置 API Key
+- 会话显示「上次请求尚未结束」且重新同步无效 → 上一轮因服务重启等原因中断；服务重启时会自动把这类遗留轮次标记为失败，重新同步会话或刷新后直接发新消息即可继续
 
 边界：
 
@@ -101,13 +112,46 @@ scripts/shutdown.sh   # 停止
 
 ### 供应商高级配置
 
-在插件 → 模型页点击卡片，管理员可通过双列表单编辑供应商；点击「确定」保存配置，供应商启用状态按表单中的状态开关保存。高级配置默认收起，点击展开后支持请求头 JSON（只写不回显，留空保留，`{}` 清空）与供应商扩展请求体 JSON（不可覆盖模型、消息、工具、流式协议或写入凭据）。API Key Env 填大写且以 `_API_KEY` / `_ACCESS_TOKEN` 结尾的变量名；个人 Key、数据库共享 Key 均未设置时才使用该环境变量。修改环境变量后重启服务。Provider Type 当前只支持 OpenAI Completions API。
+在插件 → 模型页点击卡片，管理员可通过双列表单编辑供应商；点击「确定」保存配置，供应商启用状态按表单中的状态开关保存。高级配置默认收起，点击展开后支持请求头 JSON（只写不回显，留空保留，`{}` 清空）与供应商扩展请求体 JSON（不可覆盖模型、消息、工具、流式协议或写入凭据）。API Key Env 填大写且以 `_API_KEY` / `_ACCESS_TOKEN` 结尾的变量名；全局模型在个人 Key、数据库共享 Key 均未设置时才使用该环境变量。个人模型仍只使用个人 Key。修改环境变量后重启服务。Provider Type 当前只支持 OpenAI Completions API。
 
-本次新增模型供应商表字段，旧开发数据库需要清空模型相关表后执行 `uv run melonclaw-db-init`，再运行 `scripts/restart.sh`；该操作会重置模型配置和个人 Key。详见 [供应商设计](docs/design-docs/custom-models.md)。
+供应商仅支持 `global`，模型仅支持 `global/user`。恢复环境变量凭据功能本身不需要重建已有 `api_key_env` 列的数据库。若要让旧 scope 约束与当前定义一致，按开发期约定删除并重建模型三表（仅清空行无效），然后执行 `uv run melonclaw-db-init`，再运行 `scripts/restart.sh`；该操作会重置模型配置和个人 Key。详见 [供应商设计](docs/design-docs/custom-models.md)。
 
 
 普通用户配置个人 Key 后可独立添加和使用个人模型，不受供应商全局 enabled 开关影响；管理员开关仅控制内置模型。个人模型仅使用个人 Key，清除后不可用，不借用共享 Key。连接地址仍由管理员维护。
 
-管理员停用供应商并保存时，会清除数据库共享 Key 和 API Key Env 引用；不会修改部署环境变量或各用户的个人 Key。重新启用需重新配置共享凭据。
+管理员停用供应商并保存时，会清除数据库共享 Key 和 API Key Env 引用；部署环境变量与各用户的个人 Key 保留。重新启用需重新配置共享凭据。
 
 默认模型按归属独立保存：全局一个、每个用户一个个人默认。可用的个人默认优先于管理员内置默认；个人默认不可用时使用内置默认，两者都不可用时优先首个可用内置模型，再选个人模型。配置刷新时聊天选择同步服务端默认，用户仍可在聊天中临时切换。
+
+上传的 ZIP 应在根目录直接包含 `SKILL.md`，或只包一层 Skill 目录；每次上传一个 Skill。支持 macOS 原生压缩包，自动忽略 `__MACOSX`、`.DS_Store` 和 `._*` 元数据。
+
+管理员（admin/owner）上传或远程安装 Skill 后存为共享项，点击「添加」后全员可用；普通用户安装后点击「添加」，仅自己可用。共享 Skill 可由各用户单独卸载停用。安装范围由服务端读取数据库角色决定。
+
+Skill 管理 API 的个人启停、下载与删除必须传 `scope=global` 或 `scope=user`，不再省略范围自动推断。Skill 仅支持这两种范围。当前 Skill 表新增 `status/content_hash/source_url/source_ref`。旧数据库需删除并重建 `skill_user_states`、`skills` 表（仅清空行不会更新字段或约束），再执行 `uv run melonclaw-db-init`；这会重置 Skill 索引与个人启停偏好。旧私有文件按需清理后重新安装，共享正文可保留用于初始化登记。
+
+停止服务后，可仅重建 Skill 两表（清除 Skill 索引与个人偏好，保留正文、会话和模型配置）：
+
+```bash
+uv run python - <<'PY'
+import asyncio
+from melonclaw.core.config import load_settings
+from melonclaw.database import Database
+from melonclaw.database.schema import skills, skill_user_states
+
+async def reset_skills():
+    database = Database(load_settings().database_url)
+    await database.open()
+    try:
+        async with database.engine.begin() as connection:
+            await connection.run_sync(lambda sync: skill_user_states.drop(sync, checkfirst=True))
+            await connection.run_sync(lambda sync: skills.drop(sync, checkfirst=True))
+    finally:
+        await database.close()
+
+asyncio.run(reset_skills())
+PY
+uv run melonclaw-db-init
+scripts/start.sh
+```
+
+新增 Skill 接口：`GET /api/skills/{name}/details?user_id=...&scope=global|user` 返回有界正文/文件预览；`POST /api/skills/recover?user_id=...` 仅管理员恢复操作并返回索引诊断。ZIP `import/prepare` 表单与远程 `install/remote` JSON 可带 `target_id`（管理接口返回的数据库 UUID）进入更新流程；确认、取消仍按 `draft_id` 操作。

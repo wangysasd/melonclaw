@@ -21,6 +21,7 @@ from melonclaw.services.skills import (
 
 def make_row(**overrides):
     row = {
+        "id": "skill-row-1",
         "name": "my-skill",
         "scope": "user",
         "source_type": "upload",
@@ -33,8 +34,8 @@ def make_row(**overrides):
 
 
 class FakeStorage:
-    def __init__(self, row):
-        self.row = row
+    def __init__(self, rows):
+        self.rows = rows
         self.updated = []
         self.user_states = []
 
@@ -42,18 +43,18 @@ class FakeStorage:
         roles = {"admin-1": "admin"}
         return SimpleNamespace(tenant_role=roles.get(user_id, "member"))
 
-    async def get_skill_row(self, name):
-        return self.row if self.row and self.row["name"] == name else None
+    async def list_skill_rows_by_name(self, name):
+        return [row for row in self.rows if row["name"] == name]
 
-    async def update_skill_row(self, name, **fields):
-        self.updated.append((name, fields))
+    async def update_skill_row(self, skill_id, **fields):
+        self.updated.append((skill_id, fields))
 
-    async def set_skill_user_state(self, user_id, skill_name, enabled):
-        self.user_states.append((user_id, skill_name, enabled))
+    async def set_skill_user_state(self, user_id, skill_id, enabled):
+        self.user_states.append((user_id, skill_id, enabled))
 
 
 def make_service(row):
-    storage = FakeStorage(row)
+    storage = FakeStorage([row] if row else [])
     runtime = SimpleNamespace(
         require_ready=lambda: storage,
         settings=SimpleNamespace(data_root=None),
@@ -65,38 +66,60 @@ class SkillPersonalToggleTests(unittest.IsolatedAsyncioTestCase):
     async def test_global_toggle_writes_personal_state_not_row(self):
         """共享 Skill 的个人开关写 user state，不动 skills.enabled。"""
         service, storage = make_service(make_row(scope="global"))
-        await service.set_skill_enabled("user-1", "my-skill", False)
-        assert storage.user_states == [("user-1", "my-skill", False)]
+        await service.set_skill_enabled("user-1", "my-skill", False, "global")
+        assert storage.user_states == [("user-1", "skill-row-1", False)]
         assert storage.updated == []
 
     async def test_global_toggle_by_admin_is_personal_too(self):
         """管理员用个人开关停共享 Skill 也只影响自己，不等于全员停用。"""
         service, storage = make_service(make_row(scope="global"))
-        await service.set_skill_enabled("admin-1", "my-skill", False)
-        assert storage.user_states == [("admin-1", "my-skill", False)]
+        await service.set_skill_enabled("admin-1", "my-skill", False, "global")
+        assert storage.user_states == [("admin-1", "skill-row-1", False)]
         assert storage.updated == []
 
     async def test_own_private_skill_can_be_toggled(self):
         service, storage = make_service(make_row())
-        await service.set_skill_enabled("user-1", "my-skill", False)
-        assert storage.updated == [("my-skill", {"enabled": False})]
+        await service.set_skill_enabled("user-1", "my-skill", False, "user")
+        assert storage.updated == [("skill-row-1", {"enabled": False})]
+
+    async def test_scope_user_prefers_own_row_among_same_name(self):
+        """不同用户的私有同名 Skill 共存时，带 scope=user 必须解析到自己的行。"""
+        service, storage = make_service(make_row())
+        service.storage.rows.append(make_row(id="skill-row-2", created_by="user-2"))
+        await service.set_skill_enabled("user-1", "my-skill", False, "user")
+        assert storage.updated == [("skill-row-1", {"enabled": False})]
 
     async def test_others_private_skill_cannot_be_toggled(self):
         service, _ = make_service(make_row())
         with self.assertRaises(ResourcePermissionError):
-            await service.set_skill_enabled("user-2", "my-skill", False)
+            await service.set_skill_enabled("user-2", "my-skill", False, "user")
+
+    async def test_invalid_scope_is_rejected(self):
+        """非法范围不能触发名称推断或写入。"""
+        service, _ = make_service(make_row())
+        service.storage.rows.append(make_row(scope="global", id="skill-row-2"))
+        with self.assertRaises(SkillStateError):
+            await service.set_skill_enabled("user-1", "my-skill", False, "invalid")
+
+    async def test_scope_disambiguates_same_name(self):
+        """带 scope 时同名共存可以精确操作共享那份。"""
+        service, storage = make_service(make_row())
+        service.storage.rows.append(make_row(scope="global", id="skill-row-2"))
+        await service.set_skill_enabled("user-1", "my-skill", False, "global")
+        assert storage.user_states == [("user-1", "skill-row-2", False)]
+        assert storage.updated == []
 
     async def test_missing_skill_is_404(self):
         service, _ = make_service(None)
         with self.assertRaises(ResourceNotFoundError):
-            await service.set_skill_enabled("admin-1", "nope", False)
+            await service.set_skill_enabled("admin-1", "nope", False, "global")
 
 
 class SkillGlobalStateTests(unittest.IsolatedAsyncioTestCase):
     async def test_admin_can_toggle_global_state(self):
         service, storage = make_service(make_row(scope="global"))
         await service.set_skill_global_enabled("admin-1", "my-skill", False)
-        assert storage.updated == [("my-skill", {"enabled": False})]
+        assert storage.updated == [("skill-row-1", {"enabled": False})]
         assert storage.user_states == []
 
     async def test_member_cannot_toggle_global_state(self):
@@ -107,7 +130,7 @@ class SkillGlobalStateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_private_skill_rejects_global_state(self):
         service, storage = make_service(make_row())
-        with self.assertRaises(SkillStateError):
+        with self.assertRaises(ResourceNotFoundError):
             await service.set_skill_global_enabled("admin-1", "my-skill", False)
         assert storage.updated == []
 
@@ -115,65 +138,6 @@ class SkillGlobalStateTests(unittest.IsolatedAsyncioTestCase):
         service, _ = make_service(None)
         with self.assertRaises(ResourceNotFoundError):
             await service.set_skill_global_enabled("admin-1", "nope", False)
-
-
-class SkillPublishTests(unittest.IsolatedAsyncioTestCase):
-    """发布前必须确认目录还在：否则 FileNotFoundError 会带着宿主机绝对路径
-    冒到 API 边界，而 sanitize_text 只脱敏密钥、不管文件路径。"""
-
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.data_root = Path(self._tmp.name)
-        self.addCleanup(self._tmp.cleanup)
-
-    def own_private_row(self):
-        """发布需要同时满足「是 admin」和「是自己的私有技能」。"""
-
-        return make_row(created_by="admin-1", storage_path="users/admin-1/my-skill")
-
-    def make_service(self, row):
-        storage = FakeStorage(row)
-        runtime = SimpleNamespace(
-            require_ready=lambda: storage,
-            settings=SimpleNamespace(data_root=self.data_root),
-        )
-        return ResourceService(runtime), storage
-
-    def write_skill_dir(self, storage_path):
-        directory = self.data_root / "skills" / storage_path
-        directory.mkdir(parents=True)
-        (directory / "SKILL.md").write_text("---\nname: x\n---\n", encoding="utf-8")
-        return directory
-
-    async def test_publish_without_directory_is_404_and_touches_nothing(self):
-        service, storage = self.make_service(self.own_private_row())
-
-        with self.assertRaises(ResourceNotFoundError) as raised:
-            await service.publish_skill("admin-1", "my-skill")
-
-        assert raised.exception.status_code == 404
-        assert storage.updated == []  # 检查在改行之前，行没被动过
-        assert str(self.data_root) not in str(raised.exception)
-
-    async def test_publish_moves_directory_and_row(self):
-        service, storage = self.make_service(self.own_private_row())
-        source = self.write_skill_dir("users/admin-1/my-skill")
-
-        await service.publish_skill("admin-1", "my-skill")
-
-        target = self.data_root / "skills" / "shared" / "my-skill"
-        assert target.is_dir()
-        assert not source.exists()
-        assert storage.updated == [
-            (
-                "my-skill",
-                {
-                    "scope": "global",
-                    "storage_path": "shared/my-skill",
-                    "version": 2,
-                },
-            )
-        ]
 
 
 class RowsStorage:
@@ -222,10 +186,12 @@ class SkillAvailabilityTests(unittest.IsolatedAsyncioTestCase):
             "created_by": "user-1",
             "storage_path": storage_path,
             "user_enabled": None,
+            "id": f"row-{name}", "status": "ready", "version": 1,
+            "content_hash": "", "source_url": "", "source_ref": "",
         }
 
-    def make_service(self, rows):
-        storage = RowsStorage(rows)
+    def make_service(self, rows, *, role="owner"):
+        storage = RowsStorage(rows, role=role)
         skills_root = self.skills_root
         runtime = SimpleNamespace(
             require_ready=lambda: storage,
@@ -263,6 +229,24 @@ class SkillAvailabilityTests(unittest.IsolatedAsyncioTestCase):
 
         assert items[0]["availability"] == "missing"
 
+    async def test_globally_disabled_skill_is_manageable_only_by_admin(self):
+        self.write_skill("shared/disabled-skill", "disabled-skill")
+        row = self.row("disabled-skill", "shared/disabled-skill")
+        row.update(scope="global", enabled=False)
+
+        member_items = (
+            await self.make_service([row], role="member").manageable_skills("user-1")
+        )["items"]
+        admin_items = (
+            await self.make_service([row], role="owner").manageable_skills("user-1")
+        )["items"]
+
+        assert member_items == []
+        assert len(admin_items) == 1
+        assert admin_items[0]["name"] == "disabled-skill"
+        assert admin_items[0]["enabled"] is False
+        assert admin_items[0]["availability"] == "ready"
+
     async def test_directory_with_unreadable_skill_is_invalid(self):
         """目录还在、只是 SKILL.md 解析不了：修好文件就能用，不该说成丢失。"""
 
@@ -294,3 +278,18 @@ class SkillAvailabilityTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_skill_update_requires_explicit_supported_scope():
+    import pytest
+    from pydantic import ValidationError
+
+    from melonclaw.api.schemas import SkillUpdateRequest
+
+    for fields in ({}, {"scope": None}, {"scope": "tenant"}):
+        with pytest.raises(ValidationError):
+            SkillUpdateRequest(user_id="user-1", enabled=False, **fields)
+    for scope in ("global", "user"):
+        assert SkillUpdateRequest(
+            user_id="user-1", enabled=False, scope=scope
+        ).scope == scope

@@ -283,11 +283,11 @@ class FakeStorage:
             if row["provider_key"] == provider_key
         ]
 
-    async def list_visible_provider_rows(self, user_id, *, include_disabled=False):
+    async def list_provider_rows(self, *, include_disabled=False):
         return [
             row
             for row in self.providers.values()
-            if row["scope"] == "global" or row["created_by"] == user_id
+            if include_disabled or row["enabled"]
         ]
 
     async def get_user_provider_key(self, provider_key, user_id):
