@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
+import re
 from collections.abc import Callable, Collection, Mapping
 from typing import Any
 
@@ -11,7 +14,11 @@ from langchain_core.tools import StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from melonclaw.core.config import Settings
-from melonclaw.core.mcp_config import redact_mcp_sensitive_text
+from melonclaw.core.mcp_config import (
+    redact_mcp_connection_text,
+    redact_mcp_sensitive_text,
+    select_mcp_tool_names,
+)
 from melonclaw.tool.search import internet_search
 
 ToolDefinition = Callable[..., Any] | dict[str, Any]
@@ -41,7 +48,7 @@ def _format_mcp_exception(exc: BaseException) -> str:
         return "连接超时"
     if type(exc).__name__ in {"ConnectError", "ConnectionError"}:
         return "连接失败"
-    return str(exc) or type(exc).__name__
+    return "MCP 连接或协议错误"
 
 
 def _safe_mcp_exception(exc: BaseException) -> str:
@@ -90,6 +97,7 @@ def build_mcp_catalog_tool(
 
     return StructuredTool.from_function(
         func=list_mcp_tools,
+        metadata={"mcp_failures": bool(failed)},
         name=MCP_CATALOG_TOOL_NAME,
         description=(
             "只读查询当前运行时配置的 MCP 服务、传输方式、发现状态和"
@@ -105,48 +113,66 @@ async def _load_mcp_tools_with_catalog(
 ) -> tuple[list[ToolDefinition], dict[str, tuple[str, ...]], dict[str, str]]:
     """发现 MCP 工具，同时记录实际暴露给 Agent 的工具清单。"""
 
-    client = MultiServerMCPClient(servers)
-    discovered_by_server = await asyncio.gather(
-        *(
-            client.get_tools(server_name=server_name)
-            for server_name in servers
-        ),
-        return_exceptions=True,
-    )
-    tools: list[ToolDefinition] = []
-    catalog: dict[str, tuple[str, ...]] = {}
-    failures: dict[str, str] = {}
-    for server_name, discovered in zip(
-        servers,
-        discovered_by_server,
-        strict=True,
-    ):
+    valid = {name: config for name, config in servers.items() if not config.get("configuration_error")}
+    client = MultiServerMCPClient(valid)
+
+    async def discover(name):
+        async with asyncio.timeout(15):
+            return await client.get_tools(server_name=name)
+
+    discovered_by_server = await asyncio.gather(*(discover(name) for name in valid), return_exceptions=True)
+    tools, catalog = [], {}
+    failures = {name: "凭据或配置无法解析，请检查配置。" for name in servers if name not in valid}
+    for server_name, discovered in zip(valid, discovered_by_server, strict=True):
         if isinstance(discovered, BaseException):
             if not isinstance(discovered, Exception):
                 raise discovered
             failures[server_name] = _safe_mcp_exception(discovered)
             continue
-
         allowlist = (tool_allowlists or {}).get(server_name)
+        by_name = {tool.name: tool for tool in discovered}
+        selected_names, _ = select_mcp_tool_names(list(by_name), allowlist)
+        selected = [by_name[name] for name in selected_names]
         try:
-            if allowlist is None:
-                tools.extend(discovered)
-                catalog[server_name] = tuple(tool.name for tool in discovered)
-                continue
-
-            by_name = {tool.name: tool for tool in discovered}
-            missing = [name for name in allowlist if name not in by_name]
-            if missing:
-                raise RuntimeError(
-                    "白名单工具不存在："
-                    f"{', '.join(missing)}。"
-                )
-            tools.extend(by_name[name] for name in allowlist)
-            catalog[server_name] = allowlist
-        except Exception as exc:  # noqa: BLE001 - 隔离单个 MCP 服务的装配失败
-            failures[server_name] = _safe_mcp_exception(exc)
+            wrapped = [wrap_mcp_tool(server_name, tool, valid[server_name]) for tool in selected]
+        except Exception:
+            failures[server_name] = "工具定义无效，请检查 MCP 服务。"
+            continue
+        tools.extend(wrapped)
+        catalog[server_name] = tuple(tool.name for tool in wrapped)
     return tools, catalog, failures
 
+
+
+def wrap_mcp_tool(server_name, original, config):
+    """隔离工具命名并封装执行错误；所有外部 MCP 工具由 HITL 审批。"""
+    # Names bind pending checkpoint calls to the exact connection configuration. A
+    # resumed graph with changed credentials/address cannot execute the old name.
+    fingerprint = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:12]
+    raw_name = f"mcp__{server_name}__{original.name}__{fingerprint}"
+    name = re.sub(r"[^a-zA-Z0-9_-]", "_", raw_name)
+    if len(name) > 64 or name != raw_name:
+        name = name[:47] + "_" + hashlib.sha256(raw_name.encode()).hexdigest()[:16]
+
+    def sanitize(value):
+        if isinstance(value, str):
+            return redact_mcp_connection_text(value, config)
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        if isinstance(value, dict):
+            return {key: sanitize(item) for key, item in value.items()}
+        return value
+
+    async def call(**kwargs):
+        try:
+            return sanitize(await original.ainvoke(kwargs))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return "MCP 工具执行失败，请检查服务状态或调整参数。"
+
+    return StructuredTool.from_function(coroutine=call, name=name, description=sanitize(original.description),
+                                       args_schema=original.args_schema, metadata={"mcp": True})
 
 async def load_mcp_tools(
     servers: dict[str, dict[str, Any]],
@@ -178,16 +204,11 @@ async def build_agent_tools(
 ) -> list[ToolDefinition]:
     """异步组合自定义 callable 和可选 MCP 工具。
 
-    ``mcp_servers`` / ``mcp_tool_allowlists`` 缺省时回退到 ``settings`` 上的
-    兼容字段；运行时装配（按用户可见性从数据库解析）由调用方显式传入。
+    MCP 配置由运行时按当前用户从数据库解析后显式传入。
     """
 
-    servers = settings.mcp_servers if mcp_servers is None else mcp_servers
-    allowlists = (
-        settings.mcp_tool_allowlists
-        if mcp_tool_allowlists is None
-        else mcp_tool_allowlists
-    )
+    servers = mcp_servers or {}
+    allowlists = mcp_tool_allowlists or {}
 
     tools: list[ToolDefinition] = build_custom_tools(settings)
     if not servers:

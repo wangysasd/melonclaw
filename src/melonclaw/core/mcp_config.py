@@ -5,14 +5,13 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MCP_CONFIG_PATH = PROJECT_ROOT / "mcp.json"
-DEFAULT_TUSHARE_SERVER_NAME = "tushare_mcp"
 TRANSPORT_ALIASES = {
     "http": "http",
     "streamable_http": "http",
@@ -78,15 +77,15 @@ def row_to_client_config(row: Mapping[str, Any]) -> dict[str, Any]:
     config: dict[str, Any] = {"transport": transport}
     if transport == "stdio":
         config["command"] = row["command"]
-        args = row.get("args")
+        args = row["args"]
         if args:
             config["args"] = list(args)
     else:
         config["url"] = row["url"]
-    env = row.get("env") or {}
+    env = row["env"]
     if env:
         config["env"] = dict(env)
-    headers = row.get("headers") or {}
+    headers = row["headers"]
     if headers:
         config["headers"] = dict(headers)
     return config
@@ -106,58 +105,14 @@ def redact_mcp_sensitive_text(
     return sanitized
 
 
-def load_agent_mcp_servers(
-    environ: Mapping[str, str] | None = None,
-    config_path: str | Path | None = None,
-) -> dict[str, dict[str, Any]]:
-    """加载要注入 Deep Agent 的 MCP 服务。
-
-    MCP 服务清单只来自根目录 ``mcp.json``。环境变量不负责启用服务，
-    只用于展开配置文件中明确写出的凭据占位符。
-    """
-
-    source = os.environ if environ is None else environ
-    catalog = _load_server_catalog(config_path)
-    if not catalog:
-        return {}
-
-    expanded = expand_env_placeholders(catalog, source)
-    return _validate_servers(expanded)
-
-
-def load_mcp_tool_allowlists(
-    mcp_server_names: Collection[str],
-    environ: Mapping[str, str] | None = None,
-) -> dict[str, tuple[str, ...]]:
-    """返回每个 MCP 服务要暴露给模型的工具白名单。
-
-    Tushare 默认不设置白名单，即向模型暴露 Server 返回的全部工具。只有显式
-    配置 ``DEEPAGENTS_TUSHARE_MCP_TOOLS`` 时，才按逗号分隔的名称缩小范围。
-    """
-
-    if DEFAULT_TUSHARE_SERVER_NAME not in mcp_server_names:
-        return {}
-
-    source = os.environ if environ is None else environ
-    raw_names = source.get("DEEPAGENTS_TUSHARE_MCP_TOOLS")
-    if raw_names is None or not raw_names.strip() or raw_names.strip() == "*":
-        return {}
-
-    names = tuple(name.strip() for name in raw_names.split(",") if name.strip())
-
-    if len(names) != len(set(names)):
-        raise RuntimeError("DEEPAGENTS_TUSHARE_MCP_TOOLS 中不能包含重复工具名。")
-    return {DEFAULT_TUSHARE_SERVER_NAME: names}
-
-
 def _load_server_catalog(
     config_path: str | Path | None,
 ) -> dict[str, dict[str, Any]]:
     path = Path(config_path) if config_path else DEFAULT_MCP_CONFIG_PATH
     try:
         raw_config = path.read_text(encoding="utf-8")
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"找不到 MCP 配置文件：{path}") from exc
+    except FileNotFoundError:
+        return {}
 
     if _is_disabled_config(raw_config):
         return {}
@@ -172,19 +127,12 @@ def _load_server_catalog(
     if not decoded:
         return {}
 
-    present_keys = [key for key in ("mcpServers", "servers") if key in decoded]
-    if len(present_keys) > 1:
-        raise RuntimeError(
-            f"MCP 配置文件不能同时包含 mcpServers 和 servers：{path}"
-        )
-    if not present_keys:
-        raise RuntimeError(
-            f"MCP 配置文件必须包含 mcpServers 对象（兼容旧的 servers）：{path}"
-        )
+    if "mcpServers" not in decoded:
+        raise RuntimeError(f"MCP 配置文件必须包含 mcpServers 对象：{path}")
 
-    servers = decoded[present_keys[0]]
+    servers = decoded["mcpServers"]
     if not isinstance(servers, dict):
-        raise RuntimeError(f"MCP 配置文件的 {present_keys[0]} 必须是对象：{path}")
+        raise RuntimeError(f"MCP 配置文件的 mcpServers 必须是对象：{path}")
     return servers
 
 
@@ -275,3 +223,24 @@ def _validate_servers(
         servers[server_name] = normalized_config
 
     return servers
+
+
+def select_mcp_tool_names(names, allowlist):
+    """白名单只取实际目录交集，缺失项不扩权也不阻断其他工具。"""
+    available = set(names)
+    if allowlist is None:
+        return list(dict.fromkeys(names)), []
+    return (
+        [name for name in allowlist if name in available],
+        [name for name in allowlist if name not in available],
+    )
+
+
+def redact_mcp_connection_text(value: str, config: Mapping[str, Any]) -> str:
+    """描述和工具结果共同隐藏当前连接的 Headers/Env 凭据。"""
+    for secret in [*config.get("headers", {}).values(), *config.get("env", {}).values()]:
+        if secret:
+            value = value.replace(secret, "<redacted>")
+            if secret.startswith("Bearer "):
+                value = value.replace(secret[7:], "<redacted>")
+    return redact_mcp_sensitive_text(value)

@@ -459,8 +459,8 @@ class ExecutionService:
         user_id: str,
         decisions: Any,
         *,
-        approval_batch_id: UUID | None = None,
-        assistant_message_id: UUID | None = None,
+        approval_batch_id: UUID,
+        assistant_message_id: UUID,
     ) -> tuple[PreparedExecution, Any]:
         storage = self.runtime.require_ready()
         conversation = await storage.get_conversation(conversation_id, user_id)
@@ -478,11 +478,7 @@ class ExecutionService:
         )
         if assistant is None:
             raise ValueError("找不到等待审批的业务消息记录。")
-        if (
-            approval_batch_id is None
-            or assistant_message_id is None
-            or str(assistant["id"]) != str(assistant_message_id)
-        ):
+        if str(assistant["id"]) != str(assistant_message_id):
             raise ApprovalBindingError
         request_record = await storage.find_request(
             conversation_id,
@@ -545,7 +541,7 @@ class ExecutionService:
                     else []
                 ),
                 assistant_steps=list(assistant["assistant_steps"]),
-                execution_duration_ms=assistant.get("execution_duration_ms"),
+                execution_duration_ms=assistant["execution_duration_ms"],
             ),
             command,
         )

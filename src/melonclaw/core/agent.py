@@ -15,7 +15,7 @@ from langgraph.graph.state import CompiledStateGraph
 from melonclaw.backend import build_agent_backend
 from melonclaw.core.chat_model import build_chat_model
 from melonclaw.core.config import Settings
-from melonclaw.core.hitl import SENSITIVE_TOOL_INTERRUPTS
+from melonclaw.core.hitl import SENSITIVE_TOOL_INTERRUPTS, mcp_interrupts
 from melonclaw.core.interpreter import (
     INTERPRETER_MAX_PTC_CALLS,
     INTERPRETER_PTC_TOOLS,
@@ -148,9 +148,7 @@ async def build_research_agent(
     )
     if skill_install_provider is not None:
         tools.extend(build_skill_install_tools(skill_install_provider))
-    resolved_mcp_servers = (
-        settings.mcp_servers if mcp_servers is None else mcp_servers
-    )
+    resolved_mcp_servers = mcp_servers or {}
     user_input_enabled = supports_user_input(client_capabilities)
     tool_selector = _build_tool_selector_middleware(chat_model, tools)
     interpreter = build_interpreter_middleware()
@@ -209,7 +207,7 @@ async def build_research_agent(
     if attachment_hydration_provider is not None:
         middleware.insert(0, AttachmentHydrationMiddleware(attachment_hydration_provider))
 
-    return create_deep_agent(
+    agent = create_deep_agent(
         name="quickstart-research-agent",
         model=chat_model,
         tools=tools,
@@ -224,5 +222,10 @@ async def build_research_agent(
         context_schema=AgentContext,
         checkpointer=checkpointer,
         store=memory_service.store if memory_service is not None else None,
-        interrupt_on=SENSITIVE_TOOL_INTERRUPTS,
+        interrupt_on={**SENSITIVE_TOOL_INTERRUPTS, **mcp_interrupts(tools)},
     )
+
+    agent.melonclaw_mcp_failed = any(
+        getattr(tool, "metadata", None) and tool.metadata.get("mcp_failures") for tool in tools
+    )
+    return agent

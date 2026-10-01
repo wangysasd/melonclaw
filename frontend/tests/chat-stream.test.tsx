@@ -258,7 +258,11 @@ describe("chat run lifecycle", () => {
     vi.mocked(sendMessageStream).mockImplementation(async (_id, _input, { onEvent }) => {
       onEvent({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: "u1", message_id: "a1" });
       onEvent({ type: "text", text: "你好" });
-      onEvent({ type: "approval_required", request: { id: "approval", actions: [] } });
+      onEvent({ type: "approval_required", request: {
+        approval_batch_id: "batch-approval",
+        assistant_message_id: "a-new",
+        interrupts: [{ id: "approval", actions: [] }],
+      } });
     });
     const { result } = renderHook(() => useChatStream({ scroll }));
     await act(() => result.current.sendMessage("test"));
@@ -322,22 +326,25 @@ describe("chat run lifecycle", () => {
   });
   it("clears approval only after resume is accepted and can show a subsequent interrupt", async () => {
     const approval = {
-      id: "first",
       approval_batch_id: "batch-first",
       assistant_message_id: "a1",
-      actions: [],
+      interrupts: [{ id: "first", actions: [] }],
     };
     vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, pending_approval: approval, items: [{ id: "a1", role: "assistant", content: "", status: "interrupted", assistant_steps: [] }] });
     const stream = deferred<void>(); let emit!: (event: StreamEvent) => void;
     vi.mocked(sendApprovalStream).mockImplementation((_id, _input, { onEvent }) => { emit = onEvent; return stream.promise; });
     const { result } = renderHook(() => useChatStream({ scroll }));
-    await waitFor(() => expect(result.current.state.approval?.id).toBe("first"));
+    await waitFor(() => expect(result.current.state.approval?.interrupts[0]?.id).toBe("first"));
     let task!: Promise<void>; act(() => { task = result.current.submitApproval([{ type: "reject" }]); });
-    expect(result.current.state.approval?.id).toBe("first");
+    expect(result.current.state.approval?.interrupts[0]?.id).toBe("first");
     act(() => emit({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: null, message_id: "a1", resuming: true }));
     expect(result.current.state.approval).toBeNull(); expect(result.current.state.messages[0].status).toBe("streaming");
-    await act(async () => { emit({ type: "approval_required", request: { id: "second", actions: [] } }); stream.resolve(); await task; });
-    expect(result.current.state.approval?.id).toBe("second");
+    await act(async () => { emit({ type: "approval_required", request: {
+      approval_batch_id: "batch-second",
+      assistant_message_id: "a1",
+      interrupts: [{ id: "second", actions: [] }],
+    } }); stream.resolve(); await task; });
+    expect(result.current.state.approval?.interrupts[0]?.id).toBe("second");
     expect(vi.mocked(sendApprovalStream).mock.calls[0]?.[1]).toMatchObject({
       approvalBatchId: "batch-first",
       assistantMessageId: "a1",
@@ -522,7 +529,11 @@ describe("chat run lifecycle", () => {
     });
     expect(streamSignal.aborted).toBe(false);
     await waitFor(() => expect(mocks.session.busy).toBe(false));
-    act(() => emit({ type: "approval_required", request: { id: "background", actions: [] } }));
+    act(() => emit({ type: "approval_required", request: {
+      approval_batch_id: "batch-background",
+      assistant_message_id: "a1",
+      interrupts: [{ id: "background", actions: [] }],
+    } }));
     expect(mocks.session.busy).toBe(false);
     act(() => emit({ type: "run_phase", phase: "thinking" }));
     expect(mocks.session.runStatus).toBeNull();

@@ -13,12 +13,13 @@ from melonclaw.services.mcp import (
 def make_row(**overrides):
     row = {
         "slug": "svc",
+        "enabled": True,
+        "user_enabled": None,
         "scope": "user",
-        "source_type": "manual",
         "transport": "http",
         "url": "https://example.com/mcp",
         "command": None,
-        "args": None,
+        "args": [],
         "env": {},
         "headers": {},
         "tool_allowlist": None,
@@ -117,10 +118,8 @@ class ResolveUserMcpServersTests(unittest.TestCase):
         )
 
     def test_user_scope_expands_with_empty_environ(self):
-        with self.assertRaises(RuntimeError):
-            resolve_user_mcp_servers(
-                [make_row(url="https://example.com/?t=${APP_SECRET}")]
-            )
+        servers, _ = resolve_user_mcp_servers([make_row(url="https://example.com/?t=${APP_SECRET}")])
+        self.assertTrue(servers["svc"]["configuration_error"])
 
     def test_global_scope_expands_from_process_environ(self):
         import os

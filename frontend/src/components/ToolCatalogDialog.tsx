@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
+import { listMcp } from "../api/client";
 import { Icon } from "./Icon";
 import {
   TOOL_CATALOG,
@@ -11,6 +12,7 @@ import type { ModelOption, ServiceStatus } from "../types/api";
 
 interface ToolCatalogDialogProps {
   open: boolean;
+  userId: string;
   status: ServiceStatus | null;
   modelOptions: ModelOption[];
   onClose: () => void;
@@ -104,11 +106,23 @@ function CategorySection({ category }: { category: ToolCategory }) {
 
 export function ToolCatalogDialog({
   open,
+  userId,
   status,
   modelOptions,
   onClose,
 }: ToolCatalogDialogProps) {
-  const mcpServers = status?.mcp_servers ?? [];
+  const [catalog, setCatalog] = useState<{ userId: string; names: string[]; error: string } | null>(null);
+  const mcpServers = catalog?.userId === userId ? catalog.names : [];
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    void listMcp({ userId }, controller.signal).then(result => {
+      if (!controller.signal.aborted) setCatalog({ userId, names: result.items.filter(item => item.effective_enabled).map(item => item.slug), error: "" });
+    }).catch(() => {
+      if (!controller.signal.aborted) setCatalog({ userId, names: [], error: "MCP 目录暂时无法加载，请重新打开重试。" });
+    });
+    return () => controller.abort();
+  }, [open, userId]);
   const serviceState = status?.status ?? "starting";
 
   useEffect(() => {
@@ -191,7 +205,7 @@ export function ToolCatalogDialog({
                 ))}
               </ul>
             ) : (
-              <p className="tool-catalog-empty">当前没有配置 MCP 服务。</p>
+              <p className="tool-catalog-empty">{catalog?.userId === userId ? catalog.error || "当前没有启用 MCP 服务。" : "正在加载 MCP 服务…"}</p>
             )}
           </section>
         </div>

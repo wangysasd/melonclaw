@@ -28,7 +28,7 @@ Tushare 数据获取的**端到端**技能：**先查文档 → 再写脚本 →
 
 ## 前置条件：Token
 
-Token **只从环境变量读**，顺序为 `TUSHARE_MCP_TOKEN` → `TUSHARE_TOKEN`（兼容别名）。
+Token **只从 `TUSHARE_MCP_TOKEN` 环境变量读**。
 
 ```bash
 export TUSHARE_MCP_TOKEN=<your_token>

@@ -28,7 +28,6 @@ from collections.abc import Mapping
 DEFAULT_AGENT_ENV_VARS: tuple[str, ...] = (
     # tushare-fetcher
     "TUSHARE_MCP_TOKEN",
-    "TUSHARE_TOKEN",  # tushare-fetcher 的兼容别名
     # cicc-research-* 系列
     "APP_ID",
     "APP_SECRET",

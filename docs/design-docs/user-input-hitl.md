@@ -75,4 +75,4 @@ Agent 调用 ask_user(questions=[...])
 uv run melonclaw-db-init
 ```
 
-验证记录：`tests/test_user_input.py`、`tests/test_architecture.py`、`frontend/tests/user-question.test.tsx`、`frontend/tests/chat-stream.test.tsx`、`frontend/tests/approval.test.tsx` 和 `frontend/tests/stream-capabilities.test.ts` 已覆盖规范化、答案防伪、取消与过期解锁、interrupt/resume 负载、批次护栏、能力协商与缓存键、待恢复账本封账、锁外不写库、422 错误码、回执流对账、组件交互和既有审批兼容性；真实 PostgreSQL Checkpointer、模型 API、数据库初始化（`uv run melonclaw-db-init`）和生产部署仍需在目标环境做 smoke test。
+验证记录：`tests/test_user_input.py`、`tests/test_architecture.py`、`frontend/tests/user-question.test.tsx`、`frontend/tests/chat-stream.test.tsx`、`frontend/tests/approval.test.tsx` 和 `frontend/tests/stream-capabilities.test.ts` 已覆盖规范化、答案防伪、取消与过期解锁、interrupt/resume 负载、批次护栏、能力协商与缓存键、待恢复账本封账、锁外不写库、422 错误码、回执流对账和组件交互；真实 PostgreSQL Checkpointer、模型 API、数据库初始化（`uv run melonclaw-db-init`）和生产部署仍需在目标环境做 smoke test。

@@ -16,9 +16,11 @@ describe("tool catalog", () => {
     );
   });
 
-  it("uses canonical definitions for legacy display aliases", () => {
-    expect(toolDefinition("delete_file")?.name).toBe("delete");
-    expect(toolDefinition("tavily_search")?.name).toBe("internet_search");
+  it("uses canonical tool names", () => {
+    expect(toolDefinition("delete")?.name).toBe("delete");
+    expect(toolDefinition("internet_search")?.name).toBe("internet_search");
+    expect(toolDefinition("delete_file")).toBeUndefined();
+    expect(toolDefinition("tavily_search")).toBeUndefined();
   });
 
   it("keeps semantic icons consistent for known and unknown tools", () => {

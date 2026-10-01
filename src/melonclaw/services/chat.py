@@ -36,7 +36,6 @@ from melonclaw.services.errors import (
 from melonclaw.services.execution import ExecutionService, PreparedExecution
 from melonclaw.services.resource_service import (
     ADMIN_ROLES,
-    McpServerPayload,
     ModelConfigPayload,
     ProviderConfigPayload,
     ResourcePermissionError,
@@ -286,30 +285,6 @@ class ChatService:
     async def cancel_skill_import(self, user_id: str, draft_id: str) -> None:
         await self.skill_imports.cancel(draft_id=draft_id, user_id=user_id)
 
-    async def list_mcp(self, user_id: str) -> dict[str, Any]:
-        return await self.resources.list_mcp(user_id)
-
-    async def create_mcp(self, user_id: str, payload: McpServerPayload) -> None:
-        await self.resources.create_mcp(user_id, payload)
-
-    async def update_mcp(
-        self,
-        user_id: str,
-        slug: str,
-        *,
-        enabled: bool | None = None,
-        tool_allowlist: Any = None,
-    ) -> None:
-        kwargs: dict[str, Any] = {}
-        if enabled is not None:
-            kwargs["enabled"] = enabled
-        if tool_allowlist is not None:
-            kwargs["tool_allowlist"] = tool_allowlist
-        await self.resources.update_mcp(user_id, slug, **kwargs)
-
-    async def delete_mcp(self, user_id: str, slug: str) -> None:
-        await self.resources.delete_mcp(user_id, slug)
-
     async def manageable_models(self, user_id: str) -> dict[str, Any]:
         """返回该用户可管理的自定义模型全集（资源管理界面用）。"""
 
@@ -547,8 +522,8 @@ class ChatService:
         user_id: str,
         decisions: Any,
         *,
-        approval_batch_id: UUID | None = None,
-        assistant_message_id: UUID | None = None,
+        approval_batch_id: UUID,
+        assistant_message_id: UUID,
     ) -> tuple[PreparedExecution, Any]:
         return await self.execution.prepare_approval(
             conversation_id,

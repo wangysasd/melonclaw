@@ -13,6 +13,8 @@ from melonclaw.tool.tools import (
 class FakeTool:
     def __init__(self, name: str):
         self.name = name
+        self.description = "测试工具"
+        self.args_schema = {"type": "object", "properties": {}}
 
 
 class FakeResponse:
@@ -45,8 +47,9 @@ class McpToolLoadingTests(unittest.IsolatedAsyncioTestCase):
         with patch("melonclaw.tool.tools.MultiServerMCPClient", Client):
             tools, catalog, failures = await _load_mcp_tools_with_catalog(servers)
 
-        self.assertEqual([tool.name for tool in tools], ["healthy_tool"])
-        self.assertEqual(catalog, {"healthy": ("healthy_tool",)})
+        self.assertEqual(len(tools), 1)
+        self.assertTrue(tools[0].name.startswith("mcp__healthy__healthy_tool__"))
+        self.assertEqual(catalog, {"healthy": (tools[0].name,)})
         self.assertEqual(failures, {"unauthorized": "HTTP 401"})
 
     async def test_public_loader_returns_successes_when_one_server_fails(self):
@@ -67,9 +70,10 @@ class McpToolLoadingTests(unittest.IsolatedAsyncioTestCase):
         with patch("melonclaw.tool.tools.MultiServerMCPClient", Client):
             tools = await load_mcp_tools(servers)
 
-        self.assertEqual([tool.name for tool in tools], ["healthy_tool"])
+        self.assertEqual(len(tools), 1)
+        self.assertTrue(tools[0].name.startswith("mcp__healthy__healthy_tool__"))
 
-    async def test_allowlist_failure_is_isolated_to_one_server(self):
+    async def test_missing_allowlist_tools_do_not_expand_permissions(self):
         servers = {
             "healthy": {"transport": "http", "url": "https://healthy.test/mcp"},
             "filtered": {"transport": "http", "url": "https://filtered.test/mcp"},
@@ -88,9 +92,10 @@ class McpToolLoadingTests(unittest.IsolatedAsyncioTestCase):
                 {"filtered": ("missing_tool",)},
             )
 
-        self.assertEqual([tool.name for tool in tools], ["healthy_tool"])
-        self.assertEqual(catalog, {"healthy": ("healthy_tool",)})
-        self.assertIn("白名单工具不存在", failures["filtered"])
+        self.assertEqual(len(tools), 1)
+        self.assertTrue(tools[0].name.startswith("mcp__healthy__healthy_tool__"))
+        self.assertEqual(catalog, {"healthy": (tools[0].name,), "filtered": ()})
+        self.assertEqual(failures, {})
 
     async def test_all_mcp_failures_still_leave_agent_tools_available(self):
         from melonclaw.tool.tools import build_agent_tools
@@ -103,14 +108,16 @@ class McpToolLoadingTests(unittest.IsolatedAsyncioTestCase):
                 raise ConnectionError(f"{server_name} unavailable")
 
         settings = SimpleNamespace(
-            mcp_servers={
-                "first": {"transport": "http", "url": "https://first.test/mcp"},
-                "second": {"transport": "http", "url": "https://second.test/mcp"},
-            },
-            mcp_tool_allowlists={},
         )
         with patch("melonclaw.tool.tools.MultiServerMCPClient", Client):
-            tools = await build_agent_tools(settings)
+            tools = await build_agent_tools(
+                settings,
+                mcp_servers={
+                    "first": {"transport": "http", "url": "https://first.test/mcp"},
+                    "second": {"transport": "http", "url": "https://second.test/mcp"},
+                },
+                mcp_tool_allowlists={},
+            )
 
         catalog = next(
             tool for tool in tools if getattr(tool, "name", "") == "list_mcp_tools"
@@ -140,7 +147,7 @@ class McpToolLoadingTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             failures["secret"],
-            "request failed: https://secret.test/mcp?token=<redacted>",
+            "MCP 连接或协议错误",
         )
 
     def test_catalog_exposes_failed_server_without_credentials(self):
@@ -179,3 +186,60 @@ class McpToolLoadingTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_connection_identity_changes_tool_name_and_requires_approval():
+    from langchain_core.tools import StructuredTool
+
+    from melonclaw.core.hitl import mcp_interrupts
+    from melonclaw.core.interpreter import INTERPRETER_PTC_TOOLS
+    from melonclaw.tool.tools import wrap_mcp_tool
+
+    async def lookup(query: str) -> str:
+        """查找数据。"""
+        return query
+
+    original = StructuredTool.from_function(coroutine=lookup)
+    first = wrap_mcp_tool("demo", original, {"transport": "http", "url": "https://first.test"})
+    changed = wrap_mcp_tool("demo", original, {"transport": "http", "url": "https://second.test"})
+    assert first.name != changed.name
+    assert first.name in mcp_interrupts([first])
+    assert first.name not in INTERPRETER_PTC_TOOLS
+
+
+def test_tool_result_and_error_do_not_expose_connection_credentials():
+    import asyncio
+
+    from langchain_core.tools import StructuredTool
+
+    from melonclaw.tool.tools import wrap_mcp_tool
+
+    async def echo() -> str:
+        """模拟服务不小心回显凭据。"""
+        return "Bearer secret-test / secret-test"
+
+    original = StructuredTool.from_function(coroutine=echo)
+    wrapped = wrap_mcp_tool("demo", original, {"headers": {"Authorization": "Bearer secret-test"}})
+    assert "secret-test" not in asyncio.run(wrapped.ainvoke({}))
+
+
+def test_partial_allowlist_keeps_existing_tools_and_ignores_new_tools():
+    import asyncio
+
+    class Client:
+        def __init__(self, _servers):
+            pass
+
+        async def get_tools(self, **kwargs):
+            return [FakeTool("search"), FakeTool("write")]
+
+    async def run():
+        with patch("melonclaw.tool.tools.MultiServerMCPClient", Client):
+            tools, catalog, failures = await _load_mcp_tools_with_catalog(
+                {"demo": {"transport": "http", "url": "https://example.com/mcp"}},
+                {"demo": ("search", "removed")},
+            )
+        assert len(tools) == 1 and "__search__" in tools[0].name
+        assert catalog == {"demo": (tools[0].name,)} and not failures
+
+    asyncio.run(run())

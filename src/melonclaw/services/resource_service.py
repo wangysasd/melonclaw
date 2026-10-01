@@ -23,7 +23,6 @@ from typing import Any
 import httpx
 
 from melonclaw.core.config import provider_env_key
-from melonclaw.services.mcp import McpConfigError, validate_mcp_payload
 from melonclaw.services.provider_config import ModelConfigError, validate_provider_advanced
 from melonclaw.services.skill_content import check_requirements, preview_content
 from melonclaw.services.skill_import import MAX_ARCHIVE_ENTRIES, MAX_ARCHIVE_TOTAL_BYTES
@@ -55,41 +54,6 @@ class ResourceNotFoundError(LookupError):
     """资源不存在或当前用户不可见。"""
 
     status_code = 404
-
-
-@dataclass(frozen=True)
-class McpServerPayload:
-    """创建/更新 MCP 服务的请求载荷。"""
-
-    slug: str
-    scope: str
-    transport: str
-    url: str | None = None
-    command: str | None = None
-    args: list[str] = field(default_factory=list)
-    env: dict[str, str] = field(default_factory=dict)
-    headers: dict[str, str] = field(default_factory=dict)
-    tool_allowlist: list[str] | None = None
-    enabled: bool = True
-
-
-def mcp_public_dict(row: dict[str, Any]) -> dict[str, Any]:
-    """MCP 行的安全展示：env/headers 只回显键名，绝不回显值。"""
-
-    return {
-        "slug": row["slug"],
-        "scope": row["scope"],
-        "source_type": row["source_type"],
-        "transport": row["transport"],
-        "url": row.get("url"),
-        "command": row.get("command"),
-        "args": list(row.get("args") or []),
-        "env_keys": sorted((row.get("env") or {}).keys()),
-        "headers_keys": sorted((row.get("headers") or {}).keys()),
-        "tool_allowlist": list(row.get("tool_allowlist") or []),
-        "enabled": bool(row["enabled"]),
-        "created_by": row["created_by"],
-    }
 
 
 @dataclass(frozen=True)
@@ -431,82 +395,6 @@ class ResourceService:
         return {"summary": report.summary(), "missing": list(report.missing),
                 "orphaned": list(report.orphaned), "registered": list(report.registered), "invalid": list(report.invalid)}
 
-    # ---- MCP 管理 ----
-
-    async def list_mcp(self, user_id: str) -> dict[str, Any]:
-        await self._role(user_id)
-        rows = await self.storage.list_mcp_rows_for_user(user_id)
-        return {"items": [mcp_public_dict(row) for row in rows]}
-
-    async def create_mcp(self, user_id: str, payload: McpServerPayload) -> None:
-        role = await self._role(user_id)
-        scope = payload.scope
-        if scope == "global":
-            self._require_admin(role)
-        elif scope != "user":
-            raise McpConfigError(f"不支持的 scope：{scope!r}。")
-        validate_mcp_payload(
-            scope=scope,
-            transport=payload.transport,
-            url=payload.url,
-            command=payload.command,
-            env=payload.env,
-            headers=payload.headers,
-        )
-        if await self.storage.get_mcp_row(payload.slug) is not None:
-            raise McpConfigError(f"MCP 服务 {payload.slug!r} 已存在。")
-        await self.storage.create_mcp_row(
-            slug=payload.slug,
-            scope=scope,
-            source_type="manual",
-            transport=payload.transport,
-            created_by=user_id,
-            url=payload.url,
-            command=payload.command,
-            args=list(payload.args),
-            env=dict(payload.env),
-            headers=dict(payload.headers),
-            tool_allowlist=payload.tool_allowlist,
-            enabled=payload.enabled,
-        )
-
-    async def _require_mcp_row(
-        self, user_id: str, slug: str, role: str
-    ) -> dict[str, Any]:
-        row = await self.storage.get_mcp_row(slug)
-        if row is None:
-            raise ResourceNotFoundError(f"MCP 服务 {slug!r} 不存在。")
-        if row["scope"] == "global":
-            self._require_admin(role)
-        elif row["created_by"] != user_id:
-            raise ResourcePermissionError("不能修改他人创建的私有 MCP。")
-        return row
-
-    async def update_mcp(
-        self,
-        user_id: str,
-        slug: str,
-        *,
-        enabled: bool | None = None,
-        tool_allowlist: list[str] | None = None,
-    ) -> None:
-        """更新启用状态或工具白名单；``tool_allowlist=None`` 表示不改动。"""
-
-        role = await self._role(user_id)
-        await self._require_mcp_row(user_id, slug, role)
-        fields: dict[str, Any] = {}
-        if enabled is not None:
-            fields["enabled"] = enabled
-        if tool_allowlist is not None:
-            fields["tool_allowlist"] = list(tool_allowlist) or None
-        if fields:
-            await self.storage.update_mcp_row(slug, **fields)
-
-    async def delete_mcp(self, user_id: str, slug: str) -> None:
-        role = await self._role(user_id)
-        await self._require_mcp_row(user_id, slug, role)
-        await self.storage.delete_mcp_row(slug)
-
     # ---- 模型供应商管理（仅管理员配置全局供应商） ----
 
     async def list_providers(self, user_id: str) -> dict[str, Any]:
@@ -674,7 +562,7 @@ class ResourceService:
         provider = await self.storage.get_provider_row(provider_key)
         if provider is None:
             raise ResourceNotFoundError(f"供应商 {provider_key!r} 不存在。")
-        endpoint = provider.get("models_endpoint")
+        endpoint = provider["models_endpoint"]
         if not endpoint:
             raise ModelConfigError("该供应商未配置模型列表端点。")
         if role in {"admin", "owner"}:
@@ -819,7 +707,6 @@ class ResourceService:
 
 __all__ = [
     "ADMIN_ROLES",
-    "McpServerPayload",
     "MCP_TRANSPORTS",
     "ModelConfigError",
     "ModelConfigPayload",
@@ -830,6 +717,5 @@ __all__ = [
     "ResourcePermissionError",
     "ResourceService",
     "SkillStateError",
-    "mcp_public_dict",
     "validate_provider_payload",
 ]

@@ -32,6 +32,7 @@ dependencies = [
     "openpyxl==3.1.5",
     "python-pptx==1.0.2",
     "python-multipart==0.0.32",
+    "cryptography>=46",
 ]
 
 [project.scripts]

@@ -35,11 +35,8 @@ const RUN_STATUS_LABELS: Record<RunStatus, string> = {
 
 /** 审批面板重挂载 key：interrupt ID 组合变化时重置面板内部表单状态。 */
 function approvalKey(approval: PendingApproval): string {
-  const binding = `${approval.approval_batch_id ?? ""}:${approval.assistant_message_id ?? ""}`;
-  if (Array.isArray(approval.interrupts) && approval.interrupts.length > 0) {
-    return `${binding}:${approval.interrupts.map((item) => item.id).join(",")}`;
-  }
-  return `${binding}:${approval.id ?? "single"}`;
+  const binding = `${approval.approval_batch_id}:${approval.assistant_message_id}`;
+  return `${binding}:${approval.interrupts.map((item) => item.id).join(",")}`;
 }
 
 /**
@@ -254,7 +251,7 @@ const MessageBubble = memo(function MessageBubble({
 /** 聊天主视图：消息与审批共用阅读流，底部保留输入区与状态提醒。 */
 interface ChatViewProps {
   onOpenProjectDialog?: () => void;
-  /** 打开插件页的模型供应商 TAB。 */
+  /** 打开技能|连接器页的模型供应商 TAB。 */
   onOpenModelSettings?: () => void;
   initialSkill?: SkillOption | null;
   onInitialSkillApplied?: () => void;
@@ -406,6 +403,7 @@ export function ChatView({
 
       <ToolCatalogDialog
         open={toolCatalogOpen}
+        userId={session.userId}
         status={status}
         modelOptions={session.modelOptions}
         onClose={() => setToolCatalogOpen(false)}

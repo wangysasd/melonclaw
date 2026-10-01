@@ -430,6 +430,7 @@ class _CancelHarness:
             "content": "",
             "assistant_steps": [],
             "display_metadata": {},
+            "execution_duration_ms": None,
         }
         self.project = {
             "id": str(uuid4()),
@@ -943,7 +944,7 @@ def test_agent_cache_key_includes_client_capabilities(monkeypatch, tmp_path):
 
     async def fake_build_research_agent(settings, **kwargs):
         built.append(tuple(kwargs.get("client_capabilities") or ()))
-        return SimpleNamespace(capabilities=built[-1])
+        return SimpleNamespace(capabilities=built[-1], melonclaw_mcp_failed=False)
 
     monkeypatch.setattr(runtime_module, "build_research_agent", fake_build_research_agent)
     monkeypatch.setattr(ChatRuntime, "ready", property(lambda self: True))
@@ -970,7 +971,7 @@ def test_agent_cache_key_includes_client_capabilities(monkeypatch, tmp_path):
             return []
 
     runtime = ChatRuntime(
-        settings=SimpleNamespace(workspace_root=tmp_path, data_root=tmp_path),
+        settings=SimpleNamespace(workspace_root=tmp_path, data_root=tmp_path, agent_cache_entries=4),
         storage=FakeStorage(),
         checkpointer=object(),
         memory_service=object(),
@@ -1002,7 +1003,7 @@ def test_ordinary_conversation_uses_its_own_workspace(monkeypatch, tmp_path):
 
     async def fake_build_research_agent(settings, **kwargs):
         built_workspaces.append(Path(kwargs["workspace_dir"]))
-        return SimpleNamespace()
+        return SimpleNamespace(melonclaw_mcp_failed=False)
 
     monkeypatch.setattr(runtime_module, "build_research_agent", fake_build_research_agent)
     monkeypatch.setattr(ChatRuntime, "ready", property(lambda self: True))

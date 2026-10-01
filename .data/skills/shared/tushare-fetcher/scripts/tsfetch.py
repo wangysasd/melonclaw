@@ -6,7 +6,6 @@
 Token 解析顺序（**不允许硬编码**）:
   1) 显式传入 token=
   2) 环境变量 TUSHARE_MCP_TOKEN      ← 本 skill 的约定来源
-  3) 环境变量 TUSHARE_TOKEN          ← 兼容别名
 解析失败会抛 TokenMissingError，并在信息里说明该导出哪个变量。
 
 命令行用法:
@@ -59,7 +58,6 @@ import urllib.request
 API_URL = "https://api.tushare.pro"
 USER_AGENT = "Mozilla/5.0 (tushare-fetcher skill)"
 TOKEN_ENV_PRIMARY = "TUSHARE_MCP_TOKEN"
-TOKEN_ENV_ALIASES = ("TUSHARE_TOKEN",)
 
 
 class TokenMissingError(RuntimeError):
@@ -123,13 +121,12 @@ def build_ssl_context(insecure: bool = False) -> ssl.SSLContext:
 
 
 def resolve_token(token: str | None = None) -> str:
-    """按 显式传入 -> TUSHARE_MCP_TOKEN -> 别名 的顺序取 token。"""
+    """按显式传入或 TUSHARE_MCP_TOKEN 环境变量读取 token。"""
     if token:
         return token.strip()
-    for name in (TOKEN_ENV_PRIMARY,) + TOKEN_ENV_ALIASES:
-        val = os.environ.get(name)
-        if val and val.strip():
-            return val.strip()
+    value = os.environ.get(TOKEN_ENV_PRIMARY)
+    if value and value.strip():
+        return value.strip()
     raise TokenMissingError(
         f"未找到 Tushare token：请先导出环境变量 {TOKEN_ENV_PRIMARY}，例如\n"
         f"  export {TOKEN_ENV_PRIMARY}=<your_token>\n"

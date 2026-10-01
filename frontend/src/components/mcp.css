@@ -1,0 +1,99 @@
+.mcp-manager, .mcp-editor { font-size: 14px; }
+.resource-view[data-active-tab="mcp"] .resource-view-title h1 { font-size: 14px; }
+.mcp-manager .resource-actions > .ant-input { flex: 0 1 28%; min-width: 180px; margin-right: auto; }
+.mcp-manager .resource-actions .ant-input,
+.mcp-manager .resource-actions .ant-input::placeholder,
+.mcp-manager .resource-actions .ant-btn { font-size: 14px; }
+.mcp-manager .mcp-group-title { font-size: 14px; }
+.mcp-manager .skill-card-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.mcp-card .skill-card-head { padding-right: 44px; }
+.mcp-card.has-primary-action .skill-card-head { padding-right: 160px; }
+.mcp-card-content { display: flex; flex: 1; flex-direction: column; gap: 10px; min-width: 0; }
+.mcp-card-content { border-radius: 8px; cursor: pointer; }
+.mcp-card-content:hover .skill-card-name { color: var(--brand-primary); }
+.mcp-card-content:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 4px; }
+.mcp-card .skill-card-desc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-card-meta-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+.mcp-card-capsule { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 8px; border: 1px solid transparent; border-radius: 999px; font-size: 11px; line-height: 1.2; white-space: nowrap; }
+.mcp-card-capsule.is-transport { border-color: #b6d4fe; background: #e8f2ff; color: #0066cc; }
+.mcp-card-capsule.is-active { border-color: #b7ebc6; background: #e8f7ed; color: #248a3d; }
+.mcp-card-capsule.is-inactive { border-color: #e1e2e6; background: #f1f1f3; color: var(--muted); }
+.mcp-editor .ant-modal-body { max-height: 72vh; overflow-y: auto; }
+.mcp-editor .ant-modal-title, .mcp-editor label, .mcp-editor input, .mcp-editor textarea, .mcp-editor button, .mcp-editor .ant-select { font-size: 14px; }
+.mcp-editor .ant-collapse-header, .mcp-editor .ant-collapse-title, .mcp-editor .mcp-credentials legend,
+.mcp-editor .ant-input-affix-wrapper > input.ant-input,
+.mcp-editor .ant-input-affix-wrapper > input.ant-input::placeholder { font-size: 14px; }
+.mcp-editor .ant-alert, .mcp-editor .ant-alert-message, .mcp-editor .ant-alert-description,
+.mcp-editor .mcp-test-result, .mcp-editor .mcp-test-tool-names { font-size: 14px; }
+.mcp-confirm .ant-modal-confirm-title, .mcp-confirm .ant-modal-confirm-content, .mcp-confirm .ant-modal-confirm-btns .ant-btn { font-size: 14px; }
+.mcp-editor .ant-collapse, .mcp-editor .ant-alert { margin: 14px 0; }
+.mcp-fields { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; padding: 18px; background: #f5f5f7; border-radius: 12px; margin-top: 16px; }
+.mcp-fields > label { display: grid; gap: 7px; min-width: 0; }
+.mcp-field-half { grid-column: span 6; }
+.mcp-field-wide { grid-column: 1 / -1; min-width: 0; }
+.mcp-field-transport { grid-column: span 3; }
+.mcp-field-address { grid-column: span 9; min-width: 0; }
+.mcp-tool-list { display: grid; gap: 8px; margin-top: 12px; padding: 14px; border-radius: 8px; background: #f5f5f7; }
+.mcp-tool-list-header { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.mcp-tool-list-header > span { margin-right: auto; }
+.mcp-editor .mcp-tool-checkboxes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; width: 100%; }
+.mcp-tool-checkboxes .ant-checkbox-wrapper { min-width: 0; overflow-wrap: anywhere; }
+.mcp-tool-list > .resource-hint { margin: 0; }
+.mcp-test-result { display: grid; gap: 8px; }
+.mcp-test-tool-names { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 20px; max-height: 180px; overflow: auto; margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
+.mcp-tool-details { font-size: 14px; }
+.mcp-tool-details .ant-modal-container { display: flex; flex-direction: column; max-height: calc(100vh - 48px); }
+.mcp-tool-details .ant-modal-header { flex: 0 0 auto; margin-bottom: 0; padding: 20px 24px 12px; }
+.mcp-tool-details .ant-modal-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 16px; min-height: 0; max-height: none; overflow: hidden; padding: 8px 24px 0; }
+.mcp-tool-details .ant-modal-footer { display: flex; flex: 0 0 auto; justify-content: flex-end; gap: 8px; margin-top: 0; padding: 12px 24px 16px; border-top: 1px solid rgba(29, 29, 31, .06); }
+.mcp-tool-details .ant-modal-footer .ant-btn { margin-inline-start: 0; font-size: 14px; }
+.mcp-tool-details-title { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.mcp-tool-status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #b8bdc7; }
+.mcp-tool-status-dot.is-normal { background: #52c41a; }
+.mcp-tool-status-dot.is-abnormal { background: #ff4d4f; }
+.mcp-tool-details-info { display: flex; flex: 0 0 auto; flex-direction: column; gap: 12px; }
+.mcp-tool-details-description, .mcp-tool-details-count { margin: 0; }
+.mcp-tool-details-loading { display: flex; align-items: center; gap: 8px; min-height: 46px; font-size: 14px; }
+.mcp-tool-details-count { color: var(--muted); font-size: 14px; }
+.mcp-tool-details-search { flex: 0 0 auto; margin-right: 6px; }
+.mcp-tool-capsules { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.mcp-tool-capsule { max-width: 100%; padding: 7px 14px; border-radius: 10px; background: #f2f3f5; color: #25394b; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.mcp-tool-capsule.is-disabled { color: var(--muted); opacity: .58; }
+.mcp-tool-stdio-start { display: grid; justify-items: start; gap: 12px; }
+.mcp-credentials { border: 0; padding: 0; margin: 0; min-width: 0; }
+.mcp-credentials legend { margin-bottom: 8px; }
+.mcp-credential-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.mcp-credential-row > .ant-input { flex: 0 1 30%; min-width: 100px; }
+.mcp-credential-row > .ant-input-affix-wrapper { flex: 1 1 55%; min-width: 180px; }
+@media (max-width: 600px) {
+  .mcp-manager .skill-card-grid { grid-template-columns: minmax(0, 1fr); }
+  .mcp-fields { grid-template-columns: minmax(0, 1fr); }
+  .mcp-field-half, .mcp-field-wide, .mcp-field-transport, .mcp-field-address { grid-column: 1 / -1; }
+  .mcp-editor .mcp-tool-checkboxes { grid-template-columns: minmax(0, 1fr); }
+  .mcp-editor .mcp-test-tool-names { grid-template-columns: minmax(0, 1fr); }
+  .mcp-credential-row { flex-wrap: wrap; }
+  .mcp-credential-row > .ant-input, .mcp-credential-row > .ant-input-affix-wrapper { flex: 1 1 100%; min-width: 0; }
+}
+
+@media (max-width: 1120px) and (min-width: 601px) {
+  .mcp-manager .skill-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.mcp-tool-status-dot.is-warning { background: #faad14; }
+.mcp-tool-list-details { display: flex; flex: 1 1 auto; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; padding-bottom: 16px; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.mcp-tool-list-details:hover, .mcp-tool-list-details:focus-within { scrollbar-color: rgba(29, 29, 31, .16) transparent; }
+.mcp-tool-list-details::-webkit-scrollbar { width: 6px; }
+.mcp-tool-list-details::-webkit-scrollbar-track { background: transparent; }
+.mcp-tool-list-details::-webkit-scrollbar-thumb { border: 1px solid transparent; border-radius: 999px; background: transparent; background-clip: padding-box; }
+.mcp-tool-list-details:hover::-webkit-scrollbar-thumb, .mcp-tool-list-details:focus-within::-webkit-scrollbar-thumb { background-color: rgba(29, 29, 31, .16); }
+.mcp-tool-list-details::-webkit-scrollbar-thumb:hover { background-color: rgba(29, 29, 31, .28); }
+.mcp-tool-list-details::-webkit-scrollbar-thumb:active { background-color: rgba(29, 29, 31, .36); }
+.mcp-tool-description { flex: 0 0 auto; border-radius: 8px; background: #f5f5f7; font-size: 14px; overflow-wrap: anywhere; }
+.mcp-tool-description > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto 7px; align-items: center; gap: 12px; min-height: 46px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.mcp-tool-description > summary::-webkit-details-marker { display: none; }
+.mcp-tool-description > summary::after { content: ""; width: 7px; height: 7px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); transition: transform .15s ease; }
+.mcp-tool-description[open] > summary::after { transform: rotate(45deg); }
+.mcp-tool-description > summary:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+.mcp-tool-permission { display: inline-flex; align-items: center; justify-content: center; padding: 2px 10px; border: 1px solid #d9dce2; border-radius: 999px; background: #f0f1f3; color: var(--muted); font-size: 14px; line-height: 20px; white-space: nowrap; }
+.mcp-tool-permission.is-allowed { border-color: #b7eb8f; background: #f6ffed; color: #237804; }
+.mcp-tool-description > p { margin: 0; padding: 0 14px 12px; white-space: pre-wrap; }

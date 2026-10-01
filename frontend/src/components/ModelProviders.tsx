@@ -135,7 +135,7 @@ export function ModelSection({ userId, isAdmin, notify, onChanged }: ModelSectio
       <p className="resource-hint">
         {isAdmin
           ? "你建的供应商全局共享，默认给全员用"
-          : "管理员共享的模型可直接使用；已启用仅表示你已配置自己的 API Key"}
+          : "管理员共享的模型可直接使用；已启用仅表示你已配置自己的 API Key"}。目前仅支持 OpenAI API 兼容协议。
       </p>
 
       <ProviderGroup

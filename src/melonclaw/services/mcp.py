@@ -1,84 +1,99 @@
-"""MCP 运行时装配：数据库行 → MultiServerMCPClient 配置。
-
-这是 Agent 运行时拿到 MCP 服务的唯一入口（内置 mcp.json 只作为 db-init
-种子）。安全边界：
-
-- ``scope='user'`` 的行仅允许 http/sse transport，且配置值里不允许出现
-  ``${VAR}`` 占位符——保存时校验拒绝，装载时用空环境二次兜底，从机制上
-  阻断用户 MCP 引用应用自身密钥。
-- ``scope='global'`` 的行允许 stdio 和 ``${VAR}`` 占位符（展开用进程环境），
-  因为发布 global 配置需要管理员权限。
-"""
+"""MCP 配置校验、两层来源选择及运行时装配。"""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
-from typing import Any
+from urllib.parse import urlsplit
 
 from melonclaw.core.mcp_config import expand_env_placeholders, row_to_client_config
+from melonclaw.core.mcp_credentials import decode_credentials
 
-USER_SCOPE_TRANSPORTS = ("http", "sse")
-MCP_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+MCP_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+HEADER_RE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
 
 class McpConfigError(ValueError):
-    """用户提交的 MCP 配置不合法。"""
-
     status_code = 422
 
 
-def validate_mcp_payload(
-    *,
-    scope: str,
-    transport: str,
-    url: str | None,
-    command: str | None,
-    env: dict[str, str] | None,
-    headers: dict[str, str] | None,
-) -> None:
-    """保存前校验 MCP 配置；违反安全边界的直接抛 McpConfigError。"""
-
+def validate_mcp_payload(*, scope, transport, url, command, env, headers, args=None):
     if transport not in ("http", "sse", "stdio"):
-        raise McpConfigError(f"不支持的 transport：{transport!r}。")
-    if scope == "user" and transport not in USER_SCOPE_TRANSPORTS:
-        raise McpConfigError("用户级 MCP 仅支持 http/sse transport。")
+        raise McpConfigError("不支持的 MCP 连接类型。")
+    if scope == "user" and transport == "stdio":
+        raise McpConfigError("个人 MCP 仅支持 HTTP/SSE，stdio 仅限管理员。")
     if transport == "stdio":
-        if scope != "global":
-            raise McpConfigError("stdio MCP 只允许管理员发布的全局配置。")
-        if not command:
-            raise McpConfigError("stdio MCP 必须提供 command。")
+        if not command or not command.strip() or url or headers:
+            raise McpConfigError("stdio 必须填写启动程序，不能设置 URL 或请求头。")
     else:
-        if not url:
-            raise McpConfigError("http/sse MCP 必须提供 url。")
-    for label, values in (("env", env), ("headers", headers)):
-        for key, value in (values or {}).items():
-            if "${" in str(key) or "${" in str(value):
-                raise McpConfigError(
-                    f"用户级配置的 {label} 不允许使用 ${{VAR}} 占位符：{key!r}。"
-                )
-    if url and scope == "user" and "${" in url:
-        raise McpConfigError("用户级配置的 url 不允许使用 ${VAR} 占位符。")
+        try:
+            parsed = urlsplit(url or "")
+            valid = (
+                parsed.scheme in {"http", "https"}
+                and parsed.hostname
+                and not parsed.username
+                and not parsed.password
+            )
+        except ValueError:
+            valid = False
+        if not valid or command or args or env:
+            raise McpConfigError("HTTP/SSE 需要有效的 HTTP(S) 地址，不能含用户凭据或进程配置。")
+    all_values = [
+        url or "",
+        command or "",
+        *(args or []),
+        *(env or {}).keys(),
+        *(env or {}).values(),
+        *(headers or {}).keys(),
+        *(headers or {}).values(),
+    ]
+    if scope == "user" and any("${" in value for value in all_values):
+        raise McpConfigError("个人 MCP 不允许引用服务器环境变量。")
+    lowered = [key.lower() for key in (headers or {})]
+    if len(set(lowered)) != len(lowered):
+        raise McpConfigError("请求头名称重复（不区分大小写）。")
+    if any(not HEADER_RE.fullmatch(key) for key in (headers or {})) or any(
+        "\r" in value or "\n" in value for value in (headers or {}).values()
+    ):
+        raise McpConfigError("请求头名称或值无效。")
+    if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) for key in (env or {})):
+        raise McpConfigError("环境变量名称无效。")
 
 
-def resolve_user_mcp_servers(
-    rows: list[dict[str, Any]],
-) -> tuple[dict[str, dict[str, Any]], dict[str, tuple[str, ...]]]:
-    """把可见的 mcp_servers 表行装配为 client 配置和工具白名单。
-
-    ``rows`` 由仓储层按可见性过滤（global + 创建者自己的 user scope），
-    这里负责按 scope 做环境变量展开并生成白名单。
-    """
-
-    servers: dict[str, dict[str, Any]] = {}
-    allowlists: dict[str, tuple[str, ...]] = {}
+def selected_mcp_rows(rows: list[dict]) -> list[dict]:
+    selected = {}
     for row in rows:
-        config = row_to_client_config(row)
-        environ: dict[str, str] | Any = (
-            os.environ if row["scope"] == "global" else {}
-        )
-        servers[str(row["slug"])] = expand_env_placeholders(config, environ)
-        raw_allowlist = row.get("tool_allowlist")
-        if raw_allowlist:
-            allowlists[str(row["slug"])] = tuple(str(name) for name in raw_allowlist)
+        if row["slug"] not in selected or row["scope"] == "user":
+            selected[row["slug"]] = row
+    return [row for row in selected.values() if row["enabled"] and row["user_enabled"] is not False]
+
+
+def mcp_snapshot_revision(rows: list[dict]) -> str:
+    payload = sorted((str(row["id"]), row["version"], row["user_enabled"]) for row in rows)
+    return hashlib.sha256(json.dumps(payload).encode()).hexdigest()
+
+
+def resolved_mcp_config(row: dict) -> dict:
+    config = row_to_client_config(
+        {
+            **row,
+            "headers": decode_credentials(row["headers"]),
+            "env": decode_credentials(row["env"]),
+        }
+    )
+    return expand_env_placeholders(config, os.environ if row["scope"] == "global" else {})
+
+
+def resolve_user_mcp_servers(rows: list[dict]) -> tuple[dict, dict]:
+    servers, allowlists = {}, {}
+    for row in selected_mcp_rows(rows):
+        # Decryption/configuration failure belongs to this server, never a fallback source.
+        try:
+            servers[row["slug"]] = resolved_mcp_config(row)
+        except (ValueError, RuntimeError):
+            servers[row["slug"]] = {"transport": row["transport"], "configuration_error": True}
+        if row["tool_allowlist"] is not None:
+            allowlists[row["slug"]] = tuple(row["tool_allowlist"])
     return servers, allowlists

@@ -82,10 +82,10 @@ class ChatSkillInstallService:
                 "enabled": draft.enable_on_install,
                 "message": (
                     "安装并启用成功，下一条消息可用。"
-                    if draft.enable_on_install else "安装成功，尚未启用；请到拓展 → Skills 添加使用。"
+                    if draft.enable_on_install else "安装成功，尚未启用；请到技能|连接器 → 技能添加使用。"
                 ),
             }
         except (SkillImportError, SkillOperationError) as exc:
             return {"status": "error", "message": str(exc)}
         except Exception:  # 不向 Agent 暴露下载、数据库或文件系统异常细节。
-            return {"status": "error", "message": "安装未确认成功，请检查当前用户状态或在拓展 → Skills 核实结果。"}
+            return {"status": "error", "message": "安装未确认成功，请检查当前用户状态或在技能|连接器 → 技能核实结果。"}

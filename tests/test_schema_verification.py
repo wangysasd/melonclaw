@@ -4,8 +4,8 @@ import unittest
 
 from melonclaw.database.constants import BUSINESS_TABLES
 from melonclaw.database.errors import DatabaseSchemaError
-from melonclaw.database.migrations import SchemaMigrationMixin
 from melonclaw.database.schema import metadata
+from melonclaw.database.schema_validation import SchemaValidationMixin
 
 # 资源表曾不在 BUSINESS_TABLES 中，结构漂移无人拦截，
 # 直到种子 INSERT 才以裸数据库错误暴露。
@@ -26,17 +26,13 @@ class FakeResult:
 
 
 class FakeConnection:
-    def __init__(self, tables, columns, attachment_constraint):
+    def __init__(self, tables, columns):
         self._tables = tables
         self._columns = columns
-        self._attachment_constraint = attachment_constraint
 
     async def execute(self, query, _values):
-        # 按查询文本分派两种 information_schema 查询。
         if "information_schema.tables" in str(query):
             return FakeResult([(name,) for name in self._tables])
-        if "pg_get_constraintdef" in str(query):
-            return FakeResult([(self._attachment_constraint,)] if self._attachment_constraint else [])
         return FakeResult(list(self._columns))
 
 
@@ -52,16 +48,16 @@ class FakeConnectionContext:
 
 
 class FakeEngine:
-    def __init__(self, tables, columns, attachment_constraint):
-        self._connection = FakeConnection(tables, columns, attachment_constraint)
+    def __init__(self, tables, columns):
+        self._connection = FakeConnection(tables, columns)
 
     def connect(self):
         return FakeConnectionContext(self._connection)
 
 
-class FakeDatabase(SchemaMigrationMixin):
-    def __init__(self, tables, columns, attachment_constraint):
-        self.engine = FakeEngine(tables, columns, attachment_constraint)
+class FakeDatabase(SchemaValidationMixin):
+    def __init__(self, tables, columns):
+        self.engine = FakeEngine(tables, columns)
 
 
 def expected_columns() -> list[tuple[str, str]]:
@@ -76,12 +72,10 @@ def make_database(
     *,
     tables: list[str] | None = None,
     columns: list[tuple[str, str]] | None = None,
-    attachment_constraint: str | None = "kind IN ('image', 'archive')",
 ) -> FakeDatabase:
     return FakeDatabase(
         list(BUSINESS_TABLES) if tables is None else tables,
         expected_columns() if columns is None else columns,
-        attachment_constraint,
     )
 
 
@@ -97,13 +91,6 @@ class SchemaVerificationTests(unittest.IsolatedAsyncioTestCase):
     async def test_consistent_schema_passes(self):
         await make_database().verify_schema(require_checkpointer=False)
 
-    async def test_old_attachment_constraint_is_reported_before_upload(self):
-        database = make_database(attachment_constraint="kind IN ('image', 'pdf', 'text', 'document')")
-        with self.assertRaises(DatabaseSchemaError) as caught:
-            await database.verify_schema(require_checkpointer=False)
-        self.assertIn("ZIP 无法上传", str(caught.exception))
-        self.assertIn("重建附件两表", str(caught.exception))
-
     async def test_missing_column_is_reported(self):
         database = make_database(
             columns=without_column("model_configs", "is_default")
@@ -117,11 +104,11 @@ class SchemaVerificationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_extra_column_is_reported(self):
         database = make_database(
-            columns=expected_columns() + [("skills", "legacy_column")]
+            columns=expected_columns() + [("skills", "unexpected_column")]
         )
         with self.assertRaises(DatabaseSchemaError) as caught:
             await database.verify_schema(require_checkpointer=False)
-        assert "legacy_column" in str(caught.exception)
+        assert "unexpected_column" in str(caught.exception)
 
     async def test_missing_table_is_reported(self):
         database = make_database(

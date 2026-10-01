@@ -939,19 +939,7 @@
   overflow-wrap: anywhere;
 }
 
-/* 保留旧类名的最小兼容样式，避免历史 CSS 使用方突然失去基础排版。 */
-.tool-status {
-  display: flex;
-  align-items: center;
-  min-width: 62px;
-  justify-content: flex-end;
-  gap: 5px;
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-/* 审批面板（对齐旧 .approval-* 系列，Apple 橙系警示色） */
+/* 审批面板 */
 
 .approval-panel {
   max-height: min(40vh, 420px);

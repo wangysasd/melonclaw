@@ -20,7 +20,7 @@ def test_agent_build_locks_cover_waiters_and_are_released(monkeypatch, tmp_path)
         builds.append(str(workspace_dir))
         started.set()
         await release.wait()
-        return SimpleNamespace()
+        return SimpleNamespace(melonclaw_mcp_failed=False)
 
     class FakeStorage:
         async def list_visible_skill_rows(self, user_id, **kwargs):

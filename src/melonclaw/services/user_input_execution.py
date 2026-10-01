@@ -279,7 +279,7 @@ class UserInputExecutionService:
                         else []
                     ),
                     assistant_steps=list(assistant["assistant_steps"]),
-                    execution_duration_ms=assistant.get("execution_duration_ms"),
+                    execution_duration_ms=assistant["execution_duration_ms"],
                 ),
                 command,
                 accepted,

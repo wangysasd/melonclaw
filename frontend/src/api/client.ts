@@ -277,61 +277,6 @@ export function listMcp(
   });
 }
 
-export function createMcp(input: {
-  userId: string;
-  slug: string;
-  scope: string;
-  transport: string;
-  url?: string | null;
-  command?: string | null;
-  args?: string[];
-  env?: Record<string, string>;
-  headers?: Record<string, string>;
-  tool_allowlist?: string[] | null;
-  enabled?: boolean;
-}): Promise<{ ok: boolean }> {
-  return apiRequest("/api/mcp", {
-    method: "POST",
-    body: {
-      user_id: input.userId,
-      slug: input.slug,
-      scope: input.scope,
-      transport: input.transport,
-      url: input.url ?? null,
-      command: input.command ?? null,
-      args: input.args ?? [],
-      env: input.env ?? {},
-      headers: input.headers ?? {},
-      tool_allowlist: input.tool_allowlist ?? null,
-      enabled: input.enabled ?? true,
-    },
-  });
-}
-
-export function updateMcp(
-  slug: string,
-  input: { userId: string; enabled?: boolean; toolAllowlist?: string[] | null },
-): Promise<{ ok: boolean }> {
-  return apiRequest(`/api/mcp/${encodeURIComponent(slug)}`, {
-    method: "PATCH",
-    body: {
-      user_id: input.userId,
-      enabled: input.enabled,
-      tool_allowlist: input.toolAllowlist ?? null,
-    },
-  });
-}
-
-export function deleteMcp(
-  slug: string,
-  input: { userId: string },
-): Promise<{ ok: boolean }> {
-  return apiRequest(`/api/mcp/${encodeURIComponent(slug)}`, {
-    method: "DELETE",
-    query: { user_id: input.userId },
-  });
-}
-
 export function listManageableModels(
   input: { userId: string },
   signal?: AbortSignal,

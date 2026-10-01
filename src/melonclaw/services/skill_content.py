@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from melonclaw.services.mcp import selected_mcp_rows
 from melonclaw.services.skills import MAX_SKILL_FILE_SIZE, read_skill
 
 MAX_PACKAGE_BYTES = 50 * 1024 * 1024
@@ -108,7 +109,7 @@ async def check_requirements(requirements, storage, user_id: str) -> list[dict[s
     results = []
     mcp_names = set()
     if requirements["mcp"]:
-        mcp_names = {row["slug"] for row in await storage.list_visible_mcp_rows(user_id)}
+        mcp_names = {row["slug"] for row in selected_mcp_rows(await storage.list_visible_mcp_rows(user_id))}
     for kind, names in requirements.items():
         for name in names:
             if kind == "commands":

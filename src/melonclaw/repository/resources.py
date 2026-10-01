@@ -19,7 +19,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from melonclaw.core.config import provider_env_key
 from melonclaw.database.schema import (
-    mcp_servers,
     model_configs,
     model_providers,
     provider_user_keys,
@@ -254,100 +253,6 @@ class ResourceRepositoryMixin:
         """全局 Skill 配置版本戳：Agent 缓存键用它做配置变更失效。"""
 
         query = select(func.max(skills.c.updated_at))
-        async with self.engine.connect() as connection:
-            value = (await connection.execute(query)).scalar()
-        return _as_iso(value) if value is not None else ""
-
-    async def list_visible_mcp_rows(self, user_id: str) -> list[dict[str, Any]]:
-        query = (
-            select(mcp_servers)
-            .where(mcp_servers.c.enabled.is_(True))
-            .where(
-                (mcp_servers.c.scope == "global")
-                | (mcp_servers.c.created_by == user_id)
-            )
-            .order_by(mcp_servers.c.slug.asc())
-        )
-        async with self.engine.connect() as connection:
-            rows = (await connection.execute(query)).mappings().all()
-        return [dict(row) for row in rows]
-
-    async def list_mcp_rows_for_user(
-        self, user_id: str
-    ) -> list[dict[str, Any]]:
-        """返回某用户可管理的 MCP 行（global + 自己的 user scope），含禁用项。"""
-
-        query = (
-            select(mcp_servers)
-            .where(
-                (mcp_servers.c.scope == "global")
-                | (mcp_servers.c.created_by == user_id)
-            )
-            .order_by(mcp_servers.c.slug.asc())
-        )
-        async with self.engine.connect() as connection:
-            rows = (await connection.execute(query)).mappings().all()
-        return [dict(row) for row in rows]
-
-    async def get_mcp_row(self, slug: str) -> dict[str, Any] | None:
-        query = select(mcp_servers).where(mcp_servers.c.slug == slug)
-        async with self.engine.connect() as connection:
-            row = (await connection.execute(query)).mappings().first()
-        return dict(row) if row is not None else None
-
-    async def create_mcp_row(
-        self,
-        *,
-        slug: str,
-        scope: str,
-        source_type: str,
-        transport: str,
-        created_by: str,
-        url: str | None = None,
-        command: str | None = None,
-        args: list[str] | None = None,
-        env: dict[str, str] | None = None,
-        headers: dict[str, str] | None = None,
-        tool_allowlist: list[str] | None = None,
-        enabled: bool = True,
-    ) -> dict[str, Any]:
-        timestamp = _now()
-        row = {
-            "id": uuid4(),
-            "slug": slug,
-            "scope": scope,
-            "source_type": source_type,
-            "transport": transport,
-            "url": url,
-            "command": command,
-            "args": args,
-            "env": env or {},
-            "headers": headers or {},
-            "tool_allowlist": tool_allowlist,
-            "enabled": enabled,
-            "created_by": created_by,
-            "created_at": timestamp,
-            "updated_at": timestamp,
-        }
-        async with self.engine.begin() as connection:
-            await connection.execute(insert(mcp_servers).values(**row))
-        return row
-
-    async def update_mcp_row(self, slug: str, **fields: Any) -> None:
-        fields["updated_at"] = _now()
-        async with self.engine.begin() as connection:
-            await connection.execute(
-                update(mcp_servers).where(mcp_servers.c.slug == slug).values(**fields)
-            )
-
-    async def delete_mcp_row(self, slug: str) -> None:
-        async with self.engine.begin() as connection:
-            await connection.execute(
-                delete(mcp_servers).where(mcp_servers.c.slug == slug)
-            )
-
-    async def mcp_revision(self) -> str:
-        query = select(func.max(mcp_servers.c.updated_at))
         async with self.engine.connect() as connection:
             value = (await connection.execute(query)).scalar()
         return _as_iso(value) if value is not None else ""

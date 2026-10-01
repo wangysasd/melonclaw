@@ -90,8 +90,8 @@ class ApprovalRequest(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=64)
     # 审批恢复必须绑定当前展示给用户的批次和助手消息，避免刷新后提交旧卡片。
-    approval_batch_id: UUID | None = None
-    assistant_message_id: UUID | None = None
+    approval_batch_id: UUID
+    assistant_message_id: UUID
     decisions: list[dict[str, Any]]
 
 
@@ -128,30 +128,6 @@ class SkillGlobalStateRequest(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=64)
     enabled: bool
-
-
-class McpServerCreateRequest(BaseModel):
-    """新建 MCP 服务；user scope 仅允许 http/sse，且禁止 ${VAR} 占位符。"""
-
-    user_id: str = Field(min_length=1, max_length=64)
-    slug: str = Field(min_length=1, max_length=64)
-    scope: str = Field(min_length=1, max_length=16)
-    transport: str = Field(min_length=1, max_length=16)
-    url: str | None = Field(default=None, max_length=2000)
-    command: str | None = Field(default=None, max_length=240)
-    args: list[str] = Field(default_factory=list, max_length=64)
-    env: dict[str, str] = Field(default_factory=dict, max_length=64)
-    headers: dict[str, str] = Field(default_factory=dict, max_length=64)
-    tool_allowlist: list[str] | None = Field(default=None, max_length=200)
-    enabled: bool = True
-
-
-class McpServerUpdateRequest(BaseModel):
-    """更新 MCP 服务的启用状态或工具白名单；tool_allowlist 缺省表示不改动。"""
-
-    user_id: str = Field(min_length=1, max_length=64)
-    enabled: bool | None = None
-    tool_allowlist: list[str] | None = Field(default=None, max_length=200)
 
 
 class ModelProviderCreateRequest(BaseModel):

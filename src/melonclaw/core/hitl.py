@@ -51,7 +51,7 @@ async def aget_pending_approval(
     agent: Any,
     config: dict[str, Any],
 ) -> list[dict[str, Any]] | None:
-    """异步读取仍兼容旧调用方的工具审批状态。"""
+    """异步读取 Checkpoint 中待处理的工具审批。"""
 
     snapshot = await agent.aget_state(config)
     pending = _pending_from_snapshot(snapshot)
@@ -88,24 +88,17 @@ def _pending_from_snapshot(snapshot: Any) -> list[dict[str, Any]] | None:
     return pending or None
 
 
-def _pending_requests(request: Any) -> list[dict[str, Any]]:
-    """把单个或多个 checkpoint interrupt 统一成带 ID 的请求列表。"""
+def _pending_requests(request: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """校验当前 Checkpoint interrupt 列表。"""
 
-    if isinstance(request, Mapping):
-        interrupts = request.get("interrupts")
-        if isinstance(interrupts, list):
-            return [
-                dict(item)
-                for item in interrupts
-                if isinstance(item, Mapping)
-            ]
-        return [dict(request)]
-    if isinstance(request, (list, tuple)):
-        return [dict(item) for item in request if isinstance(item, Mapping)]
-    raise ValueError("HITL 请求格式无效。")
+    if not isinstance(request, list) or any(
+        not isinstance(item, Mapping) for item in request
+    ):
+        raise ValueError("HITL 请求格式无效。")
+    return [dict(item) for item in request]
 
 
-def approval_batch_id_for(request: Any, *, assistant_message_id: str) -> str:
+def approval_batch_id_for(request: list[dict[str, Any]], *, assistant_message_id: str) -> str:
     """为当前助手消息和 interrupt 集合生成稳定的审批批次 ID。
 
     审批卡片可能在浏览器刷新后重新从 Checkpoint 构造，因此不能在每次
@@ -136,7 +129,7 @@ def _pretty(value: Any) -> str:
 
 
 def serialize_pending_approval(
-    request: Any,
+    request: list[dict[str, Any]],
     *,
     approval_batch_id: str | None = None,
     assistant_message_id: str | None = None,
@@ -145,18 +138,14 @@ def serialize_pending_approval(
 
     serialized_interrupts: list[dict[str, Any]] = []
     for pending in _pending_requests(request):
-        actions = pending.get("action_requests", [])
-        reviews = pending.get("review_configs", [])
+        actions = pending["action_requests"]
+        reviews = pending["review_configs"]
         serialized: list[dict[str, Any]] = []
         for index, action in enumerate(actions):
             if not isinstance(action, Mapping):
                 continue
-            review = (
-                reviews[index]
-                if index < len(reviews) and isinstance(reviews[index], Mapping)
-                else {}
-            )
-            allowed = review.get("allowed_decisions", _SENSITIVE_DECISIONS)
+            review = reviews[index]
+            allowed = review["allowed_decisions"]
             serialized.append(
                 {
                     "name": sanitize_text(str(action.get("name", "unknown"))),
@@ -176,9 +165,6 @@ def serialize_pending_approval(
                 "assistant_message_id": str(assistant_message_id),
             }
         )
-    # 保留单 interrupt 的旧响应形状，兼容已有 Web 客户端和书签中的页面状态。
-    if len(serialized_interrupts) == 1:
-        result.update(serialized_interrupts[0])
     return result
 
 
@@ -229,7 +215,7 @@ def _decision_groups(
     decisions: Any,
     pending: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """解析单 interrupt 兼容格式和按 interrupt_id 分组的新格式。"""
+    """解析当前单 interrupt 平铺或多 interrupt 分组格式。"""
 
     ids = [str(item.get("id", "")) for item in pending]
     if any(not interrupt_id for interrupt_id in ids):
@@ -237,28 +223,25 @@ def _decision_groups(
     if len(set(ids)) != len(ids):
         raise ValueError("HITL 请求包含重复的 interrupt ID。")
 
-    if isinstance(decisions, Mapping):
-        groups = {str(key): value for key, value in decisions.items()}
-    elif isinstance(decisions, list):
-        if len(pending) == 1 and not any(
-            isinstance(item, Mapping) and "interrupt_id" in item
-            for item in decisions
-        ):
-            groups = {ids[0]: decisions}
-        else:
-            groups = {}
-            for item in decisions:
-                if not isinstance(item, Mapping):
-                    raise ValueError("审批决定格式无效。")
-                interrupt_id = item.get("interrupt_id", item.get("id"))
-                group = item.get("decisions")
-                if not isinstance(interrupt_id, str) or not interrupt_id:
-                    raise ValueError("多 interrupt 审批必须提供 interrupt_id。")
-                if interrupt_id in groups:
-                    raise ValueError("同一个 interrupt 不能重复提交决定。")
-                groups[interrupt_id] = group
-    else:
+    if not isinstance(decisions, list):
         raise ValueError("审批决定必须是列表或按 ID 映射。")
+    if len(pending) == 1 and not any(
+        isinstance(item, Mapping) and "interrupt_id" in item
+        for item in decisions
+    ):
+        groups = {ids[0]: decisions}
+    else:
+        groups = {}
+        for item in decisions:
+            if not isinstance(item, Mapping):
+                raise ValueError("审批决定格式无效。")
+            interrupt_id = item.get("interrupt_id")
+            group = item.get("decisions")
+            if not isinstance(interrupt_id, str) or not interrupt_id:
+                raise ValueError("多 interrupt 审批必须提供 interrupt_id。")
+            if interrupt_id in groups:
+                raise ValueError("同一个 interrupt 不能重复提交决定。")
+            groups[interrupt_id] = group
 
     if set(groups) != set(ids):
         raise ValueError("审批决定必须覆盖全部待处理 interrupt，且不能包含未知 ID。")
@@ -271,8 +254,8 @@ def _normalize_decisions(
 ) -> list[dict[str, Any]]:
     """校验一个 interrupt 的决定数量、权限和编辑工具名。"""
 
-    actions = request.get("action_requests", [])
-    reviews = request.get("review_configs", [])
+    actions = request["action_requests"]
+    reviews = request["review_configs"]
     if not isinstance(decisions, list) or len(decisions) != len(actions):
         raise ValueError("审批决定数量与待审批工具调用数量不一致。")
 
@@ -280,12 +263,8 @@ def _normalize_decisions(
     for index, (action, decision) in enumerate(zip(actions, decisions, strict=True)):
         if not isinstance(action, Mapping) or not isinstance(decision, Mapping):
             raise ValueError("审批决定格式无效。")
-        review = (
-            reviews[index]
-            if index < len(reviews) and isinstance(reviews[index], Mapping)
-            else {}
-        )
-        allowed = set(review.get("allowed_decisions", _SENSITIVE_DECISIONS))
+        review = reviews[index]
+        allowed = set(review["allowed_decisions"])
         decision_type = decision.get("type")
         if decision_type not in allowed:
             raise ValueError(f"工具 {action.get('name', 'unknown')} 不允许该审批决定。")
@@ -359,3 +338,12 @@ def build_user_input_resume_command(
     if not interrupt_id:
         raise ValueError("用户问题缺少 interrupt ID。")
     return Command(resume={interrupt_id: normalized_answer}), normalized_answer
+
+
+def mcp_interrupts(tools):
+    """动态 MCP 工具均进入审批；不相信远端 readOnlyHint，不加入 PTC。"""
+    return {
+        tool.name: InterruptOnConfig(allowed_decisions=_SENSITIVE_DECISIONS,
+                                     description="外部 MCP 工具调用需要确认。")
+        for tool in tools if getattr(tool, "metadata", None) and tool.metadata.get("mcp")
+    }

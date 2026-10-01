@@ -100,15 +100,16 @@ def test_skill_user_states_is_per_user_preference_overlay():
 
 
 def test_mcp_servers_stdio_requires_global_scope():
-    assert mcp_servers.c.slug.unique is True
+    assert not mcp_servers.c.slug.unique
+    assert {index.name for index in mcp_servers.indexes} >= {"uq_mcp_servers_global_slug", "uq_mcp_servers_user_owner_slug"}
     assert "transport" in mcp_servers.c
     assert "tool_allowlist" in mcp_servers.c
     assert any(
-        constraint.name == "ck_mcp_servers_stdio_scope"
+        constraint.name == "ck_mcp_connection"
         for constraint in mcp_servers.constraints
     )
     assert any(
-        constraint.name == "ck_mcp_servers_transport"
+        constraint.name == "ck_mcp_owner"
         for constraint in mcp_servers.constraints
     )
     assert {fk.target_fullname for fk in mcp_servers.c.created_by.foreign_keys} == {

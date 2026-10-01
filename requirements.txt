@@ -63,6 +63,7 @@ cryptography==50.0.0
     #   authlib
     #   google-auth
     #   joserfc
+    #   melonclaw
     #   pyjwt
     #   secretstorage
 cyclopts==4.22.5

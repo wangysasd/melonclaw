@@ -23,7 +23,7 @@
 
 ## 操作与数据模型
 
-`skills` 增加 `status`、`content_hash`、`source_url`、`source_ref`；继续使用 version 与 skill_user_states。没有历史字段回退或迁移；旧表按 README 重建。
+`skills` 增加 `status`、`content_hash`、`source_url`、`source_ref`；继续使用 version 与 skill_user_states。没有历史字段回退或迁移；开发期表结构变化时按 README 清空并重建整个数据库。
 
 - 安装范围由数据库角色决定：admin/owner 安装共享，member 安装私有；新安装默认停用。
 - 「添加到我的技能 / 我不使用」始终是个人操作，管理员也一样。

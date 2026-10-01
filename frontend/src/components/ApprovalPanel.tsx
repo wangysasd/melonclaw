@@ -6,7 +6,6 @@ import { toolSummary } from "../lib/toolDisplay";
 import type {
   ApprovalAction,
   ApprovalDecision,
-  ApprovalInterrupt,
   DecisionType,
   PendingApproval,
 } from "../types/api";
@@ -14,7 +13,7 @@ import type {
 /**
  * HITL 审批面板：展示待审批工具调用并提交用户决定。
  *
- * - 单 interrupt 时请求为顶层 actions，多 interrupt 时为 interrupts 数组，此处统一归一化。
+ * - 所有审批都通过 interrupts 数组展示。
  * - 每个操作必须明确选择（approve/edit/reject/respond），默认展开参数详情，
  *   编辑参数（JSON 校验，错误贴近输入框）与拒绝原因输入。
  * - 提交时按 interrupt 分组：单 interrupt 平铺 decisions 数组，
@@ -29,22 +28,8 @@ const DECISION_LABELS: Record<DecisionType, string> = {
   respond: "提供结果",
 };
 
-function normalizeInterrupts(approval: PendingApproval): ApprovalInterrupt[] {
-  if (Array.isArray(approval.interrupts) && approval.interrupts.length > 0) {
-    return approval.interrupts;
-  }
-  return [{ id: approval.id || "", actions: approval.actions || [] }];
-}
-
 function formatArgs(action: ApprovalAction): string {
-  const value = action.args;
-  if (!value) return "{}";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
+  return action.args;
 }
 
 interface RowConfig {
@@ -71,7 +56,7 @@ interface ApprovalPanelProps {
 export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
   const id = useId();
   const submittingRef = useRef(false);
-  const interrupts = useMemo(() => normalizeInterrupts(approval), [approval]);
+  const interrupts = useMemo(() => approval.interrupts, [approval]);
   const rows = useMemo<RowConfig[]>(
     () =>
       interrupts.flatMap((interrupt) =>

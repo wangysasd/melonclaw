@@ -7,10 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from melonclaw.database.connection import normalize_async_database_url
 from melonclaw.database.errors import DatabaseUnavailableError
-from melonclaw.database.migrations import SchemaMigrationMixin
+from melonclaw.database.schema_validation import SchemaValidationMixin
 
 
-class Database(SchemaMigrationMixin):
+class Database(SchemaValidationMixin):
     """使用 SQLAlchemy AsyncEngine 提供数据库基础能力。"""
 
     def __init__(self, database_url: str) -> None:

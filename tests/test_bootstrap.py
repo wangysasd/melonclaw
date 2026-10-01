@@ -16,6 +16,7 @@ from melonclaw.repository.seed_data import (
     ADMIN_USER_SEED,
     PROVIDER_SEEDS,
     TENANT_SEEDS,
+    USER_SEEDS,
 )
 
 
@@ -48,7 +49,8 @@ def _recording_database(statements):
 
 
 def test_seed_data_is_system_tenant_and_admin_only():
-    assert TENANT_SEEDS == ({"tenant_id": "system", "tenant_name_zh": "系统"},)
+    assert {"tenant_id": "system", "tenant_name_zh": "系统"} in TENANT_SEEDS
+    assert USER_SEEDS == (ADMIN_USER_SEED,)
     assert ADMIN_USER_SEED["user_id"] == "admin"
     assert ADMIN_USER_SEED["user_name_zh"] == "管理员"
     assert ADMIN_USER_SEED["tenant_role"] == "owner"

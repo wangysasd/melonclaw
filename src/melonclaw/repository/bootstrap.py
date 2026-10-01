@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import text
 
 from melonclaw.core.mcp_config import load_builtin_mcp_seed
+from melonclaw.core.mcp_credentials import encode_credentials
 from melonclaw.database.database import Database
 from melonclaw.repository.constants import DEFAULT_SIMULATED_USER_ID
 from melonclaw.repository.errors import SeedDataConflictError
@@ -61,8 +62,8 @@ async def seed_demo_data(database: Database) -> None:
 async def seed_builtin_data(database: Database) -> None:
     """把仓库内置 mcp.json 单向同步进数据库。
 
-    同步只在“数据库缺行”时补录，绝不覆盖管理员在 UI 上改过的启用状态、
-    白名单等运营字段；既有行的内容更新走资源管理 API。
+    新补录的系统 MCP 默认全员启用。同步只在“数据库缺行”时补录，绝不覆盖
+    管理员在 UI 上改过的启用状态、白名单等运营字段；既有行的内容更新走资源管理 API。
     内置 Skill 没有种子：系统级 Skill 的唯一存储是 data_root/skills/shared/，
     索引由 ``services/skill_index.py`` 在 db-init 时从磁盘重建。
     """
@@ -71,17 +72,20 @@ async def seed_builtin_data(database: Database) -> None:
     async with database.engine.begin() as connection:
         tushare_allowlist = _tushare_allowlist_from_env()
         for slug, config in sorted(load_builtin_mcp_seed().items()):
+            exists = await connection.execute(text("SELECT id FROM mcp_servers WHERE scope = 'global' AND slug = :slug"), {"slug": slug})
+            if exists.first() is not None:
+                continue
             await connection.execute(
                 text(
                     "INSERT INTO mcp_servers "
-                    "(id, slug, scope, source_type, transport, url, command, args, "
+                    "(id, slug, display_name, scope, transport, url, command, args, "
                     "env, headers, tool_allowlist, enabled, created_by, "
                     "created_at, updated_at) "
                     "VALUES "
-                    "(gen_random_uuid(), :slug, 'global', 'builtin', :transport, "
+                    "(gen_random_uuid(), :slug, :slug, 'global', :transport, "
                     ":url, :command, :args, :env, :headers, :tool_allowlist, "
                     "true, :created_by, :created_at, :updated_at) "
-                    "ON CONFLICT (slug) DO NOTHING"
+                    "ON CONFLICT (slug) WHERE scope = 'global' DO NOTHING"
                 ),
                 _builtin_mcp_params(
                     slug,
@@ -119,11 +123,11 @@ async def seed_provider_data(database: Database) -> None:
                 {
                     "provider_key": seed["provider_key"],
                     "display_name": seed["display_name"],
-                    "provider_type": seed.get("provider_type") or "openai_compatible",
+                    "provider_type": seed["provider_type"],
                     "base_url": seed["base_url"],
                     "api_key": None,
                     "api_key_env": "",
-                    "models_endpoint": seed.get("models_endpoint"),
+                    "models_endpoint": seed["models_endpoint"],
                     "enabled": False,
                     "created_by": DEFAULT_SIMULATED_USER_ID,
                     "created_at": timestamp,
@@ -151,12 +155,12 @@ def _builtin_mcp_params(
         "transport": config.get("transport", "http"),
         "url": config.get("url"),
         "command": config.get("command"),
-        "args": json.dumps(list(args)) if isinstance(args, list) else None,
+        "args": json.dumps(list(args)) if isinstance(args, list) else "[]",
         "env": json.dumps(
-            {str(k): str(v) for k, v in (config.get("env") or {}).items()}
+            encode_credentials({str(k): str(v) for k, v in (config.get("env") or {}).items()}, "global")
         ),
         "headers": json.dumps(
-            {str(k): str(v) for k, v in (config.get("headers") or {}).items()}
+            encode_credentials({str(k): str(v) for k, v in (config.get("headers") or {}).items()}, "global")
         ),
         "tool_allowlist": json.dumps(tool_allowlist) if tool_allowlist else None,
         "created_by": DEFAULT_SIMULATED_USER_ID,

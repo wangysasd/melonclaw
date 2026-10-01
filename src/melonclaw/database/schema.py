@@ -384,47 +384,50 @@ skill_user_states = Table(
 )
 
 mcp_servers = Table(
-    "mcp_servers",
-    metadata,
+    "mcp_servers", metadata,
     Column("id", PGUUID(as_uuid=True), primary_key=True),
-    Column("slug", String(64), nullable=False, unique=True),
+    Column("slug", String(64), nullable=False),
+    Column("display_name", String(128), nullable=False),
+    Column("description", Text, nullable=False, server_default=""),
     Column("scope", String(16), nullable=False),
-    Column("source_type", String(16), nullable=False),
+    Column("owner_user_id", String(64), ForeignKey("users.user_id", ondelete="RESTRICT")),
+    Column("created_by", String(64), ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False),
     Column("transport", String(16), nullable=False),
-    Column("url", Text, nullable=True),
-    Column("command", String(240), nullable=True),
-    Column("args", JSONB, nullable=True),
+    Column("url", Text),
+    Column("command", Text),
+    Column("args", JSONB, nullable=False, server_default="[]"),
     Column("env", JSONB, nullable=False, server_default="{}"),
     Column("headers", JSONB, nullable=False, server_default="{}"),
-    Column("tool_allowlist", JSONB, nullable=True),
-    Column("enabled", Boolean, nullable=False, server_default="true"),
-    Column(
-        "created_by",
-        String(64),
-        ForeignKey("users.user_id", ondelete="RESTRICT"),
-        nullable=False,
-    ),
+    Column("tool_allowlist", JSONB(none_as_null=True)),
+    Column("enabled", Boolean, nullable=False, server_default="false"),
+    Column("version", BigInteger, nullable=False, server_default="1"),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
-    CheckConstraint(
-        "scope IN ('global', 'user', 'tenant')",
-        name="ck_mcp_servers_scope",
-    ),
-    CheckConstraint(
-        "source_type IN ('builtin', 'manual')",
-        name="ck_mcp_servers_source_type",
-    ),
-    CheckConstraint(
-        "transport IN ('http', 'sse', 'stdio')",
-        name="ck_mcp_servers_transport",
-    ),
-    # 安全约束：stdio 只允许管理员发布的 global 配置，且必须有 command。
-    CheckConstraint(
-        "transport <> 'stdio' OR (scope = 'global' AND command IS NOT NULL)",
-        name="ck_mcp_servers_stdio_scope",
-    ),
-    Index("ix_mcp_servers_scope_enabled", "scope", "enabled"),
-    Index("ix_mcp_servers_created_by", "created_by"),
+    CheckConstraint("scope IN ('global', 'user')", name="ck_mcp_scope"),
+    CheckConstraint("(scope = 'global' AND owner_user_id IS NULL) OR "
+                    "(scope = 'user' AND owner_user_id IS NOT NULL)", name="ck_mcp_owner"),
+    CheckConstraint("slug ~ '^[a-z0-9][a-z0-9_-]{0,63}$'", name="ck_mcp_slug"),
+    CheckConstraint("(transport IN ('http','sse') AND url IS NOT NULL AND command IS NULL) OR "
+                    "(transport = 'stdio' AND scope = 'global' AND command IS NOT NULL AND url IS NULL)",
+                    name="ck_mcp_connection"),
+    CheckConstraint("version >= 1", name="ck_mcp_version"),
+    CheckConstraint("jsonb_typeof(args) = 'array' AND jsonb_typeof(env) = 'object' AND "
+                    "jsonb_typeof(headers) = 'object' AND "
+                    "(tool_allowlist IS NULL OR jsonb_typeof(tool_allowlist) = 'array')",
+                    name="ck_mcp_json"),
+    Index("uq_mcp_servers_global_slug", "slug", unique=True, postgresql_where=text("scope = 'global'")),
+    Index("uq_mcp_servers_user_owner_slug", "owner_user_id", "slug", unique=True,
+          postgresql_where=text("scope = 'user'")),
+)
+
+mcp_user_preferences = Table(
+    "mcp_user_preferences", metadata,
+    Column("user_id", String(64), ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True),
+    Column("slug", String(64), primary_key=True),
+    Column("enabled", Boolean, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("slug ~ '^[a-z0-9][a-z0-9_-]{0,63}$'", name="ck_mcp_preference_slug"),
 )
 
 model_providers = Table(

@@ -83,20 +83,65 @@ export interface SkillContentPreview {
   dependency_checks: { kind: string; name: string; status: "available" | "missing" | "manual" }[];
 }
 
-/** GET /api/mcp 返回的 MCP 服务摘要；env/headers 只回显键名，不回显值。 */
+/** MCP 列表不回显凭据，普通用户的全局项不包含连接字段。 */
 export interface McpServer {
+  id: string;
   slug: string;
-  scope: "global" | "user" | "tenant";
-  source_type: string;
+  display_name: string;
+  description: string;
+  scope: "global" | "user";
+  transport: "http" | "sse" | "stdio";
+  version: number;
+  enabled: boolean;
+  personally_enabled: boolean;
+  effective_enabled: boolean;
+  shadowed: boolean;
+  shadows_global: boolean;
+  unavailable_reason: string | null;
+  can_edit: boolean;
+  can_delete: boolean;
+  can_test: boolean;
+  url?: string | null;
+  command?: string | null;
+  args?: string[];
+  headers_keys?: string[];
+  env_keys?: string[];
+  tool_allowlist?: string[] | null;
+}
+
+export interface McpCredentialPatch {
+  set: Record<string, string>;
+  remove: string[];
+  clear: boolean;
+}
+
+export interface McpConfiguration {
+  slug: string;
+  display_name: string;
+  description: string;
   transport: "http" | "sse" | "stdio";
   url: string | null;
   command: string | null;
   args: string[];
-  env_keys: string[];
-  headers_keys: string[];
-  tool_allowlist: string[];
-  enabled: boolean;
-  created_by: string;
+  headers: McpCredentialPatch;
+  env: McpCredentialPatch;
+  tool_allowlist: string[] | null;
+}
+
+export interface McpTestResult {
+  ok: boolean; tool_count: number; tool_names: string[]; message: string;
+  error_code: "busy" | "timeout" | "authentication" | "connection" | null;
+  tool_details: { name: string; description: string }[];
+}
+
+export interface McpToolDiscoveryResult {
+  ok: boolean;
+  tool_count: number;
+  enabled_tool_count: number;
+  tools: { name: string; description: string; enabled: boolean }[];
+  missing_allowed_tools: string[];
+  error_code: McpTestResult["error_code"];
+  message: string;
 }
 
 /** GET /api/skills/manage 返回的可展示 Skill（不含全员停用的共享项）。 */
@@ -341,10 +386,10 @@ export type DecisionType = "approve" | "reject" | "respond" | "edit";
 
 export interface ApprovalAction {
   name: string;
-  /** 后端返回经过脱敏的 JSON 文本；兼容对象形式。 */
-  args?: string | Record<string, unknown>;
-  description?: string | null;
-  allowed_decisions?: DecisionType[];
+  /** 后端返回经过脱敏的 JSON 文本。 */
+  args: string;
+  description: string;
+  allowed_decisions: DecisionType[];
 }
 
 export interface ApprovalInterrupt {
@@ -353,15 +398,12 @@ export interface ApprovalInterrupt {
 }
 
 /**
- * pending_approval / approval_required 事件中的审批请求。
- * 单 interrupt 时为顶层 actions；多 interrupt 时为 interrupts 数组。
+ * pending_approval / approval_required 事件中的审批批次。
  */
 export interface PendingApproval {
-  approval_batch_id?: string;
-  assistant_message_id?: string;
-  id?: string;
-  actions?: ApprovalAction[];
-  interrupts?: ApprovalInterrupt[];
+  approval_batch_id: string;
+  assistant_message_id: string;
+  interrupts: ApprovalInterrupt[];
 }
 
 export interface UserQuestionOption {

@@ -249,12 +249,6 @@ export const TOOL_CATALOG: readonly ToolDefinition[] = [
   },
 ] as const;
 
-const TOOL_ALIASES: Record<string, string> = {
-  search: "internet_search",
-  tavily_search: "internet_search",
-  delete_file: "delete",
-};
-
 const TOOL_DEFINITIONS = new Map(
   TOOL_CATALOG.map((definition) => [definition.name, definition]),
 );
@@ -274,8 +268,7 @@ const COMMAND_TOOL_NAMES = new Set([
 ]);
 
 export function canonicalToolName(name: string): string {
-  const normalized = name.trim().toLowerCase();
-  return TOOL_ALIASES[normalized] ?? normalized;
+  return name.trim().toLowerCase();
 }
 
 export function toolDefinition(name: string): ToolDefinition | undefined {

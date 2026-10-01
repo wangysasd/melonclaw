@@ -55,7 +55,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 包 | 职责 | 典型文件 |
 |---|---|---|
 | `core/` | 配置、模型目录、模型工厂、提示词、Agent 组装、HITL 审批与用户问题、PTC Interpreter、MCP 配置与脱敏 | `config.py`、`model_catalog.py`、`chat_model.py`、`agent.py`、`hitl.py`、`user_input.py` |
-| `database/` | 连接、表结构定义、建表与完整性校验、常量 | `schema.py`、`migrations.py`、`constants.py` |
+| `database/` | 连接、表结构定义、建表与完整性校验、常量 | `schema.py`、`schema_validation.py`、`constants.py` |
 | `repository/` | 业务数据的读写、事务边界、会话锁、上下文与用户解析 | `repository.py`、`conversations.py`、`attachments.py`、`user_interactions.py`、`locks.py`、`bootstrap.py` |
 | `parsers/` | 附件扩展名/MIME/容器安全校验，以及受控文档到 Markdown 派生文件的解析 | `validation.py`、`documents.py` |
 | `storage/` | 当前工作区内附件原文、派生文件与临时文件的受控路径映射和发布 | `attachments.py` |
@@ -110,7 +110,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission`；用户问题由 `core/user_input.py` 的 `interrupt()` 进入同一 Checkpoint | 写文件、删文件、Shell 等有副作用的操作必须走审批或权限边界；缺少关键用户决策时 Agent 可暂停等待回答；审批恢复必须绑定当前 `approval_batch_id` 与 `assistant_message_id`；用户问题的唯一出口是一次真正的 `Command(resume=...)`，答案可以是选项/文本，也可以是 `{"type": "cancelled"}`（用户跳过或 TTL 过期后由 `services/user_input_execution.py` 代答），只改 `user_interactions` 状态不会解除 Checkpoint 挂起；答案已收但本轮没跑完时账本会被标成 `recovery_required` 并且**禁止自动重放**（不知道副作用执行到哪一步），此时历史表现为失败，唯一的解锁入口是用户发新消息——那时服务层会先代答取消、把 Checkpoint 叫醒收尾 |
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
 | Skill 资源 | `services/skills.py` 解析正文；`skill_state.py` 统一有效状态；`skill_import.py` 导入更新；`skill_operations.py` 文件日志恢复；`skill_index.py` 索引重建 | 正文在文件系统，DB 保存归属、启停、版本和来源。持久草稿与内容提交受同数据根文件锁保护；更新保留 ID/偏好，删除先隔离目录。管理、Picker 和 Agent 共用有效状态；`skill_snapshot.py` 固定有效目录内容与摘要，`middleware/skill_refresh.py` 每轮刷新 Checkpoint 摘要。详见 [Skill 生命周期](design-docs/skill-lifecycle.md)。 |
-| Skill/MCP/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
+| Skill/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
 | 附件请求身份 | `api/identity.py` 的 `resolve_request_user_id()` | 附件路由决定 `user_id` 从哪里读（查询/表单，或部署方配置的受信任请求头）；**不做身份校验**，用户的唯一租户归属和资源所有权仍由服务层重新校验 |
 
 凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`TAVILY_API_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；给 Agent 的变量名集中在 `core/defaults.py` 声明，值只来自 `.env`。
@@ -158,9 +158,9 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 2. 清空/重建数据库后执行 `uv run melonclaw-db-init`：`create_schema` 只做一次 `metadata.create_all`，`seed_demo_data` 写入演示数据，`reindex_skills_from_disk()` 从 `data_root/skills/` 补回 Skill 索引；
 3. 服务启动时 `verify_schema` 只做校验，**不会**自动迁移，也不会补列。
 
-清库会丢掉两类"看起来在代码里、实际只在数据库里"的东西，`db-init` 对它们的处理不同：**结构**必须由 `schema.py` 定义（漂移由 `verify_schema` 拦截），**索引类数据**由 `db-init` 从磁盘或仓库种子重建（内置 MCP 来自 `mcp.json`，Skill 索引来自 `data_root/skills/`）。新增任何"DB 只是投影"的资源时，都要同时给出重建入口，否则清库后它会静默消失而不是报错。
+清库会丢掉两类"看起来在代码里、实际只在数据库里"的东西，`db-init` 对它们的处理不同：**结构**必须由 `schema.py` 定义（当前结构校验由 `verify_schema` 执行），**索引类数据**由 `db-init` 从磁盘或仓库种子重建（内置 MCP 来自 `mcp.json`，Skill 索引来自 `data_root/skills/`）。新增任何"DB 只是投影"的资源时，都要同时给出重建入口，否则清库后它会静默消失而不是报错。
 
-`metadata.create_all` 只建缺失的表，从不 ALTER 已有表。`verify_schema` 对 `BUSINESS_TABLES` 逐表比对列（缺列和多列都报），并检查 ZIP 上传必需的附件类型约束是否包含 `archive`，让旧库在启动时直接报重建提示。**业务表和资源表都必须登记在 `database/constants.py` 的 `BUSINESS_TABLES`**：漏登记的表不会做列校验，漂移可能到种子 INSERT 才以裸数据库错误暴露（`model_configs` 曾缺 `is_default` 列就是这样发生的）。新增业务表时，同时把它加入 `BUSINESS_TABLES`。
+`metadata.create_all` 只建缺失的表，从不 ALTER 已有表。`verify_schema` 对 `BUSINESS_TABLES` 逐表比对当前定义的列；数据库结构变更通过清空开发库并重新初始化完成。**业务表和资源表都必须登记在 `database/constants.py` 的 `BUSINESS_TABLES`**：漏登记的表不会做列校验，漂移可能到种子 INSERT 才以数据库错误暴露。新增业务表时，同时把它加入 `BUSINESS_TABLES`。
 
 若重建数据库是为了改变用户的租户映射，先备份需要保留的文件，并清理 `MELONCLAW_WORKSPACE_DIR` 指向的旧工作区（未配置时为 `~/.melonclaw/workspaces`），再初始化数据库。建表命令不会清理工作区；沿用旧目录会留下与新数据库无对应记录的文件。工作区路径中的 UUID 和目录层级不是租户安全边界。
 
@@ -169,3 +169,17 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 供应商持有 `api_key_env`、`request_headers`、`extra_config`。配置校验集中在 `services/provider_config.py`；全局模型的凭据由仓储按个人 Key → 数据库共享 Key → 指定环境变量解析，环境变量读取统一走 `core/config.py`。这只补充凭据，不从环境变量生成模型。供应商的 scope 在数据库与 API 均限定为 `global`，模型限定为 `global/user`，不保留私有供应商或租户模型分支。`core/model_catalog.py` 把高级参数带入 ResolvedModel，`core/chat_model.py` 分别通过 default_headers 和 extra_body 注入；远端模型列表请求复用 request_headers。请求头值与 Key 不进入公共响应，扩展请求体不可覆盖模型/消息/工具/流协议或凭据字段。
 
 普通用户配置个人 Key 后可独立添加和使用个人模型，不受供应商全局 enabled 开关影响；管理员开关仅控制内置模型。个人模型仅使用个人 Key，清除后不可用，不借用共享 Key。连接地址仍由管理员维护。
+
+### MCP 两层配置与连接边界（2026-10-01）
+
+MCP 管理从 `services/mcp_management.py` 进入，持久化由 `repository/mcp.py` 完成；运行时
+仍只从 `services/mcp.py` 读取数据库配置。配置与个人偏好分别存入 `mcp_servers` 和
+`mcp_user_preferences`。先确定个人覆盖来源，再判断启用，停用个人项不回退全局。
+headers/env 经 `core/mcp_credentials.py` 加密，密钥读取仅走 `core/config.py`。
+缓存摘要来自同一配置/偏好快照，涵盖删除；失败工具发现不永久缓存。
+MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空间中的连接指纹防止旧审批
+调用新连接。JSON 原文只在前端导入，不进入数据库或模型。
+工具白名单选择统一使用 `core/mcp_config.py` 的 `select_mcp_tool_names`，按目录交集提供工具，
+缺失项警告不扩大授权。管理发现由 `ChatRuntime.mcp_discovery`（`services/mcp_discovery.py`）
+调度，权限/版本校验先于共享任务与脱敏目录缓存；草稿和 stdio 不缓存，Agent 独立发现并保持审批。
+完整权限、API、审批恢复边界与验证见 [MCP 两层设计](design-docs/mcp-two-layer.md)。

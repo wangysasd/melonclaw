@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 
 def _create_workspace_root() -> Path:
@@ -58,14 +57,6 @@ class Settings:
     workspace_root: Path
     data_root: Path = field(default_factory=_create_data_root)
     database_url: str = field(default="", repr=False)
-    # MCP 运行时装配唯一入口是 services/mcp.py（从 mcp_servers 表读取）；
-    # 这里的字段仅为兼容旧调用方保留空默认，load_settings 不再读 mcp.json。
-    mcp_servers: dict[str, dict[str, Any]] = field(
-        default_factory=dict, repr=False
-    )
-    mcp_tool_allowlists: dict[str, tuple[str, ...]] = field(
-        default_factory=dict, repr=False
-    )
     tavily_api_key: str = field(default="", repr=False)
     attachment_max_file_bytes: int = 20 * 1024 * 1024
     attachment_max_per_message: int = 10
@@ -189,3 +180,8 @@ def provider_env_key(name: str) -> str | None:
     if not name or not re.fullmatch(r"[A-Z][A-Z0-9_]*(?:_API_KEY|_ACCESS_TOKEN)", name):
         return None
     return os.getenv(name, "").strip() or None
+
+
+def mcp_encryption_key() -> str:
+    """MCP 凭据加密密钥的唯一配置入口；不输出密钥。"""
+    return os.getenv("MELONCLAW_MCP_ENCRYPTION_KEY", "").strip()

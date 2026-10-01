@@ -1,5 +1,7 @@
 # 用户 Skill 与 MCP 资源管理
 
+> MCP 部分已由 [MCP 两层配置与 JSON 导入](mcp-two-layer.md) 更新（2026-10-01）。以下旧 MCP 接口与状态描述仅作历史记录。
+
 - 状态：已实现
 - 背景与目标：原先 Skill 固定从仓库根目录 `skills/` 读取、MCP 固定从根目录 `mcp.json` 在进程启动时一次性加载，两者都是部署级静态配置，没有用户级概念。本设计让管理员安装全员共享的 Skill、管理全局 MCP，同时每个用户可以上传自己的私有 Skill、配置自己的私有 MCP。
 - 参考：隔壁 Yuxi 项目的"元数据索引在 DB、内容在文件系统"、两段式安装草稿、内置代码→DB 单向同步等设计（详见调研记录）；注入机制按 melonclaw 自身架构（DeepAgents `create_deep_agent` + `CompositeBackend` 每 Agent 构建）重新设计，未采用 Yuxi 的每用户投影目录与工具门控。
@@ -19,7 +21,7 @@
 
 - `skills` 表：name（共享名称唯一，私有名称按创建者唯一）、scope、source_type（builtin/upload/remote）、enabled（管理员全员开关）、storage_path（相对 `data_root/skills`，不存宿主机绝对路径）、version、created_by。
 - `skill_user_states` 表：`(user_id, skill_id)` 主键的个人启停偏好，只用于共享 Skill——默认启用（无行即启用），用户写下 `enabled=false` 表示"我自己不用"，不影响其他用户；私有 Skill 的启停不进这张表，由 `skills.enabled` 表达。
-- `mcp_servers` 表：slug（唯一）、scope、source_type（builtin/manual）、transport（http/sse/stdio）、url/command/args/env/headers/tool_allowlist、enabled、created_by；CHECK 约束强制 `stdio → scope='global' AND command IS NOT NULL`。
+- `mcp_servers` 表：slug、display_name、scope、owner_user_id、created_by、transport、url/command/args/env/headers、tool_allowlist、enabled、version；部分唯一索引分别约束全局 slug 与个人 owner+slug；CHECK 约束限制 scope 归属和连接参数。现行字段以 [MCP 两层设计](mcp-two-layer.md) 为准。
 - 文件布局：`<data_root>/skills/shared/<name>/`（global）、`users/<user_id>/<name>/`（user）、`tmp/<draft_id>/`（上传草稿）。
 - **文件系统是 SKILL.md 的唯一事实来源**，DB 行只做"存在 + enabled + scope + 个人偏好"索引；列表 = 磁盘扫描 ∩ DB 可见行，避免正文双写。
 
@@ -33,9 +35,9 @@
 
 > 管理卡片交互（2026-09）：卡片不显示 Skill Logo，标题下展示由资源记录推导的来源；右上角主按钮按当前用户状态显示「添加」或「使用」。添加按 scope 调用个人启停或全员启停接口，使用会新建空白对话并预选 Skill。右上角「…」菜单提供「下载」：管理员对启用的共享项显示「全员停用」，普通用户对共享项显示「我不使用」（仅修改个人偏好），私有 Skill 显示「卸载」。全员停用的共享项只在管理员管理页保留，可再次「添加」或删除；普通用户管理页和所有 Picker 均不展示。菜单权限仍由服务端校验。当前没有可靠的使用人数数据，因此不显示截图中的人数统计。搜索框缩到原宽度约一半；列表不再使用内部固定高度，长列表沿资源页继续向下滚动。
 
-### 内置源兼容
+### 内置 MCP 种子
 
-仓库 `mcp.json` 保留为种子：`melonclaw-db-init` 时单向同步进 DB（`ON CONFLICT DO NOTHING`，不覆盖管理员改过的运营字段）。运行时切断文件直连，唯一入口是 DB。Tushare 工具白名单环境变量在种子阶段落进 `tool_allowlist` 列。
+仓库 `mcp.json` 保留为种子：`melonclaw-db-init` 时单向同步进 DB；新导入的系统 MCP 默认全员启用，用户没有个人停用偏好时显示“已添加”。已存在行不覆盖管理员改过的运营字段。运行时切断文件直连，唯一入口是 DB。Tushare 工具白名单环境变量在种子阶段落进 `tool_allowlist` 列。
 
 > 2026-09 更新：仓库 `skills/` 目录已移除，不再作为种子。系统级 Skill 唯一存储是 `data_root/skills/shared/`（`.data/` 下），正文纳入版本控制（`cicc-*`/`htsc-*` 除外），`users/`、`tmp/` 不进版本控制；新增/更新一律走资源管理 UI 或 skill_import 服务，避免了仓库与数据根双副本。`source_type='builtin'` 表示 db-init 从共享目录登记的 Skill。
 

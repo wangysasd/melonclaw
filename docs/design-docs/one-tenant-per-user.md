@@ -43,4 +43,4 @@
 
 ## 当前开发数据中的部门租户
 
-开发数据库中另有两个显式部门租户：`market`（市场部）和 `research`（研发部）。李四的 `users.tenant_id` 指向 `market`，张三指向 `research`；两人的 `user_id` 和中文用户名不变。新租户 ID 与中文名称在 `repository/seed_data.py` 登记，确保重复执行 db-init 时租户记录仍在。用户租户关系以 `users.tenant_id` 为准；改归属需要在事务中先确保租户存在，再更新该列。当前用户创建接口仍将新用户放入 `system` 租户，没有面向普通用户的换租户 API。
+开发数据库中另有两个显式部门租户：`dep-a`（部门A）和 `dep-b`（部门B）。张三的 `users.tenant_id` 指向 `dep-a`，李四指向 `dep-b`。新租户 ID 与中文名称在 `repository/seed_data.py` 登记，确保重复执行 db-init 时租户记录仍在。用户租户关系以 `users.tenant_id` 为准；改归属需要在事务中先确保租户存在，再更新该列。当前用户创建接口仍将新用户放入 `system` 租户，没有面向普通用户的换租户 API。

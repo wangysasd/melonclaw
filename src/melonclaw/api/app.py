@@ -5,7 +5,10 @@ from __future__ import annotations
 import os
 
 from fastapi import FastAPI
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from melonclaw.api.identity import identity_header_name
 from melonclaw.api.lifespan import lifespan
@@ -59,11 +62,17 @@ def create_app() -> FastAPI:
         description="Deep Agents 学习项目的浏览器交互 API。",
         lifespan=lifespan,
     )
+    @application.exception_handler(RequestValidationError)
+    async def safe_validation(request, exc):
+        if request.url.path.startswith("/api/mcp"):
+            return JSONResponse({"error": "MCP 字段格式无效，请检查名称、标识和连接配置。"}, status_code=422)
+        return await request_validation_exception_handler(request, exc)
+
     # 前后端分离部署时允许跨域调用 /api。
     application.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins(),
-        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=allowed_headers(),
     )
     application.include_router(status_router)

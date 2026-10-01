@@ -33,7 +33,8 @@ from melonclaw.database import (
 from melonclaw.memory import MemoryService
 from melonclaw.output.formatting import sanitize_text
 from melonclaw.repository import BusinessRepository
-from melonclaw.services.mcp import resolve_user_mcp_servers
+from melonclaw.services.mcp import mcp_snapshot_revision, resolve_user_mcp_servers
+from melonclaw.services.mcp_discovery import McpDiscoveryCoordinator
 from melonclaw.services.skill_snapshot import clear_stale_snapshots, skill_snapshot
 from melonclaw.services.skill_state import evaluate_skills
 from melonclaw.services.skills import (
@@ -69,6 +70,7 @@ class ChatRuntime:
     skill_install_provider: Any | None = None
     workspace_agents: dict[Any, Any] | None = None
     agent_build_locks: dict[Any, _AgentBuildLock] = field(default_factory=dict)
+    mcp_discovery: McpDiscoveryCoordinator = field(default_factory=McpDiscoveryCoordinator)
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
 
@@ -121,6 +123,8 @@ class ChatRuntime:
     async def close(self) -> None:
         """按依赖顺序释放 Agent 使用的 Checkpointer 池和业务池。"""
 
+        await self.mcp_discovery.close()
+
         if self.memory_store_context is not None:
             try:
                 await close_memory_store(self.memory_store_context)
@@ -166,7 +170,7 @@ class ChatRuntime:
         mcp_slugs: list[str] = []
         if self.storage is not None and state == "ready":
             rows = await self.storage.list_visible_mcp_rows("")
-            mcp_slugs = [str(row["slug"]) for row in rows]
+            mcp_slugs = [str(row["slug"]) for row in rows if row["enabled"]]
         return {
             "status": state,
             "message": self.startup_error or "",
@@ -241,20 +245,6 @@ class ChatRuntime:
                 if item.key == skill_id
             ),
             None,
-        )
-
-    async def config_revision(self, user_id: str) -> tuple[str, str, str]:
-        """Skill/MCP/模型配置版本戳，Agent 缓存键用它做配置变更失效。
-
-        用全局 max(updated_at) 做代际：任何用户的配置变更都会让所有缓存键
-        变化一次（多重建一个 Agent），换取实现简单和多进程一致。
-        """
-
-        storage = self.require_ready()
-        return (
-            await storage.skills_revision(),
-            await storage.mcp_revision(),
-            await storage.models_revision(),
         )
 
     async def _model_api_key(
@@ -371,7 +361,7 @@ class ChatRuntime:
         selected = default_pair or (candidates[0] if candidates else None)
         if selected is not None:
             return resolve_model_row(*selected)
-        raise ValueError("暂无可用模型，请先在插件 → 模型中配置供应商 Key 并添加模型。")
+        raise ValueError("暂无可用模型，请先在技能|连接器 → 模型中配置供应商 Key 并添加模型。")
 
     async def model_for_message(
         self, user_id: str, message: dict[str, Any]
@@ -465,12 +455,12 @@ class ChatRuntime:
             else f"conversation:{user_id}:{conversation['id']}"
         )
         storage = self.require_ready()
-        skills_revision, mcp_revision, models_revision = await self.config_revision(
-            user_id
-        )
+        models_revision = await storage.models_revision()
         skills_revision, skill_dirs, skill_references = await skill_snapshot(
             storage, user_id, self.settings.data_root, self._catalog_for(user_id)
         )
+        mcp_rows = await storage.list_visible_mcp_rows(user_id)
+        mcp_revision = mcp_snapshot_revision(mcp_rows)
         key = (
             workspace_key,
             resolved_model.cache_key,
@@ -491,7 +481,6 @@ class ChatRuntime:
                 cached = self.workspace_agents.get(key)
                 if cached is not None:
                     return cached
-                mcp_rows = await storage.list_visible_mcp_rows(user_id)
                 mcp_servers, mcp_allowlists = resolve_user_mcp_servers(mcp_rows)
                 agent = await build_research_agent(
                     self.settings,
@@ -507,8 +496,9 @@ class ChatRuntime:
                     skill_dirs=skill_dirs,
                 )
                 agent.melonclaw_skill_references = skill_references
-                self.workspace_agents[key] = agent
-                cache_limit = max(1, getattr(self.settings, "agent_cache_entries", 32))
+                if not agent.melonclaw_mcp_failed:
+                    self.workspace_agents[key] = agent
+                cache_limit = max(1, self.settings.agent_cache_entries)
                 while len(self.workspace_agents) > cache_limit:
                     self.workspace_agents.pop(next(iter(self.workspace_agents)))
                 return agent

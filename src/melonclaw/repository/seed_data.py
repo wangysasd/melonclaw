@@ -12,6 +12,8 @@ from melonclaw.repository.constants import SYSTEM_TENANT_ID
 
 TENANT_SEEDS: tuple[dict[str, str], ...] = (
     {"tenant_id": SYSTEM_TENANT_ID, "tenant_name_zh": "系统"},
+    {"tenant_id": "dep-a", "tenant_name_zh": "部门A"},
+    {"tenant_id": "dep-b", "tenant_name_zh": "部门B"},
 )
 
 ADMIN_USER_SEED: dict[str, str] = {

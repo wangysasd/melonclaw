@@ -356,7 +356,7 @@ describe("agent execution panel", () => {
     expect(container.querySelector(".agent-step-pending")?.textContent).toContain("正在生成回复");
   });
 
-  it("renders nothing for a legacy message without steps or events", () => {
+  it("renders nothing when the message has no execution steps", () => {
     const { container } = render(
       <AgentExecution
         run={buildAgentRun(assistant({ status: "completed", content: "很久以前的答复" }))}

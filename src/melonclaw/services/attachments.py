@@ -516,7 +516,7 @@ class AttachmentService:
             if project is None:
                 raise AttachmentNotFoundError()
             return self.runtime.project_workspace_dir(project)
-        owner = record.get("owner_conversation_id")
+        owner = record["owner_conversation_id"]
         if owner is None:
             raise AttachmentNotFoundError()
         conversation_id = UUID(str(owner))

@@ -2,13 +2,24 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApprovalPanel } from "../src/components/ApprovalPanel";
+import type { ApprovalAction, PendingApproval } from "../src/types/api";
 
-const action = { name: "write_file", args: { file_path: "/notes.txt", content: "hello" } };
+const action: ApprovalAction = {
+  name: "write_file",
+  args: JSON.stringify({ file_path: "/notes.txt", content: "hello" }, null, 2),
+  description: "Write a file",
+  allowed_decisions: ["approve", "edit", "reject"],
+};
+const approval = (id: string, actions: ApprovalAction[]): PendingApproval => ({
+  approval_batch_id: `batch-${id}`,
+  assistant_message_id: "assistant-1",
+  interrupts: [{ id, actions }],
+});
 describe("HITL decisions", () => {
   it("requires an explicit choice for every action and preserves interrupt grouping", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(<ApprovalPanel approval={{ interrupts: [{ id: "a", actions: [action] }, { id: "b", actions: [action] }] }} onSubmit={onSubmit} />);
+    render(<ApprovalPanel approval={{ ...approval("a", [action]), interrupts: [{ id: "a", actions: [action] }, { id: "b", actions: [action] }] }} onSubmit={onSubmit} />);
     const submit = screen.getByRole("button", { name: "提交 2 项决定并继续" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     const groups = screen.getAllByRole("group", { name: /处理方式/ });
@@ -20,7 +31,7 @@ describe("HITL decisions", () => {
   });
   it("rejects invalid edits and fixes the tool name when submitting valid JSON", async () => {
     const user = userEvent.setup(); const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(<ApprovalPanel approval={{ id: "a", actions: [action] }} onSubmit={onSubmit} />);
+    render(<ApprovalPanel approval={approval("a", [action])} onSubmit={onSubmit} />);
     await user.click(screen.getByRole("button", { name: "编辑参数" }));
     const input = screen.getByLabelText("write_file 的编辑参数");
     await user.clear(input); await user.paste("[]");
@@ -32,7 +43,7 @@ describe("HITL decisions", () => {
   });
   it("requires a nonempty respond result and shows a recoverable submission error", async () => {
     const user = userEvent.setup(); const onSubmit = vi.fn().mockRejectedValue(new Error("同步后重试"));
-    render(<ApprovalPanel approval={{ actions: [{ ...action, allowed_decisions: ["respond"] }] }} onSubmit={onSubmit} />);
+    render(<ApprovalPanel approval={approval("a", [{ ...action, allowed_decisions: ["respond"] }])} onSubmit={onSubmit} />);
     expect(screen.queryByRole("button", { name: "允许本次" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "提供结果" }));
     await user.click(screen.getByRole("button", { name: "提交 1 项决定并继续" }));
@@ -46,23 +57,23 @@ describe("HITL decisions", () => {
 
 it("edits the backend's sanitized JSON string without double serialization", async () => {
   const user = userEvent.setup(); const onSubmit = vi.fn().mockResolvedValue(undefined);
-  render(<ApprovalPanel approval={{ id: "a", actions: [{ ...action, args: JSON.stringify(action.args, null, 2) }] }} onSubmit={onSubmit} />);
+  render(<ApprovalPanel approval={approval("a", [action])} onSubmit={onSubmit} />);
   await user.click(screen.getByRole("button", { name: "编辑参数" }));
-  expect((screen.getByLabelText("write_file 的编辑参数") as HTMLTextAreaElement).value).toBe(JSON.stringify(action.args, null, 2));
+  expect((screen.getByLabelText("write_file 的编辑参数") as HTMLTextAreaElement).value).toBe(action.args);
   await user.click(screen.getByRole("button", { name: "提交 1 项决定并继续" }));
-  expect(onSubmit).toHaveBeenCalledWith([{ type: "edit", edited_action: { name: "write_file", args: action.args } }]);
+  expect(onSubmit).toHaveBeenCalledWith([{ type: "edit", edited_action: { name: "write_file", args: JSON.parse(action.args) } }]);
 });
 
 it("shows shared installation effects and submits only an explicit approval", async () => {
   const user = userEvent.setup();
   const onSubmit = vi.fn().mockResolvedValue(undefined);
-  render(<ApprovalPanel approval={{ id: "skill-approval", actions: [{
-    name: "confirm_skill_install", allowed_decisions: ["approve", "reject"],
+  render(<ApprovalPanel approval={approval("skill-approval", [{
+    name: "confirm_skill_install", description: "Confirm Skill install", allowed_decisions: ["approve", "reject"],
     args: JSON.stringify({ installation: {
       draft_id: "draft", name: "report", scope: "global", enable: true,
       source_url: "https://github.com/example/report", source_ref: "commit", content_hash: "hash",
     } }),
-  }] }} onSubmit={onSubmit} />);
+  }])} onSubmit={onSubmit} />);
   expect(screen.getByLabelText("Skill 安装清单").textContent).toContain("系统共享");
   expect(screen.getByLabelText("Skill 安装清单").textContent).toContain("全员启用");
   expect((screen.getByRole("button", { name: "提交 1 项决定并继续" }) as HTMLButtonElement).disabled).toBe(true);
