@@ -194,6 +194,7 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
   const sourceLabel = (sourceType: string) => {
     if (sourceType === "builtin") return "系统内置";
     if (sourceType === "remote") return "远程安装";
+    if (sourceType === "generated") return "聊天生成";
     return "上传";
   };
 
@@ -285,21 +286,16 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
                     ? isAdmin
                     : skill.created_by === userId;
                 const menuItems = [
+                  { key: "personal", label: isAdded ? (isAdmin ? "对我关闭" : "关闭") : (isAdmin ? "对我启用" : "启用"), disabled: unavailable !== null || globallyDisabled },
+                  ...(skill.scope === "global" && isAdmin ? [{ key: "global", label: skill.enabled ? "全员关闭" : "全员启用", disabled: unavailable !== null }] : []),
                   {
                     key: "download",
-                    label: (
-                      <span className="skill-card-menu-label">
-                        <Icon name="arrow-up" size={16} rotate={180} />
-                        下载
-                      </span>
-                    ),
+                    label: "下载",
                     disabled: unavailable === "missing",
                   },
-                  { key: "personal", label: isAdded ? "我不使用" : "添加到我的技能", disabled: unavailable !== null || globallyDisabled },
-                  ...(skill.scope === "global" && isAdmin ? [{ key: "global", label: skill.enabled ? "全员停用" : "全员启用", disabled: unavailable !== null }] : []),
                   ...(canManageContent ? [
                     { key: "update", label: "上传更新内容", disabled: installStage !== null },
-                    { key: "remote-update", label: "从远程更新内容", disabled: installStage !== null },
+                    { key: "remote-update", label: "远程更新内容", disabled: installStage !== null },
                     { key: "delete", label: "删除", danger: true },
                   ] : []),
                 ];
@@ -345,10 +341,10 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
                             });
                             return;
                           }
-                          void runAction(() => updateSkill(skill.name, { userId, enabled: true, scope: apiScope }), "已添加到我的技能", true);
+                          void runAction(() => updateSkill(skill.name, { userId, enabled: true, scope: apiScope }), "已对我启用", true);
                         }}
                       >
-                        {globallyDisabled ? "全员已停用" : isShadowed ? "已遮蔽" : isUsable ? "使用" : "添加到我的技能"}
+                        {globallyDisabled ? "全员已关闭" : isShadowed ? "已遮蔽" : isUsable ? "去试试" : (isAdmin ? "对我启用" : "启用")}
                       </Button>
                       <Dropdown
                         classNames={{ root: "skill-card-menu" }}
@@ -364,10 +360,10 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
                                 );
                             }
                             if (key === "personal") {
-                              void runAction(() => updateSkill(skill.name, { userId, enabled: !isAdded, scope: apiScope }), isAdded ? "已设为我不使用" : "已添加到我的技能", true);
+                              void runAction(() => updateSkill(skill.name, { userId, enabled: !isAdded, scope: apiScope }), isAdded ? "已对我关闭" : "已对我启用", true);
                             }
                             if (key === "global") {
-                              void runAction(() => updateSkillGlobalState(skill.name, { userId, enabled: !skill.enabled }), skill.enabled ? "已全员停用" : "已全员启用", true);
+                              void runAction(() => updateSkillGlobalState(skill.name, { userId, enabled: !skill.enabled }), skill.enabled ? "已全员关闭" : "已全员启用", true);
                             }
                             if (key === "update" || key === "remote-update") {
                               setUpdateTarget(skill);
@@ -469,7 +465,7 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
             <p>{detailSkill.description || detailSkill.name}</p>
             <p>{detailSkill.scope === "global" ? "系统共享" : "我的技能"} · v{detailSkill.version}</p>
             {detailSkill.source_url ? <p>来源：{detailSkill.source_url}</p> : null}
-            {detailSkill.source_ref ? <p>Commit：{detailSkill.source_ref}</p> : null}
+            {detailSkill.source_ref ? <p>{detailSkill.source_type === "generated" ? "来源会话" : "Commit"}：{detailSkill.source_ref}</p> : null}
             {detailSkill.diagnostic ? <p role="alert">{detailSkill.diagnostic}</p> : null}
             {detailError ? <p role="alert">{detailError}</p> : detailContent ? <SkillPreview preview={detailContent} /> : <p role="status">正在读取内容…</p>}
           </div>
@@ -555,7 +551,7 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
             {pending.base_version !== null ? <p>版本：v{pending.base_version} → v{pending.base_version + 1}</p> : null}
             <SkillPreview preview={pending.preview} showDiff={pending.operation === "update"} />
             <p className="resource-draft-meta">
-              {pending.operation === "update" ? "更新保留资源身份、启停与个人偏好。" : pending.scope === "global" ? "安装到系统共享，需管理员「全员启用」后开放给所有人。" : "安装到我的技能，点击「添加到我的技能」后启用。"}
+              {pending.operation === "update" ? "更新保留资源身份、启停与个人偏好。" : pending.scope === "global" ? "安装到系统共享，需管理员「全员启用」后开放给所有人。" : "安装到我的技能，点击「对我启用」后启用。"}
             </p>
           </div>
         ) : null}

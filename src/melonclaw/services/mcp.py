@@ -89,7 +89,7 @@ def resolved_mcp_config(row: dict) -> dict:
 def resolve_user_mcp_servers(rows: list[dict]) -> tuple[dict, dict]:
     servers, allowlists = {}, {}
     for row in selected_mcp_rows(rows):
-        # Decryption/configuration failure belongs to this server, never a fallback source.
+        # Credential/configuration failure belongs to this server, never a fallback source.
         try:
             servers[row["slug"]] = resolved_mcp_config(row)
         except (ValueError, RuntimeError):

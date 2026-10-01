@@ -15,7 +15,8 @@ export function SkillInstallApproval({ action }: { action: ApprovalAction }) {
   return (
     <div className="approval-description skill-install-approval" aria-label="Skill 安装清单">
       <p>技能：{String(installation.name ?? "")}</p>
-      <p>来源：{String(installation.source_url || "聊天 ZIP 附件")}</p>
+      <p>来源：{String(installation.source_url ||
+        (String(installation.source_ref ?? "").startsWith("chat:") ? "聊天生成" : "聊天 ZIP 附件"))}</p>
       <p>安装范围：{shared ? "系统共享" : "仅自己"}</p>
       <p>{installation.enable === true
         ? shared ? "安装并全员启用；所有用户均可使用。" : "安装并启用，仅自己可用。"

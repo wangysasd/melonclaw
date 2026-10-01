@@ -7,7 +7,6 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from cryptography.fernet import Fernet
 
 from melonclaw.api.app import create_app
 from melonclaw.api.mcp_schemas import McpCreateRequest
@@ -96,16 +95,17 @@ def test_role_visibility_shadowing_and_delete_restore():
     asyncio.run(run())
 
 
-def test_credentials_write_only_preserve_replace_clear_and_version(monkeypatch):
-    monkeypatch.setenv("MELONCLAW_MCP_ENCRYPTION_KEY", Fernet.generate_key().decode())
-
+def test_credentials_plaintext_storage_write_only_api_and_version():
     async def run():
         manager, storage = service()
         saved = await manager.create(
             "alice", payload(headers={"set": {"Authorization": "Bearer private-secret"}})
         )
         row = storage.rows[saved["id"]]
-        assert "private-secret" not in str(row)
+        assert row["headers"]["Authorization"] == {
+            "kind": "plain",
+            "value": "Bearer private-secret",
+        }
         assert "private-secret" not in str(await manager.detail("alice", saved["id"]))
         await manager.update("alice", saved["id"], 1, {"description": "changed"})
         assert decode_credentials(row["headers"])["Authorization"] == "Bearer private-secret"
@@ -220,7 +220,6 @@ def test_real_stdio_discovery_does_not_execute_business_tool(tmp_path):
 def test_discovery_reports_partial_allowlist_and_redacts_descriptions(monkeypatch):
     from melonclaw.services import mcp_management
 
-    monkeypatch.setenv("MELONCLAW_MCP_ENCRYPTION_KEY", Fernet.generate_key().decode())
     calls = []
 
     class Client:

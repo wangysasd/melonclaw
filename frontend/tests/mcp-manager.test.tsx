@@ -56,7 +56,7 @@ it("lets a user restore personal use from the menu after choosing not to use a s
   render(<App><McpManager userId="member" isAdmin={false} notify={notify} /></App>);
 
   fireEvent.click(await screen.findByRole("button", { name: "Research 菜单" }));
-  fireEvent.click(await screen.findByRole("menuitem", { name: "添加到我的服务" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "启用" }));
 
   await waitFor(() => expect(addMcp).toHaveBeenCalledWith(item, "member"));
 });

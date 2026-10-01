@@ -23,6 +23,10 @@ class SkillInstallation(BaseModel):
 
 
 class SkillInstallProvider(Protocol):
+    async def prepare_creation(
+        self, context: Any, *, files: dict[str, str], enable: bool,
+    ) -> dict[str, Any]: ...
+
     async def prepare(
         self, context: Any, *, github_url: str, attachment_id: str, enable: bool,
     ) -> dict[str, Any]: ...
@@ -31,6 +35,21 @@ class SkillInstallProvider(Protocol):
 
 
 def build_skill_install_tools(provider: SkillInstallProvider) -> list[BaseTool]:
+    @tool
+    async def prepare_skill_creation(
+        files: dict[str, str], enable: bool = True, *, runtime: ToolRuntime[Any],
+    ) -> dict:
+        """用户要求将聊天流程生成 Skill 时，校验内容并准备保存预览。
+
+        files 为相对文件名到完整 UTF-8 正文的映射，必须含 SKILL.md（name、description
+        YAML frontmatter）；可附 references/ 下 .md 或 .txt。最多 32 文件、64000 字节。
+        只暂存，不发布、不执行脚本。不要包含凭据、个人宿主路径或整段聊天记录。
+        展示完整正文、参考文件、名称、范围和启用影响，再原样传 installation 给
+        confirm_skill_install 审批。admin/owner 保存共享资源，其余保存个人资源。
+        内容或选项变化需重新准备；与确认分开调用，不用 Shell 绕过服务。
+        """
+        return await provider.prepare_creation(runtime.context, files=files, enable=enable)
+
     @tool
     async def prepare_skill_install(
         github_url: str = "", attachment_id: str = "", enable: bool = True,
@@ -58,4 +77,4 @@ def build_skill_install_tools(provider: SkillInstallProvider) -> list[BaseTool]:
         """
         return await provider.confirm(runtime.context, installation.model_dump())
 
-    return [prepare_skill_install, confirm_skill_install]
+    return [prepare_skill_install, prepare_skill_creation, confirm_skill_install]

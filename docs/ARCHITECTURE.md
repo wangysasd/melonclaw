@@ -117,6 +117,8 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 
 ### 聊天安装 Skill 与教程
 
+聊天生成入口 `prepare_skill_creation` 与安装工具共用 provider 和确认审批。`services/skill_creation.py` 校验至多 32 文件、64000 UTF-8 字节的 SKILL.md/文本参考并打包；`services/skill_install.py` 绑定身份、会话和 generated 来源，复用 SkillImportService 与 SkillOperations。内置 skill-creator 负责内容提炼，服务端按 admin/owner global、member user 决定目录与数据库归属，不增加 HTTP 回环或数据写入旁路。详见 [聊天生成设计](design-docs/chat-skill-creation.md)。
+
 `ChatService` 向 runtime 注入 `ChatSkillInstallService` provider，`core/agent.py` 使用 `tool/skill_install.py` 的协议创建准备和确认工具。身份由 `ToolRuntime` 的 `AgentContext.user_id/tenant_id/conversation_id/project_id` 提供，每次执行重新查询用户、会话与项目；模型不提供身份。聊天与页面共用导入服务，confirm 通过 `core/hitl.py` 审批，按草稿核对完整清单及会话，不进入 PTC。ZIP 附件使用 archive 类型，仓储绑定时无需文档解析或视觉模型，hydration 仅传附件 ID。安装并启用在原操作日志 ready 提交中完成，下一轮快照生效。教程通过现有内置索引默认启用。详见 [设计与边界](design-docs/chat-skill-install.md)。
 
 ## 5. 关键取舍与历史教训
@@ -175,7 +177,8 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 MCP 管理从 `services/mcp_management.py` 进入，持久化由 `repository/mcp.py` 完成；运行时
 仍只从 `services/mcp.py` 读取数据库配置。配置与个人偏好分别存入 `mcp_servers` 和
 `mcp_user_preferences`。先确定个人覆盖来源，再判断启用，停用个人项不回退全局。
-headers/env 经 `core/mcp_credentials.py` 加密，密钥读取仅走 `core/config.py`。
+headers/env 字面值由 `core/mcp_credentials.py` 按明文存入数据库；管理 API 不回传凭据值。
+数据库查询、转储与备份可读到这些凭据，应限制其读取范围。
 缓存摘要来自同一配置/偏好快照，涵盖删除；失败工具发现不永久缓存。
 MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空间中的连接指纹防止旧审批
 调用新连接。JSON 原文只在前端导入，不进入数据库或模型。

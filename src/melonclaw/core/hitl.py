@@ -37,6 +37,8 @@ SENSITIVE_TOOL_INTERRUPTS["confirm_skill_install"] = InterruptOnConfig(
         "来源与内容摘要将在提交时再次核验；不会执行包内脚本。"
     ),
 )
+# prepare_skill_creation 不进审批：仅在受控 tmp 暂存至多 32 文件/64000 字节，
+# 不发布有效资源、不执行代码。正式保存仍由 confirm_skill_install 审批，两者不进 PTC。
 # TODO(sandbox): 沙箱落地后恢复 execute 审批。过渡期 execute 免审批，
 # 仅限本机单用户 127.0.0.1 开发使用；LocalShellBackend 不是安全沙箱。
 # | {

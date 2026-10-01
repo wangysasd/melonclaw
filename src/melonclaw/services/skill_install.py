@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from melonclaw.repository.errors import AttachmentError
+from melonclaw.services.skill_creation import pack_generated_skill
 from melonclaw.services.skill_import import MAX_ARCHIVE_TOTAL_BYTES, SkillImportError
 from melonclaw.services.skill_operations import SkillOperationError
 
@@ -68,6 +69,27 @@ class ChatSkillInstallService:
             return {"status": "error", "message": str(exc)}
         except Exception:  # 不向 Agent 暴露下载、数据库或文件系统异常细节。
             return {"status": "error", "message": "无法准备安装，请检查来源、附件和当前用户状态。"}
+
+    async def prepare_creation(self, context, *, files: dict[str, str], enable: bool = True) -> dict:
+        try:
+            user_id, conversation_id, _ = await self._identity(context)
+            archive = pack_generated_skill(files)
+            draft = await self.chat.skill_imports.prepare(
+                user_id=user_id, archive_bytes=archive,
+                storage=self.chat.runtime.require_ready(), source_type="generated",
+                source_ref=f"chat:{conversation_id}", conversation_id=conversation_id,
+                enable_on_install=enable,
+            )
+            return {
+                "status": "prepared", **draft.public_dict(), "generated_files": files,
+                "notice": "仅生成预览，尚未保存。展示完整正文、参考文件、范围及启用影响，再提交审批。",
+            }
+        except (SkillImportError, SkillOperationError) as exc:
+            return {"status": "error", "message": str(exc)}
+        except ValueError:
+            return {"status": "error", "message": "生成内容校验失败，请检查正文、YAML 和依赖声明。"}
+        except Exception:
+            return {"status": "error", "message": "无法准备生成技能，请检查当前用户状态和内容。"}
 
     async def confirm(self, context, installation: dict) -> dict:
         try:

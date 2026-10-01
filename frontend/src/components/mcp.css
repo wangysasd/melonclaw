@@ -23,7 +23,7 @@
 .mcp-editor .ant-collapse-header, .mcp-editor .ant-collapse-title, .mcp-editor .mcp-credentials legend,
 .mcp-editor .ant-input-affix-wrapper > input.ant-input,
 .mcp-editor .ant-input-affix-wrapper > input.ant-input::placeholder { font-size: 14px; }
-.mcp-editor .ant-alert, .mcp-editor .ant-alert-message, .mcp-editor .ant-alert-description,
+.mcp-editor .ant-alert, .mcp-editor .ant-alert-title, .mcp-editor .ant-alert-message, .mcp-editor .ant-alert-description,
 .mcp-editor .mcp-test-result, .mcp-editor .mcp-test-tool-names { font-size: 14px; }
 .mcp-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 .mcp-editor-footer-actions { display: flex; align-items: center; gap: 8px; }
@@ -59,6 +59,8 @@
 .mcp-tool-details-loading { display: flex; align-items: center; gap: 8px; min-height: 46px; font-size: 14px; }
 .mcp-tool-details-count { color: var(--muted); font-size: 14px; }
 .mcp-tool-details-search { flex: 0 0 auto; margin-right: 6px; }
+.mcp-tool-details .mcp-tool-details-search,
+.mcp-tool-details .mcp-tool-details-search::placeholder { font-size: 14px; }
 .mcp-tool-capsules { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
 .mcp-tool-capsule { max-width: 100%; padding: 7px 14px; border-radius: 10px; background: #f2f3f5; color: #25394b; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
 .mcp-tool-capsule.is-disabled { color: var(--muted); opacity: .58; }

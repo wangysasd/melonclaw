@@ -102,7 +102,10 @@ def _build_tool_selector_middleware(
         catalog_tool_names=[
             _tool_name(tool)
             for tool in tools
-            if _tool_name(tool) not in {MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "confirm_skill_install"}
+            if _tool_name(tool) not in {
+                MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "prepare_skill_creation",
+                "confirm_skill_install",
+            }
         ],
         max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
     )

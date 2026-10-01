@@ -134,7 +134,7 @@ describe("resource skills availability", () => {
     expect(screen.getByText("系统共享")).toBeTruthy();
     expect(screen.queryByText("我的")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "更多技能操作：正常技能" }));
-    expect(await screen.findByText("全员停用")).toBeTruthy();
+    expect(await screen.findByText("全员关闭")).toBeTruthy();
 
     // 成员视角：自己的私有技能落在「我的」组。
     session.userId = "member-1";
@@ -148,7 +148,15 @@ describe("resource skills availability", () => {
       cleanup();
       await renderSkills([skill({ name: "shared", scope: "global", display_name: "共享技能" })]);
       fireEvent.click(screen.getByRole("button", { name: "更多技能操作：共享技能" }));
-      expect(await screen.findByText("我不使用")).toBeTruthy();
+      expect(await screen.findByText("关闭")).toBeTruthy();
+      expect(screen.queryByText("对我关闭")).toBeNull();
+
+      cleanup();
+      await renderSkills([skill({ name: "shared", scope: "global", display_name: "共享技能", personally_enabled: false, effective_enabled: false })]);
+      expect(primaryAction("共享技能").textContent).toContain("启用");
+      expect(primaryAction("共享技能").textContent).not.toContain("对我启用");
+      fireEvent.click(screen.getByRole("button", { name: "更多技能操作：共享技能" }));
+      expect(await screen.findByRole("menuitem", { name: "启用" })).toBeTruthy();
     } finally {
       session.userId = "admin-1";
       session.users = [{ user_id: "admin-1", tenant_role: "admin" }];
@@ -249,7 +257,7 @@ it("keeps card order after adding and uninstalling until manual refresh", async 
   expect(order()).toEqual(initial);
   vi.mocked(listManageableSkills).mockResolvedValue({ items: [{ ...alpha, enabled: true, personally_enabled: true, effective_enabled: true }, { ...beta, enabled: false, personally_enabled: false, effective_enabled: false }] } as never);
   fireEvent.click(screen.getByRole("button", { name: "更多技能操作：Beta" }));
-  fireEvent.click(await screen.findByText("我不使用"));
+  fireEvent.click(await screen.findByText("对我关闭"));
   await screen.findByRole("button", { name: "添加技能：Beta" });
   expect(order()).toEqual(initial);
   fireEvent.click(screen.getByRole("button", { name: "刷新技能列表" }));
@@ -260,7 +268,7 @@ it("keeps admin personal preference separate from the global switch", async () =
   await renderSkills([skill({ name: "shared", scope: "global", display_name: "共享操作" })]);
   vi.mocked(updateSkill).mockResolvedValue({ ok: true });
   fireEvent.click(screen.getByRole("button", { name: "更多技能操作：共享操作" }));
-  fireEvent.click(await screen.findByText("我不使用"));
+  fireEvent.click(await screen.findByText("对我关闭"));
   await waitFor(() => expect(updateSkill).toHaveBeenCalledWith("shared", {
     userId: "admin-1", scope: "global", enabled: false,
   }));

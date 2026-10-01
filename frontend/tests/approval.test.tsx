@@ -15,6 +15,20 @@ const approval = (id: string, actions: ApprovalAction[]): PendingApproval => ({
   assistant_message_id: "assistant-1",
   interrupts: [{ id, actions }],
 });
+
+it("shows generated Skill provenance and personal save without enabling", () => {
+  render(<ApprovalPanel approval={approval("generated", [{
+    name: "confirm_skill_install", description: "Save Skill", allowed_decisions: ["approve", "reject"],
+    args: JSON.stringify({ installation: {
+      draft_id: "draft", name: "report", scope: "user", enable: false,
+      source_url: "", source_ref: "chat:conversation", content_hash: "hash",
+    } }),
+  }])} onSubmit={vi.fn()} />);
+  const manifest = screen.getByLabelText("Skill 安装清单");
+  expect(manifest.textContent).toContain("聊天生成");
+  expect(manifest.textContent).toContain("仅自己");
+  expect(manifest.textContent).toContain("只安装，暂不启用");
+});
 describe("HITL decisions", () => {
   it("requires an explicit choice for every action and preserves interrupt grouping", async () => {
     const user = userEvent.setup();

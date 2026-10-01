@@ -180,8 +180,3 @@ def provider_env_key(name: str) -> str | None:
     if not name or not re.fullmatch(r"[A-Z][A-Z0-9_]*(?:_API_KEY|_ACCESS_TOKEN)", name):
         return None
     return os.getenv(name, "").strip() or None
-
-
-def mcp_encryption_key() -> str:
-    """MCP 凭据加密密钥的唯一配置入口；不输出密钥。"""
-    return os.getenv("MELONCLAW_MCP_ENCRYPTION_KEY", "").strip()

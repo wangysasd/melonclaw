@@ -52,6 +52,7 @@ dist/
 .data/skills/shared/*
 !.data/skills/shared/tushare-fetcher/
 !.data/skills/shared/melonclaw-tutorial/
+!.data/skills/shared/skill-creator/
 !.data/skills/users/
 !.data/skills/tmp/
 .data/skills/users/*

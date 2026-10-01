@@ -68,6 +68,15 @@ export const TOOL_CATEGORIES: readonly ToolCategory[] = [
 
 export const TOOL_CATALOG: readonly ToolDefinition[] = [
   {
+    name: "prepare_skill_creation",
+    label: "生成 Skill 预览",
+    description: "从聊天提炼正文和文本参考，校验后准备保存清单。",
+    category: "workspace",
+    icon: "file-text",
+    availability: "core",
+    availabilityLabel: "核心工具",
+  },
+  {
     name: "prepare_skill_install",
     label: "预览 Skill 安装",
     description: "从 GitHub 或聊天 ZIP 附件下载、校验并准备安装清单。",

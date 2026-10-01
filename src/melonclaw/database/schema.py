@@ -339,7 +339,7 @@ skills = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint("scope IN ('global', 'user')", name="ck_skills_scope"),
     CheckConstraint(
-        "source_type IN ('builtin', 'upload', 'remote')",
+        "source_type IN ('builtin', 'upload', 'remote', 'generated')",
         name="ck_skills_source_type",
     ),
     Index("ix_skills_scope_enabled", "scope", "enabled"),

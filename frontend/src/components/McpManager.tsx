@@ -105,7 +105,7 @@ export function McpManager({ userId, isAdmin, notify }: {
     </div>
     <p className="resource-hint">配置从下一条消息生效，当前运行不受影响。</p>
     <Spin spinning={busy}>
-      {(["global", "user"] as const).map(scope => {
+      {(["user", "global"] as const).map(scope => {
         const visible = items.filter(item => item.scope === scope && `${item.display_name} ${item.slug} ${item.description}`.toLowerCase().includes(query.toLowerCase()));
         if (!visible.length) return null;
         return <section className="skill-group" key={scope}><h2 className="mcp-group-title">{scope === "global" ? "系统共享" : "我的"}</h2>
@@ -115,22 +115,22 @@ export function McpManager({ userId, isAdmin, notify }: {
             const canRestorePersonalUse = !item.personally_enabled && item.enabled && !item.shadowed;
             const description = item.description || "暂无用途说明";
             const menus = [
-              ...(canRestorePersonalUse ? [{ key: "add", label: "添加到我的服务" }] : []),
+              ...(canRestorePersonalUse ? [{ key: "add", label: isAdmin ? "对我启用" : "启用" }] : []),
+              ...(item.effective_enabled ? [{ key: "stop", label: isAdmin ? "对我关闭" : "关闭" }] : []),
+              ...(isAdmin && item.scope === "global" ? [{ key: "global", label: item.enabled ? "全员关闭" : "全员启用" }] : []),
               ...(item.can_edit ? [{ key: "edit", label: "编辑" }] : []),
-              ...(item.effective_enabled ? [{ key: "stop", label: "我不使用" }] : []),
-              ...(isAdmin && item.scope === "global" ? [{ key: "global", label: item.enabled ? "全员停用" : "全员启用" }] : []),
-              ...(item.shadowed ? [{ key: "personal-edit", label: "查看我的配置" }] : []),
+              ...(item.shadowed ? [{ key: "personal-edit", label: "查看替代它的个人配置" }] : []),
               ...(item.can_delete ? [{ key: "delete", label: item.shadows_global ? "删除个人配置并恢复全局" : "删除", danger: true }] : []),
             ];
             return <article className={`skill-card mcp-card${showPrimaryAction ? " has-primary-action" : ""}`} key={item.id}>
               <div className="skill-card-top-actions">
                 {showPrimaryAction && <Button
                   className="skill-card-primary-action is-add"
-                  icon={<Icon name="plus" size={12} />}
+                  icon={item.shadowed ? undefined : <Icon name="plus" size={12} />}
                   disabled={busy || (disabled && !(isAdmin && item.scope === "global" && !item.shadowed))}
                   onClick={() => void action(() => item.scope === "global" && !item.enabled ? globalMcpState(item, userId) : addMcp(item, userId))}
                 >
-                  {disabled ? item.shadowed ? "已遮蔽" : isAdmin ? "全员启用" : "全员已停用" : "添加到我的服务"}
+                  {item.shadowed ? "已遮蔽" : disabled ? isAdmin ? "全员启用" : "全员已停用" : isAdmin ? "对我启用" : "启用"}
                 </Button>}
                 <Dropdown
                   classNames={{ root: "skill-card-menu" }}
@@ -172,7 +172,6 @@ export function McpManager({ userId, isAdmin, notify }: {
                 <header className="skill-card-head">
                   <AppLogo name={item.display_name} />
                   <span className="skill-card-name" title={item.display_name}>{item.display_name}</span>
-                  {item.shadowed && <span className="resource-badge">已遮蔽</span>}
                 </header>
                 <p className="skill-card-desc" title={description}>{description}</p>
                 <div className="mcp-card-meta-row">
