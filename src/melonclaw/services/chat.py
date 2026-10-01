@@ -377,6 +377,28 @@ class ChatService:
         await self.conversations.resolve_user(user_id)
         return await self.resources.fetch_remote_models(user_id, provider_key)
 
+    async def test_provider_connection(
+        self,
+        user_id: str,
+        *,
+        provider_key: str | None,
+        base_url: str,
+        models_endpoint: str | None,
+        api_key: str | None,
+        api_key_env: str,
+        request_headers: dict[str, str] | None,
+    ) -> dict[str, int]:
+        await self.conversations.resolve_user(user_id)
+        return await self.resources.test_provider_connection(
+            user_id,
+            provider_key=provider_key,
+            base_url=base_url,
+            models_endpoint=models_endpoint,
+            api_key=api_key,
+            api_key_env=api_key_env,
+            request_headers=request_headers,
+        )
+
     async def delete_model(self, user_id: str, model_key: str) -> None:
         await self.conversations.resolve_user(user_id)
         await self.resources.delete_model(user_id, model_key)

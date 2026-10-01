@@ -443,6 +443,30 @@ export function fetchRemoteModels(
   );
 }
 
+/** 临时测试当前供应商表单的远端 /models 端点，不保存配置或凭据。 */
+export function testProviderConnection(input: {
+  userId: string;
+  providerKey?: string;
+  baseUrl: string;
+  modelsEndpoint: string;
+  apiKey?: string;
+  apiKeyEnv: string;
+  requestHeaders?: Record<string, string>;
+}): Promise<{ model_count: number }> {
+  return apiRequest<{ model_count: number }>("/api/model-providers/test-connection", {
+    method: "POST",
+    body: {
+      user_id: input.userId,
+      provider_key: input.providerKey,
+      base_url: input.baseUrl,
+      models_endpoint: input.modelsEndpoint,
+      api_key: input.apiKey,
+      api_key_env: input.apiKeyEnv,
+      request_headers: input.requestHeaders,
+    },
+  });
+}
+
 /** 普通用户在共享供应商上设置自己的 Key；只写不回读。 */
 export function setMyProviderKey(
   providerKey: string,

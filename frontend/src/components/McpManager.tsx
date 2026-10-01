@@ -3,6 +3,7 @@ import { App, Button, Dropdown, Input, Spin } from "antd";
 import { listMcp } from "../api/client";
 import { addMcp, deleteMcp, discoverMcpTools, globalMcpState, mcpDetail, stopMcp } from "../api/mcp";
 import type { McpServer } from "../types/api";
+import { AppLogo } from "./AppLogo";
 import { Icon } from "./Icon";
 import { McpEditor } from "./McpEditor";
 import { McpToolDetails, type McpToolDialog } from "./McpToolDetails";
@@ -111,8 +112,10 @@ export function McpManager({ userId, isAdmin, notify }: {
           <div className="skill-card-grid">{visible.map(item => {
             const disabled = item.shadowed || (item.scope === "global" && !item.enabled);
             const showPrimaryAction = !item.effective_enabled;
+            const canRestorePersonalUse = !item.personally_enabled && item.enabled && !item.shadowed;
             const description = item.description || "暂无用途说明";
             const menus = [
+              ...(canRestorePersonalUse ? [{ key: "add", label: "添加到我的服务" }] : []),
               ...(item.can_edit ? [{ key: "edit", label: "编辑" }] : []),
               ...(item.effective_enabled ? [{ key: "stop", label: "我不使用" }] : []),
               ...(isAdmin && item.scope === "global" ? [{ key: "global", label: item.enabled ? "全员停用" : "全员启用" }] : []),
@@ -133,6 +136,7 @@ export function McpManager({ userId, isAdmin, notify }: {
                   classNames={{ root: "skill-card-menu" }}
                   trigger={["click"]}
                   menu={{ items: menus, onClick: ({ key }) => {
+                    if (key === "add") void action(() => addMcp(item, userId));
                     if (key === "stop") void action(() => stopMcp(item, userId));
                     if (key === "edit") void edit(item);
                     if (key === "global") void action(() => globalMcpState(item, userId));
@@ -166,6 +170,7 @@ export function McpManager({ userId, isAdmin, notify }: {
                 }}
               >
                 <header className="skill-card-head">
+                  <AppLogo name={item.display_name} />
                   <span className="skill-card-name" title={item.display_name}>{item.display_name}</span>
                   {item.shadowed && <span className="resource-badge">已遮蔽</span>}
                 </header>

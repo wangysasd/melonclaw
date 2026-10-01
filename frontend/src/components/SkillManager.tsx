@@ -4,6 +4,7 @@ import { cancelSkillImport, confirmSkillImport, deleteSkill, downloadSkill, list
   prepareRemoteSkillInstall, prepareSkillImport, updateSkill, updateSkillGlobalState,
   skillDetails, recoverSkills } from "../api/client";
 import type { ManageableSkill, SkillImportDraft, SkillOption, SkillContentPreview } from "../types/api";
+import { AppLogo } from "./AppLogo";
 import { Icon } from "./Icon";
 import { SkillPreview } from "./SkillPreview";
 interface Notify { success: (text: string) => void; error: (text: string) => void; }
@@ -416,6 +417,7 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
                       }}
                     >
                       <header className="skill-card-head">
+                        <AppLogo name={skill.display_name} />
                         <span className="skill-card-name" title={skill.display_name}>
                           {skill.display_name}
                         </span>
@@ -561,4 +563,3 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
     </div>
   );
 }
-

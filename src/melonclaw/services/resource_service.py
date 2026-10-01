@@ -575,6 +575,63 @@ class ResourceService:
         headers = dict(provider["request_headers"])
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
+        return await self._request_remote_models(endpoint, headers)
+
+    async def test_provider_connection(
+        self,
+        user_id: str,
+        *,
+        provider_key: str | None,
+        base_url: str,
+        models_endpoint: str | None,
+        api_key: str | None,
+        api_key_env: str,
+        request_headers: dict[str, str] | None,
+    ) -> dict[str, int]:
+        """测试表单中的供应商 /models 端点，不保存配置或凭据。"""
+
+        self._require_admin(await self._role(user_id))
+        validate_provider_advanced(api_key_env, request_headers, None)
+        normalized_base_url = base_url.strip()
+        if not normalized_base_url.startswith(("https://", "http://")):
+            raise ModelConfigError("Base URL 必须以 http(s):// 开头。")
+        endpoint = (models_endpoint or "").strip() or (
+            f"{normalized_base_url.rstrip('/')}/models"
+        )
+        if not endpoint.startswith(("https://", "http://")):
+            raise ModelConfigError("模型列表端点必须以 http(s):// 开头。")
+
+        stored = None
+        if provider_key:
+            stored = await self.storage.get_provider_row(provider_key)
+            if stored is None:
+                raise ResourceNotFoundError(f"供应商 {provider_key!r} 不存在。")
+
+        headers = dict(
+            request_headers
+            if request_headers is not None
+            else stored["request_headers"] if stored else {}
+        )
+        effective_api_key = (api_key or "").strip()
+        if not effective_api_key and stored:
+            personal = await self.storage.get_user_provider_key(
+                str(stored["provider_key"]), user_id
+            )
+            if personal and personal.get("api_key"):
+                effective_api_key = str(personal["api_key"])
+        if not effective_api_key and stored and stored["api_key"]:
+            effective_api_key = str(stored["api_key"])
+        if not effective_api_key:
+            effective_api_key = provider_env_key(api_key_env) or ""
+        if effective_api_key:
+            headers["Authorization"] = f"Bearer {effective_api_key}"
+
+        result = await self._request_remote_models(endpoint, headers)
+        return {"model_count": len(result["items"])}
+
+    async def _request_remote_models(
+        self, endpoint: str, headers: dict[str, str]
+    ) -> dict[str, Any]:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(endpoint, headers=headers)
@@ -586,7 +643,10 @@ class ResourceService:
             raise ModelConfigError(
                 f"远端模型列表请求失败（HTTP {response.status_code}）。"
             )
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError:
+            raise ModelConfigError("远端模型列表响应不是有效 JSON。") from None
         raw_models = payload.get("data") if isinstance(payload, dict) else payload
         if not isinstance(raw_models, list):
             raise ModelConfigError("远端模型列表响应格式不正确。")

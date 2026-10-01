@@ -37,7 +37,7 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills" }: Res
           <Icon name="blocks" size={16} />
           <h1>技能|连接器</h1>
         </div>
-        <Button icon={<Icon name="x" size={14} />} onClick={onClose}>
+        <Button icon={<Icon name="arrow-up" size={14} rotate={-90} />} onClick={onClose}>
           返回聊天
         </Button>
       </header>
@@ -50,7 +50,7 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills" }: Res
             key: "skills",
             label: (
               <span>
-                <Icon name="book-open" size={14} /> 技能
+                <Icon name="book-open" size={18} style={{ transform: "translateY(3px)" }} /> 技能
               </span>
             ),
             children: (
@@ -68,7 +68,7 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills" }: Res
             key: "mcp",
             label: (
               <span>
-                <Icon name="plug" size={14} /> 连接器
+                <Icon name="plug" size={18} /> 连接器
               </span>
             ),
             children: (
@@ -79,7 +79,7 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills" }: Res
             key: "models",
             label: (
               <span>
-                <Icon name="brain" size={14} /> 模型
+                <Icon name="brain" size={18} /> 模型
               </span>
             ),
             children: (

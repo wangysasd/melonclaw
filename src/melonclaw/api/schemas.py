@@ -161,6 +161,18 @@ class ModelProviderUpdateRequest(BaseModel):
     models_endpoint: str | None = Field(default=None, max_length=300)
 
 
+class ModelProviderTestRequest(BaseModel):
+    """临时测试供应商的只读模型列表连接，不保存配置或凭据。"""
+
+    user_id: str = Field(min_length=1, max_length=64)
+    provider_key: str | None = Field(default=None, min_length=1, max_length=64)
+    base_url: str = Field(min_length=1, max_length=400)
+    models_endpoint: str | None = Field(default=None, max_length=300)
+    api_key: str | None = Field(default=None, max_length=240)
+    api_key_env: str = Field(default="", max_length=120)
+    request_headers: dict[str, str] | None = Field(default=None, max_length=64)
+
+
 class UserProviderKeyRequest(BaseModel):
     """普通用户在共享供应商上设置自己的 Key；只写不回读。"""
 

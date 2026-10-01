@@ -11,6 +11,7 @@ from melonclaw.api.schemas import (
     ModelConfigCreateRequest,
     ModelConfigUpdateRequest,
     ModelProviderCreateRequest,
+    ModelProviderTestRequest,
     ModelProviderUpdateRequest,
     UserProviderKeyRequest,
 )
@@ -105,6 +106,30 @@ async def list_manageable_providers(
         return JSONResponse(await manager.status(), status_code=503)
     try:
         return JSONResponse(await manager.manageable_providers(user_id))
+    except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
+        return error_response(exc)
+
+
+@router.post("/api/model-providers/test-connection")
+async def test_provider_connection(
+    request: Request,
+    body: ModelProviderTestRequest,
+) -> JSONResponse:
+    manager = get_chat_service(request)
+    if not manager.ready:
+        return JSONResponse(await manager.status(), status_code=503)
+    try:
+        return JSONResponse(
+            await manager.test_provider_connection(
+                body.user_id,
+                provider_key=body.provider_key,
+                base_url=body.base_url,
+                models_endpoint=body.models_endpoint,
+                api_key=body.api_key,
+                api_key_env=body.api_key_env,
+                request_headers=body.request_headers,
+            )
+        )
     except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
         return error_response(exc)
 

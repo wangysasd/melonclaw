@@ -11,6 +11,7 @@ import {
   listManageableModels,
   listManageableProviders,
   setMyProviderKey,
+  testProviderConnection,
   updateModel,
   updateProvider,
 } from "../api/client";
@@ -38,6 +39,22 @@ function slugifyModelKey(remoteId: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
   return slug || "model";
+}
+
+function parseJsonObject(value: string, label: string): Record<string, unknown> {
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); } catch { throw new Error(`${label}必须是有效的 JSON 对象`); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${label}必须是 JSON 对象`);
+  return parsed as Record<string, unknown>;
+}
+
+function parseProviderHeaders(value: string): Record<string, string> | undefined {
+  if (!value.trim()) return undefined;
+  const headers = parseJsonObject(value, "请求头");
+  if (Object.values(headers).some((item) => typeof item !== "string")) {
+    throw new Error("请求头的值必须是字符串");
+  }
+  return headers as Record<string, string>;
 }
 
 /**
@@ -366,6 +383,7 @@ function ProviderModal({
     enabled: true,
   });
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     if (provider) {
@@ -401,18 +419,11 @@ function ProviderModal({
   const save = async () => {
     setSaving(true);
     try {
-      const parseObject = (value: string, label: string): Record<string, unknown> => {
-        let parsed: unknown;
-        try { parsed = JSON.parse(value); } catch { throw new Error(`${label}必须是有效的 JSON 对象`); }
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${label}必须是 JSON 对象`);
-        return parsed as Record<string, unknown>;
-      };
-      const headers = form.requestHeaders.trim() ? parseObject(form.requestHeaders, "请求头") : undefined;
-      if (headers && Object.values(headers).some((value) => typeof value !== "string")) throw new Error("请求头的值必须是字符串");
+      const headers = parseProviderHeaders(form.requestHeaders);
       const advanced = {
         apiKeyEnv: form.apiKeyEnv.trim(),
-        requestHeaders: headers as Record<string, string> | undefined,
-        extraConfig: parseObject(form.extraConfig, "扩展配置"),
+        requestHeaders: headers,
+        extraConfig: parseJsonObject(form.extraConfig, "扩展配置"),
       };
       if (providerKey === "new") {
         await createProvider({
@@ -448,6 +459,33 @@ function ProviderModal({
     }
   };
 
+  const testConnection = async () => {
+    let requestHeaders: Record<string, string> | undefined;
+    try {
+      requestHeaders = parseProviderHeaders(form.requestHeaders);
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    setTesting(true);
+    try {
+      const result = await testProviderConnection({
+        userId,
+        providerKey: editing ? provider?.provider_key : undefined,
+        baseUrl: form.baseUrl.trim(),
+        modelsEndpoint: form.modelsEndpoint.trim(),
+        apiKey: form.apiKey.trim() || undefined,
+        apiKeyEnv: form.apiKeyEnv.trim(),
+        requestHeaders,
+      });
+      notify.success(`连接成功，可获取 ${result.model_count} 个模型。`);
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const remove = () => {
     if (!provider) return;
     modal.confirm({
@@ -474,16 +512,24 @@ function ProviderModal({
       open
       className="provider-edit-modal"
       title={editing ? "编辑供应商" : "新增供应商"}
-      onCancel={onClose}
+      onCancel={() => { if (!saving && !testing) onClose(); }}
+      closable={!saving && !testing}
       width={680}
       footer={
         <div className="provider-modal-footer">
+          <Button
+            disabled={saving}
+            loading={testing}
+            onClick={() => void testConnection()}
+          >
+            测试连接
+          </Button>
           {editing && !isSystem ? (
-            <Button danger disabled={saving} onClick={remove}>删除供应商</Button>
+            <Button danger disabled={saving || testing} onClick={remove}>删除供应商</Button>
           ) : null}
           <span className="provider-modal-footer-spacer" />
-          <Button disabled={saving} onClick={onClose}>取消</Button>
-          <Button type="primary" loading={saving} onClick={() => void save()}>
+          <Button disabled={saving || testing} onClick={onClose}>取消</Button>
+          <Button type="primary" loading={saving} disabled={testing} onClick={() => void save()}>
             确定
           </Button>
         </div>
@@ -496,7 +542,7 @@ function ProviderModal({
             <Input
               placeholder="如 siliconflow-cn"
               value={form.providerKey}
-              disabled={editing || saving}
+              disabled={editing || saving || testing}
               onChange={(event) => setForm((current) => ({ ...current, providerKey: event.target.value }))}
             />
           </label>
@@ -504,7 +550,7 @@ function ProviderModal({
             <span>展示名称</span>
             <Input
               value={form.displayName}
-              disabled={saving}
+              disabled={saving || testing}
               onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))}
             />
           </label>
@@ -513,7 +559,7 @@ function ProviderModal({
             <Input
               placeholder="https://api.example.com/v1"
               value={form.baseUrl}
-              disabled={saving}
+              disabled={saving || testing}
               onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))}
             />
           </label>
@@ -523,7 +569,7 @@ function ProviderModal({
           </label>
           <label className="provider-edit-field">
             <span>API Key Env</span>
-            <Input value={form.apiKeyEnv} placeholder="如 DASHSCOPE_API_KEY" disabled={saving}
+            <Input value={form.apiKeyEnv} placeholder="如 DASHSCOPE_API_KEY" disabled={saving || testing}
               onChange={(event) => setForm((current) => ({ ...current, apiKeyEnv: event.target.value }))} />
           </label>
           <label className="provider-edit-field">
@@ -533,7 +579,7 @@ function ProviderModal({
               name="provider-api-key"
               placeholder={editing ? "输入供应商API_Key(只保存不回显)" : "可留空稍后补"}
               value={form.apiKey}
-              disabled={saving}
+              disabled={saving || testing}
               onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))}
             />
           </label>
@@ -542,7 +588,7 @@ function ProviderModal({
             <Input
               placeholder="https://api.example.com/v1/models"
               value={form.modelsEndpoint}
-              disabled={saving}
+              disabled={saving || testing}
               onChange={(event) => setForm((current) => ({ ...current, modelsEndpoint: event.target.value }))}
             />
           </label>
@@ -554,7 +600,7 @@ function ProviderModal({
             checkedChildren="启用"
             unCheckedChildren="停用"
             checked={form.enabled}
-            disabled={saving}
+            disabled={saving || testing}
             onChange={(checked) => setForm((current) => ({ ...current, enabled: checked }))}
           />
         </div>
@@ -563,13 +609,13 @@ function ProviderModal({
           <summary>高级配置</summary>
           <label className="provider-edit-field">
             <span>请求头 JSON</span>
-            <Input.TextArea rows={4} value={form.requestHeaders} disabled={saving}
+            <Input.TextArea rows={4} value={form.requestHeaders} disabled={saving || testing}
               placeholder={provider?.has_request_headers ? "已配置（不回显）；留空保留，{} 清空" : "{}"}
               onChange={(event) => setForm((current) => ({ ...current, requestHeaders: event.target.value }))} />
           </label>
           <label className="provider-edit-field">
             <span>扩展配置 JSON</span>
-            <Input.TextArea rows={4} value={form.extraConfig} disabled={saving}
+            <Input.TextArea rows={4} value={form.extraConfig} disabled={saving || testing}
               onChange={(event) => setForm((current) => ({ ...current, extraConfig: event.target.value }))} />
           </label>
           <p className="resource-hint">扩展配置作为附加请求体发送，请勿填写密钥。请求头留空保留，输入 {"{}"} 清空。</p>

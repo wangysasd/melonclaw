@@ -23,6 +23,7 @@ it("loads and refreshes cards without connection probes, discovering only on ope
   render(<App><McpManager userId="admin" isAdmin notify={notify} /></App>);
   await screen.findByText("Alpha");
   expect(Array.from(document.querySelectorAll(".skill-card-name")).map(element => element.textContent)).toEqual(["Alpha", "Beta"]);
+  expect(Array.from(document.querySelectorAll(".mcp-card .app-logo")).map(element => element.textContent)).toEqual(["A", "B"]);
   expect(document.querySelector(".mcp-health-pill")).toBeNull();
   expect(discoverMcpTools).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: /刷\s*新/ }));
@@ -40,4 +41,22 @@ it("offers global enable directly for a newly saved administrator configuration"
   await waitFor(() => expect(globalMcpState).toHaveBeenCalledWith(item, "admin"));
   expect(addMcp).not.toHaveBeenCalled();
   expect(discoverMcpTools).not.toHaveBeenCalled();
+});
+
+it("lets a user restore personal use from the menu after choosing not to use a shared MCP", async () => {
+  const item = server("Research", {
+    can_edit: false,
+    can_delete: false,
+    personally_enabled: false,
+    effective_enabled: false,
+    unavailable_reason: "我不使用",
+  });
+  vi.mocked(listMcp).mockResolvedValue({ items: [item] });
+  vi.mocked(addMcp).mockResolvedValue({});
+  render(<App><McpManager userId="member" isAdmin={false} notify={notify} /></App>);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Research 菜单" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "添加到我的服务" }));
+
+  await waitFor(() => expect(addMcp).toHaveBeenCalledWith(item, "member"));
 });

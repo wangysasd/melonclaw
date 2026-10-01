@@ -1742,6 +1742,7 @@
 .model-picker-footer { border-top: 1px solid var(--line); padding: 4px; }
 .model-picker-footer .ant-btn { width: 100%; justify-content: flex-start; text-align: left; font-size: 14px; }
 .model-picker-dropdown.ant-select-dropdown .ant-select-item-group { font-size: 12px; }
+.model-picker-dropdown .model-picker-empty { font-size: var(--text-xs); }
 .model-picker-dropdown.ant-select-dropdown .ant-select-item-group,
 .model-picker-dropdown.ant-select-dropdown .ant-select-item-option { padding-inline: 12px; }
 

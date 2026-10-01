@@ -166,18 +166,22 @@ export function McpEditor({ userId, isAdmin, existing, fixedSlug, onClose, onSav
   let valid = true;
   try { configuration(draft); } catch { valid = false; }
   return <Modal open title={existing ? "编辑 MCP 服务" : "配置 MCP 服务"} width="min(860px, calc(100vw - 32px))" className="mcp-editor" mask={{ closable: false }}
-    onCancel={() => { if (!saving) onClose(); }} footer={[
-      <Button key="cancel" disabled={saving} onClick={onClose}>取消</Button>,
-      <Button key="reset" disabled={saving || !dirty} onClick={async () => { if (await confirm("重置配置？", "未保存的表单、JSON 和新凭据将被清除。")) { toolSelectionTouched.current = initial.allowMode === "selected"; change(initial); setJson(""); setChoices([]); } }}>重置</Button>,
-      <Button key="test" disabled={saving || !valid} loading={testing} onClick={() => void runTest()}>测试连接</Button>,
-      <Button key="save" type="primary" disabled={!valid || testing} loading={saving} onClick={() => void save()}>保存</Button>,
-    ]}>
+    onCancel={() => { if (!saving) onClose(); }} footer={
+      <div className="mcp-editor-footer">
+        <Button disabled={saving || !valid} loading={testing} onClick={() => void runTest()}>测试连接</Button>
+        <div className="mcp-editor-footer-actions">
+          <Button disabled={saving} onClick={onClose}>取消</Button>
+          <Button disabled={saving || !dirty} onClick={async () => { if (await confirm("重置配置？", "未保存的表单、JSON 和新凭据将被清除。")) { toolSelectionTouched.current = initial.allowMode === "selected"; change(initial); setJson(""); setChoices([]); } }}>重置</Button>
+          <Button type="primary" disabled={!valid || testing} loading={saving} onClick={() => void save()}>保存</Button>
+        </div>
+      </div>
+    }>
     <p className="resource-hint">{isAdmin ? "保存到系统共享，需全员启用后开放。" : "保存到我的服务，添加后仅自己可用。"} 支持 HTTP、SSE{isAdmin ? "、stdio" : ""}。</p>
     {fixedSlug && <Alert type="warning" showIcon message="保存后同名全局配置将不再使用，请添加个人服务或恢复全局；其他用户不受影响。" />}
     <Collapse activeKey={importOpen} onChange={keys => setImportOpen(typeof keys === "string" ? [keys] : keys)} items={[{ key: "json", label: "从 JSON 导入", children: <>
       <Input.TextArea aria-label="MCP JSON" rows={6} value={json} placeholder={'粘贴 MCP JSON，点击解析后填入下方表单'}
         onChange={e => { setJson(e.target.value); setChoices([]); setSelected(undefined); }} />
-      <Button disabled={!json.trim() || saving} onClick={parse}>解析并填充</Button>
+      <Button className="mcp-json-import-button" disabled={!json.trim() || saving} onClick={parse}>解析并填充</Button>
       {choices.length > 1 && <div><Select aria-label="选择要导入的服务" placeholder="选择一个服务" value={selected} onChange={setSelected}
         options={choices.map((item, index) => ({ label: item.name, value: index }))} />
         <Button disabled={selected === undefined} onClick={() => { if (selected !== undefined) void applyImport(choices[selected]); }}>填充所选服务</Button>

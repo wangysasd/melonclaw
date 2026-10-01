@@ -111,6 +111,8 @@ describe("resource skills availability", () => {
     // 坏行的主操作被禁用；正常行可用。
     expect(primaryAction("丢失技能").disabled).toBe(true);
     expect(primaryAction("正常技能").disabled).toBe(false);
+    expect(document.querySelector('[aria-label="查看技能详情：正常技能"] .app-logo')?.textContent).toBe("正");
+    expect(document.querySelector('[aria-label="查看技能详情：丢失技能"] .app-logo')?.textContent).toBe("丢");
     expect(screen.queryByRole("button", { name: /^发\s*布$/ })).toBeNull();
   });
 

@@ -24,7 +24,7 @@
 
 ### 管理 API 与权限矩阵
 
-- `GET /api/models/manage`（可管理全集）、`POST /api/models`、`PATCH/DELETE /api/models/{model_key}`，与 MCP 管理路由同风格；供应商一组：`GET/POST /api/model-providers`、`PATCH/DELETE /api/model-providers/{key}`、`GET .../remote-models`、`PUT/DELETE .../my-key`。
+- `GET /api/models/manage`（可管理全集）、`POST /api/models`、`PATCH/DELETE /api/models/{model_key}`，与 MCP 管理路由同风格；供应商一组：`GET/POST /api/model-providers`、`PATCH/DELETE /api/model-providers/{key}`、`POST /api/model-providers/test-connection`、`GET .../remote-models`、`PUT/DELETE .../my-key`。
 - 供应商仅 admin/owner 可管理，创建时必须为 global；普通用户不能创建供应商。模型仍分 global（管理员管理，全员可用）和 user（本人管理）。普通用户通过既有供应商填写个人 API Key、管理个人模型；「已启用」分组仅反映自己的 Key 是否配置，与共享模型可用性分开。
 - **api_key 只写不回读**：所有响应只带 `has_api_key/has_my_key/effective_has_key` 布尔位；更新时 `api_key` 缺省表示保留已存密钥；用户 Key 清除走删除接口。
 - **删除权限**：内置供应商模板不可删除；模型不受 source_type 限制，管理员可删除全局模型，用户可删除自己的个人模型。
@@ -32,7 +32,7 @@
 ### 前端
 
 - 资源管理「模型」Tab（`ModelProviders.tsx`，学 Yuxi）：搜索 + 已启用/未启用分组卡片（大卡含 Base URL、启用模型名称与模型数；名称在 Base URL 下方以 12px 单行显示，超长省略且悬停可查看完整列表，绿点表启用，logo 见 `providerIcons.ts`）+ 新增供应商 + 刷新；只有管理员可新增供应商，普通用户按个人 Key 配置状态分组；点击卡片：有写权限进供应商弹窗，否则进“我的 Key”弹窗；卡片 footer「管理模型」进供应商内模型弹窗。
-- 供应商弹窗：标识（编辑禁用）、显示名、Base URL、API Key（编辑留空保持不变）、模型列表端点、启用开关、删除（非 system）。
+- 供应商弹窗：标识（编辑禁用）、显示名、Base URL、API Key（编辑留空保持不变）、模型列表端点、启用开关、删除（非 system）；底部左侧测试连接，右侧取消/确定。
 - 模型管理弹窗：已启用模型表（启停/移除；管理员设全局默认，用户设个人默认）+ 获取远程模型 + 手动添加；远端候选支持搜索，一键启用自动 slugify 生成 `model_key` 并去重；无写权限时只读。
 - 发送按钮旁的模型选择器自动包含可见模型，可用性按有效 Key（我的优先）判定，无需额外接线。
 
@@ -81,7 +81,9 @@
 
 供应商信息区的 Base URL 与 Model 使用同宽标签对齐，行间距 4px；管理模型按钮靠左。
 
-供应商编辑弹窗只提供「确定」保存按钮，启用状态完全由表单中的状态开关决定。
+供应商编辑弹窗由「确定」保存配置，启用状态完全由表单中的状态开关决定；「测试连接」不会保存。
+
+供应商新增/编辑弹窗的「测试连接」使用当前表单临时请求 Models Endpoint；端点留空时使用 Base URL + `/models`。显式输入 Key 优先，编辑时留空按个人 Key → 数据库共享 Key → 当前表单指定环境变量解析；请求头留空沿用已保存值。该只读接口只返回模型数量，不保存配置、不回显响应正文或凭据，且仅允许 admin/owner。它验证模型列表 GET，不代表聊天补全也能工作。
 
 
 ## 个人供应商与全局供应商独立启用（2026-09-27）

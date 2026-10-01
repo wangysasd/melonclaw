@@ -84,7 +84,11 @@ export function ModelPicker({
       value={value || undefined}
       disabled={disabled}
       title="模型选择从下一条消息生效"
-      notFoundContent="暂无可用模型。点击下方添加自定义模型，在技能|连接器 → 模型中配置 Key、添加并启用模型；没有供应商时请联系管理员。"
+      notFoundContent={
+        <span className="model-picker-empty">
+          暂无可用模型。点击下方添加自定义模型，在技能|连接器 → 模型中配置 Key、添加并启用模型；没有供应商时请联系管理员。
+        </span>
+      }
       options={groups}
       onChange={onChange}
       labelRender={(props) => {

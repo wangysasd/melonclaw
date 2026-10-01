@@ -1,5 +1,5 @@
 .mcp-manager, .mcp-editor { font-size: 14px; }
-.resource-view[data-active-tab="mcp"] .resource-view-title h1 { font-size: 14px; }
+.resource-view[data-active-tab="mcp"] .resource-view-title h1 { font-size: 16px; }
 .mcp-manager .resource-actions > .ant-input { flex: 0 1 28%; min-width: 180px; margin-right: auto; }
 .mcp-manager .resource-actions .ant-input,
 .mcp-manager .resource-actions .ant-input::placeholder,
@@ -25,8 +25,11 @@
 .mcp-editor .ant-input-affix-wrapper > input.ant-input::placeholder { font-size: 14px; }
 .mcp-editor .ant-alert, .mcp-editor .ant-alert-message, .mcp-editor .ant-alert-description,
 .mcp-editor .mcp-test-result, .mcp-editor .mcp-test-tool-names { font-size: 14px; }
+.mcp-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+.mcp-editor-footer-actions { display: flex; align-items: center; gap: 8px; }
 .mcp-confirm .ant-modal-confirm-title, .mcp-confirm .ant-modal-confirm-content, .mcp-confirm .ant-modal-confirm-btns .ant-btn { font-size: 14px; }
 .mcp-editor .ant-collapse, .mcp-editor .ant-alert { margin: 14px 0; }
+.mcp-editor .mcp-json-import-button { margin-top: 8px; }
 .mcp-fields { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; padding: 18px; background: #f5f5f7; border-radius: 12px; margin-top: 16px; }
 .mcp-fields > label { display: grid; gap: 7px; min-width: 0; }
 .mcp-field-half { grid-column: span 6; }
