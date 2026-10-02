@@ -684,10 +684,6 @@ export function useChatStream({
   }, [bumpHistoryRevision]);
 
   const reloadHistory = useCallback(() => {
-    const targetId = sessionRef.current.conversationId;
-    const run = targetId ? activeRunsRef.current.get(targetId) : undefined;
-    // 手动同步不能拿尚未落库的历史覆盖正在接收的步骤。
-    if (run && !run.controller.signal.aborted) return;
     requestHistoryReload();
   }, [requestHistoryReload]);
 
@@ -1208,7 +1204,10 @@ export function useChatStream({
         dispatch({ type: "reset", conversationId: null });
         return;
       }
-      if (!forceReload && snapshot.draftConversationId === targetId) {
+      const hasUnconfirmedDraft = chatStateRef.current.messages.some(
+        (item) => item.role === "assistant" && item.errorCode === "network_disconnected",
+      );
+      if (!forceReload && snapshot.draftConversationId === targetId && !hasUnconfirmedDraft) {
         const cached = chatCacheRef.current.get(targetId);
         if (cached?.messages.length) {
           dispatch({
@@ -1318,12 +1317,34 @@ export function useChatStream({
             attachments: item.attachments ?? [],
           };
         });
+        const visibleMessages = activeForSnapshot
+          ? (() => {
+              const liveMessages = chatStateRef.current.conversationId === targetId
+                ? chatStateRef.current.messages
+                : chatCacheRef.current.get(targetId)?.messages ?? [];
+              const merged = messages.map((historyMessage) => {
+                const live = liveMessages.find((item) => item.id === historyMessage.id
+                  || (item.role === "assistant" && item.optimistic && item.status === "streaming"));
+                if (!live || live.role !== "assistant" || isTerminalStatus(live.status)) return historyMessage;
+                // 历史提供已落库字段，活流保留尚未落库的文本、步骤与工具事件。
+                return {
+                  ...historyMessage,
+                  ...live,
+                  id: historyMessage.id,
+                  model: historyMessage.model ?? live.model,
+                  attachments: historyMessage.attachments?.length ? historyMessage.attachments : live.attachments,
+                };
+              });
+              const included = new Set(merged.map((item) => item.id));
+              return [...merged, ...liveMessages.filter((item) => item.optimistic && !included.has(item.id))];
+            })()
+          : messages;
         dispatch({
           type: "historyLoaded",
           conversationId: targetId,
           title: data.conversation?.title ?? null,
           projectId: data.conversation?.project_id ?? null,
-          messages,
+          messages: visibleMessages,
           approval: data.pending_approval,
           userQuestion: data.pending_interaction ?? null,
         });

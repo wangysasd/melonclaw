@@ -9,6 +9,7 @@ import { ResourceView } from "./components/ResourceView";
 import { Sidebar } from "./components/Sidebar";
 import { SessionProvider, useSession } from "./state/session";
 import type { SkillOption } from "./types/api";
+import { tokenCss } from "./theme/tokens";
 import { antdTheme } from "./theme/antd";
 import "./styles/chat.css";
 import "./styles/sidebar.css";
@@ -97,6 +98,7 @@ function Workspace() {
 export default function App() {
   return (
     <ConfigProvider theme={antdTheme} locale={zhCN}>
+      <style>{tokenCss}</style>
       <XProvider theme={antdTheme}>
         <AntdApp>
           <SessionProvider>

@@ -615,7 +615,7 @@ describe("recovery synchronization regressions", () => {
     mocks.session.draftConversationId = "c1";
     vi.mocked(sendMessageStream).mockRejectedValue(new ApiError(0, "断线"));
     const { result } = renderHook(() => useChatStream({ scroll }));
-    await act(async () => { await Promise.resolve(); });
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
     await act(() => result.current.sendMessage("写文件"));
     expect(result.current.state.messages).toHaveLength(2);
     expect(getConversationHistory).not.toHaveBeenCalled();
@@ -634,7 +634,7 @@ describe("recovery synchronization regressions", () => {
     mocks.session.draftConversationId = "c1";
     vi.mocked(sendMessageStream).mockRejectedValue(new ApiError(0, "断线"));
     const { result } = renderHook(() => useChatStream({ scroll }));
-    await act(async () => { await Promise.resolve(); });
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
     await act(() => result.current.sendMessage("写文件"));
     const messages = result.current.state.messages;
     vi.mocked(getConversationHistory).mockRejectedValueOnce(new ApiError(0, "同步失败"));
@@ -648,7 +648,7 @@ describe("recovery synchronization regressions", () => {
     expect(sendMessageStream).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores manual sync during a live run and continues accepting deltas until it ends", async () => {
+  it("merges manual sync with live messages and continues accepting deltas", async () => {
     const stream = deferred<void>();
     let emit!: (event: StreamEvent) => void;
     vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent }) => {
@@ -656,7 +656,7 @@ describe("recovery synchronization regressions", () => {
       return stream.promise;
     });
     const { result } = renderHook(() => useChatStream({ scroll }));
-    await act(async () => { await Promise.resolve(); });
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
     let task!: Promise<void>;
     act(() => { task = result.current.sendMessage("继续任务"); });
     act(() => {
@@ -666,7 +666,8 @@ describe("recovery synchronization regressions", () => {
     vi.mocked(getConversationHistory).mockClear();
     vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, items: [{ id: "a1", role: "assistant", content: "", status: "pending", assistant_steps: [] }] });
     await act(async () => { result.current.reloadHistory(); });
-    expect(getConversationHistory).not.toHaveBeenCalled();
+    await waitFor(() => expect(getConversationHistory).toHaveBeenCalledTimes(1));
+    expect(getConversationHistory).toHaveBeenCalledTimes(1);
     expect(result.current.state.messages.at(-1)?.assistantSteps).toHaveLength(1);
     act(() => {
       emit({ type: "assistant_text_delta", message_id: "a1", step_id: "s1", delta: "，继续接收" });
@@ -679,7 +680,5 @@ describe("recovery synchronization regressions", () => {
       stream.resolve();
       await task;
     });
-    await act(async () => { result.current.reloadHistory(); });
-    expect(getConversationHistory).toHaveBeenCalledTimes(1);
   });
 });
