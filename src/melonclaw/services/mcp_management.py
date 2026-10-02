@@ -154,12 +154,13 @@ class McpManagementService:
         ):
             raise McpConfigError("工具白名单不能包含空名称或重复名称。")
 
-    async def prepare(self, user_id, payload, *, identifier=None, version=None):
+    async def prepare(self, user_id, payload, *, identifier=None, version=None, personal=False):
         if identifier:
             row = await self.require(user_id, identifier, manage=True, version=version)
             row = dict(row)
         else:
-            scope = "global" if await self.role(user_id) in ADMIN_ROLES else "user"
+            role = await self.role(user_id)
+            scope = "user" if personal or role not in ADMIN_ROLES else "global"
             row = {
                 "scope": scope,
                 "owner_user_id": None if scope == "global" else user_id,

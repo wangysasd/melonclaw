@@ -8,7 +8,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, unquote, urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MCP_CONFIG_PATH = PROJECT_ROOT / "mcp.json"
@@ -238,7 +238,13 @@ def select_mcp_tool_names(names, allowlist):
 
 def redact_mcp_connection_text(value: str, config: Mapping[str, Any]) -> str:
     """描述和工具结果共同隐藏当前连接的 Headers/Env 凭据。"""
-    for secret in [*config.get("headers", {}).values(), *config.get("env", {}).values()]:
+    url = str(config.get("url", ""))
+    parsed = urlparse(url)
+    # URL 中也可能携带认证信息；完整 URL、query、fragment 和非标准路径片段不进入工具文本。
+    url_secrets = [url, parsed.fragment, *(value for _, value in parse_qsl(parsed.query))]
+    url_secrets.extend(unquote(part) for part in parsed.path.split("/")
+                       if part and part.lower() not in {"mcp", "sse", "messages", "api", "v1", "v2"})
+    for secret in [*config.get("headers", {}).values(), *config.get("env", {}).values(), *url_secrets]:
         if secret:
             value = value.replace(secret, "<redacted>")
             if secret.startswith("Bearer "):

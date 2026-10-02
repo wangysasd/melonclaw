@@ -1951,7 +1951,15 @@
 .user-question-text { width: 100%; min-height: 76px; margin-top: 10px; padding: 9px; border: 1px solid #d9e7f3; border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 14px; line-height: 1.5; resize: vertical; }
 .user-question-text:disabled { background: #f1f4f7; color: var(--muted); }
 .user-question-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
-.user-question-actions .approval-submit, .user-question-actions .user-question-skip { margin-top: 0; }
+.user-question-actions .approval-submit, .user-question-actions .user-question-skip {
+  box-sizing: border-box;
+  height: 33.6px;
+  min-height: 33.6px;
+  margin-top: 0;
+  padding: 4px 14px;
+  border-radius: 10px;
+  line-height: 20px;
+}
 .user-question-actions .approval-submit, .user-question-skip { font-size: 14px; }
 .user-question-skip {
   min-height: 42px; align-self: flex-start; padding: 8px 14px; cursor: pointer;
@@ -1989,6 +1997,10 @@
   .approval-submit { align-self: stretch; min-height: 44px; }
   .user-question-actions { flex-direction: column; align-items: stretch; }
   .user-question-skip { align-self: stretch; min-height: 44px; }
+  .user-question-actions .approval-submit, .user-question-actions .user-question-skip {
+    height: 35.2px;
+    min-height: 35.2px;
+  }
   .chat-attention { font-size: 12px; gap: 5px; }
 }
 @media (prefers-reduced-motion: reduce) {

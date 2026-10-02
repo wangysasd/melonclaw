@@ -68,6 +68,7 @@ class ChatRuntime:
     memory_service: MemoryService | None = None
     attachment_hydration_provider: Any | None = None
     skill_install_provider: Any | None = None
+    mcp_install_provider: Any | None = None
     workspace_agents: dict[Any, Any] | None = None
     agent_build_locks: dict[Any, _AgentBuildLock] = field(default_factory=dict)
     mcp_discovery: McpDiscoveryCoordinator = field(default_factory=McpDiscoveryCoordinator)
@@ -490,6 +491,7 @@ class ChatRuntime:
                     memory_service=self.memory_service,
                     attachment_hydration_provider=self.attachment_hydration_provider,
                     skill_install_provider=self.skill_install_provider,
+                    mcp_install_provider=self.mcp_install_provider,
                     client_capabilities=normalized_capabilities,
                     mcp_servers=mcp_servers,
                     mcp_tool_allowlists=mcp_allowlists,

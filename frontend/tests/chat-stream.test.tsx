@@ -41,6 +41,21 @@ beforeEach(() => {
 });
 
 describe("chat run lifecycle", () => {
+  it("sends MCP JSON once while keeping optimistic messages, sidebar and error drafts redacted", async () => {
+    mocks.session.conversationId = "c2";
+    mocks.session.projectId = "";
+    mocks.session.draftConversationId = "c2";
+    vi.mocked(sendMessageStream).mockRejectedValue(new Error("发送失败"));
+    const raw = '安装 MCP\n```json\n{"mcpServers":{"demo":{"url":"https://example.test/mcp","headers":{"Authorization":"Bearer secret-fixture"}}}}\n```';
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await act(async () => { await Promise.resolve(); });
+    await act(() => result.current.sendMessage(raw));
+    expect(vi.mocked(sendMessageStream).mock.calls[0][1].content).toBe(raw);
+    expect(JSON.stringify(mocks.session.markConversationSubmitted.mock.calls)).not.toContain("secret-fixture");
+    expect(JSON.stringify(result.current.state.messages)).not.toContain("secret-fixture");
+    expect(result.current.state.restoreDraft).not.toContain("secret-fixture");
+  });
+
   it("does not put an old conversation's history error on a new blank page", () => {
     const blank = reducer({ ...INITIAL_CHAT_STATE, conversationId: null }, { type: "historyFailed", conversationId: "c1", error: "旧会话加载失败" });
     expect(blank.error).toBeNull();

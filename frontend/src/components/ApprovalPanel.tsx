@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef, useState } from "react";
 
+import { McpInstallApproval } from "./McpInstallApproval";
 import { SkillInstallApproval } from "./SkillInstallApproval";
 import { Icon } from "./Icon";
 import { toolSummary } from "../lib/toolDisplay";
@@ -200,6 +201,7 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
                 </div>
               </div>
               <SkillInstallApproval action={row.action} />
+              <McpInstallApproval action={row.action} />
               <div className="approval-choices" role="group" aria-label={`第 ${index + 1} 项 ${row.action.name} 的处理方式`}>
                   {choices.map((choice) => (
                     <button type="button" key={choice} className="approval-choice"

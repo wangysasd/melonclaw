@@ -19,6 +19,7 @@ BUSINESS_TABLES = (
     "skill_user_states",
     "mcp_servers",
     "mcp_user_preferences",
+    "mcp_install_drafts",
     "model_providers",
     "model_configs",
     "provider_user_keys",

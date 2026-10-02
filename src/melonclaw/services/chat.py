@@ -34,6 +34,7 @@ from melonclaw.services.errors import (
     RequestInProgressError,
 )
 from melonclaw.services.execution import ExecutionService, PreparedExecution
+from melonclaw.services.mcp_install import ChatMcpInstallService
 from melonclaw.services.resource_service import (
     ADMIN_ROLES,
     ModelConfigPayload,
@@ -74,6 +75,7 @@ class ChatService:
         self._resources: ResourceService | None = None
         self._skill_imports: SkillImportService | None = None
         self.runtime.skill_install_provider = ChatSkillInstallService(self)
+        self.runtime.mcp_install_provider = ChatMcpInstallService(self)
 
     @property
     def resources(self) -> ResourceService:

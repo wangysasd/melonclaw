@@ -430,6 +430,19 @@ mcp_user_preferences = Table(
     CheckConstraint("slug ~ '^[a-z0-9][a-z0-9_-]{0,63}$'", name="ck_mcp_preference_slug"),
 )
 
+# 聊天配置在模型可见消息之外保存；完成安装后清空 payload 中的凭据。
+mcp_install_drafts = Table(
+    "mcp_install_drafts", metadata,
+    Column("id", PGUUID(as_uuid=True), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False),
+    Column("conversation_id", PGUUID(as_uuid=True), ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("installation", JSONB(none_as_null=True)),
+    Column("installed_id", PGUUID(as_uuid=True)),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+)
+
 model_providers = Table(
     "model_providers",
     metadata,

@@ -66,6 +66,8 @@ def create_app() -> FastAPI:
     async def safe_validation(request, exc):
         if request.url.path.startswith("/api/mcp"):
             return JSONResponse({"error": "MCP 字段格式无效，请检查名称、标识和连接配置。"}, status_code=422)
+        if request.url.path.endswith("/messages"):
+            return JSONResponse({"error": "消息字段格式无效，正文最多 12000 字符；请检查请求。"}, status_code=422)
         return await request_validation_exception_handler(request, exc)
 
     # 前后端分离部署时允许跨域调用 /api。

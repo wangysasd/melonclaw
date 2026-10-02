@@ -67,6 +67,9 @@ export const TOOL_CATEGORIES: readonly ToolCategory[] = [
 ] as const;
 
 export const TOOL_CATALOG: readonly ToolDefinition[] = [
+  { name: "prepare_mcp_install", label: "预览 MCP 安装", description: "从聊天配置草稿准备个人安装清单，不连接远端。", category: "mcp", icon: "plug", availability: "core", availabilityLabel: "核心工具" },
+  { name: "test_mcp_install", label: "测试 MCP 安装", description: "审批后向目标发送凭据并发现工具，不安装。", category: "mcp", icon: "plug", availability: "core", availabilityLabel: "需要审批" },
+  { name: "confirm_mcp_install", label: "安装 MCP", description: "审批后安装到自己名下，下一条消息生效。", category: "mcp", icon: "shield-check", availability: "core", availabilityLabel: "需要审批" },
   {
     name: "prepare_skill_creation",
     label: "生成 Skill 预览",

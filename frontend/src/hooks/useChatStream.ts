@@ -1,3 +1,4 @@
+import { mcpChatDisplay } from "../lib/mcpChat";
 import {
   useCallback,
   useEffect,
@@ -929,6 +930,7 @@ export function useChatStream({
     ) => {
       const snapshot = sessionRef.current;
       const cleanText = content.trim();
+      const displayText = mcpChatDisplay(cleanText);
       const pendingQuestion = chatStateRef.current.userQuestion;
       const canReplaceExpiredQuestion = Boolean(
         pendingQuestion && isUserQuestionExpired(pendingQuestion.expires_at),
@@ -955,7 +957,7 @@ export function useChatStream({
       const startingConversationId = snapshot.conversationId;
       const localSubmissionId = startingConversationId ? null : `local:${crypto.randomUUID()}`;
       if (localSubmissionId) {
-        snapshot.markConversationSubmitted(localSubmissionId, startProjectId, cleanText, true);
+        snapshot.markConversationSubmitted(localSubmissionId, startProjectId, displayText, true);
       }
       let conversationId = startingConversationId;
       if (!conversationId) {
@@ -982,7 +984,7 @@ export function useChatStream({
         projectId: current.projectId,
         modelId: startModelId,
         skillId,
-        draft: cleanText,
+        draft: displayText,
         attachmentIds,
         firstMessage: current.draftConversationId === conversationId,
         onAccepted,
@@ -1006,7 +1008,7 @@ export function useChatStream({
         user: {
           id: optimisticIds[0],
           role: "user",
-          content: cleanText,
+          content: displayText,
           status: null,
           timestamp: new Date().toISOString(),
           markdown: false,
@@ -1031,7 +1033,7 @@ export function useChatStream({
         },
       });
       if (context.firstMessage && !localSubmissionId) {
-        sessionRef.current.markConversationSubmitted(conversationId, context.projectId, cleanText);
+        sessionRef.current.markConversationSubmitted(conversationId, context.projectId, displayText);
       }
       scroll.scrollToBottom(true);
       await runStream(

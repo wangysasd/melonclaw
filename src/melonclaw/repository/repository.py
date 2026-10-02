@@ -9,6 +9,7 @@ from melonclaw.repository.attachments import AttachmentRepositoryMixin
 from melonclaw.repository.conversations import ConversationRepositoryMixin
 from melonclaw.repository.locks import ConcurrencyMixin
 from melonclaw.repository.mcp import McpRepositoryMixin
+from melonclaw.repository.mcp_install import McpInstallRepositoryMixin
 from melonclaw.repository.memory_events import MemoryEventRepositoryMixin
 from melonclaw.repository.projects import ProjectRepositoryMixin
 from melonclaw.repository.resources import ResourceRepositoryMixin
@@ -24,6 +25,7 @@ class BusinessRepository(
     UserInteractionRepositoryMixin,
     ResourceRepositoryMixin,
     McpRepositoryMixin,
+    McpInstallRepositoryMixin,
     ConcurrencyMixin,
     MemoryEventRepositoryMixin,
 ):

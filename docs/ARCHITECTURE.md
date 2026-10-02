@@ -186,3 +186,9 @@ MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空�
 缺失项警告不扩大授权。管理发现由 `ChatRuntime.mcp_discovery`（`services/mcp_discovery.py`）
 调度，权限/版本校验先于共享任务与脱敏目录缓存；草稿和 stdio 不缓存，Agent 独立发现并保持审批。
 完整权限、API、审批恢复边界与验证见 [MCP 两层设计](design-docs/mcp-two-layer.md)。
+
+### 聊天安装 MCP
+
+消息准备阶段由 `services/mcp_chat_config.py` 提取 MCP JSON，数据库 `mcp_install_drafts` 保存受控配置，消息、Checkpoint 和模型只接收草稿引用。`ChatService` 注入 `ChatMcpInstallService` provider，`tool/mcp_install.py` 提供准备、审批测试和审批安装工具。身份从 ToolRuntime 注入并重新校验用户、会话和项目，不允许模型指定用户。聊天安装固定个人范围，`McpManagementService.prepare(personal=True)` 复用管理校验；资源页原有角色默认范围保持不变。
+
+正式安装由 `repository/mcp_install.py` 在同一事务写配置、个人偏好和草稿结果，行锁保护并发幂等；不自动覆盖同名个人项。测试和安装进入 HITL，均不进入 PTC，下一轮沿用现有 MCP 快照摘要生效。草稿有效期 24 小时，过期访问拒绝，暂存新配置时清理；审批草稿安装成功后清空 payload。详见 [聊天安装设计](design-docs/chat-mcp-install.md)。

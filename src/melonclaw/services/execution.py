@@ -49,6 +49,7 @@ from melonclaw.services.execution_finalize import (
     mark_interaction_recovery_required,
     release_execution,
 )
+from melonclaw.services.mcp_chat_config import parse_chat_mcp
 from melonclaw.services.runtime import ChatRuntime
 
 
@@ -112,7 +113,9 @@ class ExecutionService:
 
         storage = self.runtime.require_ready()
         normalized_capabilities = normalize_capabilities(capabilities)
-        clean_content = content.strip()
+        clean_content, mcp_drafts = parse_chat_mcp(
+            content.strip(), user_id=user_id, conversation_id=str(conversation_id), request_id=request_id,
+        )
         try:
             normalized_attachment_ids = [UUID(str(item)) for item in (attachment_ids or [])]
         except (TypeError, ValueError) as exc:
@@ -231,6 +234,8 @@ class ExecutionService:
                 display_metadata["capabilities"] = list(normalized_capabilities)
             if self.runtime.settings is None:
                 raise RuntimeError("运行配置尚未加载。")
+            if mcp_drafts:
+                await storage.stage_mcp_drafts(context.user_id, conversation_id, mcp_drafts)
             pair = await storage.create_message_pair(
                 conversation_id,
                 context.user_id,

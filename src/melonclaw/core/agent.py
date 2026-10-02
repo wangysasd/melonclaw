@@ -36,6 +36,7 @@ from melonclaw.middleware import (
 from melonclaw.middleware.skill_refresh import SkillRefreshMiddleware
 from melonclaw.middleware.tool_name_guard import ToolNameGuardMiddleware
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
+from melonclaw.tool.mcp_install import McpInstallProvider, build_mcp_install_tools
 from melonclaw.tool.skill_install import SkillInstallProvider, build_skill_install_tools
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
 
@@ -104,7 +105,7 @@ def _build_tool_selector_middleware(
             for tool in tools
             if _tool_name(tool) not in {
                 MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "prepare_skill_creation",
-                "confirm_skill_install",
+                "confirm_skill_install", "prepare_mcp_install", "test_mcp_install", "confirm_mcp_install",
             }
         ],
         max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
@@ -121,6 +122,7 @@ async def build_research_agent(
     memory_service: MemoryService | None = None,
     attachment_hydration_provider: AttachmentHydrationProvider | None = None,
     skill_install_provider: SkillInstallProvider | None = None,
+    mcp_install_provider: McpInstallProvider | None = None,
     client_capabilities: object = None,
     mcp_servers: dict[str, dict[str, Any]] | None = None,
     mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
@@ -151,6 +153,8 @@ async def build_research_agent(
     )
     if skill_install_provider is not None:
         tools.extend(build_skill_install_tools(skill_install_provider))
+    if mcp_install_provider is not None:
+        tools.extend(build_mcp_install_tools(mcp_install_provider))
     resolved_mcp_servers = mcp_servers or {}
     user_input_enabled = supports_user_input(client_capabilities)
     tool_selector = _build_tool_selector_middleware(chat_model, tools)
