@@ -302,7 +302,7 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
                 return (
                   <article
                     key={skill.id}
-                    className={unavailable ? "skill-card is-broken" : "skill-card"}
+                    className={unavailable ? "skill-card skill-resource-card is-broken" : "skill-card skill-resource-card"}
                   >
                     <div className="skill-card-top-actions">
                       <Button

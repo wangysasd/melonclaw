@@ -24,13 +24,39 @@ describe("explicit result contract", () => {
     for (const invalid of [{ ...chart, chart: "pie" }, { ...chart, rows: [["一月", "12"]] }, { ...chart, rows: [["一月", 12, 3]] }, { ...chart, option: { formatter: "script" } }, { ...chart, sources: [{ id: "1", title: "x", url: "javascript:alert(1)" }] }, { version: 1, type: "file", ref: { path: "/outputs/../private" } }, { version: 1, type: "image", ref: { url: "https://evil.com/a.png" } }]) expect(parseResultBlock(JSON.stringify(invalid))).toBeNull();
     expect(parseResultBlock("x".repeat(200001))).toBeNull();
   });
+  it.each([
+    [{ sources: undefined }, "缺少必填字段 sources"],
+    [{ sources: [] }, "1–30 条有效来源"],
+    [{ chart: "pie" }, "图表类型不支持"],
+    [{ rows: [["一月", 12, 8]] }, "第 1 行列数不匹配"],
+    [{ rows: [["一月", "12"]] }, "第 1 行数值类型错误"],
+    [{ option: {} }, "不支持的字段"],
+  ])("explains invalid chart fields while preserving raw data: %j", (change, reason) => {
+    const raw = JSON.stringify({ ...chart, ...change });
+    const { container } = render(<ResultBlockView raw={raw} />);
+    expect(screen.getByRole("status").textContent).toContain(reason);
+    expect(container.querySelector("code")?.textContent).toBe(raw);
+    expect(screen.queryByTestId("chart")).toBeNull();
+  });
+  it("renders the reported two-series example only after a source is supplied", async () => {
+    const example = { version: 1, type: "chart", title: "示例：月度销量（模拟数据）", chart: "bar", unit: "万台", x_label: "月份", series: ["A 产品", "B 产品"], rows: [["1月", 12, 8], ["2月", 15, 9], ["3月", 11, 14], ["4月", 18, 16]], note: "以上为模拟数据，仅用于演示图表渲染效果，不代表任何真实统计口径。" };
+    const view = render(<Markdown source={block(example)} />);
+    expect(await screen.findByText(/缺少必填字段 sources/)).toBeTruthy();
+    view.rerender(<Markdown source={block({ ...example, sources: [{ id: "1", title: "模拟数据，仅用于演示" }] })} />);
+    expect((await screen.findByTestId("chart")).textContent).toBe(JSON.stringify(example.rows));
+    expect(screen.getByText("查看绘图数据（4 行）")).toBeTruthy();
+    expect(screen.getByText("[1] 模拟数据，仅用于演示")).toBeTruthy();
+    fireEvent.click(screen.getByText("查看绘图数据（4 行）"));
+    fireEvent.click(screen.getByRole("button", { name: "复制表格" }));
+    await waitFor(() => expect(copy).toHaveBeenCalledWith("月份\tA 产品（万台）\tB 产品（万台）\n1月\t12\t8\n2月\t15\t9\n3月\t11\t14\n4月\t18\t16"));
+  });
   it("downloads exact plotted values, escaping CSV and spreadsheet formulas", () => {
     expect(tableCsv([["项目", "值"], ["=cmd()", -2], ['a,"b\nc', null], ["  +SUM(1)", true]])).toBe('"项目","值"\r\n"\'=cmd()","-2"\r\n"a,""b\nc",""\r\n"\'  +SUM(1)","true"');
   });
   it("preserves invalid raw result as readable text without executable HTML", () => {
     const raw = '{"version":1,"type":"chart","title":"<script>alert(1)</script>"}';
     const { container } = render(<ResultBlockView raw={raw} />);
-    expect(screen.getByText(/结果格式无法识别/)).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("图表 unit 必须是非空字符串");
     expect(container.textContent).toContain(raw);
     expect(container.querySelector("script")).toBeNull();
   });

@@ -340,7 +340,7 @@ export function SidebarContent({
                   <div key={project.id} className="project-group">
                     <div className="project-item">
                       <button type="button" className="project-item-main" onClick={() => setExpandedProjectId(expanded ? null : project.id)} title={project.name} aria-expanded={expanded}>
-                        <Icon name={expanded ? "folder-open" : "folder"} size={15} />
+                        <Icon name={expanded ? "folder-open" : "folder"} size={18} />
                         <span className="project-item-name">{project.name}</span>
                         {project.is_pinned ? <Icon name="pin" size={12} className="sidebar-pinned" /> : null}
                       </button>
@@ -356,7 +356,7 @@ export function SidebarContent({
                         title={`在「${project.name}」中新建会话`}
                         aria-label={`在「${project.name}」中新建会话`}
                       >
-                        <Icon name="message-square-plus" size={15} />
+                        <Icon name="message-square-plus" size={16} />
                       </button>
                     </div>
                     {expanded ? (

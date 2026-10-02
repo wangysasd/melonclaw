@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { tokenNumber } from "../theme/tokens";
 
 /**
  * 复用 public/assets/icons/ 下现有 SVG 的图标组件。
@@ -59,7 +60,7 @@ export interface IconProps {
   rotate?: number;
 }
 
-export function Icon({ name, size = 16, className, style, rotate = 0 }: IconProps) {
+export function Icon({ name, size = tokenNumber("icon-md"), className, style, rotate = 0 }: IconProps) {
   const mask = `url(/assets/icons/${name}.svg) center / contain no-repeat`;
   return (
     <span

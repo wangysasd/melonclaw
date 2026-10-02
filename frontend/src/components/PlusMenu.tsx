@@ -69,7 +69,7 @@ export function PlusMenu({
         >
           <Icon name="list-checks" size={16} />
           <span className="plus-menu-label">技能</span>
-          <Icon name="chevron-right" size={15} className="plus-menu-arrow" />
+          <Icon name="chevron-right" size={16} className="plus-menu-arrow" />
         </button>
 
         {pane === "skills" ? (

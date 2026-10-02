@@ -101,7 +101,7 @@ export function ExecutionHeader({
     >
       <Icon
         name={runStatusIcon(run.status)}
-        size={15}
+        size={16}
         className={run.status === "running" ? "mc-icon-spin" : undefined}
       />
       <span className="agent-execution-state" role="status">{stage ?? RUN_STATUS_LABELS[run.status]}</span>
@@ -199,7 +199,7 @@ export function ExecutionTimeline({
     if (!phaseLabel || run.status !== "running") return null;
     return (
       <div className="agent-step-pending" role="status">
-        <Icon name="loader-circle" size={15} className="mc-icon-spin" />
+        <Icon name="loader-circle" size={16} className="mc-icon-spin" />
         {`${phaseLabel}…`}
       </div>
     );

@@ -40,6 +40,12 @@ Markdown 图片也可使用 ![说明](/attachments/真实UUID) 或 ![说明](/ou
 图表：{"version":1,"type":"chart","title":"月度销售额","chart":"line","unit":"万元",
 "x_label":"月份","series":["销售额"],"rows":[["一月",12],["二月",18]],
 "sources":[{"id":"1","title":"用户提供的销售数据","ref":{"attachment_id":"真实附件 UUID"},"locator":"Sheet1，按月份汇总"}],"note":"统计口径说明"}
+每个图表必须包含非空 sources 数组，每条来源至少包含唯一 id 和非空 title；note 不能替代 sources。
+真实数据填写实际来源，不虚构链接或附件 ID；模拟数据也必须填写来源，完整示例：
+{"version":1,"type":"chart","title":"示例：月度销量（模拟数据）","chart":"bar","unit":"万台",
+"x_label":"月份","series":["A 产品","B 产品"],"rows":[["1月",12,8],["2月",15,9],["3月",11,14],["4月",18,16]],
+"sources":[{"id":"1","title":"模拟数据，仅用于演示"}],"note":"以上为模拟数据，不代表任何真实统计口径。"}
+输出前检查必填字段、来源、行宽和数值类型，不省略 sources，不把来源说明只写进 note。
 chart 只允许 line（时间趋势）或 bar（类别比较）。rows 第一列是字符串横轴标签，
 后续每列对应一个 series，必须是有限数值或 null（缺失）；不能用字符串数字、填零猜值、
 额外堆叠／双轴配置。最多 200 行、8 个系列，同一图使用同一单位。图和绘图表由同一 rows

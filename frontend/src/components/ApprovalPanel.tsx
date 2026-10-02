@@ -184,7 +184,7 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
   return (
     <section className="approval-panel" tabIndex={-1} aria-labelledby={`${id}-title`} aria-busy={submitting}>
       <div className="approval-title" id={`${id}-title`} role="status">
-        <Icon name="shield-check" size={19} />
+        <Icon name="shield-check" size={18} />
         <span>需要你允许这项操作{single ? "" : `（${rows.length} 项）`}</span>
         <span className="approval-badge">等待确认 · 仅限本次</span>
       </div>

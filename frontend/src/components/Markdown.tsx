@@ -67,10 +67,10 @@ function Code({ children, block, lang, streamStatus }: ComponentProps) {
     <div className="markdown-code">
       <div className="markdown-code-head">
         <span>{language}</span>
-        <button type="button" onClick={() => void copyText(code).then(() => setFeedback("已复制"), () => setFeedback("复制失败"))}>
+        {!(language.toLowerCase() === "mermaid" && streamStatus === "done") && <button type="button" onClick={() => void copyText(code).then(() => setFeedback("已复制"), () => setFeedback("复制失败"))}>
           <Icon size={14} name="copy" />
           <span>{feedback}</span>
-        </button>
+        </button>}
       </div>
       <MarkdownBoundary fallback={fallback}>
         <Suspense fallback={fallback}>

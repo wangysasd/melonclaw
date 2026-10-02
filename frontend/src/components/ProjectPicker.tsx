@@ -87,7 +87,7 @@ export function ProjectPicker({ onOpenProjectDialog }: ProjectPickerProps) {
         {open ? (
           <div className="composer-project-popover" role="dialog" aria-label="选择项目">
             <label className="composer-project-search">
-              <Icon name="search" size={17} />
+              <Icon name="search" size={16} />
               <input
                 ref={searchRef}
                 type="search"
@@ -107,7 +107,7 @@ export function ProjectPicker({ onOpenProjectDialog }: ProjectPickerProps) {
                   aria-selected={project.id === session.projectId}
                   onClick={() => selectProject(project.id)}
                 >
-                  <Icon name="folder" size={17} />
+                  <Icon name="folder" size={16} />
                   <span>{project.name}</span>
                   {project.id === session.projectId ? <Icon name="circle-check" size={16} className="composer-project-check" /> : null}
                 </button>
@@ -117,10 +117,10 @@ export function ProjectPicker({ onOpenProjectDialog }: ProjectPickerProps) {
             </div>
             <div className="composer-project-actions">
               <button type="button" onClick={() => { close(); onOpenProjectDialog?.(); }}>
-                <Icon name="plus" size={17} /> 新建项目
+                <Icon name="plus" size={16} /> 新建项目
               </button>
               <button type="button" onClick={leaveProject}>
-                <Icon name="x" size={17} /> 不在项目中工作
+                <Icon name="x" size={16} /> 不在项目中工作
               </button>
             </div>
           </div>

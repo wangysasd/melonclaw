@@ -402,7 +402,7 @@ export function ChatView({
           aria-expanded={toolCatalogOpen}
           aria-label="系统状态"
         >
-          <Icon name="shield-check" size={15} />
+          <Icon name="shield-check" size={16} />
           <span>系统状态</span>
         </button>
       </header>
@@ -494,7 +494,7 @@ export function ChatView({
       ) : null}
       {awayFromBottom ? (
         <button type="button" className={`jump-to-latest${unread.hasUnread ? " has-unread" : ""}`} onClick={() => { unread.acknowledge(); scroll.scrollToBottom(true); }}>
-          {unread.hasUnread ? "有新内容 · 回到最新消息" : "回到最新消息"}<Icon name="chevron-down" size={15} />
+          {unread.hasUnread ? "有新内容 · 回到最新消息" : "回到最新消息"}<Icon name="chevron-down" size={16} />
         </button>
       ) : null}
 

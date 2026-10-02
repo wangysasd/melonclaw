@@ -574,7 +574,7 @@ export function Composer({
                     </button>
                   ) : (
                     <span className="attachment-file-icon" aria-hidden="true">
-                      <Icon name="file-text" size={15} />
+                      <Icon name="file-text" size={16} />
                       <span className="attachment-badge">{attachmentBadge(attachment.file_name)}</span>
                     </span>
                   )}
@@ -734,7 +734,7 @@ export function Composer({
       {attachments.some((item) => item.parse_status === "failed" || item.parseTimedOut) ? <div className="composer-attachment-warning" role="alert">附件解析失败或超时，请点击附件旁的重试按钮，或移除附件后再发送。</div> : attachments.some(isPolling) ? <div className="composer-attachment-warning" role="status">附件尚未完成解析，完成后才能发送。文字草稿会保留。</div> : null}
       <div className="composer-meta">
         <div className="composer-hint" id="composer-hint">
-          <Icon name="message-circle" size={15} /> Enter 发送 · Shift + Enter 换行 · 支持拖拽或粘贴附件
+          <Icon name="message-circle" size={16} /> Enter 发送 · Shift + Enter 换行 · 支持拖拽或粘贴附件
         </div>
         <div className="composer-footnote">AI生成内容仅供参考。</div>
       </div>

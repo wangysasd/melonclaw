@@ -32,7 +32,7 @@ export function ExecutionNode({
   return (
     <details className={className} open={open} onToggle={onToggle}>
       <summary className="execution-node-head">
-        <Icon name={icon} size={15} className={`execution-node-icon${iconClassName ? ` ${iconClassName}` : ""}`} />
+        <Icon name={icon} size={16} className={`execution-node-icon${iconClassName ? ` ${iconClassName}` : ""}`} />
         <span className="execution-node-title">{title}</span>
         {subtitle ? <span className="execution-node-subtitle">{subtitle}</span> : null}
         {status ? <span className="execution-node-status">{status}</span> : null}

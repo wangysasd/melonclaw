@@ -44,7 +44,9 @@ function sources(value: unknown): value is ResultSource[] {
 function cell(value: unknown): value is Cell {
   return value === null || typeof value === "boolean" || (typeof value === "string" && value.length <= 6000) || (typeof value === "number" && Number.isFinite(value));
 }
-export function parseResultBlock(raw: string): ResultBlock | null {
+class ResultValidationError extends Error {}
+
+function parseResultValue(raw: string): ResultBlock | null {
   if (raw.length > 200_000) return null;
   try {
     const value: unknown = JSON.parse(raw);
@@ -62,12 +64,47 @@ export function parseResultBlock(raw: string): ResultBlock | null {
         return Array.isArray(value.rows) && value.rows.length <= 1000 && value.rows.every((row) => Array.isArray(row) && row.length === width && row.every(cell)) ? value as ResultBlock : null;
       }
       case "chart": {
-        if (!keys(value, ["version", "type", "title", "chart", "unit", "x_label", "series", "rows", "sources", "note"]) || !text(value.title, 300) || !["line", "bar"].includes(String(value.chart)) || !text(value.unit, 100) || !text(value.x_label, 100) || !sources(value.sources) || (value.note !== undefined && !text(value.note))) return null;
-        if (!Array.isArray(value.series) || !value.series.length || value.series.length > 8 || !value.series.every((name) => text(name, 100)) || new Set(value.series).size !== value.series.length) return null;
-        const width = value.series.length + 1;
-        return Array.isArray(value.rows) && value.rows.length > 0 && value.rows.length <= 200 && value.rows.every((row) => Array.isArray(row) && row.length === width && text(row[0], 100) && row.slice(1).every((number) => number === null || (typeof number === "number" && Number.isFinite(number)))) ? value as ResultBlock : null;
+        const invalid = (message: string): never => { throw new ResultValidationError(message); };
+        if (!keys(value, ["version", "type", "title", "chart", "unit", "x_label", "series", "rows", "sources", "note"])) invalid("图表包含不支持的字段。");
+        for (const [field, limit] of [["title", 300], ["unit", 100], ["x_label", 100]] as const) {
+          if (!text(value[field], limit)) invalid(`图表 ${field} 必须是非空字符串，且不超过 ${limit} 字符。`);
+        }
+        if (value.chart !== "line" && value.chart !== "bar") invalid("图表类型不支持，chart 只允许 line 或 bar。");
+        if (value.sources === undefined) invalid("图表缺少必填字段 sources，暂时无法展示。");
+        if (!sources(value.sources)) invalid("图表 sources 必须包含 1–30 条有效来源，每条需有唯一 id 和非空 title；链接与文件引用也必须有效。");
+        if (value.note !== undefined && !text(value.note)) invalid("图表 note 必须是非空字符串，且不超过 6000 字符。");
+        const series = value.series;
+        if (!Array.isArray(series) || !series.length || series.length > 8 || !series.every((name) => text(name, 100)) || new Set(series).size !== series.length) return invalid("图表 series 必须包含 1–8 个不重复的非空系列名称，每个不超过 100 字符。");
+        const rows = value.rows;
+        if (!Array.isArray(rows) || !rows.length || rows.length > 200) return invalid("图表 rows 必须包含 1–200 行数据。");
+        const width = series.length + 1;
+        for (const [index, row] of rows.entries()) {
+          if (!Array.isArray(row) || row.length !== width) return invalid(`图表第 ${index + 1} 行列数不匹配，应有 ${width} 列（横轴标签及各系列数值）。`);
+          if (!text(row[0], 100)) invalid(`图表第 ${index + 1} 行横轴标签必须是非空字符串，且不超过 100 字符。`);
+          if (!row.slice(1).every((number) => number === null || (typeof number === "number" && Number.isFinite(number)))) invalid(`图表第 ${index + 1} 行数值类型错误，系列值必须是有限数值或 null，不能使用字符串数字。`);
+        }
+        return value as ResultBlock;
       }
       default: return null;
     }
-  } catch { return null; }
+  } catch (error) {
+    if (error instanceof ResultValidationError) throw error;
+    return null;
+  }
+}
+
+export type ResultParseOutcome = { result: ResultBlock; error: null } | { result: null; error: string };
+
+export function parseResultBlockDetailed(raw: string): ResultParseOutcome {
+  try {
+    const result = parseResultValue(raw);
+    return result ? { result, error: null } : { result: null, error: "结果格式无法识别。" };
+  } catch (error) {
+    if (error instanceof ResultValidationError) return { result: null, error: error.message };
+    throw error;
+  }
+}
+
+export function parseResultBlock(raw: string): ResultBlock | null {
+  return parseResultBlockDetailed(raw).result;
 }

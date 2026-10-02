@@ -35,3 +35,10 @@ export const antdTheme: ThemeConfig = {
     Pagination: { itemSize: n("control-height-md"), itemSizeSM: n("control-height-sm") },
   },
 };
+
+/** Semantic slot styles keep modal/drawer spacing consistent without page overrides. */
+export const overlayStyles = {
+  header: { padding: `${t["space-5"]} ${t["space-6"]}`, marginBottom: 0 },
+  body: { padding: `${t["space-5"]} ${t["space-6"]}` },
+  footer: { padding: `${t["space-4"]} ${t["space-6"]}`, marginTop: 0 },
+};

@@ -35,7 +35,7 @@ function SupportedModelsSection({ modelOptions }: { modelOptions: ModelOption[] 
     <section className="tool-catalog-section" aria-labelledby="tool-runtime-models-title">
       <div className="tool-catalog-section-heading">
         <span className="tool-catalog-category-icon" aria-hidden="true">
-          <Icon name="brain" size={17} />
+          <Icon name="brain" size={16} />
         </span>
         <span>
           <h3 id="tool-runtime-models-title">当前支持模型情况</h3>
@@ -67,7 +67,7 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
   return (
     <li className="tool-catalog-item">
       <span className="tool-catalog-icon" aria-hidden="true">
-        <Icon name={tool.icon} size={17} />
+        <Icon name={tool.icon} size={16} />
       </span>
       <span className="tool-catalog-item-copy">
         <span className="tool-catalog-item-heading">
@@ -89,7 +89,7 @@ function CategorySection({ category }: { category: ToolCategory }) {
     <section className="tool-catalog-section" aria-labelledby={`tool-category-${category.id}`}>
       <div className="tool-catalog-section-heading">
         <span className="tool-catalog-category-icon" aria-hidden="true">
-          <Icon name={category.icon} size={17} />
+          <Icon name={category.icon} size={16} />
         </span>
         <span>
           <h3 id={`tool-category-${category.id}`}>{category.label}</h3>
@@ -154,7 +154,7 @@ export function ToolCatalogDialog({
             </p>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label="关闭系统状态" title="关闭">
-            <Icon name="x" size={17} />
+            <Icon name="x" size={16} />
           </button>
         </header>
 
@@ -186,7 +186,7 @@ export function ToolCatalogDialog({
           <section className="tool-catalog-section tool-catalog-runtime-section" aria-labelledby="tool-runtime-title">
             <div className="tool-catalog-section-heading">
               <span className="tool-catalog-category-icon" aria-hidden="true">
-                <Icon name="plug" size={17} />
+                <Icon name="plug" size={16} />
               </span>
               <span>
                 <h3 id="tool-runtime-title">已配置 MCP 服务</h3>
@@ -198,7 +198,7 @@ export function ToolCatalogDialog({
               <ul className="tool-catalog-server-list">
                 {mcpServers.map((server) => (
                   <li key={server}>
-                    <Icon name="plug" size={15} />
+                    <Icon name="plug" size={16} />
                     <code>{server}</code>
                     <span className="tool-catalog-server-status">工具运行时发现</span>
                   </li>

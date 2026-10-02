@@ -176,7 +176,7 @@ export function UserQuestionPanel({
         id={`${id}-title`}
         role="status"
       >
-        <Icon name="message-circle" size={19} />
+        <Icon name="message-circle" size={18} />
         <span>需要你补充信息{multipleQuestions ? `（${questions.length} 个问题）` : ""}</span>
         <span className="approval-badge question-badge">等待回答</span>
       </div>

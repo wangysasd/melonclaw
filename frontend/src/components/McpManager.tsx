@@ -108,7 +108,7 @@ export function McpManager({ userId, isAdmin, notify }: {
       {(["user", "global"] as const).map(scope => {
         const visible = items.filter(item => item.scope === scope && `${item.display_name} ${item.slug} ${item.description}`.toLowerCase().includes(query.toLowerCase()));
         if (!visible.length) return null;
-        return <section className="skill-group" key={scope}><h2 className="mcp-group-title">{scope === "global" ? "系统共享" : "我的"}</h2>
+        return <section className="skill-group" key={scope}><h2 className="skill-group-title">{scope === "global" ? "系统共享" : "我的"}</h2>
           <div className="skill-card-grid">{visible.map(item => {
             const disabled = item.shadowed || (item.scope === "global" && !item.enabled);
             const showPrimaryAction = !item.effective_enabled;

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "antd";
+import { copyText } from "../lib/clipboard";
 import { downloadBlob } from "../lib/resultExport";
 import Mermaid from "@ant-design/x/es/mermaid";
 import mermaid from "mermaid";
@@ -16,6 +17,7 @@ export default function MermaidDiagram({ source }: { source: string }) {
   const [showSource, setShowSource] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [copyFeedback, setCopyFeedback] = useState("复制代码");
   const [validation, setValidation] = useState<"pending" | "valid" | "invalid">("pending");
   useEffect(() => {
     let cancelled = false;
@@ -46,16 +48,17 @@ export default function MermaidDiagram({ source }: { source: string }) {
     setFeedback("");
   };
   return <div className="result-mermaid" ref={ref}>
-    <div className="result-actions">
+    {showSource ? <pre><code>{source}</code></pre> : <Mermaid config={config} styles={{ graph: { border: 0 } }} header={null} actions={{ enableZoom: false, enableDownload: false, enableCopy: false }}>{source}</Mermaid>}
+    <div className="result-actions result-secondary-actions">
       <button type="button" aria-pressed={!showSource} onClick={() => setShowSource(false)}>图形</button>
       <button type="button" aria-pressed={showSource} onClick={() => setShowSource(true)}>源码</button>
       <button type="button" onClick={() => setEnlarged(true)}>放大</button>
       <button type="button" onClick={exportSvg}>导出 SVG</button>
+      <button type="button" onClick={() => void copyText(source).then(() => setCopyFeedback("已复制"), () => setCopyFeedback("复制失败"))}>{copyFeedback}</button>
     </div>
-    {showSource ? <pre><code>{source}</code></pre> : <Mermaid config={config} header="流程图" actions={{ enableDownload: false, enableCopy: false }}>{source}</Mermaid>}
     {feedback ? <p role="status">{feedback}</p> : null}
     <Modal open={enlarged} onCancel={() => setEnlarged(false)} title="流程图" footer={null} width="90vw" destroyOnHidden>
-      <Mermaid config={config} header="流程图" actions={{ enableDownload: false, enableCopy: false }}>{source}</Mermaid>
+      <Mermaid config={config} styles={{ graph: { border: 0 } }} header={null} actions={{ enableZoom: false, enableDownload: false, enableCopy: false }}>{source}</Mermaid>
     </Modal>
   </div>;
 }
