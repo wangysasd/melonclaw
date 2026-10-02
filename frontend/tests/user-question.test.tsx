@@ -40,6 +40,9 @@ describe("UserQuestionPanel", () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<UserQuestionPanel question={question} onSubmit={onSubmit} />);
+    expect(screen.getByRole("region", { name: /需要你补充信息/ })).toBeTruthy();
+    expect(screen.getByText("等待回答")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "允许本次" })).toBeNull();
     const submit = screen.getByRole("button", { name: "提交回答并继续" });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByLabelText("本地"));

@@ -9,9 +9,11 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
 
+from langchain_core.tools import ToolException
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from melonclaw.core.agent import AgentContext
+from melonclaw.core.chat_model import ModelInvocationError
 from melonclaw.core.hitl import (
     aget_pending_approval,
     aget_pending_interaction,
@@ -828,6 +830,11 @@ class ExecutionService:
             )
             raise
         except Exception as exc:  # noqa: BLE001 - 保存失败状态后发送安全错误
+            error_code = (
+                "model_execution_failed" if isinstance(exc, ModelInvocationError)
+                else "tool_execution_failed" if isinstance(exc, ToolException)
+                else "agent_execution_failed"
+            )
             await mark_interaction_recovery_required(
                 self.runtime.storage,
                 execution.conversation_id,
@@ -838,7 +845,7 @@ class ExecutionService:
                 execution,
                 expected_status=self._expected_assistant_status(execution),
                 status="failed",
-                error_code="agent_execution_failed",
+                error_code=error_code,
                 display_metadata=display_events,
                 assistant_steps=transcript.terminal_snapshot(status="failed"),
                 execution_duration_ms=elapsed_duration_ms(),
@@ -847,6 +854,7 @@ class ExecutionService:
                 "type": "error",
                 "message": sanitize_text(str(exc)) or "助手运行失败，请稍后重试。",
                 "message_id": str(execution.assistant_message_id),
+                "error_code": error_code,
             }
         finally:
             if not finished and execution.replay_message is None:

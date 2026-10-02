@@ -130,6 +130,7 @@ async function renderComposer(
       onChange={vi.fn()}
       onSend={vi.fn()}
       disabled={false}
+      pendingInteraction={null}
       {...props}
     />,
   );
@@ -194,11 +195,24 @@ beforeEach(() => {
 });
 
 describe("composer", () => {
+  it("distinguishes waiting for an answer and unlocks sending after the question expires", async () => {
+    session.busy = true;
+    session.runStatus = "waiting";
+    const onSend = vi.fn();
+    const view = await renderComposer({ value: "继续", onSend, disabled: true, isRunning: false, pendingInteraction: "question" });
+    expect((screen.getByRole("button", { name: "等待回答" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).placeholder).toContain("回答上方问题");
+    view.rerender(<Composer value="继续" onChange={vi.fn()} onSend={onSend} disabled={false} isRunning={false} pendingInteraction={null} />);
+    expect((screen.getByRole("button", { name: "发送" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(onSend).toHaveBeenCalled();
+    view.unmount();
+  });
   it("allows drafting while awaiting approval but cannot send on Enter", async () => {
     session.busy = true;
     session.runStatus = "waiting";
     const onSend = vi.fn(); const onChange = vi.fn();
-    const view = await renderComposer({ value: "draft", onChange, onSend, disabled: true });
+    const view = await renderComposer({ value: "draft", onChange, onSend, disabled: true, pendingInteraction: "approval" });
     const input = screen.getByRole("textbox") as HTMLTextAreaElement;
     expect(input.disabled).toBe(false);
     const picker = screen.getByRole("combobox", { name: "选择模型" }) as HTMLSelectElement;
@@ -235,7 +249,7 @@ describe("composer", () => {
   it("submits after an initially empty draft is edited", async () => {
     const onSend = vi.fn();
     const view = await renderComposer({ value: "", onSend, disabled: false });
-    view.rerender(<Composer value="后来输入" onChange={vi.fn()} onSend={onSend} disabled={false} />);
+    view.rerender(<Composer value="后来输入" onChange={vi.fn()} onSend={onSend} disabled={false} pendingInteraction={null} />);
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("后来输入");
     view.unmount();
@@ -544,4 +558,44 @@ describe("composer", () => {
     expect(screen.getByRole("dialog", { name: "shot.png" })).toBeTruthy();
     view.unmount();
   });
+});
+
+
+describe("attachment send guards", () => {
+  it.each(["pending", "failed"] as const)("blocks a text draft with a %s attachment", async (parse_status) => {
+    vi.mocked(client.uploadAttachment).mockResolvedValue(uploadedAttachment({ parse_status }));
+    const onSend = vi.fn();
+    const view = await renderComposer({ value: "请分析附件", onSend });
+    await addViaDialog([makeFile("doc.txt", 5, "text/plain")]);
+    expect(screen.getByRole("button", { name: "发送" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.keyDown(view.container.querySelector("textarea")!, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    view.unmount();
+  });
+  it("blocks ready images for a model without declared image support", async () => {
+    vi.mocked(client.uploadAttachment).mockResolvedValue(uploadedAttachment({ kind: "image", parse_status: "not_required", file_name: "shot.png" }));
+    const onSend = vi.fn();
+    const view = await renderComposer({ value: "描述图片", onSend });
+    await addViaDialog([makeFile("shot.png", 1, "image/png")]);
+    expect(screen.getByText(/当前模型不支持图片附件/)).toBeTruthy();
+    fireEvent.keyDown(view.container.querySelector("textarea")!, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    view.unmount();
+  });
+});
+
+
+it("retries failed uploads with the same idempotency key", async () => {
+  vi.mocked(client.uploadAttachment).mockRejectedValueOnce(new Error("网络断开"));
+  const view = await renderComposer();
+  openFilesDialog();
+  fireEvent.change(screen.getByLabelText("选择附件"), { target: { files: [makeFile("doc.txt", 5, "text/plain")] } });
+  await flush();
+  expect(screen.getByRole("button", { name: "确认" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "重试上传 doc.txt" }));
+  await flush();
+  expect(client.uploadAttachment).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(client.uploadAttachment).mock.calls[1][1].clientRequestId).toBe(vi.mocked(client.uploadAttachment).mock.calls[0][1].clientRequestId);
+  expect(screen.getByRole("button", { name: "确认" }).hasAttribute("disabled")).toBe(false);
+  view.unmount();
 });

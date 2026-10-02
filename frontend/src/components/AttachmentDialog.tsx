@@ -90,8 +90,8 @@ export function AttachmentDialog({
     [],
   );
 
-  const startUpload = (file: File) => {
-    const clientRequestId = crypto.randomUUID();
+  const startUpload = (file: File, retry?: StagedAttachment) => {
+    const clientRequestId = retry?.clientRequestId ?? crypto.randomUUID();
     const temporaryId = `uploading-${clientRequestId}`;
     const placeholder: StagedAttachment = {
       attachment_id: temporaryId,
@@ -105,7 +105,7 @@ export function AttachmentDialog({
       uploading: true,
       progress: 0,
     };
-    setItems((current) => [...current, placeholder]);
+    setItems((current) => retry ? current.map((item) => item.attachment_id === retry.attachment_id ? placeholder : item) : [...current, placeholder]);
     const controller = new AbortController();
     controllersRef.current.set(temporaryId, controller);
     void uploadAttachment(
@@ -225,7 +225,7 @@ export function AttachmentDialog({
 
   const ready = items.filter((item) => !item.uploading && !item.uploadError);
   const uploading = items.some((item) => item.uploading);
-  const confirmDisabled = uploading || ready.length === 0;
+  const confirmDisabled = uploading || items.some((item) => Boolean(item.uploadError)) || ready.length === 0;
   const acceptExtensions = capabilities.items.map((item) => item.extension).join(",");
 
   const handleConfirm = () => {
@@ -359,6 +359,7 @@ export function AttachmentDialog({
                     </span>
                   ) : null}
                 </div>
+                {failed ? <button type="button" className="attachment-dialog-remove" aria-label={`重试上传 ${item.file_name}`} onClick={() => startUpload(item.file, item)}><Icon name="refresh-cw" size={16} /></button> : null}
                 <button
                   type="button"
                   className="attachment-dialog-remove"

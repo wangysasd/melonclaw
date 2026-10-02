@@ -167,6 +167,7 @@ export function UserQuestionPanel({
   return (
     <section
       className="approval-panel user-question-panel"
+      tabIndex={-1}
       aria-labelledby={`${id}-title`}
       aria-busy={submitting}
     >
@@ -176,8 +177,10 @@ export function UserQuestionPanel({
         role="status"
       >
         <Icon name="message-circle" size={19} />
-        {questions.length > 1 ? "请回答以下问题" : "等待你的回答"}
+        <span>需要你补充信息{multipleQuestions ? `（${questions.length} 个问题）` : ""}</span>
+        <span className="approval-badge question-badge">等待回答</span>
       </div>
+      <p className="approval-copy">助手需要你的回答才能继续；也可以跳过，让 AI 自己决定。</p>
       {questions.map((item, index) => {
         const state = questionStates[index] ?? { selected: [], customText: "" };
         const customSelected = state.selected.includes(CUSTOM_OPTION_ID);

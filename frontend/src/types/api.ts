@@ -615,7 +615,7 @@ export type StreamEvent =
       replayed?: boolean;
     }
   | { type: "done"; message_id?: string; terminal_reason?: string; replayed?: boolean }
-  | { type: "error"; message?: string; message_id?: string };
+  | { type: "error"; message?: string; message_id?: string; error_code?: string };
 
 /**
  * 注意：不要加 { type: string } 兜底成员，会破坏判别联合的窄化；

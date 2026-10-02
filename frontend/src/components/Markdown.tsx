@@ -5,9 +5,14 @@ import "@ant-design/x-markdown/themes/light.css";
 import { copyText } from "../lib/clipboard";
 import { visibleAssistantText } from "../lib/toolSelection";
 import { Icon } from "./Icon";
+import { parseAssetRef } from "../lib/resultBlocks";
+import { ResultAsset } from "./ResultAsset";
+import { MarkdownTable } from "./ResultTable";
+import { ResultCitationScope, useResultScope } from "./ResultContext";
 
 const CodeHighlighter = lazy(() => import("@ant-design/x/es/code-highlighter"));
 const MathMarkdown = lazy(() => import("./MathMarkdown"));
+const ResultBlockView = lazy(() => import("./ResultBlockView"));
 const MermaidDiagram = lazy(() => import("./MermaidDiagram"));
 
 /** Markdown 扩展失败时只影响当前回复，并保留可读纯文本。 */
@@ -54,6 +59,10 @@ function Code({ children, block, lang, streamStatus }: ComponentProps) {
   if (!block) return <code>{children}</code>;
   const fallback = <pre><code>{code}</code></pre>;
   const language = lang?.split(/\s/)[0] || "text";
+  if (language.toLowerCase() === "melon-result") {
+    return streamStatus === "done" ? <MarkdownBoundary fallback={fallback}><Suspense fallback={fallback}><ResultBlockView raw={code} /></Suspense></MarkdownBoundary>
+      : <div className="result-pending"><span>结果正在生成…</span>{fallback}</div>;
+  }
   return (
     <div className="markdown-code">
       <div className="markdown-code-head">
@@ -76,16 +85,35 @@ function Code({ children, block, lang, streamStatus }: ComponentProps) {
   );
 }
 
+function MarkdownImage({ src, alt }: ComponentProps & { src?: unknown }) {
+  const source = String(src ?? "");
+  const asset = source.startsWith("/attachments/") ? parseAssetRef({ attachment_id: source.slice(13) })
+    : source.startsWith("/outputs/") ? parseAssetRef({ path: source }) : null;
+  return asset ? <ResultAsset asset={asset} image caption={String(alt ?? "")} />
+    : <span className="blocked-image">[图片：{String(alt || "未命名")}；外部或不受支持的图片地址未加载]</span>;
+}
+function MarkdownLink({ children, href }: LinkProps) {
+  const scope = useResultScope();
+  const value = String(href ?? "");
+  const match = /^#source-([A-Za-z0-9_-]{1,40})$/.exec(value);
+  const safe = safeHref(href);
+  if (match && scope) return <a href={`#${scope.anchorPrefix}-${match[1]}`} onClick={(event) => {
+    event.preventDefault();
+    const target = document.getElementById(`${scope.anchorPrefix}-${match[1]}`);
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }}>{children}</a>;
+  return safe ? <a href={safe} target={safe.startsWith("#") ? undefined : "_blank"} rel="noreferrer noopener">{children}</a> : <span>{children}</span>;
+}
 type LinkProps = ComponentProps & { href?: unknown };
 
 export const markdownComponents: NonNullable<XMarkdownProps["components"]> = {
   code: Code,
-  a: ({ children, href }: LinkProps) => {
-    const safe = safeHref(href);
-    return safe ? <a href={safe} target="_blank" rel="noreferrer noopener">{children}</a> : <span>{children}</span>;
-  },
-  img: ({ alt }: ComponentProps) => <span className="blocked-image">[图片：{String(alt || "未命名")}]</span>,
-  table: ({ children }: ComponentProps) => <div className="markdown-table"><table>{children}</table></div>,
+  pre: ({ children }: ComponentProps) => <div className="markdown-pre">{children}</div>,
+  a: MarkdownLink,
+  img: MarkdownImage,
+  p: ({ children }: ComponentProps) => <div className="markdown-paragraph">{children}</div>,
+  table: ({ children }: ComponentProps) => <MarkdownTable>{children}</MarkdownTable>,
   "incomplete-link": IncompleteMarkdown,
   "incomplete-image": IncompleteMarkdown,
   "incomplete-html": IncompleteMarkdown,
@@ -119,10 +147,12 @@ export const Markdown = memo(function Markdown({ source, streaming = false }: { 
   };
   const fallback = <div className="markdown-fallback">{content}</div>;
   return (
+    <ResultCitationScope>
     <MarkdownBoundary fallback={fallback}>
       {/\$|\\\(|\\\[/.test(content) ? (
         <Suspense fallback={<XMarkdown {...props} />}><MathMarkdown {...props} /></Suspense>
       ) : <XMarkdown {...props} />}
     </MarkdownBoundary>
+    </ResultCitationScope>
   );
 });

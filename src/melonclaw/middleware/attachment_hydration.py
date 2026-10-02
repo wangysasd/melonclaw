@@ -68,7 +68,7 @@ class AttachmentHydrationMiddleware(AgentMiddleware):
                         },
                     }
                 )
-                index_lines.append(f"- {name}：图片已作为当前请求的图片内容提供。")
+                index_lines.append(f"- {name}：图片已作为当前请求的图片内容提供，attachment_id={attachment['attachment_id']}。")
             elif attachment.get("type") == "archive":
                 index_lines.append(
                     f"- {name}：ZIP 附件，attachment_id={attachment['attachment_id']}。"
@@ -79,7 +79,7 @@ class AttachmentHydrationMiddleware(AgentMiddleware):
                 index_lines.append(f"- {name}：附件已不可用，无法读取其内容。")
             else:
                 index_lines.append(
-                    f"- {name}：需要内容时，请使用 read_file 读取 {attachment['path']}。"
+                    f"- {name}：attachment_id={attachment['attachment_id']}。需要内容时，请使用 read_file 读取 {attachment['path']}。"
                 )
         text = "\n".join(index_lines)
         content = target.get("content", "") if isinstance(target, Mapping) else getattr(target, "content", "")

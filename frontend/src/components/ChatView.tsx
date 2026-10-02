@@ -5,10 +5,15 @@ import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "re
 
 import { Icon } from "./Icon";
 import { Composer } from "./Composer";
+import { toolSummary } from "../lib/toolDisplay";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { UserQuestionPanel } from "./UserQuestionPanel";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
+import { ResultProvider } from "./ResultContext";
+import { FailureNotice } from "./FailureNotice";
+import { StoppedRunNotice } from "./StoppedRunNotice";
+import { useUnreadChat } from "../hooks/useUnreadChat";
 import { AgentExecution } from "./AgentExecution";
 import { ToolCatalogDialog } from "./ToolCatalogDialog";
 import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
@@ -18,20 +23,9 @@ import { attachmentBadge } from "../lib/attachmentFiles";
 import { copyText } from "../lib/clipboard";
 import { formatMessageTime } from "../lib/format";
 import { useUserQuestionExpired } from "../lib/userQuestionExpiry";
-import { useSession, type RunStatus } from "../state/session";
+import { useSession } from "../state/session";
 import { attachmentContentUrl } from "../api/client";
 import type { PendingApproval, SkillOption, UserQuestionRequest } from "../types/api";
-
-const RUN_STATUS_LABELS: Record<RunStatus, string> = {
-  starting: "正在准备",
-  ready: "已就绪",
-  selecting_tools: "正在工具筛选",
-  thinking: "思考中",
-  responding: "正在生成回复",
-  processing: "处理中",
-  waiting: "等待确认",
-  failed: "失败",
-};
 
 /** 审批面板重挂载 key：interrupt ID 组合变化时重置面板内部表单状态。 */
 function approvalKey(approval: PendingApproval): string {
@@ -171,14 +165,18 @@ function MessageFooter({ message }: { message: ChatMessage }) {
 const MessageBubble = memo(function MessageBubble({
   message,
   userName,
-  runStatus,
+  waitingFor,
+  onSync,
+  syncDisabled,
   conversationId,
   userId,
   projectId,
 }: {
   message: ChatMessage;
   userName: string;
-  runStatus: RunStatus;
+  waitingFor?: "question" | "approval";
+  onSync: () => void;
+  syncDisabled: boolean;
   conversationId: string | null;
   userId: string;
   projectId: string;
@@ -198,6 +196,7 @@ const MessageBubble = memo(function MessageBubble({
   const renderedContent = useDeferredValue(displayContent);
 
   return (
+    <ResultProvider userId={userId} conversationId={conversationId ?? ""} projectId={projectId || null}>
     <article className={`message ${message.role}`}>
       <div className={`avatar ${message.role === "user" ? "user-avatar" : "assistant-avatar"}`}>
         <img
@@ -219,9 +218,15 @@ const MessageBubble = memo(function MessageBubble({
             run={run}
             events={message.events}
             messageStatus={message.status}
-            phaseLabel={RUN_STATUS_LABELS[runStatus]}
+            waitingFor={waitingFor}
           />
         ) : null}
+        {message.approvalReceipts?.map((receipt) => <div className="approval-receipt" role="status" key={receipt.batchId}>
+          {receipt.actions.map((action, index) => <p key={index}>
+            {toolSummary(action.name)} · {({ approve: "已允许本次", reject: "已拒绝", edit: "已提交修改参数", respond: "已提供结果" })[action.decision]}
+          </p>)}
+          <span>决定已接收，后续执行结果见执行过程。</span>
+        </div>)}
         <MessageAttachments
           attachments={message.attachments ?? []}
           userId={userId}
@@ -239,12 +244,12 @@ const MessageBubble = memo(function MessageBubble({
             />
           ) : null}
         </div>
-        {message.status === "failed" || message.status === "cancelled" ? (
-          <p className="message-notice">{message.status === "failed" ? "本次回复未完成，当前显示已接收的内容。" : "本次回复已中止。"}</p>
-        ) : null}
+        {run && message.status !== "streaming" ? <FailureNotice message={message} run={run} onSync={onSync} syncDisabled={syncDisabled} /> : null}
+        {message.status === "cancelled" && run ? <StoppedRunNotice run={run} events={message.events} onSync={onSync} syncDisabled={syncDisabled} /> : null}
         <MessageFooter message={message} />
       </div>
     </article>
+    </ResultProvider>
   );
 });
 
@@ -264,7 +269,7 @@ export function ChatView({
   onInitialSkillApplied,
 }: ChatViewProps = {}) {
   const session = useSession();
-  const { runStatus, status } = useServiceStatus();
+  const { status } = useServiceStatus();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
   const [awayFromBottom, setAwayFromBottom] = useState(false);
@@ -298,6 +303,7 @@ export function ChatView({
   );
 
   const chat = useChatStream({ scroll });
+  const unread = useUnreadChat(chat.state.messages, `${session.userId}:${session.conversationId}`, awayFromBottom, chat.state.historyLoading);
   const userQuestionExpired = useUserQuestionExpired(
     chat.state.userQuestion?.expires_at,
   );
@@ -439,7 +445,9 @@ export function ChatView({
                 key={`${message.id}-${message.role}`}
                 message={message}
                 userName={userName}
-                runStatus={runStatus}
+                waitingFor={chat.state.userQuestion?.assistant_message_id === message.id ? "question" : chat.state.approval?.assistant_message_id === message.id ? "approval" : undefined}
+                onSync={chat.reloadHistory}
+                syncDisabled={chat.isRunning || chat.state.historyLoading}
                 conversationId={chat.state.conversationId}
                 userId={session.userId}
                 projectId={chat.state.conversationProjectId ?? session.projectId}
@@ -466,7 +474,8 @@ export function ChatView({
       {chat.state.error ? (
         <div className="chat-error" role="alert">
           <span>{chat.state.error}</span>
-          <button type="button" onClick={chat.reloadHistory} disabled={chat.state.historyLoading}>重新同步会话</button>
+          {chat.state.messages.at(-1)?.errorCode === "model_execution_failed" && onOpenModelSettings ? <button type="button" onClick={onOpenModelSettings}>检查模型配置</button> : null}
+          <button type="button" onClick={chat.reloadHistory} disabled={chat.isRunning || chat.state.historyLoading}>重新同步会话</button>
         </div>
       ) : null}
       </div>
@@ -474,14 +483,19 @@ export function ChatView({
       {chat.state.userQuestion || chat.state.approval ? (
         <div className="chat-attention" role="status">
           <Icon name={chat.state.userQuestion ? "message-circle" : "shield-check"} size={16} />
-          助手已暂停，等待你的{chat.state.userQuestion ? "回答" : "决定"}
+          {chat.state.userQuestion
+            ? userQuestionExpired ? "问题已过期，可以发送新消息继续" : "发送已暂停，请先回答问题或让 AI 自己决定"
+            : "发送已暂停，请先允许或拒绝待确认操作"}
           <button type="button" onClick={() => {
             approvalRef.current?.scrollIntoView({ block: "start" });
-            approvalRef.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+            approvalRef.current?.querySelector<HTMLElement>("section")?.focus({ preventScroll: true });
           }}>{chat.state.userQuestion ? "查看待处理问题" : "查看待确认操作"}</button>
         </div>
-      ) : awayFromBottom ? (
-        <button type="button" className="jump-to-latest" onClick={() => scroll.scrollToBottom(true)}>回到最新消息<Icon name="chevron-down" size={15} /></button>
+      ) : null}
+      {awayFromBottom ? (
+        <button type="button" className={`jump-to-latest${unread.hasUnread ? " has-unread" : ""}`} onClick={() => { unread.acknowledge(); scroll.scrollToBottom(true); }}>
+          {unread.hasUnread ? "有新内容 · 回到最新消息" : "回到最新消息"}<Icon name="chevron-down" size={15} />
+        </button>
       ) : null}
 
       <Composer
@@ -494,6 +508,7 @@ export function ChatView({
         onSend={handleSend}
         isRunning={chat.isRunning}
         onStop={() => chat.stopCurrent()}
+        pendingInteraction={chat.state.userQuestion && !userQuestionExpired ? "question" : chat.state.approval ? "approval" : null}
         disabled={
           session.conversationCreating ||
           chat.state.historyLoading ||

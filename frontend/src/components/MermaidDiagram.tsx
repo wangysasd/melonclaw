@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Modal } from "antd";
+import { downloadBlob } from "../lib/resultExport";
 import Mermaid from "@ant-design/x/es/mermaid";
 import mermaid from "mermaid";
 
@@ -10,6 +12,10 @@ const config = {
 };
 
 export default function MermaidDiagram({ source }: { source: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [showSource, setShowSource] = useState(false);
+  const [enlarged, setEnlarged] = useState(false);
+  const [feedback, setFeedback] = useState("");
   const [validation, setValidation] = useState<"pending" | "valid" | "invalid">("pending");
   useEffect(() => {
     let cancelled = false;
@@ -33,5 +39,23 @@ export default function MermaidDiagram({ source }: { source: string }) {
   if (validation !== "valid") {
     return <div><p>图表无法安全渲染，保留源码：</p><pre><code>{source}</code></pre></div>;
   }
-  return <Mermaid config={config} header="流程图" actions={{ enableDownload: false, enableCopy: false }}>{source}</Mermaid>;
+  const exportSvg = () => {
+    const svg = ref.current?.querySelector("svg");
+    if (!svg) { setFeedback("图形尚未就绪，请切回图形后重试。"); return; }
+    downloadBlob(new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml;charset=utf-8" }), "流程图.svg");
+    setFeedback("");
+  };
+  return <div className="result-mermaid" ref={ref}>
+    <div className="result-actions">
+      <button type="button" aria-pressed={!showSource} onClick={() => setShowSource(false)}>图形</button>
+      <button type="button" aria-pressed={showSource} onClick={() => setShowSource(true)}>源码</button>
+      <button type="button" onClick={() => setEnlarged(true)}>放大</button>
+      <button type="button" onClick={exportSvg}>导出 SVG</button>
+    </div>
+    {showSource ? <pre><code>{source}</code></pre> : <Mermaid config={config} header="流程图" actions={{ enableDownload: false, enableCopy: false }}>{source}</Mermaid>}
+    {feedback ? <p role="status">{feedback}</p> : null}
+    <Modal open={enlarged} onCancel={() => setEnlarged(false)} title="流程图" footer={null} width="90vw" destroyOnHidden>
+      <Mermaid config={config} header="流程图" actions={{ enableDownload: false, enableCopy: false }}>{source}</Mermaid>
+    </Modal>
+  </div>;
 }

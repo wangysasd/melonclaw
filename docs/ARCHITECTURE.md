@@ -192,3 +192,10 @@ MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空�
 消息准备阶段由 `services/mcp_chat_config.py` 提取 MCP JSON，数据库 `mcp_install_drafts` 保存受控配置，消息、Checkpoint 和模型只接收草稿引用。`ChatService` 注入 `ChatMcpInstallService` provider，`tool/mcp_install.py` 提供准备、审批测试和审批安装工具。身份从 ToolRuntime 注入并重新校验用户、会话和项目，不允许模型指定用户。聊天安装固定个人范围，`McpManagementService.prepare(personal=True)` 复用管理校验；资源页原有角色默认范围保持不变。
 
 正式安装由 `repository/mcp_install.py` 在同一事务写配置、个人偏好和草稿结果，行锁保护并发幂等；不自动覆盖同名个人项。测试和安装进入 HITL，均不进入 PTC，下一轮沿用现有 MCP 快照摘要生效。草稿有效期 24 小时，过期访问拒绝，暂存新配置时清理；审批草稿安装成功后清空 payload。详见 [聊天安装设计](design-docs/chat-mcp-install.md)。
+
+
+### 聊天结果组件与成果读取
+
+结构化结果使用原有 assistant 正文中的 `melon-result` JSON 围栏，不另开 SSE 或持久化旁路。提示词走 `core/prompts.py`；前端只接收固定类型、有限大小的数据，使用固定组件。结果格式校验在浏览器完成，文件元信息和读取权限由服务端核验，不能把格式校验等同于数据事实核验。
+
+`services/results.py` 通过 `ConversationService` 和 `repository/` 解析有效身份、会话及项目归属，通过 `ChatRuntime.workspace_dir` 定位现有工作区；`storage/results.py` 只读 `/outputs/` 交付文件，目录 fd 与 NOFOLLOW 避免符号链接替换。HTTP 内容默认下载、禁止嗅探、sandbox CSP；预览类型由实际内容检查决定。没有新增 Agent 工具，生成文件继续经过原有 HITL；LocalShellBackend 的非沙箱边界仍有效。详见 [聊天结果组件](design-docs/chat-result-components.md)。

@@ -418,6 +418,7 @@ class AttachmentService:
         if record["kind"] != "image":
             return {
                 "type": "document",
+                "attachment_id": str(record["id"]),
                 "file_name": record["original_name"],
                 "path": f"/.attachments/{record['id']}/derived/index.md",
             }
@@ -433,6 +434,7 @@ class AttachmentService:
             return self._unavailable_block(record)
         return {
             "type": "image",
+            "attachment_id": str(record["id"]),
             "base64": encoded,
             "mime_type": media_type,
             "file_name": record["original_name"],

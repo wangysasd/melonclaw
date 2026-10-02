@@ -113,7 +113,10 @@ export async function streamRequest(
   let buffer = "";
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await reader.read().catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") throw error;
+        throw new ApiError(0, "网络连接中断，请同步会话确认执行结果。");
+      });
       if (done) {
         buffer += decoder.decode();
         break;
@@ -163,7 +166,7 @@ function dispatchFrame(
   try {
     payload = JSON.parse(dataLines.join("\n"));
   } catch {
-    throw new Error("无法解析助手的响应，请重试。");
+    throw new Error("无法解析助手的响应，请同步会话确认执行结果。");
   }
   if (
     payload &&

@@ -254,7 +254,7 @@ export function buildTimeline(events: DisplayEvent[], messageStatus?: MessageSta
     if (entry.kind === "tool") reconcileSyntheticTool(entry);
   }
   const inactive = messageStatus === "interrupted" ? "waiting" :
-    messageStatus === "failed" || messageStatus === "cancelled" || messageStatus === "completed" ? "unknown" : null;
+    messageStatus === "failed" || messageStatus === "cancelled" || messageStatus === "completed" || messageStatus === "pending" ? "unknown" : null;
   if (inactive) {
     for (const tool of toolMap.values()) if (tool.status === "started") tool.status = inactive;
     for (const node of subagentMap.values()) if (node.status === "running") node.status = inactive;

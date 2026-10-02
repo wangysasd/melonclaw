@@ -96,6 +96,8 @@ export interface AgentRun {
   id: string;
   conversationId: string | null;
   status: AgentRunStatus;
+  /** 当前消息最后观测到的公开阶段，不读取别的消息的全局状态。 */
+  phase: ChatMessage["phases"][number] | null;
   startedAt: number | null;
   completedAt: number | null;
   /** 终态耗时：优先后端 execution_duration_ms。 */
@@ -242,7 +244,13 @@ export function buildAgentRun(
   const steps: AgentStep[] = [];
   for (const step of ordered) {
     if (finalStep && step.id === finalStep.id) continue;
-    steps.push(...stepToEntries(step));
+    const entries = stepToEntries(step);
+    if (isTerminalRun(status) || status === "unconfirmed") {
+      for (const entry of entries) {
+        if (entry.type === "tool_call" && (entry.status === "running" || entry.status === "waiting")) entry.status = "unknown";
+      }
+    }
+    steps.push(...entries);
   }
   // 只把最后一段过程文本标成流式：避免每来一个 delta 就重渲染整段时间线的 Markdown。
   const tail = steps.at(-1);
@@ -265,6 +273,7 @@ export function buildAgentRun(
     id: message.id,
     conversationId,
     status,
+    phase: message.phases.at(-1) ?? null,
     startedAt,
     completedAt,
     durationMs: durationMs ?? (

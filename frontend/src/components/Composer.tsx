@@ -49,6 +49,7 @@ export interface ComposerProps {
     onAccepted?: () => void,
   ) => void;
   disabled: boolean;
+  pendingInteraction: "question" | "approval" | null;
   /** 当前会话是否有 AI 输出在跑：跑时发送键变方形停止键。 */
   isRunning?: boolean;
   /** 显式取消当前会话输出；只在停止模式下调用。 */
@@ -65,11 +66,12 @@ type ComposerAttachment = AttachmentSummary & {
   clientRequestId?: string;
   /** 轮询超过上限仍未完成解析。 */
   parseTimedOut?: boolean;
+  statusCheckFailed?: boolean;
 };
 
 function isReady(attachment: ComposerAttachment): boolean {
   if (attachment.parseTimedOut) return false;
-  return attachment.kind === "image"
+  return (attachment.kind === "image" || attachment.kind === "archive")
     ? attachment.parse_status === "not_required"
     : attachment.parse_status === "processed";
 }
@@ -84,6 +86,7 @@ function isPolling(attachment: ComposerAttachment): boolean {
 
 function statusText(attachment: ComposerAttachment): string {
   if (attachment.parseTimedOut) return "解析超时";
+  if (attachment.statusCheckFailed) return "连接中断，正在重新查询解析状态…";
   if (attachment.parse_status === "failed") return "解析失败";
   if (attachment.parse_status === "processed" || attachment.parse_status === "not_required") {
     return formatBytes(attachment.size_bytes);
@@ -99,6 +102,7 @@ export function Composer({
   onChange,
   onSend,
   disabled,
+  pendingInteraction,
   isRunning,
   onStop,
   onOpenProjectDialog,
@@ -255,18 +259,21 @@ export function Composer({
         ),
       );
       if (cancelled) return;
-      let stillPending = false;
+      const stillPending = results.some((result) => !result || result.parse_status === "pending" || result.parse_status === "processing");
       setAttachments((current) =>
         current.map((item) => {
           const next = results.find((result) => result?.attachment_id === item.attachment_id);
-          if (!next) return item;
-          if (isPolling({ ...item, ...next })) {
-            stillPending = true;
-          } else if (next.parse_status === "failed" && !notifiedParseFailureRef.current.has(item.attachment_id)) {
+          if (!next) {
+            if (ids.includes(item.attachment_id) && isPolling(item)) {
+              return { ...item, statusCheckFailed: true };
+            }
+            return item;
+          }
+          if (next.parse_status === "failed" && !notifiedParseFailureRef.current.has(item.attachment_id)) {
             notifiedParseFailureRef.current.add(item.attachment_id);
             message.error(`${next.file_name} 解析失败，可以重试。`);
           }
-          return { ...item, ...next, parseTimedOut: false };
+          return { ...item, ...next, parseTimedOut: false, statusCheckFailed: false };
         }),
       );
       if (!stillPending) return;
@@ -307,14 +314,16 @@ export function Composer({
   // 停止模式：当前会话正在输出且非等待确认，发送键变方形停止键，可点取消。
   // waiting（审批/问题卡）时仍是等待确认，不进停止模式。
   const running = isRunning ?? session.busy;
-  const waiting = session.runStatus === "waiting";
+  const waiting = pendingInteraction !== null;
   const stopMode = running && !waiting && !session.conversationCreating;
   if (!session.contextReady) {
     placeholder = "正在准备工作区…";
   } else if (session.conversationCreating) {
     placeholder = "正在准备会话…";
   } else if (waiting) {
-    placeholder = "请先处理待确认操作，也可以先写下一条消息…";
+    placeholder = pendingInteraction === "question"
+      ? "请先回答上方问题，也可以先写下一条消息…"
+      : "请先确认上方操作，也可以先写下一条消息…";
   } else if (running) {
     placeholder = "助手正在回复，可以先写下一条消息…";
   }
@@ -332,18 +341,18 @@ export function Composer({
   const selectedModel = modelOptions.find((item) => item.id === selectedModelId);
   const hasUnsupportedImage = attachments.some(
     (attachment) => attachment.kind === "image" &&
-      selectedModel?.input_modalities && !selectedModel.input_modalities.includes("image"),
+      !(selectedModel?.input_modalities ?? []).includes("image"),
   );
   const readyAttachments = attachments.length > 0 && attachments.every(isReady) && !hasUnsupportedImage;
   const sendDisabled = stopMode
     ? false
-    : (!selectedModel?.available || inputDisabled || disabled || running || waiting || session.conversationCreating || (!value.trim() && !readyAttachments));
+    : (!selectedModel?.available || inputDisabled || disabled || running || waiting || session.conversationCreating || (attachments.length > 0 && !readyAttachments) || (!value.trim() && !readyAttachments));
   const sendLabel = stopMode
     ? "停止生成"
     : session.conversationCreating
       ? "准备中"
       : waiting
-        ? "等待确认"
+        ? pendingInteraction === "question" ? "等待回答" : "等待确认"
         : running
           ? "处理中"
           : "发送";
@@ -721,7 +730,8 @@ export function Composer({
           }
         />
       </div>
-      {hasUnsupportedImage ? <div className="composer-attachment-warning" role="alert">当前模型不支持图片附件，请切换模型。</div> : null}
+      {hasUnsupportedImage ? <div className="composer-attachment-warning" role="alert">当前模型不支持图片附件，请切换支持图片的模型或移除图片后再发送。</div> : null}
+      {attachments.some((item) => item.parse_status === "failed" || item.parseTimedOut) ? <div className="composer-attachment-warning" role="alert">附件解析失败或超时，请点击附件旁的重试按钮，或移除附件后再发送。</div> : attachments.some(isPolling) ? <div className="composer-attachment-warning" role="status">附件尚未完成解析，完成后才能发送。文字草稿会保留。</div> : null}
       <div className="composer-meta">
         <div className="composer-hint" id="composer-hint">
           <Icon name="message-circle" size={15} /> Enter 发送 · Shift + Enter 换行 · 支持拖拽或粘贴附件

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ChatMessage } from "../src/hooks/useChatStream";
 import { ChatView } from "../src/components/ChatView";
 import * as client from "../src/api/client";
 import type { ConversationSummary, Project } from "../src/types/api";
@@ -61,7 +62,7 @@ const chatState = {
   conversationId: "c1" as string | null,
   conversationTitle: "新会话",
   conversationProjectId: null as string | null,
-  messages: [],
+  messages: [] as ChatMessage[],
   approval: null,
   userQuestion: null,
   historyLoading: false,
@@ -102,6 +103,7 @@ beforeEach(() => {
   chatState.conversationTitle = "新会话";
   chatState.conversationProjectId = null;
   chatState.restoreDraft = null;
+  chatState.messages = [];
   vi.mocked(client.getAttachmentCapabilities).mockReset();
   vi.mocked(client.getAttachmentCapabilities).mockResolvedValue({
     items: [{ extension: ".txt", media_type: "text/plain", kind: "text" }],
@@ -149,4 +151,65 @@ describe("chatview draft", () => {
     expect(chatStub.clearRestoreDraft).toHaveBeenCalled();
     view.unmount();
   });
+});
+
+
+describe("long-running chat feedback", () => {
+  const assistantMessage = (): ChatMessage => ({ id: "a1", role: "assistant", content: "", status: "streaming", markdown: false, events: [], assistantSteps: [], phases: ["responding"] });
+  it("marks new text while browsing history and keeps the scroll position until clicked", async () => {
+    chatState.messages = [assistantMessage()];
+    const view = render(<ChatView />);
+    const conversation = screen.getByLabelText("聊天记录");
+    Object.defineProperties(conversation, { scrollHeight: { value: 1000, configurable: true }, clientHeight: { value: 200, configurable: true } });
+    conversation.scrollTop = 10;
+    fireEvent.scroll(conversation);
+    expect(screen.getByRole("button", { name: "回到最新消息" })).toBeTruthy();
+    const scrollTo = vi.fn(); conversation.scrollTo = scrollTo;
+    chatState.messages = [{ ...chatState.messages[0], content: "收到新内容" }];
+    view.rerender(<ChatView />);
+    const latest = screen.getByRole("button", { name: "有新内容 · 回到最新消息" });
+    expect(conversation.scrollTop).toBe(10);
+    expect(scrollTo).not.toHaveBeenCalled();
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+    fireEvent.click(latest);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: "auto" });
+    expect(screen.queryByRole("button", { name: "有新内容 · 回到最新消息" })).toBeNull();
+    view.unmount(); vi.unstubAllGlobals();
+  });
+  it("shows stopped content and uncertain operations with a sync action", () => {
+    chatState.messages = [{ ...assistantMessage(), status: "cancelled", content: "保留下来的回答", assistantSteps: [{
+      id: "s", ordinal: 0, content: "过程说明", status: "running", is_final: false,
+      tool_calls: [{ call_id: "c", name: "execute", batch_index: 0, status: "running", args_preview: '{"command":"job"}' }],
+    }] }];
+    const view = render(<ChatView />);
+    expect(screen.getByText(/已保留：已收到的回答、过程文本/)).toBeTruthy();
+    expect(screen.getByText("执行命令 · job")).toBeTruthy();
+    expect(view.container.querySelector(".agent-tool.is-unknown")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重新同步会话，核对结果" }));
+    expect(chatStub.reloadHistory).toHaveBeenCalled();
+    view.unmount();
+  });
+});
+
+
+it("disables historical recovery buttons while the current conversation is running", () => {
+  chatState.messages = [
+    { id: "failed", role: "assistant", content: "", status: "failed", markdown: true, phases: [], events: [], assistantSteps: [] },
+    { id: "stopped", role: "assistant", content: "", status: "cancelled", markdown: true, phases: [], events: [], assistantSteps: [
+      { id: "s1", ordinal: 0, content: "", status: "running", is_final: false, tool_calls: [{ call_id: "c", name: "execute", batch_index: 0, status: "running" }] },
+    ] },
+  ];
+  chatStub.isRunning = true;
+  const { rerender } = render(<ChatView />);
+  const buttons = screen.getAllByRole<HTMLButtonElement>("button", { name: "重新同步会话，核对结果" });
+  expect(buttons).toHaveLength(2);
+  for (const button of buttons) {
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+  }
+  expect(chatStub.reloadHistory).not.toHaveBeenCalled();
+  chatStub.isRunning = false;
+  rerender(<ChatView />);
+  for (const button of screen.getAllByRole<HTMLButtonElement>("button", { name: "重新同步会话，核对结果" })) expect(button.disabled).toBe(false);
 });

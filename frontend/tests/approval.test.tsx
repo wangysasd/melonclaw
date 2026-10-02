@@ -16,6 +16,49 @@ const approval = (id: string, actions: ApprovalAction[]): PendingApproval => ({
   interrupts: [{ id, actions }],
 });
 
+it("submits directly only after a click and shows a file summary with collapsed raw parameters", async () => {
+  const user = userEvent.setup(); const onSubmit = vi.fn().mockResolvedValue(undefined);
+  render(<ApprovalPanel approval={approval("direct", [action])} onSubmit={onSubmit} />);
+  expect(screen.getByText("/notes.txt")).toBeTruthy();
+  expect(screen.getByText("查看完整参数 · write_file").closest("details")?.open).toBe(false);
+  expect(onSubmit).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "允许本次" }));
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+  expect(onSubmit).toHaveBeenCalledWith([{ type: "approve" }]);
+});
+
+it("rejects directly with optional feedback and never offers autonomous authorization", async () => {
+  const user = userEvent.setup(); const onSubmit = vi.fn().mockResolvedValue(undefined);
+  render(<ApprovalPanel approval={approval("reject", [action])} onSubmit={onSubmit} />);
+  expect(screen.queryByRole("button", { name: /AI 自己决定/ })).toBeNull();
+  await user.click(screen.getByText("补充拒绝原因（可选）"));
+  await user.type(screen.getByLabelText("write_file 的拒绝原因"), "请保留原文件");
+  await user.click(screen.getByRole("button", { name: "拒绝" }));
+  expect(onSubmit).toHaveBeenCalledWith([{ type: "reject", message: "请保留原文件" }]);
+});
+
+it("keeps unknown operations readable and recovers from failed direct submissions", async () => {
+  const user = userEvent.setup(); const onSubmit = vi.fn().mockRejectedValueOnce(new Error("未接收，请重试")).mockResolvedValue(undefined);
+  render(<ApprovalPanel approval={approval("unknown", [{ ...action, name: "external_tool" }])} onSubmit={onSubmit} />);
+  expect(screen.getByText("查看完整参数 · external_tool").closest("details")?.open).toBe(true);
+  await user.click(screen.getByRole("button", { name: "允许本次" }));
+  expect(screen.getByRole("alert").textContent).toContain("未接收");
+  await user.click(screen.getByRole("button", { name: "拒绝" }));
+  expect(onSubmit).toHaveBeenLastCalledWith([{ type: "reject", message: "" }]);
+});
+
+it("shows the full command and edit previews without executing them", () => {
+  render(<ApprovalPanel approval={approval("details", [
+    { ...action, name: "execute", args: JSON.stringify({ command: "echo hello\necho world", cwd: "/workspace" }) },
+    { ...action, name: "edit_file", args: JSON.stringify({ file_path: "/notes.txt", old_string: "before", new_string: "after", replace_all: true }) },
+  ])} onSubmit={vi.fn()} />);
+  expect(screen.getByText("echo hello echo world").textContent).toContain("echo world");
+  expect(screen.getByText("工作目录：/workspace")).toBeTruthy();
+  expect(screen.getByText("− before").className).toBe("diff-removed");
+  expect(screen.getByText("+ after").className).toBe("diff-added");
+  expect(screen.getByText("替换全部匹配项")).toBeTruthy();
+});
+
 it("shows generated Skill provenance and personal save without enabling", () => {
   render(<ApprovalPanel approval={approval("generated", [{
     name: "confirm_skill_install", description: "Save Skill", allowed_decisions: ["approve", "reject"],
@@ -90,9 +133,8 @@ it("shows shared installation effects and submits only an explicit approval", as
   }])} onSubmit={onSubmit} />);
   expect(screen.getByLabelText("Skill 安装清单").textContent).toContain("系统共享");
   expect(screen.getByLabelText("Skill 安装清单").textContent).toContain("全员启用");
-  expect((screen.getByRole("button", { name: "提交 1 项决定并继续" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole("button", { name: "提交 1 项决定并继续" })).toBeNull();
   expect(screen.queryByRole("button", { name: "编辑参数" })).toBeNull();
   await user.click(screen.getByRole("button", { name: "允许本次" }));
-  await user.click(screen.getByRole("button", { name: "提交 1 项决定并继续" }));
   expect(onSubmit).toHaveBeenCalledWith([{ type: "approve" }]);
 });

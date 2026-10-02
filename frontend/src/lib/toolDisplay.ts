@@ -1,7 +1,7 @@
 import { toolDefinition, toolIconName } from "./toolCatalog";
 
 export function toolSummary(name: string): string {
-  return toolDefinition(name)?.label || name || "未知工具";
+  return toolDefinition(name)?.label || (name === "write_todos" ? "更新任务清单" : name) || "未知工具";
 }
 
 export { toolIconName };

@@ -9,7 +9,7 @@ import {
 } from "react";
 import { App as AntdApp } from "antd";
 
-import { getConversationHistory } from "../api/client";
+import { ApiError, getConversationHistory } from "../api/client";
 import {
   sendApprovalStream,
   sendMessageStream,
@@ -54,6 +54,11 @@ export type ReasoningPhase =
   | "processing"
   | "waiting";
 
+export interface ApprovalReceipt {
+  batchId: string;
+  actions: { name: string; decision: ApprovalDecision["type"] }[];
+}
+
 /** 聊天视图内的消息模型（乐观消息与历史消息统一表示）。 */
 export interface ChatMessage {
   id: string;
@@ -63,12 +68,15 @@ export interface ChatMessage {
   /** null = 未知/乐观；"streaming" = 流式进行中。 */
   status: MessageStatus | "streaming" | null;
   timestamp?: string | null;
+  errorCode?: string | null;
   /** completed 的助手消息按 Markdown 渲染。 */
   markdown: boolean;
   /** 工具/子代理轨迹事件，与最终回复分层展示。 */
   events: DisplayEvent[];
   /** 根 Agent 的有序 AIMessage steps；正文 content 只保存最终答复。 */
   assistantSteps: AssistantStep[];
+  /** 当前页面收到服务端恢复确认后的记录；刷新以工具执行历史为准。 */
+  approvalReceipts?: ApprovalReceipt[];
   /** 安全的阶段摘要，不保存或展示原始模型思维链。 */
   phases: ReasoningPhase[];
   model?: MessageModel | null;
@@ -136,9 +144,10 @@ type ChatAction =
       assistantSteps: AssistantStep[];
       executionDurationMs?: number | null;
     }
-  | { type: "messageStatus"; messageId: string; status: MessageStatus }
-  | { type: "streamFailed"; messageId?: string; message?: string; error?: string }
+  | { type: "messageStatus"; messageId: string; status: MessageStatus; errorCode?: string | null }
+  | { type: "streamFailed"; messageId?: string; message?: string; error?: string; errorCode?: string }
   | { type: "historyFailed"; conversationId: string; error: string }
+  | { type: "approvalAccepted"; messageId: string; receipt: ApprovalReceipt }
   | { type: "approvalRequired"; request: PendingApproval }
   | { type: "userInputRequired"; request: UserQuestionRequest }
   | { type: "userInputAccepted" }
@@ -219,9 +228,9 @@ function statusFromToolCalls(
 
 function appendPhase(message: ChatMessage, phase: ReasoningPhase): ChatMessage {
   const phases = message.phases ?? [];
-  return phases.includes(phase)
+  return phases.at(-1) === phase
     ? message
-    : { ...message, phases: [...phases, phase] };
+    : { ...message, phases: [...phases.filter((item) => item !== phase), phase] };
 }
 
 /** 已经结束的运行不能被迟到的事件改回进行中。 */
@@ -259,7 +268,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return { ...INITIAL_CHAT_STATE, conversationId: action.conversationId };
     case "historyLoading":
       return {
-        ...INITIAL_CHAT_STATE,
+        ...(state.conversationId === action.conversationId ? state : INITIAL_CHAT_STATE),
         conversationId: action.conversationId,
         historyLoading: true,
       };
@@ -346,14 +355,14 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
           const known = message.assistantSteps.some((step) => step.id === action.step.id);
           // 已结束的运行只接受已知步骤的更新，避免迟到事件凭空长出新的执行步骤。
           if (isTerminalStatus(message.status) && !known) return message;
-          return upsertAssistantStep(message, action.step);
+          return upsertAssistantStep(appendPhase(message, "responding"), action.step);
         }),
       };
     case "assistantTextDelta":
       return {
         ...state,
         messages: updateAssistantById(state, action.messageId, (message) =>
-          updateStep(message, action.stepId, (step) => {
+          updateStep(appendPhase(message, "responding"), action.stepId, (step) => {
             // 重放会把整段快照当成一次 delta 投递：内容一致时不重复追加。
             if (step.content === action.delta) return step;
             return {
@@ -368,7 +377,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         messages: updateAssistantById(state, action.messageId, (message) =>
-          updateStep(message, action.stepId, (step) => {
+          updateStep(appendPhase(message, "processing"), action.stepId, (step) => {
             const toolCalls = [...step.tool_calls];
             const index = toolCalls.findIndex((tool) => tool.call_id === action.call.call_id);
             if (index >= 0) toolCalls[index] = { ...toolCalls[index], ...action.call };
@@ -382,7 +391,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         messages: updateAssistantById(state, action.messageId, (message) =>
-          updateStep(message, action.stepId, (step) => {
+          updateStep(appendPhase(message, "processing"), action.stepId, (step) => {
             const toolCalls = step.tool_calls.map((tool) =>
               tool.call_id === action.callId ? { ...tool, ...action.result } : tool,
             );
@@ -450,6 +459,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
                 ...message,
                 id: action.messageId,
                 status: action.status,
+                errorCode: action.errorCode,
                 completedAt: isTerminalStatus(action.status)
                   ? message.completedAt ?? Date.now()
                   : message.completedAt ?? null,
@@ -464,7 +474,8 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         messages: state.messages.map((message) => message.role === "assistant" &&
           (action.messageId ? message.id === action.messageId : message.status === "streaming") ? ({
           ...message,
-          status: "failed",
+          status: action.errorCode === "network_disconnected" ? "pending" : "failed",
+          errorCode: action.errorCode,
           markdown: true,
           completedAt: message.completedAt ?? Date.now(),
         }) : message),
@@ -475,6 +486,13 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return state.conversationId === action.conversationId
         ? { ...state, historyLoading: false, error: action.error }
         : state;
+    case "approvalAccepted":
+      return { ...state, messages: state.messages.map((message) => {
+        if (message.id !== action.messageId || message.role !== "assistant") return message;
+        const receipts = message.approvalReceipts ?? [];
+        if (receipts.some((receipt) => receipt.batchId === action.receipt.batchId)) return message;
+        return { ...message, approvalReceipts: [...receipts, action.receipt] };
+      }) };
     case "approvalRequired":
       return { ...state, approval: action.request, messages: upsertLastAssistant(state, (message) => markInteractionWaiting(appendPhase(message, "waiting"))) };
     case "userInputRequired":
@@ -660,10 +678,18 @@ export function useChatStream({
     return true;
   }, [bufferFor, dispatchFor, setBufferFor]);
 
-  const reloadHistory = useCallback(() => {
+  const requestHistoryReload = useCallback(() => {
     forceHistoryReloadRef.current = true;
     bumpHistoryRevision();
   }, [bumpHistoryRevision]);
+
+  const reloadHistory = useCallback(() => {
+    const targetId = sessionRef.current.conversationId;
+    const run = targetId ? activeRunsRef.current.get(targetId) : undefined;
+    // 手动同步不能拿尚未落库的历史覆盖正在接收的步骤。
+    if (run && !run.controller.signal.aborted) return;
+    requestHistoryReload();
+  }, [requestHistoryReload]);
 
   const handleEvent = useCallback(
     (event: StreamEvent, context: SendContext, eventId?: number): void => {
@@ -769,6 +795,7 @@ export function useChatStream({
             type: "messageStatus",
             messageId: event.message_id,
             status: event.status,
+            errorCode: event.error_code,
           });
           sessionRef.current.markConversationIdle?.(conversationId);
           if (viewing) {
@@ -815,7 +842,7 @@ export function useChatStream({
             void sessionRef.current.refreshConversations();
             // 回执型响应（同幂等键重试）背后没有继续执行：如果不回到服务端对账，
             // 用户只会看到卡片消失、然后什么都没发生。
-            if (event.terminal_reason === "already_accepted") reloadHistory();
+            if (event.terminal_reason === "already_accepted") requestHistoryReload();
           } else {
             void sessionRef.current.refreshConversations();
           }
@@ -826,6 +853,7 @@ export function useChatStream({
             type: "streamFailed",
             messageId: event.message_id,
             message: context.draft,
+            errorCode: event.error_code,
             error: event.message || "助手运行失败。请检查会话状态后重试。",
           });
           if (viewing) {
@@ -852,7 +880,7 @@ export function useChatStream({
         scroll.scrollToBottom();
       }
     },
-    [appendStreamText, dispatchFor, flushTextDeltas, matchesContext, message, othersRunning, queueTextDelta, reloadHistory, scroll, setBufferFor],
+    [appendStreamText, dispatchFor, flushTextDeltas, matchesContext, message, othersRunning, queueTextDelta, requestHistoryReload, scroll, setBufferFor],
   );
 
   const runStream = useCallback(
@@ -886,24 +914,22 @@ export function useChatStream({
           },
         });
         if (!terminal) {
-          if (matchesContext(context)) {
-            throw new Error("连接意外结束，回复可能不完整。请重新同步会话以确认执行结果。");
-          }
-          return false;
+          throw new ApiError(0, "连接意外结束，回复可能不完整。请重新同步会话以确认执行结果。");
         }
         return !failed;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           return false;
         }
-        if (!started) {
+        const network = error instanceof ApiError && error.status === 0;
+        if (!started && !network) {
           dispatchFor(context.conversationId, { type: "removeOptimistic", ids: optimisticIds });
         }
         sessionRef.current.markConversationIdle?.(context.conversationId);
+        dispatchFor(context.conversationId, { type: "streamFailed", message: network ? undefined : context.draft, errorCode: network ? "network_disconnected" : error instanceof ApiError ? error.errorCode : undefined, error: error instanceof Error ? error.message : String(error) });
         if (matchesContext(context)) {
           sessionRef.current.setBusy(false);
           sessionRef.current.setRunStatus("failed");
-          dispatchFor(context.conversationId, { type: "streamFailed", message: context.draft, error: error instanceof Error ? error.message : String(error) });
           message.error(error instanceof Error ? error.message : String(error));
         }
         return false;
@@ -1074,6 +1100,12 @@ export function useChatStream({
       }
       const approvalBatchId = approval.approval_batch_id;
       const assistantMessageId = approval.assistant_message_id;
+      const actions = approval.interrupts.flatMap((interrupt) => {
+        const grouped = decisions.find((decision) => "interrupt_id" in decision && decision.interrupt_id === interrupt.id);
+        const selected = grouped && "decisions" in grouped ? grouped.decisions : decisions as ApprovalDecision[];
+        return interrupt.actions.map((action, index) => ({ name: action.name, decision: selected[index]?.type }));
+      });
+      let accepted = false;
       historyControllerRef.current?.abort();
       const context: SendContext = {
         epoch: snapshot.epoch,
@@ -1095,7 +1127,21 @@ export function useChatStream({
               assistantMessageId,
               decisions,
             },
-            handlers,
+            {
+              ...handlers,
+              onEvent: (event, frameId) => {
+                const freshFrame = frameId === undefined || context.lastEventId === undefined || frameId > context.lastEventId;
+                handlers.onEvent(event, frameId);
+                if (freshFrame && !accepted && sessionRef.current.userId === context.userId
+                  && activeRunsRef.current.get(conversationId)?.context === context
+                  && event.type === "message_started" && event.resuming
+                  && event.message_id === assistantMessageId) {
+                  accepted = true;
+                  dispatchFor(conversationId, { type: "approvalAccepted", messageId: assistantMessageId,
+                    receipt: { batchId: approvalBatchId, actions } });
+                }
+              },
+            },
           ),
         context,
         [],
@@ -1106,7 +1152,7 @@ export function useChatStream({
         );
       }
     },
-    [runStream, matchesContext],
+    [runStream, matchesContext, dispatchFor],
   );
 
   const submitUserInput = useCallback(
@@ -1162,7 +1208,7 @@ export function useChatStream({
         dispatch({ type: "reset", conversationId: null });
         return;
       }
-      if (snapshot.draftConversationId === targetId) {
+      if (!forceReload && snapshot.draftConversationId === targetId) {
         const cached = chatCacheRef.current.get(targetId);
         if (cached?.messages.length) {
           dispatch({
@@ -1259,6 +1305,7 @@ export function useChatStream({
             role: item.role === "user" ? "user" : "assistant",
             content,
             status: item.status,
+            errorCode: item.error_code,
             timestamp: item.created_at ?? null,
             markdown: item.role !== "user",
             events: item.display_metadata?.events ?? [],
@@ -1280,6 +1327,10 @@ export function useChatStream({
           approval: data.pending_approval,
           userQuestion: data.pending_interaction ?? null,
         });
+        // 首条请求可能已落库，只是开始回执丢失；以历史确认后退出草稿态。
+        if (snapshot.draftConversationId === targetId && data.items.length > 0) {
+          sessionRef.current.markConversationStarted(targetId, data.conversation?.project_id ?? "");
+        }
         if (data.pending_approval || data.pending_interaction) {
           sessionRef.current.setBusy(true);
           sessionRef.current.setRunStatus("waiting");

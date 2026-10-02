@@ -3,6 +3,7 @@ import { useId, useMemo, useRef, useState } from "react";
 import { McpInstallApproval } from "./McpInstallApproval";
 import { SkillInstallApproval } from "./SkillInstallApproval";
 import { Icon } from "./Icon";
+import { ApprovalActionSummary, hasApprovalSummary } from "./ApprovalActionSummary";
 import { toolSummary } from "../lib/toolDisplay";
 import type {
   ApprovalAction,
@@ -15,7 +16,7 @@ import type {
  * HITL 审批面板：展示待审批工具调用并提交用户决定。
  *
  * - 所有审批都通过 interrupts 数组展示。
- * - 每个操作必须明确选择（approve/edit/reject/respond），默认展开参数详情，
+ * - 每个操作必须明确选择（approve/edit/reject/respond），优先展示对象与影响，未知操作展开完整参数详情，
  *   编辑参数（JSON 校验，错误贴近输入框）与拒绝原因输入。
  * - 提交时按 interrupt 分组：单 interrupt 平铺 decisions 数组，
  *   多 interrupt 发送 { interrupt_id, decisions } 分组，保持服务端恢复协议。
@@ -80,7 +81,7 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [argsOpen, setArgsOpen] = useState<boolean[]>(() =>
-    rows.map(() => true),
+    rows.map((row) => !hasApprovalSummary(row.action)),
   );
 
   const updateRow = (index: number, patch: Partial<RowState>) => {
@@ -89,7 +90,7 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
     );
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (directChoice?: DecisionType) => {
     if (submittingRef.current) return;
     // 先本地校验，全部通过后再组装提交。
     const decisionsByInterrupt = new Map<string, ApprovalDecision[]>(
@@ -99,7 +100,8 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
     let hasError = false;
 
     rows.forEach((row, index) => {
-      const state = rowStates[index];
+      const state = directChoice && rows.length === 1
+        ? { ...rowStates[index], choice: directChoice } : rowStates[index];
       const allowed = row.action.allowed_decisions ?? ["approve", "edit", "reject"];
       if (!state.choice || !allowed.includes(state.choice)) {
         nextStates[index].error = "请明确选择本次操作的处理方式。";
@@ -177,15 +179,17 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
   };
 
   const hasRows = rows.length > 0;
+  const single = rows.length === 1;
 
   return (
-    <section className="approval-panel" aria-labelledby={`${id}-title`} aria-busy={submitting}>
+    <section className="approval-panel" tabIndex={-1} aria-labelledby={`${id}-title`} aria-busy={submitting}>
       <div className="approval-title" id={`${id}-title`} role="status">
         <Icon name="shield-check" size={19} />
-        等待你确认 {rows.length} 项操作
+        <span>需要你允许这项操作{single ? "" : `（${rows.length} 项）`}</span>
+        <span className="approval-badge">等待确认 · 仅限本次</span>
       </div>
       <div className="approval-copy">
-        助手已暂停。请查看操作内容并逐项选择；允许仅对本次请求生效，拒绝后助手会收到你的反馈。
+        {single ? "助手已暂停。请检查操作对象与影响，再允许本次或拒绝。" : "助手已暂停。请逐项选择处理方式，再提交全部决定。"}
       </div>
       <div className="approval-actions">
         {rows.map((row, index) => {
@@ -196,23 +200,29 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
             <div className="approval-action" key={`${row.interruptId}-${index}`}>
               <div className="approval-action-top">
                 <div className="approval-tool">
-                  {index + 1}. {toolSummary(row.action.name)} ·{" "}
-                  {row.action.name || "unknown"}
+                  {single ? "" : `${index + 1}. `}{toolSummary(row.action.name)}
                 </div>
               </div>
+              <div className="approval-description">
+                {row.action.description || "该操作需要你的确认后才会执行。"}
+              </div>
+              <ApprovalActionSummary action={row.action} />
               <SkillInstallApproval action={row.action} />
               <McpInstallApproval action={row.action} />
               <div className="approval-choices" role="group" aria-label={`第 ${index + 1} 项 ${row.action.name} 的处理方式`}>
                   {choices.map((choice) => (
-                    <button type="button" key={choice} className="approval-choice"
-                      aria-pressed={state.choice === choice} disabled={submitting}
-                      onClick={() => updateRow(index, { choice, error: "" })}>
-                      {DECISION_LABELS[choice] || choice}
+                    <button type="button" key={choice} className={`approval-choice${single && choice === "approve" ? " approval-choice-primary" : ""}`}
+                      aria-pressed={single && (choice === "approve" || choice === "reject") ? undefined : state.choice === choice} disabled={submitting}
+                      onClick={() => {
+                        if (single && (choice === "approve" || choice === "reject")) {
+                          void handleSubmit(choice);
+                        } else {
+                          updateRow(index, { choice, error: "" });
+                        }
+                      }}>
+                      {single && state.choice === "edit" && choice === "approve" ? "允许原参数" : DECISION_LABELS[choice] || choice}
                     </button>
                   ))}
-              </div>
-              <div className="approval-description">
-                {row.action.description || "该操作需要你的确认后才会执行。"}
               </div>
               <details
                 className="approval-args-details"
@@ -226,7 +236,7 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
                   );
                 }}
               >
-                <summary className="approval-args-summary">操作内容与参数</summary>
+                <summary className="approval-args-summary">查看完整参数 · {row.action.name}</summary>
                 <pre className="approval-args">{formatArgs(row.action)}</pre>
               </details>
               {state.choice === "edit" && (
@@ -245,7 +255,13 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
                   }
                 />
               )}
-              {(state.choice === "reject" || state.choice === "respond") && (
+              {single && choices.includes("reject") && state.choice !== "respond" ? <details className="approval-preview">
+                <summary>补充拒绝原因（可选）</summary>
+                <textarea className="approval-reject" value={state.rejectMessage} disabled={submitting}
+                  aria-label={`${row.action.name} 的拒绝原因`}
+                  onChange={(event) => updateRow(index, { rejectMessage: event.target.value })} />
+              </details> : null}
+              {((!single && state.choice === "reject") || state.choice === "respond") && (
                 <textarea
                   className="approval-reject"
                   value={state.rejectMessage}
@@ -272,14 +288,14 @@ export function ApprovalPanel({ approval, onSubmit }: ApprovalPanelProps) {
         )}
       </div>
       {submitError ? <p className="approval-field-error" role="alert">{submitError}</p> : null}
-      <button
+      {(!single || rowStates[0].choice === "edit" || rowStates[0].choice === "respond") ? <button
         type="button"
         className="approval-submit"
         disabled={submitting || !hasRows || rowStates.some((state) => !state.choice)}
         onClick={() => void handleSubmit()}
       >
         {submitting ? "正在提交决定…" : `提交 ${rows.length} 项决定并继续`}
-      </button>
+      </button> : null}
     </section>
   );
 }

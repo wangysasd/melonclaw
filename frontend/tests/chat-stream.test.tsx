@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionContextValue } from "../src/state/session";
 import type { ConversationHistory, StreamEvent } from "../src/types/api";
 import { INITIAL_CHAT_STATE, reducer, useChatStream } from "../src/hooks/useChatStream";
-import { getConversationHistory } from "../src/api/client";
+import { ApiError, getConversationHistory } from "../src/api/client";
 import { sendApprovalStream, sendMessageStream } from "../src/api/stream";
 
 const mocks = vi.hoisted(() => ({ session: {} as SessionContextValue, message: { error: vi.fn() } }));
 vi.mock("../src/state/session", () => ({ useSession: () => mocks.session }));
 vi.mock("antd", () => ({ App: { useApp: () => ({ message: mocks.message }) } }));
-vi.mock("../src/api/client", () => ({ getConversationHistory: vi.fn() }));
+vi.mock("../src/api/client", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/api/client")>(), getConversationHistory: vi.fn() }));
 vi.mock("../src/api/stream", () => ({ sendMessageStream: vi.fn(), sendApprovalStream: vi.fn(), sendUserInputStream: vi.fn() }));
 const scroll = { isNearBottom: () => true, scrollToBottom: vi.fn() };
 const emptyHistory: ConversationHistory = { conversation: { id: "c1", title: "Test" }, items: [], pending_approval: null };
@@ -297,7 +297,7 @@ describe("chat run lifecycle", () => {
       onEvent({ type: "text", text: "partial" });
     });
     await act(() => result.current.sendMessage("test"));
-    expect(result.current.state.messages[1]).toMatchObject({ content: "partial", status: "failed" });
+    expect(result.current.state.messages[1]).toMatchObject({ content: "partial", status: "pending", errorCode: "network_disconnected" });
     expect(result.current.state.error).toContain("连接意外结束");
     expect(mocks.session.busy).toBe(false); expect(mocks.session.runStatus).toBe("failed");
   });
@@ -343,7 +343,7 @@ describe("chat run lifecycle", () => {
     const approval = {
       approval_batch_id: "batch-first",
       assistant_message_id: "a1",
-      interrupts: [{ id: "first", actions: [] }],
+      interrupts: [{ id: "first", actions: [{ name: "write_file", args: "{}", description: "写文件", allowed_decisions: ["approve", "reject"] }] }],
     };
     vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, pending_approval: approval, items: [{ id: "a1", role: "assistant", content: "", status: "interrupted", assistant_steps: [] }] });
     const stream = deferred<void>(); let emit!: (event: StreamEvent) => void;
@@ -352,8 +352,10 @@ describe("chat run lifecycle", () => {
     await waitFor(() => expect(result.current.state.approval?.interrupts[0]?.id).toBe("first"));
     let task!: Promise<void>; act(() => { task = result.current.submitApproval([{ type: "reject" }]); });
     expect(result.current.state.approval?.interrupts[0]?.id).toBe("first");
+    expect(result.current.state.messages[0].approvalReceipts).toBeUndefined();
     act(() => emit({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: null, message_id: "a1", resuming: true }));
     expect(result.current.state.approval).toBeNull(); expect(result.current.state.messages[0].status).toBe("streaming");
+    expect(result.current.state.messages[0].approvalReceipts).toEqual([{ batchId: "batch-first", actions: [{ name: "write_file", decision: "reject" }] }]);
     await act(async () => { emit({ type: "approval_required", request: {
       approval_batch_id: "batch-second",
       assistant_message_id: "a1",
@@ -437,7 +439,7 @@ describe("chat run lifecycle", () => {
     const optimistic = reducer(loaded, { type: "optimistic", conversationId: "c1", projectId: "p1", user: optimisticUser, assistant: optimisticAssistant });
     expect(optimistic.conversationProjectId).toBe("p1");
     expect(reducer(optimistic, { type: "reset", conversationId: null }).conversationProjectId).toBeNull();
-    expect(reducer(optimistic, { type: "historyLoading", conversationId: "c1" }).conversationProjectId).toBeNull();
+    expect(reducer(optimistic, { type: "historyLoading", conversationId: "c1" }).conversationProjectId).toBe("p1");
   });
   it("an old stream cannot detach the new conversation's controller", async () => {
     const first = deferred<void>(); const second = deferred<void>();
@@ -504,12 +506,19 @@ describe("chat run lifecycle", () => {
       emit({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: "u1", message_id: "a1" });
     });
     expect(result.current.isRunning).toBe(true);
+    act(() => {
+      emit({ type: "assistant_step_started", message_id: "a1", step: { id: "s1", ordinal: 0, content: "", status: "streaming", is_final: false, tool_calls: [] } });
+      emit({ type: "assistant_text_delta", message_id: "a1", step_id: "s1", delta: "停止前收到的过程" });
+      emit({ type: "assistant_tool_call", message_id: "a1", step_id: "s1", call: { call_id: "w", name: "write_file", status: "running", batch_index: 0 } });
+      emit({ type: "assistant_tool_result", message_id: "a1", step_id: "s1", call_id: "w", result: { call_id: "w", name: "write_file", status: "completed", batch_index: 0, result_preview: "written" } });
+      emit({ type: "assistant_tool_call", message_id: "a1", step_id: "s1", call: { call_id: "e", name: "execute", status: "running", batch_index: 1 } });
+    });
     let stopped!: boolean;
     act(() => { stopped = result.current.stopCurrent(); });
     expect(stopped).toBe(true);
     expect(streamSignal.aborted).toBe(true);
     // 显式取消立即本地收尾，不等后端对账。
-    expect(result.current.state.messages.at(-1)).toMatchObject({ status: "cancelled" });
+    expect(result.current.state.messages.at(-1)).toMatchObject({ status: "cancelled", assistantSteps: [{ content: "停止前收到的过程", tool_calls: [{ call_id: "w", status: "completed", result_preview: "written" }, { call_id: "e", status: "running" }] }] });
     expect(result.current.isRunning).toBe(false);
     expect(mocks.session.busy).toBe(false);
     await act(async () => {
@@ -582,4 +591,95 @@ it("refreshes the current user's skills after the install tool returns", async (
   await act(async () => { await Promise.resolve(); });
   await act(() => result.current.sendMessage("安装 Skill"));
   expect(mocks.session.refreshSkills).toHaveBeenCalledTimes(1);
+});
+
+
+describe("safe error recovery", () => {
+  it("keeps an unacknowledged network request and only reads history on sync", async () => {
+    vi.mocked(sendMessageStream).mockRejectedValue(new ApiError(0, "断线"));
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    await act(() => result.current.sendMessage("写文件"));
+    expect(result.current.state.messages).toHaveLength(2);
+    expect(result.current.state.messages[1]).toMatchObject({ status: "pending", errorCode: "network_disconnected" });
+    expect(result.current.state.restoreDraft).toBeNull();
+    act(() => result.current.reloadHistory());
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    expect(sendMessageStream).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("recovery synchronization regressions", () => {
+  it("fetches first-message history after a lost acknowledgement and exits draft state", async () => {
+    mocks.session.draftConversationId = "c1";
+    vi.mocked(sendMessageStream).mockRejectedValue(new ApiError(0, "断线"));
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await act(async () => { await Promise.resolve(); });
+    await act(() => result.current.sendMessage("写文件"));
+    expect(result.current.state.messages).toHaveLength(2);
+    expect(getConversationHistory).not.toHaveBeenCalled();
+    vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, items: [
+      { id: "u1", role: "user", content: "写文件", status: "completed", assistant_steps: [] },
+      { id: "a1", role: "assistant", content: "已完成", status: "completed", assistant_steps: [] },
+    ] });
+    await act(async () => { result.current.reloadHistory(); });
+    expect(getConversationHistory).toHaveBeenCalledTimes(1);
+    expect(result.current.state.messages.map((item) => item.id)).toEqual(["u1", "a1"]);
+    expect(mocks.session.markConversationStarted).toHaveBeenCalledWith("c1", "");
+    expect(sendMessageStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps unconfirmed first-message content when history fails, then reconciles empty history", async () => {
+    mocks.session.draftConversationId = "c1";
+    vi.mocked(sendMessageStream).mockRejectedValue(new ApiError(0, "断线"));
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await act(async () => { await Promise.resolve(); });
+    await act(() => result.current.sendMessage("写文件"));
+    const messages = result.current.state.messages;
+    vi.mocked(getConversationHistory).mockRejectedValueOnce(new ApiError(0, "同步失败"));
+    await act(async () => { result.current.reloadHistory(); });
+    expect(result.current.state.messages).toEqual(messages);
+    expect(result.current.state.error).toBe("同步失败");
+    await act(async () => { result.current.reloadHistory(); });
+    expect(getConversationHistory).toHaveBeenCalledTimes(2);
+    expect(result.current.state.messages).toEqual([]);
+    expect(mocks.session.markConversationStarted).not.toHaveBeenCalled();
+    expect(sendMessageStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores manual sync during a live run and continues accepting deltas until it ends", async () => {
+    const stream = deferred<void>();
+    let emit!: (event: StreamEvent) => void;
+    vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent }) => {
+      emit = onEvent;
+      return stream.promise;
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await act(async () => { await Promise.resolve(); });
+    let task!: Promise<void>;
+    act(() => { task = result.current.sendMessage("继续任务"); });
+    act(() => {
+      emit({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: "u1", message_id: "a1" });
+      emit({ type: "assistant_step_started", message_id: "a1", step: { id: "s1", ordinal: 0, content: "已收到的过程", tool_calls: [], status: "streaming", is_final: false } });
+    });
+    vi.mocked(getConversationHistory).mockClear();
+    vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, items: [{ id: "a1", role: "assistant", content: "", status: "pending", assistant_steps: [] }] });
+    await act(async () => { result.current.reloadHistory(); });
+    expect(getConversationHistory).not.toHaveBeenCalled();
+    expect(result.current.state.messages.at(-1)?.assistantSteps).toHaveLength(1);
+    act(() => {
+      emit({ type: "assistant_text_delta", message_id: "a1", step_id: "s1", delta: "，继续接收" });
+      emit({ type: "run_phase", phase: "thinking" });
+    });
+    expect(result.current.state.messages.at(-1)?.assistantSteps[0].content).toBe("已收到的过程，继续接收");
+    await act(async () => {
+      emit({ type: "completed", message_id: "a1", content: "完成", assistant_steps: [] });
+      emit({ type: "done", terminal_reason: "completed" });
+      stream.resolve();
+      await task;
+    });
+    await act(async () => { result.current.reloadHistory(); });
+    expect(getConversationHistory).toHaveBeenCalledTimes(1);
+  });
 });

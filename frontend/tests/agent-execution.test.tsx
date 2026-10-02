@@ -290,7 +290,7 @@ describe("agent execution panel", () => {
     const { container } = render(
       <AgentExecution run={buildAgentRun(assistant({ assistantSteps: steps }))} />,
     );
-    const head = screen.getByRole("button", { name: /正在执行/ }) as HTMLButtonElement;
+    const head = screen.getByRole("button", { name: /正在生成回复|正在准备/ }) as HTMLButtonElement;
 
     expect(head.disabled).toBe(true);
     expect(head.getAttribute("aria-expanded")).toBe("true");
@@ -348,9 +348,9 @@ describe("agent execution panel", () => {
 
   it("shows the execution area as soon as the message is sent", () => {
     const { container } = render(
-      <AgentExecution run={buildAgentRun(assistant({ status: "streaming" }))} phaseLabel="正在生成回复" />,
+      <AgentExecution run={buildAgentRun(assistant({ status: "streaming", phases: ["responding"] }))} />,
     );
-    const head = screen.getByRole("button", { name: /正在执行/ }) as HTMLButtonElement;
+    const head = screen.getByRole("button", { name: /正在生成回复|正在准备/ }) as HTMLButtonElement;
 
     expect(head.disabled).toBe(true);
     expect(container.querySelector(".agent-step-pending")?.textContent).toContain("正在生成回复");
@@ -360,7 +360,6 @@ describe("agent execution panel", () => {
     const { container } = render(
       <AgentExecution
         run={buildAgentRun(assistant({ status: "completed", content: "很久以前的答复" }))}
-        phaseLabel="已就绪"
       />,
     );
 

@@ -42,6 +42,7 @@ from melonclaw.services.resource_service import (
     ResourcePermissionError,
     ResourceService,
 )
+from melonclaw.services.results import ResultFileService
 from melonclaw.services.runtime import ChatRuntime
 from melonclaw.services.skill_import import SkillImportService
 from melonclaw.services.skill_install import ChatSkillInstallService
@@ -65,6 +66,7 @@ class ChatService:
         self.runtime = runtime or ChatRuntime()
         self.conversations = ConversationService(self.runtime)
         self.attachments = AttachmentService(self.runtime, self.conversations)
+        self.results = ResultFileService(self.runtime, self.conversations)
         self.runtime.attachment_hydration_provider = self.attachments.hydration_provider
         self.execution = ExecutionService(
             self.runtime,

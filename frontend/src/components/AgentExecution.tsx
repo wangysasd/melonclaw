@@ -4,6 +4,7 @@ import { Icon, type IconName } from "./Icon";
 import { ExecutionNode } from "./ExecutionNode";
 import { Markdown } from "./Markdown";
 import { ToolTimeline } from "./ToolTimeline";
+import { confirmedTaskPlan, currentRunStage } from "../lib/runActivity";
 import { useElapsedMs } from "../hooks/useRunClock";
 import {
   formatDuration,
@@ -67,7 +68,11 @@ export function ExecutionHeader({
   open,
   disabled,
   onToggle,
+  stage,
+  plan,
 }: {
+  stage: string | null;
+  plan: ReturnType<typeof confirmedTaskPlan>;
   run: AgentRun;
   open: boolean;
   disabled: boolean;
@@ -91,7 +96,7 @@ export function ExecutionHeader({
       onClick={onToggle}
       disabled={disabled}
       aria-expanded={open}
-      aria-label={`查看执行步骤，${RUN_STATUS_LABELS[run.status]}`}
+      aria-label={`查看执行步骤，${stage ?? RUN_STATUS_LABELS[run.status]}`}
       title={disabled ? "正在执行，结束后可展开查看步骤" : undefined}
     >
       <Icon
@@ -99,7 +104,8 @@ export function ExecutionHeader({
         size={15}
         className={run.status === "running" ? "mc-icon-spin" : undefined}
       />
-      <span className="agent-execution-state">{RUN_STATUS_LABELS[run.status]}</span>
+      <span className="agent-execution-state" role="status">{stage ?? RUN_STATUS_LABELS[run.status]}</span>
+      {plan ? <span className="agent-plan-progress">任务清单已完成 {plan.completed}/{plan.total} 项</span> : null}
       {detail ? <span className="agent-execution-duration">· {detail}</span> : null}
       {run.status === "unconfirmed" ? (
         <span className="agent-execution-hint">未连接这次执行，请重新同步会话</span>
@@ -222,13 +228,15 @@ export function AgentExecution({
   run,
   events = [],
   messageStatus = null,
-  phaseLabel,
+  waitingFor,
 }: {
+  waitingFor?: "question" | "approval";
   run: AgentRun;
   events?: DisplayEvent[];
   messageStatus?: MessageStatus | "streaming" | null;
-  phaseLabel?: string;
 }) {
+  const stage = currentRunStage(run, events, waitingFor);
+  const plan = confirmedTaskPlan(run.steps);
   // null = 用户还没手动操作过，按状态默认值；有值后不再被 rerender 或重复完成事件覆盖。
   const [override, setOverride] = useState<boolean | null>(null);
   const forcedOpen = isRunForcedOpen(run.status);
@@ -245,17 +253,26 @@ export function AgentExecution({
     >
       <ExecutionHeader
         run={run}
+        stage={stage}
+        plan={plan}
         open={open}
         disabled={forcedOpen}
         onToggle={() => setOverride(!open)}
       />
       {open ? (
         <div className="agent-execution-body">
+          {plan ? <details className="agent-task-plan">
+            <summary>查看任务清单</summary>
+            <ul>{plan.items.map((item, index) => <li key={index}>
+              <span className={`task-status is-${item.status}`}>{({ pending: "待处理", in_progress: "进行中", completed: "已完成" })[item.status]}</span>
+              <span>{item.content}</span>
+            </li>)}</ul>
+          </details> : null}
           <ExecutionTimeline
             run={run}
             events={events}
             messageStatus={messageStatus}
-            phaseLabel={phaseLabel}
+            phaseLabel={stage ?? undefined}
           />
         </div>
       ) : null}

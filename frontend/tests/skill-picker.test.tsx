@@ -35,6 +35,7 @@ function Harness({ onSend }: { onSend: (value: string, skillId?: string | null) 
   const [value, setValue] = useState("");
   return (
     <Composer
+      pendingInteraction={null}
       value={value}
       onChange={setValue}
       onSend={onSend}
