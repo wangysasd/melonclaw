@@ -2129,7 +2129,7 @@
   padding-inline: var(--space-1);
 }
 
-.assistant-reasoning { min-width: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-control); color: var(--muted); background: var(--panel); font-size: var(--text-md); overflow-wrap: anywhere; }
+.assistant-reasoning { min-width: 0; color: var(--muted); font-size: var(--text-md); overflow-wrap: anywhere; }
 .assistant-reasoning summary { cursor: pointer; }
 .assistant-reasoning-title { margin-bottom: var(--space-1); }
 .assistant-reasoning-content p { margin: 0; }
