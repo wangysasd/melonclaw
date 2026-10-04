@@ -176,7 +176,7 @@ describe("long-running chat feedback", () => {
     const view = render(<ChatView />);
     expect(view.container.querySelector(".message-body")?.textContent).toContain("临时回答");
     expect(view.container.querySelector(".assistant-reasoning")?.textContent).toContain("先分析");
-    expect(view.container.querySelector(".agent-execution-body")).toBeNull();
+    expect(view.container.querySelector(".agent-execution-body .assistant-reasoning")).not.toBeNull();
     expect(view.container.querySelector(".message-token-usage")).toBeNull();
     expect(screen.queryByText(/模型用量|最近一次主模型上下文/)).toBeNull();
 
@@ -196,7 +196,8 @@ describe("long-running chat feedback", () => {
     const execution = view.container.querySelector(".agent-execution")!;
     expect(execution.children[0].className).toBe("agent-execution-head");
     expect(execution.children[0].textContent).toContain("完成");
-    expect(execution.children[1].className).toBe("assistant-reasoning");
+    expect(execution.children[1].className).toBe("agent-execution-body");
+    expect(execution.querySelector(".agent-timeline")?.firstElementChild?.className).toBe("assistant-reasoning");
     expect(execution.querySelector(".agent-tool summary")?.textContent).toContain("读取文件");
     expect(execution.querySelector(".agent-execution-body")).not.toBeNull();
     expect(execution.textContent).not.toContain("查看耗时");
@@ -209,7 +210,7 @@ describe("long-running chat feedback", () => {
     expect(screen.queryByText(/模型用量|最近一次主模型上下文/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /查看执行步骤，完成/ }));
     expect(execution.querySelector(".agent-execution-body")).toBeNull();
-    expect(execution.querySelector(".assistant-reasoning")).not.toBeNull();
+    expect(execution.querySelector(".assistant-reasoning")).toBeNull();
     expect(view.container.querySelector(".message-body")?.textContent).toContain("最终答复");
     view.unmount();
   });

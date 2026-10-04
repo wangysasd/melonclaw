@@ -91,7 +91,10 @@ export function currentRunStage(run: AgentRun, events: DisplayEvent[], waitingFo
     return tools.length > 1 ? `${stage} · ${tools.length} 项工具调用进行中` : stage;
   }
   if (subagentActivity(events).runningAgents > 0) return "子 Agent 正在执行";
-  return PHASE_STAGES[run.phase ?? ""] ?? (run.steps.at(-1)?.type === "assistant_progress" ? "正在生成回复" : "正在准备");
+  const lastStep = run.steps.at(-1);
+  return PHASE_STAGES[run.phase ?? ""] ?? (lastStep?.type === "assistant_progress"
+    ? lastStep.contentKind === "reasoning" ? "正在分析" : "正在生成回复"
+    : "正在准备");
 }
 
 export interface TaskPlan {
@@ -127,8 +130,8 @@ export function stoppedRunSummary(run: AgentRun, events: DisplayEvent[]) {
   };
   const preserved: string[] = [];
   if (run.finalAnswer) preserved.push("已收到的回答");
-  if (run.reasoning.some((step) => step.content.trim())) preserved.push("思考内容");
-  if (run.steps.some((step) => step.type === "assistant_progress" && step.content.trim())
+  if (run.steps.some((step) => step.type === "assistant_progress" && step.contentKind === "reasoning" && step.content.trim())) preserved.push("思考内容");
+  if (run.steps.some((step) => step.type === "assistant_progress" && step.contentKind !== "reasoning" && step.content.trim())
     || events.some((event) => event.type === "subagent_text" && typeof event.text === "string" && event.text.trim())) preserved.push("过程文本");
   if (tools.some((tool) => tool.result)) preserved.push("工具结果");
   return {

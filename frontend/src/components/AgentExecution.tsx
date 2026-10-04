@@ -22,9 +22,9 @@ import { toolCallSummary, toolIconName, toolSummary } from "../lib/toolDisplay";
 import type { AssistantToolStatus, DisplayEvent, MessageStatus } from "../types/api";
 
 /**
- * Agent 执行区域：一次运行的过程文本与工具调用按因果顺序排成一段轻时间线。
+ * Agent 执行区域：一次运行的过程文本、思考与工具调用按因果顺序排成时间线。
  *
- * 视觉上刻意不套卡片：过程文本就是普通正文，工具条目是一行灰色小字；
+ * 过程正文保持普通文本，连续思考独立成框，工具条目是一行灰色小字；
  * 执行状态和具体工具明细分开呈现，具体工具行自带可键盘操作的展开入口。
  *
  * 展开状态是纯前端临时 UI 状态：不写历史、不写 localStorage、不写全局 store。
@@ -137,21 +137,20 @@ function AssistantProgressItem({ step }: { step: AssistantProgressStep }) {
   return <div className="agent-step agent-step-progress">{body}</div>;
 }
 
-/** 只展示实际可读思考，位于执行摘要下方，不随执行时间线收起。 */
-export function ReasoningPanel({ run }: { run: AgentRun }) {
-  if (run.reasoning.length === 0) return null;
-  const body = run.reasoning.map((step) => <div key={step.id} className="assistant-reasoning-part">
-        <Markdown source={step.content} streaming={step.streaming} />
-      </div>);
-  if (run.status === "running") {
+/** 每段连续的可读思考有自己的框；流式增量更新同一个条目。 */
+function ReasoningItem({ step, running }: { step: AssistantProgressStep; running: boolean }) {
+  const body = <div className="assistant-reasoning-content">
+    <Markdown source={step.content} streaming={step.streaming} />
+  </div>;
+  if (running) {
     return <section className="assistant-reasoning" aria-label="思考过程">
-      <div className="assistant-reasoning-title">思考过程{run.reasoning.at(-1)?.streaming ? " · 正在生成" : ""}</div>
-      <div className="assistant-reasoning-content">{body}</div>
+      <div className="assistant-reasoning-title">思考过程{step.streaming ? " · 正在生成" : ""}</div>
+      {body}
     </section>;
   }
   return <details className="assistant-reasoning">
     <summary>思考过程</summary>
-    <div className="assistant-reasoning-content">{body}</div>
+    {body}
   </details>;
 }
 
@@ -227,6 +226,8 @@ export function ExecutionTimeline({
       {groupAgentSteps(run.steps).map((group) =>
         group.kind === "text" ? (
           <AssistantProgressItem key={group.id} step={group.entry} />
+        ) : group.kind === "reasoning" ? (
+          <ReasoningItem key={group.id} step={group.entry} running={run.status === "running"} />
         ) : (
           <div key={group.id} className="agent-tool-list">
             {group.tools.map((tool) => (
@@ -261,11 +262,12 @@ export function AgentExecution({
   const forcedOpen = isRunForcedOpen(run.status);
   const hasTimeline = run.steps.length > 0 || timelineEvents.length > 0;
   const hasTools = run.steps.some((step) => step.type === "tool_call") || timelineEvents.length > 0;
-  // 工具列表完成后仍默认可见；用户可以收起，思考栏始终独立。
-  const open = forcedOpen ? true : override ?? (hasTools || isRunDefaultOpen(run.status));
+  const hasReasoning = run.steps.some((step) => step.type === "assistant_progress" && step.contentKind === "reasoning");
+  // 有工具或可读思考时，完成后默认展示时间线；各思考框仍独立折叠。
+  const open = forcedOpen ? true : override ?? (hasTools || hasReasoning || isRunDefaultOpen(run.status));
   // 纯文字回复保留状态与真实总耗时；没有观测信息时不造空区域。
   const hasContent =
-    hasTimeline || run.reasoning.length > 0 || run.durationMs !== null
+    hasTimeline || run.durationMs !== null
     || run.timings !== undefined || !isTerminalRun(run.status);
   if (!hasContent) return null;
   return (
@@ -281,7 +283,6 @@ export function AgentExecution({
         disabled={forcedOpen || !hasTimeline}
         onToggle={() => setOverride(!open)}
       />
-      <ReasoningPanel run={run} />
       {open && hasTimeline ? (
         <div className="agent-execution-body">
           {plan ? <details className="agent-task-plan">

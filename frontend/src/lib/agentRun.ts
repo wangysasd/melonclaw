@@ -51,12 +51,18 @@ export interface ToolCallStep {
 export type AgentStep = AssistantProgressStep | ToolCallStep;
 
 /**
- * 时间线的一段：过程文本单独成段，同一步的工具保持为一组以便维持因果顺序。
+ * 时间线的一段：过程正文和连续思考各自成段，同一步的工具保持为一组以便维持因果顺序。
  *
  * 这只是数据层的排序分组，不对应额外的可交互摘要层；展示层会直接逐条渲染实际工具调用。
  */
 export interface AgentTextGroup {
   kind: "text";
+  id: string;
+  entry: AssistantProgressStep;
+}
+
+export interface AgentReasoningGroup {
+  kind: "reasoning";
   id: string;
   entry: AssistantProgressStep;
 }
@@ -68,14 +74,14 @@ export interface AgentToolGroup {
   tools: ToolCallStep[];
 }
 
-export type AgentStepGroup = AgentTextGroup | AgentToolGroup;
+export type AgentStepGroup = AgentTextGroup | AgentReasoningGroup | AgentToolGroup;
 
 /** 按 step 聚合同一步的工具；聚合同一步骤的工具调用保持调用顺序。 */
 export function groupAgentSteps(steps: AgentStep[]): AgentStepGroup[] {
   const groups: AgentStepGroup[] = [];
   for (const entry of steps) {
     if (entry.type === "assistant_progress") {
-      groups.push({ kind: "text", id: entry.id, entry });
+      groups.push({ kind: entry.contentKind === "reasoning" ? "reasoning" : "text", id: entry.id, entry });
       continue;
     }
     const last = groups.at(-1);
@@ -105,10 +111,8 @@ export interface AgentRun {
   completedAt: number | null;
   /** 终态耗时：优先后端 execution_duration_ms。 */
   durationMs: number | null;
-  /** 过程步骤（按 ordinal + batch_index 的因果顺序）。 */
+  /** 过程正文、连续思考与工具（按 ordinal + 内容块及 batch_index 的因果顺序）。 */
   steps: AgentStep[];
-  /** 模型实际返回的可读思考，与过程折叠状态独立。 */
-  reasoning: AssistantProgressStep[];
   /** 当前根模型步骤的正文预览；工具调用出现时归回执行过程。 */
   liveAnswer: string | null;
   /** 最终回答正文；与执行过程分离，不受折叠影响。 */
@@ -205,7 +209,13 @@ function stepToEntries(step: AssistantStep): AgentStep[] {
   const tools = [...step.tool_calls].sort((a, b) => a.batch_index - b.batch_index);
   const blocks = step.content_blocks ?? [{ type: "text" as const, text: step.content }];
   for (const [index, block] of blocks.entries()) {
-    if (block.text.trim()) entries.push({
+    if (!block.text.trim()) continue;
+    const previous = entries.at(-1);
+    if (previous?.type === "assistant_progress" && previous.contentKind === block.type) {
+      previous.content += block.text;
+      continue;
+    }
+    entries.push({
       id: `${step.id}:text:${index}`, type: "assistant_progress", stepId: step.id,
       content: block.text, streaming: false, contentKind: block.type,
     });
@@ -257,7 +267,6 @@ export function buildAgentRun(
     : null;
 
   const steps: AgentStep[] = [];
-  const reasoning: AssistantProgressStep[] = [];
   for (const step of ordered) {
     const entries = stepToEntries(step);
     if (isTerminalRun(status) || status === "unconfirmed") {
@@ -267,20 +276,17 @@ export function buildAgentRun(
     }
     for (const entry of entries) {
       if (entry.type === "assistant_progress" && entry.contentKind === "reasoning") {
-        reasoning.push(entry);
+        steps.push(entry);
       } else if (step.id !== finalStep?.id && (step.id !== liveStep?.id || entry.type !== "assistant_progress")) {
         steps.push(entry);
       }
     }
   }
-  // 只把最后一段过程文本标成流式：避免每来一个 delta 就重渲染整段时间线的 Markdown。
+  // 只把仍在增长的最后一个内容块标成流式；正文开始后旧思考不再继续流式渲染。
   const tail = steps.at(-1);
-  if (status === "running" && tail?.type === "assistant_progress" && tail.stepId === latest?.id) {
+  if (status === "running" && tail?.type === "assistant_progress" && tail.stepId === latest?.id
+    && (tail.contentKind ?? "text") === (latest?.content_blocks?.at(-1)?.type ?? "text")) {
     tail.streaming = true;
-  }
-  if (status === "running" && reasoning.at(-1)?.stepId === latest?.id
-    && latest?.content_blocks?.at(-1)?.type === "reasoning") {
-    reasoning[reasoning.length - 1].streaming = true;
   }
 
   const startedAt =
@@ -308,7 +314,6 @@ export function buildAgentRun(
         : null
     ),
     steps,
-    reasoning,
     liveAnswer,
     finalAnswer: isTerminalRun(status) && message.content.trim()
       ? message.content
