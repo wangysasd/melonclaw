@@ -32,7 +32,7 @@ def test_paths_reject_hidden_traversal_symlinks_and_special_files(tmp_path):
         assert handle.read().decode() == "结果"
 
 
-def test_inspection_previews_only_validated_image_pdf_and_small_text(tmp_path):
+def test_inspection_previews_validated_images_pdf_text_and_utf8_html(tmp_path):
     (tmp_path / "outputs").mkdir()
     image = tmp_path / "outputs/image.png"
     Image.new("RGB", (2, 2)).save(image)
@@ -46,7 +46,7 @@ def test_inspection_previews_only_validated_image_pdf_and_small_text(tmp_path):
             _inspect(handle, "/outputs/image.png", 1_000_000, 100)
     (tmp_path / "outputs/test.html").write_text("<script>alert(1)</script>")
     with open_result_file(tmp_path, "/outputs/test.html") as handle:
-        assert _inspect(handle, "/outputs/test.html", 1_000_000, 100)["preview_kind"] is None
+        assert _inspect(handle, "/outputs/test.html", 1_000_000, 100)["preview_kind"] == "html"
     with open_result_file(tmp_path, "/outputs/test.html") as handle:
         with pytest.raises(AttachmentError):
             _inspect(handle, "/outputs/test.html", 1, 100)

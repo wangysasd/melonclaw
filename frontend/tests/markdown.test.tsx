@@ -4,14 +4,16 @@ import { describe, expect, it } from "vitest";
 import { Markdown } from "../src/components/Markdown";
 
 describe("markdown display boundary", () => {
-  it("filters hidden reasoning and selector JSON before rendering", () => {
+  it("renders reasoning content and JSON without hiding text", () => {
     const { container } = render(
       <Markdown source={'<think>internal</think>visible'} />,
     );
     expect(container.textContent).toContain("visible");
-    expect(container.textContent).not.toContain("internal");
+    expect(container.textContent).toContain("internal");
+    const unfinished = render(<Markdown source="<think>正在分析" streaming />);
+    expect(unfinished.container.textContent).toContain("正在分析");
     const selector = render(<Markdown source={'{"tools":["search"]}'} />);
-    expect(selector.container.textContent).not.toContain('"tools"');
+    expect(selector.container.textContent).toContain('"tools"');
   });
 
   it("keeps unsafe links and remote images non-interactive", () => {

@@ -17,6 +17,7 @@ from melonclaw.database.schema import (
     projects,
     user_interactions,
 )
+from melonclaw.repository.artifacts import artifact_rows, upsert_artifacts
 from melonclaw.repository.errors import (
     AssistantStateConflictError,
     AttachmentQuotaError,
@@ -535,11 +536,16 @@ class ConversationRepositoryMixin:
         assistant_steps: list[dict[str, Any]] | None = None,
         execution_duration_ms: int | None = None,
         display_metadata: dict[str, Any] | None = None,
+        artifact_refs: list[dict[str, str]] | None = None,
         error_code: str | None = None,
         expected_status: str | Collection[str] | None = None,
     ) -> dict[str, Any]:
         """按预期状态 CAS 更新助手消息，防止旧执行覆盖终态。"""
 
+        if status == "completed" and (content is None or artifact_refs is None):
+            raise ValueError("完成回复必须提供正文与已解析的交付引用。")
+        if status != "completed" and artifact_refs is not None:
+            raise ValueError("只有完成的回复可以提交交付引用。")
         values: dict[str, Any] = {"status": status, "updated_at": _now()}
         if content is not None:
             values["content"] = content
@@ -590,6 +596,8 @@ class ConversationRepositoryMixin:
                         "助手消息状态已变化，旧执行不能覆盖当前状态。"
                     )
                 raise ConversationNotFoundError
+            if status == "completed":
+                await upsert_artifacts(connection, artifact_rows(row, artifact_refs))
             await connection.execute(
                 update(chat_conversations)
                 .where(chat_conversations.c.id == conversation_id)

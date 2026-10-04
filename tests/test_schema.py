@@ -4,6 +4,7 @@ from melonclaw.database.schema import (
     chat_attachments,
     chat_conversations,
     chat_messages,
+    conversation_artifacts,
     mcp_servers,
     metadata,
     model_configs,
@@ -35,6 +36,14 @@ def test_user_has_one_required_tenant():
 def test_assistant_steps_are_embedded_in_chat_messages():
     assert "assistant_steps" in chat_messages.c
     assert "execution_duration_ms" in chat_messages.c
+
+
+def test_artifact_projection_has_a_conversation_key_and_source_foreign_keys():
+    assert [column.name for column in conversation_artifacts.primary_key.columns] == ["conversation_id", "ref_key"]
+    assert conversation_artifacts.c.ref_key.type.length == 64
+    assert {fk.target_fullname for fk in conversation_artifacts.c.message_id.foreign_keys} == {"chat_messages.id"}
+    assert {fk.ondelete for fk in conversation_artifacts.c.message_id.foreign_keys} == {"CASCADE"}
+    assert {fk.target_fullname for fk in conversation_artifacts.c.conversation_id.foreign_keys} == {"chat_conversations.id"}
 
 
 def test_conversation_id_is_the_primary_key_and_project_is_optional():

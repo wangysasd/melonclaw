@@ -25,6 +25,7 @@ from melonclaw.repository import (
     UserContext,
 )
 from melonclaw.services.errors import InvalidUserError
+from melonclaw.services.result_index import message_result_refs
 from melonclaw.services.runtime import ChatRuntime
 from melonclaw.storage.workspace_moves import (
     CopiedWorkspace,
@@ -312,6 +313,7 @@ class ConversationService:
             storage.get_recovery_required_interaction(conversation_id, context.user_id),
         )
         for message in messages:
+            message["artifacts"] = message_result_refs(message)
             if message["role"] == "user":
                 message["attachments"] = attachments_by_message.get(
                     UUID(message["id"]), []

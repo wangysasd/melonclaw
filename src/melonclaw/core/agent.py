@@ -25,6 +25,7 @@ from melonclaw.core.model_catalog import (
     ResolvedModel,
 )
 from melonclaw.core.prompts import build_system_prompt
+from melonclaw.core.tool_catalog import FIND_TOOLS_NAME
 from melonclaw.core.user_input import UserInputMiddleware, supports_user_input
 from melonclaw.memory import MemoryScopeMiddleware, MemoryService
 from melonclaw.middleware import (
@@ -38,6 +39,7 @@ from melonclaw.middleware.tool_name_guard import ToolNameGuardMiddleware
 from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
 from melonclaw.tool.mcp_install import McpInstallProvider, build_mcp_install_tools
 from melonclaw.tool.skill_install import SkillInstallProvider, build_skill_install_tools
+from melonclaw.tool.tool_discovery import build_tool_discovery
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
 
 TOOL_NAMES_PREVIEW_LIMIT = 12
@@ -51,6 +53,7 @@ class AgentContext:
     user_id: str
     tenant_id: str
     tenant_name: str
+    user_message_id: str = ""
     conversation_id: str = ""
     project_id: str = ""
     project_name: str = ""
@@ -90,6 +93,7 @@ def _tool_name(tool: object) -> str:
 def _build_tool_selector_middleware(
     model: BaseChatModel,
     tools: list[object],
+    timeout_seconds: int = 10,
 ) -> AgentMiddleware:
     """构造动态工具选择器。
 
@@ -104,11 +108,12 @@ def _build_tool_selector_middleware(
             _tool_name(tool)
             for tool in tools
             if _tool_name(tool) not in {
-                MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "prepare_skill_creation",
+                FIND_TOOLS_NAME, MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "prepare_skill_creation",
                 "confirm_skill_install", "prepare_mcp_install", "test_mcp_install", "confirm_mcp_install",
             }
         ],
         max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -157,7 +162,8 @@ async def build_research_agent(
         tools.extend(build_mcp_install_tools(mcp_install_provider))
     resolved_mcp_servers = mcp_servers or {}
     user_input_enabled = supports_user_input(client_capabilities)
-    tool_selector = _build_tool_selector_middleware(chat_model, tools)
+    tools.append(build_tool_discovery(list(tools)))
+    tool_selector = _build_tool_selector_middleware(chat_model, tools, settings.tool_selection_timeout_seconds)
     interpreter = build_interpreter_middleware()
     backend, skill_sources, skill_permissions = build_agent_backend(
         workspace_dir,

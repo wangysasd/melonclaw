@@ -74,6 +74,26 @@ def _scope_condition(project_id: UUID | None, conversation_id: UUID | None):
 class AttachmentRepositoryMixin:
     """由 BusinessRepository 继承的附件 CRUD、claim 和绑定事务。"""
 
+    async def list_workspace_attachments(
+        self, user_id: str, project_id: UUID | None, conversation_id: UUID | None,
+        query: str, sort: str, offset: int, limit: int,
+    ) -> dict[str, Any]:
+        conditions = [
+            chat_attachments.c.user_id == user_id,
+            _scope_condition(project_id, conversation_id),
+            chat_attachments.c.status.not_in(["deleted", "expired"]),
+            (chat_attachments.c.expires_at.is_(None) | (chat_attachments.c.expires_at > _now())),
+            chat_attachments.c.original_name.icontains(query, autoescape=True),
+        ]
+        order = chat_attachments.c.updated_at.desc() if sort == "modified" else func.lower(chat_attachments.c.original_name)
+        async with self.engine.connect() as connection:
+            rows = (await connection.execute(
+                select(chat_attachments).where(and_(*conditions))
+                .order_by(order, chat_attachments.c.id).offset(offset).limit(limit + 1),
+            )).mappings().all()
+        return {"items": [{**_attachment_dict(row), "modified_at": _as_iso(row["updated_at"])} for row in rows[:limit]],
+                "next_offset": offset + limit if len(rows) > limit else None}
+
     async def create_attachment(
         self,
         *,

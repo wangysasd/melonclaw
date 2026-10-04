@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from time import perf_counter
 from uuid import UUID
 
 from fastapi import APIRouter, Request
@@ -44,6 +45,7 @@ async def submit_user_input(
     if not manager.ready:
         return JSONResponse(await manager.status(), status_code=503)
     try:
+        preparation_started = perf_counter()
         result = await manager.prepare_user_input(
             conversation_id,
             payload.user_id,
@@ -65,6 +67,7 @@ async def submit_user_input(
         )
 
     execution, command, accepted = result
+    execution.preparation_duration_ms = int((perf_counter() - preparation_started) * 1000)
 
     async def events():
         yield {

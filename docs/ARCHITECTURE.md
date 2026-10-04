@@ -50,6 +50,8 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 项目与会话各自持久化 `is_pinned` 供侧栏排序；删除使用 `status=deleted` 逻辑删除，读取时过滤已删除项目及其会话，保留跨数据库、Checkpoint 和文件系统的原始数据以避免非原子清理。
 普通会话加入项目时保留会话 ID、消息和 Checkpoint；先把该会话独享工作区里的普通文件、artifacts 和已登记附件复制到目标项目工作区，再在事务中把 Conversation 与附件归属切为项目。移动成功后清理原目录，后续运行只走项目工作区。项目内会话不支持再次移动；目标同名文件、运行中的会话和未提交附件会阻止移动。无需新增表列或历史数据兼容读取分支。
 
+模型消息的原始 v3 content-block 事件由 `output/model_activity.py` 按顺序读取：文本及 reasoning 内容增量完整进入脱敏步骤投影，不再删除 `<think>` 块或按正文 JSON 形状判断内部消息。内部工具选择器调用通过公开 `TAG_NOSTREAM` 在 messages 投影源头隔离；阶段由中间件的 `runtime.stream_writer` 发出，`output/events.py` 注册 v3 `CustomTransformer`，仅转发根命名空间的选择工具/等待模型阶段。当前锁定的 LangGraph 1.2.10 不将调用 tags/metadata 挂到消息对象，不能通过消息私有字段识别选择器。工具参数只报告阶段，不把未完成参数当成已执行工具。
+
 ## 2. 模块职责
 
 | 包 | 职责 | 典型文件 |
@@ -61,7 +63,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | `storage/` | 当前工作区内附件原文、派生文件与临时文件的受控路径映射和发布 | `attachments.py` |
 | `services/` | 用例编排：执行、执行收尾、用户问题恢复、会话、技能、运行时资源管理 | `execution.py`、`execution_finalize.py`、`user_input_execution.py`、`runtime.py`、`chat.py`、`skills.py` |
 | `api/` | HTTP 边界：路由、Schema、错误映射、SSE 编码、应用生命周期 | `app.py`、`routes/*`（含 `user_input.py`）、`schemas.py`、`sse.py` |
-| `output/` | 通过当前 Deep Agents v3 事件投影提取模型可见文本，并把根 Agent 的每次 AIMessage 投影成有序 assistant steps；子 Agent 保留任务卡事件 | `events.py`、`assistant_steps.py`、`visible_text.py`、`formatting.py` |
+| `output/` | 通过当前 Deep Agents v3 事件投影提取模型完整文本，并把根 Agent 的每次 AIMessage 投影成有序 assistant steps；子 Agent 保留任务卡事件 | `events.py`、`model_activity.py`、`assistant_steps.py`、`formatting.py` |
 | `memory/` | Global / Tenant / User 三级长期记忆的中间件、工具与服务 | `service.py`、`middleware.py`、`tools.py` |
 | `middleware/` | Agent 中间件：文件操作顺序、工具动态选择、用户提问批次护栏 | `file_ordering.py`、`tool_selection.py`、`user_input_guard.py` |
 | `backend/` | Deep Agents Backend 的构造与路径路由 | `factory.py` |
@@ -141,7 +143,13 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 
 ### 5.3 内容块转换是框架职责，路由是应用职责
 
-标准内容块到各家 provider 请求体的转换由 LangChain 提供，不需自己实现；但“该不该发这种块”和“被拒之后怎么降级”属于应用层职责。
+标准内容块到各家 provider 请求体的转换由 LangChain 提供；“该不该发这种块”和“被拒之后怎么降级”属于应用层职责。第三方非标准推理协议是例外：`core/reasoning.py` 解析供应商 `extra_config._melonclaw.reasoning_format`，`core/chat_model.py` 同时适配响应增量、完整消息和下一次请求。原始推理字段保存在 Checkpoint，展示只使用脱敏限长的有序内容块；签名、加密片段不进入 UI，也不从展示快照重建模型历史。
+
+### 5.3.1 回复流畅性与会话内工具选择
+
+`core/tool_catalog.py` 定义轮次 ID、目录摘要和 Checkpoint 状态；`middleware/tool_selection.py` 每用户轮次初选一次，审批和提问恢复复用。共享 Project Agent 不保存会话选择。目录摘要覆盖名称、描述和输入 schema；变更会使缓存失效。`tool/tool_discovery.py` 的 `find_tools` 仅检索组装时已授权目录，用 Command 激活后续可见 schema；轮次上限由 reducer 共同约束并行发现结果，不扩大 MCP 白名单、HITL 或 PTC。选择超时配置仍从 `core/config.py` 进入。
+
+`output/events.py` 并发排空各 ToolCallStream，快工具结果不等待慢工具。生成调用仅标记 queued；观测工具执行才记开始时间，耗时用单调时钟。`services/execution_trace.py` 保存阶段耗时及子 Agent 展示轨迹；准备阶段仍在 SSE 之前，错误保持 HTTP 语义。`output/stream_redaction.py` 在连续增量之间识别凭据，普通正文不作整段缓冲。SSE 与最终 `assistant_steps.content_blocks` 同时保留正文/推理顺序；细节见 [回复流畅性与推理协议](design-docs/response-fluency.md)。
 
 ### 5.4 消息长度的双重约束
 
@@ -199,3 +207,7 @@ MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空�
 结构化结果使用原有 assistant 正文中的 `melon-result` JSON 围栏，不另开 SSE 或持久化旁路。提示词走 `core/prompts.py`；前端只接收固定类型、有限大小的数据，使用固定组件。结果格式校验在浏览器完成，文件元信息和读取权限由服务端核验，不能把格式校验等同于数据事实核验。
 
 `services/results.py` 通过 `ConversationService` 和 `repository/` 解析有效身份、会话及项目归属，通过 `ChatRuntime.workspace_dir` 定位现有工作区；`storage/results.py` 只读 `/outputs/` 交付文件，目录 fd 与 NOFOLLOW 避免符号链接替换。HTTP 内容默认下载、禁止嗅探、sandbox CSP；预览类型由实际内容检查决定。没有新增 Agent 工具，生成文件继续经过原有 HITL；LocalShellBackend 的非沙箱边界仍有效。详见 [聊天结果组件](design-docs/chat-result-components.md)。
+
+`services/result_index.py` 从已完成最终回复的 Markdown 语法提取明确文件／图片交付，history 和 completed（含幂等回放）使用同一派生 `artifacts` 字段；文件卡片、正文链接与会话产物列表共用引用。`ResultFileService.index` 经 repository 直接读取 `conversation_artifacts` 交付投影，按路径／附件 ID 合并最近来源，不加载消息正文或扫描工作区。最终正文的引用由 services 解析，repository 在完成回复的 CAS 事务中同步写入投影；以消息 seq 阻止迟到旧交付覆盖新来源。`melonclaw-db-init` 从已完成正文流式、原子重建投影，读取路径不做历史回退。文件仍读取当前内容，不保存版本快照。HTML 使用独立只读预览响应，UTF-8／2 MB 核验、HTTP 与 Blob 文档 meta CSP、无同源权限 sandbox；普通 content 的 HTML 下载边界保持严格。具体流与限制见 [对话产物](design-docs/conversation-artifacts.md)。
+
+文件浏览器复用 `ResultFileService` 的身份与实际工作区解析。`storage/workspace_files.py` 提供按目录读取、5,000 项扫描上限、分页和普通文件 fd 读取；拒绝隐藏路径、符号链接与特殊文件。`storage/results.py` 在同一读取机制上保留成果 `/outputs/` 引用约束。`api/routes/files.py` 的 `/files` 目录／内容接口不扩大 Agent 成果协议权限，内容与 HTML 策略复用既有响应构造。附件列表只经 `repository/attachments.py` 按实际项目／会话与用户查登记信息，不枚举内部物理目录。文件存在与完成回复的交付记录分别读取，不增加表或快照。详见 [文件浏览器](design-docs/workspace-file-browser.md)。

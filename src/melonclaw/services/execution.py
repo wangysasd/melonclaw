@@ -25,10 +25,9 @@ from melonclaw.core.hitl import (
 from melonclaw.core.model_catalog import ResolvedModel
 from melonclaw.core.user_input import normalize_capabilities
 from melonclaw.output.assistant_steps import AssistantStepAccumulator, events_from_snapshot
-from melonclaw.output.content import content_to_text
-from melonclaw.output.events import DISPLAY_EVENT_TYPES, iter_research_events
-from melonclaw.output.formatting import _preview, sanitize_text
-from melonclaw.output.visible_text import visible_text
+from melonclaw.output.content import answer_text
+from melonclaw.output.events import iter_research_events
+from melonclaw.output.formatting import sanitize_text
 from melonclaw.repository import (
     ApprovalBindingError,
     AssistantStateConflictError,
@@ -51,7 +50,9 @@ from melonclaw.services.execution_finalize import (
     mark_interaction_recovery_required,
     release_execution,
 )
+from melonclaw.services.execution_trace import ExecutionTrace
 from melonclaw.services.mcp_chat_config import parse_chat_mcp
+from melonclaw.services.result_index import extract_result_refs, message_result_refs
 from melonclaw.services.runtime import ChatRuntime
 
 
@@ -84,6 +85,9 @@ class PreparedExecution:
     replay_message: dict[str, Any] | None = None
     assistant_steps: list[dict[str, Any]] = field(default_factory=list)
     execution_duration_ms: int | None = None
+    preparation_duration_ms: int = 0
+    timings: dict[str, Any] | None = None
+    display_events: list[dict[str, Any]] = field(default_factory=list)
     attachments: list[dict[str, Any]] = field(default_factory=list)
     released: bool = False
 
@@ -549,6 +553,8 @@ class ExecutionService:
                 ),
                 assistant_steps=list(assistant["assistant_steps"]),
                 execution_duration_ms=assistant["execution_duration_ms"],
+                timings=assistant["display_metadata"].get("timings"),
+                display_events=list(assistant["display_metadata"].get("events", [])),
             ),
             command,
         )
@@ -563,7 +569,8 @@ class ExecutionService:
 
         storage = self.runtime.require_ready()
         agent = execution.agent
-        display_events: list[dict[str, Any]] = []
+        trace = ExecutionTrace(execution.preparation_duration_ms, execution.timings, execution.display_events)
+        display_events = trace.events
         transcript = AssistantStepAccumulator(
             message_id=str(execution.assistant_message_id),
             run_id=execution.run_id or str(execution.assistant_message_id),
@@ -575,26 +582,6 @@ class ExecutionService:
 
         def elapsed_duration_ms() -> int:
             return base_duration_ms + int((perf_counter() - started_at) * 1000)
-
-        def remember_display_event(event: dict[str, Any]) -> None:
-            """保留可回放的工具/子 Agent 轨迹，并合并子 Agent 文本分片。"""
-
-            event_type = event.get("type")
-            if event_type not in DISPLAY_EVENT_TYPES:
-                return
-            if event_type == "subagent_text":
-                subagent_id = event.get("subagent_id")
-                for previous in reversed(display_events):
-                    if (
-                        previous.get("type") == "subagent_text"
-                        and previous.get("subagent_id") == subagent_id
-                    ):
-                        previous["text"] = _preview(
-                            f"{previous.get('text', '')}{event.get('text', '')}",
-                            limit=12000,
-                        )
-                        return
-            display_events.append(dict(event))
 
         try:
             yield {
@@ -610,6 +597,7 @@ class ExecutionService:
                 "resuming": execution.resuming,
                 "model": execution.model.public_dict(),
                 "attachments": execution.attachments,
+                "preparation_duration_ms": execution.preparation_duration_ms,
             }
             if execution.replay_message is not None:
                 replay = execution.replay_message
@@ -624,7 +612,9 @@ class ExecutionService:
                         "request_id": execution.request_id,
                         "content": replay["content"],
                         "assistant_steps": replay["assistant_steps"],
+                        "artifacts": message_result_refs(replay),
                         "execution_duration_ms": replay.get("execution_duration_ms"),
+                        "timings": replay["display_metadata"].get("timings"),
                         "replayed": True,
                     }
                 else:
@@ -682,6 +672,7 @@ class ExecutionService:
                 execution.config,
                 context=AgentContext(
                     user_id=execution.user_id,
+                    user_message_id=str(execution.user_message_id or ""),
                     conversation_id=str(execution.conversation_id),
                     tenant_id=execution.tenant_id,
                     tenant_name=execution.tenant_name,
@@ -701,11 +692,11 @@ class ExecutionService:
                 run_id=execution.run_id,
                 projector=transcript,
             ):
-                remember_display_event(event)
+                trace.remember(event)
                 yield event
 
             pending = await aget_pending_interaction(agent, execution.config)
-            display_metadata = {"events": display_events} if display_events else {}
+            display_metadata = trace.metadata()
             if execution.user_interaction_id is not None:
                 await storage.resolve_user_interaction(
                     execution.conversation_id,
@@ -790,11 +781,13 @@ class ExecutionService:
                 status="completed",
                 final_content=final_content,
             )
+            artifacts = extract_result_refs(final_content)
             saved = await storage.update_assistant(
                 execution.conversation_id,
                 execution.assistant_message_id,
                 content=final_content,
                 status="completed",
+                artifact_refs=artifacts,
                 assistant_steps=assistant_steps,
                 execution_duration_ms=elapsed_duration_ms(),
                 display_metadata=display_metadata,
@@ -808,11 +801,14 @@ class ExecutionService:
                 # completed 是终态对账帧：即使浏览器漏掉了前面的增量事件，
                 # 也能用数据库已提交的完整快照恢复中间 AIMessage 和工具调用。
                 "assistant_steps": saved["assistant_steps"],
+                "artifacts": artifacts,
                 "execution_duration_ms": saved.get("execution_duration_ms"),
+                "timings": display_metadata["timings"],
             }
             yield {"type": "done", "message_id": saved["id"]}
             finished = True
         except asyncio.CancelledError:
+            trace.close()
             await mark_interaction_recovery_required(
                 self.runtime.storage,
                 execution.conversation_id,
@@ -825,11 +821,13 @@ class ExecutionService:
                 status="cancelled",
                 error_code="request_cancelled",
                 display_metadata=display_events,
+                timings=trace.timings,
                 assistant_steps=transcript.terminal_snapshot(status="cancelled"),
                 execution_duration_ms=elapsed_duration_ms(),
             )
             raise
         except Exception as exc:  # noqa: BLE001 - 保存失败状态后发送安全错误
+            trace.close()
             error_code = (
                 "model_execution_failed" if isinstance(exc, ModelInvocationError)
                 else "tool_execution_failed" if isinstance(exc, ToolException)
@@ -847,6 +845,7 @@ class ExecutionService:
                 status="failed",
                 error_code=error_code,
                 display_metadata=display_events,
+                timings=trace.timings,
                 assistant_steps=transcript.terminal_snapshot(status="failed"),
                 execution_duration_ms=elapsed_duration_ms(),
             )
@@ -884,8 +883,8 @@ class ExecutionService:
             else:
                 content = getattr(message, "content", "")
                 tool_calls = getattr(message, "tool_calls", None)
-            if message_type in {"ai", "assistant"} and not tool_calls:
-                text = visible_text(content_to_text(content))
-                if text.strip():
-                    return text.strip()
+            if message_type in {"ai", "assistant"}:
+                return "" if tool_calls else answer_text(content).strip()
+            if message_type in {"human", "user"}:
+                break
         return ""

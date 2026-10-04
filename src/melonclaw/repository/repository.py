@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from melonclaw.database.database import Database
+from melonclaw.repository.artifacts import ArtifactRepositoryMixin
 from melonclaw.repository.attachments import AttachmentRepositoryMixin
 from melonclaw.repository.conversations import ConversationRepositoryMixin
 from melonclaw.repository.locks import ConcurrencyMixin
@@ -21,6 +22,7 @@ class BusinessRepository(
     UserRepositoryMixin,
     ProjectRepositoryMixin,
     ConversationRepositoryMixin,
+    ArtifactRepositoryMixin,
     AttachmentRepositoryMixin,
     UserInteractionRepositoryMixin,
     ResourceRepositoryMixin,

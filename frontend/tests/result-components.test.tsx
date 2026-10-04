@@ -8,10 +8,11 @@ import { TextDiff } from "../src/components/TextDiff";
 import { parseResultBlock } from "../src/lib/resultBlocks";
 import { tableCsv } from "../src/lib/resultExport";
 import { textDiff } from "../src/lib/textDiff";
+import { ArtifactWorkspace } from "../src/components/ArtifactWorkspace";
 
 vi.mock("../src/components/ResultChartCanvas", () => ({ default: ({ chart }: { chart: { rows: unknown[][] } }) => <div data-testid="chart">{JSON.stringify(chart.rows)}</div> }));
 const { metadata, blob, copy } = vi.hoisted(() => ({ metadata: vi.fn(), blob: vi.fn(), copy: vi.fn().mockResolvedValue(undefined) }));
-vi.mock("../src/api/results", () => ({ resultFileMetadata: metadata, resultFileUrl: () => "/checked-result", fetchResultBlob: blob }));
+vi.mock("../src/api/results", () => ({ resultFileMetadata: metadata, resultFileUrl: () => "/checked-result", fetchResultBlob: blob, conversationArtifacts: async () => ({ items: [] }) }));
 vi.mock("../src/lib/clipboard", () => ({ copyText: copy }));
 beforeEach(() => { copy.mockResolvedValue(undefined); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
@@ -49,6 +50,13 @@ describe("explicit result contract", () => {
     fireEvent.click(screen.getByText("查看绘图数据（4 行）"));
     fireEvent.click(screen.getByRole("button", { name: "复制表格" }));
     await waitFor(() => expect(copy).toHaveBeenCalledWith("月份\tA 产品（万台）\tB 产品（万台）\n1月\t12\t8\n2月\t15\t9\n3月\t11\t14\n4月\t18\t16"));
+  });
+  it("explains unescaped source title quotes and preserves the original content", () => {
+    const raw = '{"version":1,"type":"sources","items":[{"id":"2","title":"储能电芯"扩产竞赛"降温"}]}';
+    const view = render(<ResultBlockView raw={raw} />);
+    expect(screen.getByRole("status").textContent).toContain("JSON 语法错误");
+    expect(view.container.querySelector("code")?.textContent).toBe(raw);
+    expect(parseResultBlock(JSON.stringify({ version: 1, type: "sources", items: [{ id: "2", title: '储能电芯"扩产竞赛"降温' }] }))).not.toBeNull();
   });
   it("downloads exact plotted values, escaping CSV and spreadsheet formulas", () => {
     expect(tableCsv([["项目", "值"], ["=cmd()", -2], ['a,"b\nc', null], ["  +SUM(1)", true]])).toBe('"项目","值"\r\n"\'=cmd()","-2"\r\n"a,""b\nc",""\r\n"\'  +SUM(1)","true"');
@@ -103,10 +111,10 @@ describe("result interactions inside real Markdown", () => {
   });
   it("never loads an external image and accepts explicit owned image references", async () => {
     metadata.mockResolvedValue({ file_name: "plot.png", size_bytes: 123, media_type: "image/png", preview_kind: "image" });
-    const { container } = render(<ResultProvider userId="owner" conversationId="conversation" projectId={null}><Markdown source="![外部](https://example.com/a.png)\n\n![图](/outputs/plot.png)" /></ResultProvider>);
+    const { container } = render(<ResultProvider userId="owner" conversationId="conversation" projectId={null}><Markdown source="![外部](https://example.com/a.png)\n\n![图](/outputs/%E5%9B%BE.png)" /></ResultProvider>);
     expect(container.querySelector('img[src="https://example.com/a.png"]')).toBeNull();
     expect(await screen.findByAltText("图")).toBeTruthy();
-    expect(metadata.mock.calls[0][0]).toEqual({ path: "/outputs/plot.png" });
+    expect(metadata.mock.calls[0][0]).toEqual({ path: "/outputs/图.png" });
     fireEvent.error(screen.getByAltText("图"));
     expect(await screen.findByText(/图片加载失败/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "重新加载" })).toBeTruthy();
@@ -121,13 +129,13 @@ describe("asset and diff boundaries", () => {
     vi.stubGlobal("URL", class extends URL { static createObjectURL = vi.fn(() => "blob:test"); static revokeObjectURL = vi.fn(); });
     metadata.mockResolvedValue({ file_name: "实际名称.txt", size_bytes: 4, media_type: "text/plain", preview_kind: "text" });
     blob.mockResolvedValue({ size: 4, text: async () => "<script>plain text</script>" });
-    render(<ResultProvider userId="owner" conversationId="conversation" projectId={null}><ResultAsset asset={{ path: "/outputs/result.txt" }} /></ResultProvider>);
+    render(<ArtifactWorkspace userId="owner" conversationId="conversation" projectId={null} messages={[]}><ResultProvider userId="owner" conversationId="conversation" projectId={null}><ResultAsset asset={{ path: "/outputs/result.txt" }} /></ResultProvider></ArtifactWorkspace>);
     expect(await screen.findByText("实际名称.txt")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "预览" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看" }));
     expect(await screen.findByText("<script>plain text</script>")).toBeTruthy();
     expect(document.querySelector("script")).toBeNull();
     blob.mockRejectedValue(new Error("文件不可访问"));
-    fireEvent.click(screen.getByRole("button", { name: "下载" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "下载" })[0]);
     expect(await screen.findByText("文件不可访问")).toBeTruthy();
   });
   it("keeps unchanged lines and highlights added/removed lines, collapses long diffs", () => {

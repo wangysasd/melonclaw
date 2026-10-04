@@ -3,9 +3,9 @@ import { XMarkdown, type ComponentProps, type XMarkdownProps } from "@ant-design
 import "@ant-design/x-markdown/themes/light.css";
 
 import { copyText } from "../lib/clipboard";
-import { visibleAssistantText } from "../lib/toolSelection";
 import { Icon } from "./Icon";
-import { parseAssetRef } from "../lib/resultBlocks";
+import { markdownAssetRef, type AssetRef } from "../lib/resultBlocks";
+import { useArtifacts } from "./ArtifactContext";
 import { ResultAsset } from "./ResultAsset";
 import { MarkdownTable } from "./ResultTable";
 import { ResultCitationScope, useResultScope } from "./ResultContext";
@@ -87,16 +87,21 @@ function Code({ children, block, lang, streamStatus }: ComponentProps) {
 
 function MarkdownImage({ src, alt }: ComponentProps & { src?: unknown }) {
   const source = String(src ?? "");
-  const asset = source.startsWith("/attachments/") ? parseAssetRef({ attachment_id: source.slice(13) })
-    : source.startsWith("/outputs/") ? parseAssetRef({ path: source }) : null;
+  const asset = markdownAssetRef(source);
   return asset ? <ResultAsset asset={asset} image caption={String(alt ?? "")} />
     : <span className="blocked-image">[图片：{String(alt || "未命名")}；外部或不受支持的图片地址未加载]</span>;
 }
 function MarkdownLink({ children, href }: LinkProps) {
   const scope = useResultScope();
+  const artifacts = useArtifacts();
   const value = String(href ?? "");
   const match = /^#source-([A-Za-z0-9_-]{1,40})$/.exec(value);
   const safe = safeHref(href);
+  const asset = markdownAssetRef(value);
+  if (asset && artifacts && scope) return <a href={safe} onClick={(event) => {
+    event.preventDefault();
+    artifacts.openArtifact(asset, scope.messageId, scope.conversationId);
+  }}>{children}</a>;
   if (match && scope) return <a href={`#${scope.anchorPrefix}-${match[1]}`} onClick={(event) => {
     event.preventDefault();
     const target = document.getElementById(`${scope.anchorPrefix}-${match[1]}`);
@@ -123,8 +128,8 @@ export const markdownComponents: NonNullable<XMarkdownProps["components"]> = {
   "incomplete-inline-code": IncompleteMarkdown,
 };
 
-export const Markdown = memo(function Markdown({ source, streaming = false }: { source: string; streaming?: boolean }) {
-  const content = visibleAssistantText(source);
+export const Markdown = memo(function Markdown({ source, streaming = false, fileCardsAtEnd = false, deliveredFiles }: { source: string; streaming?: boolean; fileCardsAtEnd?: boolean; deliveredFiles?: AssetRef[] }) {
+  const content = source;
   const props: XMarkdownProps = {
     content,
     components: markdownComponents,
@@ -147,7 +152,7 @@ export const Markdown = memo(function Markdown({ source, streaming = false }: { 
   };
   const fallback = <div className="markdown-fallback">{content}</div>;
   return (
-    <ResultCitationScope>
+    <ResultCitationScope fileCardsAtEnd={fileCardsAtEnd} deliveredFiles={deliveredFiles}>
     <MarkdownBoundary fallback={fallback}>
       {/\$|\\\(|\\\[/.test(content) ? (
         <Suspense fallback={<XMarkdown {...props} />}><MathMarkdown {...props} /></Suspense>

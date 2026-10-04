@@ -24,6 +24,7 @@ from melonclaw.repository import (
     seed_provider_data,
 )
 from melonclaw.repository.errors import SeedDataConflictError
+from melonclaw.services.result_index import extract_result_refs
 from melonclaw.services.skill_index import reindex_skills_from_disk
 
 
@@ -38,6 +39,8 @@ async def initialize_database() -> None:
         await seed_demo_data(database)
         await seed_provider_data(database)
         await seed_builtin_data(database)
+        artifacts = await BusinessRepository(database).rebuild_artifacts(extract_result_refs)
+        print(f"会话产物索引重建完成：{artifacts} 项交付。")
         # 索引重建必须排在种子用户之后：用户 Skill 行的 created_by 有外键约束。
         report = await reindex_skills_from_disk(
             BusinessRepository(database), settings.data_root

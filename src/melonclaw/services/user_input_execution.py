@@ -280,6 +280,8 @@ class UserInputExecutionService:
                     ),
                     assistant_steps=list(assistant["assistant_steps"]),
                     execution_duration_ms=assistant["execution_duration_ms"],
+                    timings=assistant["display_metadata"].get("timings"),
+                    display_events=list(assistant["display_metadata"].get("events", [])),
                 ),
                 command,
                 accepted,

@@ -25,7 +25,7 @@ class _Storage:
         self.calls.append("list_messages")
         return (
             {"id": str(conversation_id), "user_id": user_id, "project_id": None},
-            [{"id": str(self.assistant_id), "role": "assistant", "status": self.latest_status}],
+            [{"id": str(self.assistant_id), "role": "assistant", "status": self.latest_status, "content": ""}],
             None,
         )
 

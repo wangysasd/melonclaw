@@ -1,4 +1,5 @@
-import { defineConfig } from "vite";
+import { fileURLToPath } from "node:url";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
 // 后端地址：优先 MELONCLAW_API_TARGET，其次 MELONCLAW_PORT，默认 127.0.0.1:8000。
@@ -11,7 +12,13 @@ const frontendPort = Number.parseInt(
 );
 const frontendHost = process.env.MELONCLAW_FRONTEND_HOST ?? "127.0.0.1";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // 前端独立运行时也读取仓库根目录的 .env；只将展示名称注入浏览器代码。
+  define: {
+    __MELONCLAW_NAME__: JSON.stringify(
+      loadEnv(mode, fileURLToPath(new URL("..", import.meta.url)), "MELONCLAW_NAME").MELONCLAW_NAME?.trim() || "MelonClaw",
+    ),
+  },
   plugins: [react()],
   server: {
     host: frontendHost,
@@ -37,4 +44,4 @@ export default defineConfig({
   build: {
     sourcemap: false,
   },
-});
+}));

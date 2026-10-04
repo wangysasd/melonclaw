@@ -2,6 +2,9 @@
 
 import asyncio
 
+import pytest
+
+from melonclaw.output import assistant_steps as steps_module
 from melonclaw.output.assistant_steps import MAX_STEPS_BYTES, AssistantStepAccumulator
 from melonclaw.output.events import iter_research_events
 
@@ -16,16 +19,16 @@ def test_event_projection_updates_the_execution_snapshot_once():
         metadata = {}
         output = {"content": "你好", "tool_calls": []}
 
-        @property
-        def text(self):
+        def __aiter__(self):
             async def chunks():
-                yield "你好"
+                yield {"event": "content-block-delta", "delta": {"type": "text-delta", "text": "你好"}}
 
             return chunks()
 
     class Stream:
         tool_calls = empty()
         subagents = empty()
+        extensions = {"custom": empty()}
 
         @property
         def messages(self):
@@ -89,11 +92,87 @@ def test_many_steps_still_respect_total_snapshot_limit():
     assert any(step.get("truncated") for step in accumulator.steps)
 
 
+@pytest.mark.parametrize("tail", ["", " \n\t", [{"type": "reasoning", "reasoning": "继续思考"}]])
+def test_empty_or_reasoning_tail_does_not_hide_the_previous_answer(tail):
+    accumulator = AssistantStepAccumulator(message_id="answer", run_id="run")
+    answer_id = accumulator.start_step()["step"]["id"]
+    accumulator.complete_step(answer_id, content="实际答案")
+    tail_id = accumulator.start_step()["step"]["id"]
+    accumulator.complete_step(tail_id, content=tail)
+
+    assert accumulator.visible_content() == "实际答案"
+    snapshot = accumulator.terminal_snapshot(status="completed", final_content=accumulator.visible_content())
+    assert snapshot[0]["is_final"] is True
+    assert snapshot[1]["is_final"] is False
+    assert snapshot[0]["content"] == "实际答案"
+    if isinstance(tail, list):
+        assert snapshot[1]["content_blocks"] == [{"type": "reasoning", "text": "继续思考"}]
+
+
+def test_answer_fallback_excludes_tool_steps_and_reasoning():
+    accumulator = AssistantStepAccumulator(message_id="answer", run_id="run")
+    step_id = accumulator.start_step()["step"]["id"]
+    accumulator.complete_step(step_id, content="将要操作", tool_calls=[{"id": "call", "name": "read_file"}])
+    tail = accumulator.start_step()["step"]["id"]
+    accumulator.complete_step(tail, content=[{"type": "reasoning", "reasoning": "思考"}])
+    assert accumulator.visible_content() == ""
+
+
+@pytest.mark.parametrize("kind", ["text", "reasoning"])
+def test_short_step_truncation_keeps_text_and_a_single_visible_marker(monkeypatch, kind):
+    accumulator = AssistantStepAccumulator(message_id="answer", run_id="run")
+    step_id = accumulator.start_step()["step"]["id"]
+    accumulator.project_text_delta(step_id, "字" * 200, kind=kind)
+    if kind == "text":
+        accumulator.steps[0]["content_blocks"] = [{"type": "text", "text": "字" * 200}]
+    limit = len(str(accumulator.steps).encode("utf-8")) - 50
+    monkeypatch.setattr(steps_module, "MAX_STEPS_BYTES", limit)
+
+    accumulator._enforce_total_limit()
+    step = accumulator.steps[0]
+    assert step["content"].startswith("字")
+    assert step["content"].endswith(steps_module.TRUNCATION_MARKER)
+    assert "".join(block["text"] for block in step["content_blocks"]) == step["content"]
+    assert step["content_blocks"][-1]["type"] == kind
+    assert len(str(accumulator.steps).encode("utf-8")) <= limit
+    previous = step["content"]
+    accumulator._enforce_total_limit()
+    assert step["content"] == previous
+    assert step["content"].count(steps_module.TRUNCATION_MARKER) == 1
+
+
+def test_truncation_terminates_when_metadata_alone_exceeds_the_budget(monkeypatch):
+    accumulator = AssistantStepAccumulator(message_id="answer", run_id="run")
+    step_id = accumulator.start_step()["step"]["id"]
+    accumulator.project_text_delta(step_id, "短答案")
+    monkeypatch.setattr(steps_module, "MAX_STEPS_BYTES", 1)
+    accumulator._enforce_total_limit()
+    assert accumulator.steps[0]["content"] == steps_module.TRUNCATION_MARKER
+    assert accumulator.steps[0]["truncated"] is True
+    assert accumulator.visible_content() == ""
+
+
+def test_truncation_uses_the_ordered_blocks_after_final_answer_reconciliation(monkeypatch):
+    accumulator = AssistantStepAccumulator(message_id="answer", run_id="run")
+    step_id = accumulator.start_step()["step"]["id"]
+    accumulator.complete_step(step_id, content=[
+        {"type": "reasoning", "reasoning": "分析" * 100},
+        {"type": "text", "text": "答复" * 100},
+    ])
+    accumulator.terminal_snapshot(status="completed", final_content="答复" * 100)
+    monkeypatch.setattr(steps_module, "MAX_STEPS_BYTES", len(str(accumulator.steps).encode("utf-8")) - 50)
+    accumulator._enforce_total_limit()
+    step = accumulator.steps[0]
+    assert step["content"].startswith("分析")
+    assert step["content"] == "".join(block["text"] for block in step["content_blocks"])
+    assert step["content"].endswith(steps_module.TRUNCATION_MARKER)
+
+
 def test_multiple_model_steps_keep_text_and_tools_in_causal_order():
     accumulator = AssistantStepAccumulator(message_id="assistant-1", run_id="run-1")
     first = accumulator.start_step(source_message_id="ai-1")
     first_id = first["step"]["id"]
-    assert accumulator.project_text_delta(first_id, "<think>hidden</think>文字 A") ["delta"] == "文字 A"
+    assert accumulator.project_text_delta(first_id, "<think>hidden</think>文字 A") ["delta"] == "<think>hidden</think>文字 A"
     accumulator.complete_step(
         first_id,
         tool_calls=[
@@ -111,7 +190,7 @@ def test_multiple_model_steps_keep_text_and_tools_in_causal_order():
     snapshot = accumulator.terminal_snapshot(status="completed", final_content="文字 B")
 
     assert [step["ordinal"] for step in snapshot] == [0, 1]
-    assert [step["content"] for step in snapshot] == ["文字 A", "文字 B"]
+    assert [step["content"] for step in snapshot] == ["<think>hidden</think>文字 A", "文字 B"]
     assert [tool["call_id"] for tool in snapshot[0]["tool_calls"]] == ["call-1", "call-2"]
     assert [tool["result_preview"] for tool in snapshot[0]["tool_calls"]] == ["结果 1", "结果 2"]
     assert snapshot[1]["is_final"] is True

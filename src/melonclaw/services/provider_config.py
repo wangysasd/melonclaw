@@ -4,6 +4,8 @@ import json
 import re
 from typing import Any
 
+from melonclaw.core.reasoning import protocol_options
+
 
 class ModelConfigError(ValueError):
     """自定义模型配置不合法。"""
@@ -42,6 +44,10 @@ def validate_provider_advanced(
         if len(json.dumps(request_headers)) > 16384:
             raise ModelConfigError("请求头 JSON 过大。")
     if extra_config is not None:
+        try:
+            protocol_options(extra_config)
+        except ValueError as exc:
+            raise ModelConfigError(str(exc)) from None
         # 供应商扩展请求体，不允许替换会话、模型或工具协议。
         reserved = {
             "model",

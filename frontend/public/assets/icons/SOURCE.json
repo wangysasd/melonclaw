@@ -91,10 +91,6 @@
       "git_blob_sha": "a6d8b543120f1bc9c2489b16f54c73c4949abfeb"
     },
     {
-      "path": "icons/wrench.svg",
-      "git_blob_sha": "c1dcdbd4d9fbbda090febb698dc6e820d51547a2"
-    },
-    {
       "path": "icons/x.svg",
       "git_blob_sha": "e31794349d3eecea1b3ae8e974b68bb8f4becda7"
     }
@@ -113,7 +109,8 @@
       "icons/pushpin.svg",
       "icons/scan-search.svg",
       "icons/trash-2.svg",
-      "icons/users.svg"
+      "icons/users.svg",
+      "icons/wrench.svg"
     ]
   },
   "license_path": "LICENSE.txt"

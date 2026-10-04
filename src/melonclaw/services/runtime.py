@@ -456,11 +456,13 @@ class ChatRuntime:
             else f"conversation:{user_id}:{conversation['id']}"
         )
         storage = self.require_ready()
-        models_revision = await storage.models_revision()
-        skills_revision, skill_dirs, skill_references = await skill_snapshot(
-            storage, user_id, self.settings.data_root, self._catalog_for(user_id)
+        # 三份快照互不依赖，独立连接读取；等待最慢的一份即可继续缓存命中判断。
+        models_revision, skill_state, mcp_rows = await asyncio.gather(
+            storage.models_revision(),
+            skill_snapshot(storage, user_id, self.settings.data_root, self._catalog_for(user_id)),
+            storage.list_visible_mcp_rows(user_id),
         )
-        mcp_rows = await storage.list_visible_mcp_rows(user_id)
+        skills_revision, skill_dirs, skill_references = skill_state
         mcp_revision = mcp_snapshot_revision(mcp_rows)
         key = (
             workspace_key,

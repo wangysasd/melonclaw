@@ -1,4 +1,5 @@
 import { mcpChatDisplay } from "../lib/mcpChat";
+import type { AssetRef } from "../lib/resultBlocks";
 import {
   useCallback,
   useEffect,
@@ -16,7 +17,7 @@ import {
   sendUserInputStream,
   type StreamHandlers,
 } from "../api/stream";
-import type {
+import type { RunActivity, RunTimings,
   ApprovalDecision,
   AssistantStep,
   AssistantToolCall,
@@ -28,8 +29,8 @@ import type {
   UserInputAnswer,
   UserQuestionRequest,
   StreamEvent,
+  Message,
 } from "../types/api";
-import { classifyToolSelectorText, visibleAssistantText } from "../lib/toolSelection";
 import { isUserQuestionExpired } from "../lib/userQuestionExpiry";
 import { useSession } from "../state/session";
 
@@ -45,11 +46,14 @@ const RECOVERY_REQUIRED_NOTICE =
 const STALE_PENDING_NOTICE =
   "上一轮请求已中断，未产生回复。直接发送新消息即可继续，系统会自动收尾这一轮。";
 
-/** 展示给用户的安全执行阶段；不包含模型的隐藏推理文本。 */
+/** 执行阶段标签；模型返回的文本由独立 content 流完整展示。 */
 export type ReasoningPhase =
   | "starting"
   | "selecting_tools"
   | "thinking"
+  | "waiting_model"
+  | "preparing_tools"
+  | "preparing_file"
   | "responding"
   | "processing"
   | "waiting";
@@ -75,6 +79,7 @@ export interface ChatMessage {
   events: DisplayEvent[];
   /** 根 Agent 的有序 AIMessage steps；正文 content 只保存最终答复。 */
   assistantSteps: AssistantStep[];
+  artifacts: AssetRef[];
   /** 当前页面收到服务端恢复确认后的记录；刷新以工具执行历史为准。 */
   approvalReceipts?: ApprovalReceipt[];
   /** 安全的阶段摘要，不保存或展示原始模型思维链。 */
@@ -82,6 +87,7 @@ export interface ChatMessage {
   model?: MessageModel | null;
   executionDurationMs?: number | null;
   /** 运行开始时间（epoch 毫秒）：乐观发送时本地记录，历史加载用 created_at。 */
+  timings?: RunTimings;
   startedAt?: number | null;
   /** 本地观测到的终态时间（epoch 毫秒），后端未给 duration 时的兜底。 */
   completedAt?: number | null;
@@ -110,6 +116,7 @@ type ChatAction =
   | { type: "batch"; actions: ChatAction[] }
   | { type: "reset"; conversationId: string | null }
   | { type: "historyLoading"; conversationId: string | null }
+  | { type: "historyPrepended"; conversationId: string; messages: ChatMessage[] }
   | {
       type: "historyLoaded";
       conversationId: string;
@@ -128,13 +135,15 @@ type ChatAction =
       resuming?: boolean;
       model?: MessageModel;
       attachments?: AttachmentSummary[];
+      preparationDurationMs?: number;
     }
   | { type: "text"; text: string }
   | { type: "assistantStepStarted"; messageId: string; step: AssistantStep }
-  | { type: "assistantTextDelta"; messageId: string; stepId: string; delta: string }
+  | { type: "assistantTextDelta"; messageId: string; stepId: string; delta: string; contentKind?: "text" | "reasoning" }
   | { type: "assistantToolCall"; messageId: string; stepId: string; call: AssistantToolCall }
   | { type: "assistantToolResult"; messageId: string; stepId: string; callId: string; result: AssistantToolCall }
-  | { type: "assistantStepCompleted"; messageId: string; stepId: string; content: string; toolCalls: AssistantToolCall[]; status: AssistantStep["status"] }
+  | { type: "assistantStepCompleted"; messageId: string; stepId: string; content: string; toolCalls: AssistantToolCall[]; status: AssistantStep["status"]; contentBlocks?: AssistantStep["content_blocks"] }
+  | { type: "runActivity"; activity: RunActivity }
   | { type: "runPhase"; phase: ReasoningPhase }
   | { type: "displayEvent"; event: DisplayEvent }
   | {
@@ -142,7 +151,9 @@ type ChatAction =
       messageId: string;
       content: string;
       assistantSteps: AssistantStep[];
+      artifacts: AssetRef[];
       executionDurationMs?: number | null;
+      timings?: RunTimings;
     }
   | { type: "messageStatus"; messageId: string; status: MessageStatus; errorCode?: string | null }
   | { type: "streamFailed"; messageId?: string; message?: string; error?: string; errorCode?: string }
@@ -244,6 +255,21 @@ function fromIso(value: string | null | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function historyMessage(item: Message, activeForSnapshot: boolean): ChatMessage {
+  let content = item.content;
+  if (item.role !== "user" && item.error_code === USER_INPUT_RECOVERY_REQUIRED && !content.trim()) content = RECOVERY_REQUIRED_NOTICE;
+  if (!activeForSnapshot && item.role !== "user" && item.status === "pending" && !content.trim()) content = STALE_PENDING_NOTICE;
+  return {
+    id: item.id, role: item.role === "user" ? "user" : "assistant", content,
+    status: item.status, errorCode: item.error_code, timestamp: item.created_at ?? null,
+    markdown: item.role !== "user", events: item.display_metadata?.events ?? [],
+    assistantSteps: item.assistant_steps, artifacts: item.artifacts, phases: [],
+    model: item.model ?? null, executionDurationMs: item.execution_duration_ms,
+    timings: item.display_metadata?.timings, startedAt: fromIso(item.created_at),
+    completedAt: null, attachments: item.attachments ?? [],
+  };
+}
+
 /** 中断等待交互时把运行中的 step/工具标为 waiting，与终态回显保持一致。 */
 function markInteractionWaiting(message: ChatMessage): ChatMessage {
   const steps = message.assistantSteps.map((step) => ({
@@ -285,6 +311,11 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         restoreDraft: null,
         error: null,
       };
+    case "historyPrepended": {
+      if (state.conversationId !== action.conversationId) return state;
+      const existing = new Set(state.messages.map((item) => item.id));
+      return { ...state, messages: [...action.messages.filter((item) => !existing.has(item.id)), ...state.messages] };
+    }
     case "optimistic":
       return {
         ...state,
@@ -320,7 +351,9 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
               model: action.model ?? message.model,
               attachments: action.attachments ?? message.attachments,
               assistantSteps: message.assistantSteps,
-              startedAt: message.startedAt ?? Date.now(),
+              startedAt: action.resuming ? Date.now() - (message.executionDurationMs ?? 0) : message.startedAt ?? Date.now(),
+              timings: { preparation_ms: (action.resuming ? message.timings?.preparation_ms ?? 0 : 0) +
+                (action.preparationDurationMs ?? 0), activities: action.resuming ? message.timings?.activities ?? [] : [] },
               completedAt: null,
               optimistic: false,
             };
@@ -355,18 +388,27 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
           const known = message.assistantSteps.some((step) => step.id === action.step.id);
           // 已结束的运行只接受已知步骤的更新，避免迟到事件凭空长出新的执行步骤。
           if (isTerminalStatus(message.status) && !known) return message;
-          return upsertAssistantStep(appendPhase(message, "responding"), action.step);
+          return upsertAssistantStep(message, action.step);
         }),
       };
     case "assistantTextDelta":
       return {
         ...state,
         messages: updateAssistantById(state, action.messageId, (message) =>
-          updateStep(appendPhase(message, "responding"), action.stepId, (step) => {
+          updateStep(appendPhase(message, action.contentKind === "reasoning" ? "thinking" : "responding"), action.stepId, (step) => {
             // 重放会把整段快照当成一次 delta 投递：内容一致时不重复追加。
-            if (step.content === action.delta) return step;
+            if (step.status === "completed" && step.content === action.delta) return step;
+            const kind = action.contentKind ?? "text";
+            let blocks = step.content_blocks?.map((block) => ({ ...block }));
+            if (kind === "reasoning" && !blocks) blocks = step.content ? [{ type: "text", text: step.content }] : [];
+            if (blocks) {
+              const last = blocks.at(-1);
+              if (last?.type === kind) last.text += action.delta;
+              else blocks.push({ type: kind, text: action.delta });
+            }
             return {
               ...step,
+              content_blocks: blocks,
               content: `${step.content}${action.delta}`,
               status: step.status === "completed" ? step.status : "streaming",
             };
@@ -380,8 +422,10 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
           updateStep(appendPhase(message, "processing"), action.stepId, (step) => {
             const toolCalls = [...step.tool_calls];
             const index = toolCalls.findIndex((tool) => tool.call_id === action.call.call_id);
-            if (index >= 0) toolCalls[index] = { ...toolCalls[index], ...action.call };
-            else toolCalls.push(action.call);
+            const call = { ...action.call, received_at: toolCalls[index]?.received_at ??
+              (action.call.status === "running" ? Date.now() : undefined) };
+            if (index >= 0) toolCalls[index] = { ...toolCalls[index], ...call };
+            else toolCalls.push(call);
             toolCalls.sort((left, right) => left.batch_index - right.batch_index);
             return { ...step, tool_calls: toolCalls, status: "running" };
           }),
@@ -410,11 +454,22 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
           updateStep(message, action.stepId, (step) => ({
             ...step,
             content: action.content,
-            tool_calls: action.toolCalls,
+            tool_calls: action.toolCalls.map((tool) => ({ ...tool,
+              received_at: step.tool_calls.find((item) => item.call_id === tool.call_id)?.received_at })),
+            content_blocks: action.contentBlocks,
             status: statusFromToolCalls(action.toolCalls, action.status),
           })),
         ),
       };
+    case "runActivity":
+      return { ...state, messages: state.messages.map((message) => {
+        if (message.role !== "assistant" || !["pending", "streaming"].includes(message.status ?? "")) return message;
+        const activities = [...(message.timings?.activities ?? [])];
+        const index = activities.findIndex((item) => item.id === action.activity.id);
+        if (index >= 0) activities[index] = { ...activities[index], ...action.activity };
+        else if (activities.length < 128) activities.push({ ...action.activity, receivedAt: Date.now() });
+        return { ...message, timings: { preparation_ms: message.timings?.preparation_ms ?? 0, activities } };
+      }) };
     case "runPhase":
       return {
         ...state,
@@ -438,12 +493,14 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
                 ...message,
                 id: action.messageId,
                 content: action.content,
+                timings: action.timings ?? message.timings,
                 executionDurationMs: action.executionDurationMs,
                 status: "completed" as const,
                 markdown: true,
                 completedAt: message.completedAt ?? Date.now(),
                 // completed 携带服务端已落库的完整快照，终态只认这一份权威数据。
                 assistantSteps: action.assistantSteps,
+                artifacts: action.artifacts,
                 optimistic: false,
               }
             : message,
@@ -545,6 +602,7 @@ export interface ChatStreamHandle {
   ) => Promise<void>;
   clearRestoreDraft: () => void;
   reloadHistory: () => void;
+  loadMessage: (messageId: string, signal: AbortSignal) => Promise<boolean>;
 }
 
 export interface UseChatStreamOptions {
@@ -573,7 +631,6 @@ export function useChatStream({
   const chatCacheRef = useRef(new Map<string, ChatState>());
   const historyControllerRef = useRef<AbortController | null>(null);
   const forceHistoryReloadRef = useRef(false);
-  const textBuffersRef = useRef(new Map<string, string>());
   const pendingDeltasRef = useRef(new Map<string, ChatAction[]>());
   const deltaFrameRef = useRef<number | null>(null);
 
@@ -619,14 +676,14 @@ export function useChatStream({
     }
   }, [dispatchFor]);
 
-  const queueTextDelta = useCallback((conversationId: string, messageId: string, stepId: string, delta: string): void => {
+  const queueTextDelta = useCallback((conversationId: string, messageId: string, stepId: string, delta: string, contentKind: "text" | "reasoning" = "text"): void => {
     const pending = pendingDeltasRef.current;
     const actions = pending.get(conversationId) ?? [];
     const previous = actions.at(-1);
-    if (previous?.type === "assistantTextDelta" && previous.messageId === messageId && previous.stepId === stepId) {
+    if (previous?.type === "assistantTextDelta" && previous.messageId === messageId && previous.stepId === stepId && previous.contentKind === contentKind) {
       actions[actions.length - 1] = { ...previous, delta: previous.delta + delta };
     } else {
-      actions.push({ type: "assistantTextDelta", messageId, stepId, delta });
+      actions.push({ type: "assistantTextDelta", messageId, stepId, delta, contentKind });
     }
     pending.set(conversationId, actions);
     if (deltaFrameRef.current === null) {
@@ -642,13 +699,6 @@ export function useChatStream({
     pendingDeltasRef.current.clear();
   }, []);
 
-  const bufferFor = useCallback((conversationId: string): string => {
-    return textBuffersRef.current.get(conversationId) ?? "";
-  }, []);  const setBufferFor = useCallback((conversationId: string, value: string): void => {
-    if (value) textBuffersRef.current.set(conversationId, value);
-    else textBuffersRef.current.delete(conversationId);
-  }, []);
-
   /** 除指定会话外是否还有活流：全局 busy 只在所有会话都空闲时才清零。 */
   const othersRunning = useCallback((excludeId: string): boolean => {
     for (const [id, run] of activeRunsRef.current.entries()) {
@@ -659,24 +709,9 @@ export function useChatStream({
 
   const appendStreamText = useCallback((conversationId: string, text: string): boolean => {
     if (!text) return false;
-    const buffered = bufferFor(conversationId) + text;
-    const kind = classifyToolSelectorText(buffered);
-    if (kind === "selector") {
-      setBufferFor(conversationId, "");
-      return false;
-    }
-    if (kind === "pending") {
-      setBufferFor(conversationId, buffered);
-      return false;
-    }
-    const pending = bufferFor(conversationId);
-    if (pending) {
-      dispatchFor(conversationId, { type: "text", text: pending });
-      setBufferFor(conversationId, "");
-    }
     dispatchFor(conversationId, { type: "text", text });
     return true;
-  }, [bufferFor, dispatchFor, setBufferFor]);
+  }, [dispatchFor]);
 
   const requestHistoryReload = useCallback(() => {
     forceHistoryReloadRef.current = true;
@@ -686,6 +721,27 @@ export function useChatStream({
   const reloadHistory = useCallback(() => {
     requestHistoryReload();
   }, [requestHistoryReload]);
+
+  const loadMessage = useCallback(async (messageId: string, signal: AbortSignal): Promise<boolean> => {
+    const snapshot = sessionRef.current;
+    const conversationId = snapshot.conversationId;
+    if (!conversationId) return false;
+    if (chatStateRef.current.messages.some((item) => item.id === messageId)) return true;
+    const accumulated: ChatMessage[] = [];
+    let beforeSeq: number | undefined;
+    do {
+      const page = await getConversationHistory({ conversationId, userId: snapshot.userId, beforeSeq, limit: 100 }, signal);
+      if (signal.aborted || sessionRef.current.epoch !== snapshot.epoch || sessionRef.current.conversationId !== conversationId) return false;
+      const active = Boolean(activeRunsRef.current.get(conversationId));
+      accumulated.unshift(...page.items.map((item) => historyMessage(item, active)));
+      if (page.items.some((item) => item.id === messageId)) {
+        dispatchFor(conversationId, { type: "historyPrepended", conversationId, messages: accumulated });
+        return true;
+      }
+      beforeSeq = page.next_before_seq ?? undefined;
+    } while (beforeSeq);
+    return false;
+  }, [dispatchFor]);
 
   const handleEvent = useCallback(
     (event: StreamEvent, context: SendContext, eventId?: number): void => {
@@ -700,6 +756,9 @@ export function useChatStream({
       if (event.type !== "assistant_text_delta") flushTextDeltas(conversationId);
       const follow = viewing && scroll.isNearBottom();
       switch (event.type) {
+        case "run_activity":
+          dispatchFor(conversationId, { type: "runActivity", activity: event });
+          break;
         case "run_phase":
           dispatchFor(conversationId, { type: "runPhase", phase: event.phase });
           if (viewing) sessionRef.current.setRunStatus(event.phase);
@@ -718,6 +777,7 @@ export function useChatStream({
             resuming: event.resuming,
             model: event.model,
             attachments: event.attachments,
+            preparationDurationMs: event.preparation_duration_ms,
           });
           break;
         case "text":
@@ -732,11 +792,10 @@ export function useChatStream({
             messageId: event.message_id,
             step: event.step,
           });
-          if (viewing) sessionRef.current.setRunStatus("responding");
           break;
         case "assistant_text_delta":
-          queueTextDelta(conversationId, event.message_id, event.step_id, event.delta);
-          if (viewing) sessionRef.current.setRunStatus("responding");
+          queueTextDelta(conversationId, event.message_id, event.step_id, event.delta, event.content_kind);
+          if (viewing) sessionRef.current.setRunStatus(event.content_kind === "reasoning" ? "thinking" : "responding");
           break;
         case "assistant_tool_call":
           dispatchFor(conversationId, {
@@ -767,11 +826,11 @@ export function useChatStream({
             stepId: event.step_id,
             content: event.content,
             toolCalls: event.tool_calls,
+            contentBlocks: event.content_blocks,
             status: event.status,
           });
           break;
         case "completed":
-          setBufferFor(conversationId, "");
           sessionRef.current.markConversationIdle?.(conversationId);
           if (viewing) {
             if (!othersRunning(conversationId)) sessionRef.current.setBusy(false);
@@ -781,9 +840,11 @@ export function useChatStream({
           dispatchFor(conversationId, {
             type: "completed",
             messageId: event.message_id,
-            content: visibleAssistantText(event.content),
+            content: event.content,
             assistantSteps: event.assistant_steps,
+            artifacts: event.artifacts,
             executionDurationMs: event.execution_duration_ms,
+            timings: event.timings,
           });
           break;
         case "message_status":
@@ -876,7 +937,7 @@ export function useChatStream({
         scroll.scrollToBottom();
       }
     },
-    [appendStreamText, dispatchFor, flushTextDeltas, matchesContext, message, othersRunning, queueTextDelta, requestHistoryReload, scroll, setBufferFor],
+    [appendStreamText, dispatchFor, flushTextDeltas, matchesContext, message, othersRunning, queueTextDelta, requestHistoryReload, scroll],
   );
 
   const runStream = useCallback(
@@ -891,7 +952,6 @@ export function useChatStream({
       sessionRef.current.markConversationRunning?.(context.conversationId);
       sessionRef.current.setBusy(true);
       sessionRef.current.setRunStatus("starting");
-      setBufferFor(context.conversationId, "");
       let started = false;
       let failed = false;
       let terminal = false;
@@ -932,7 +992,6 @@ export function useChatStream({
       } finally {
         flushTextDeltas(context.conversationId);
         if (context.firstMessage) sessionRef.current.cancelConversationSubmission(context.conversationId);
-        setBufferFor(context.conversationId, "");
         if (activeRunsRef.current.get(context.conversationId)?.controller === controller) {
           activeRunsRef.current.delete(context.conversationId);
           sessionRef.current.attachStream(null, context.conversationId);
@@ -940,7 +999,7 @@ export function useChatStream({
         }
       }
     },
-    [dispatchFor, flushTextDeltas, handleEvent, matchesContext, message, setBufferFor],
+    [dispatchFor, flushTextDeltas, handleEvent, matchesContext, message],
   );
 
   const sendMessage = useCallback(
@@ -1036,6 +1095,7 @@ export function useChatStream({
           markdown: false,
           events: [],
           assistantSteps: [],
+          artifacts: [],
           phases: [],
           optimistic: true,
         },
@@ -1048,6 +1108,7 @@ export function useChatStream({
           markdown: false,
           events: [],
           assistantSteps: [],
+          artifacts: [],
           phases: [],
           // 发送即开始计时：执行区域在 message_started 之前就能显示耗时。
           startedAt: Date.now(),
@@ -1256,7 +1317,6 @@ export function useChatStream({
         chatStateRef.current.conversationId === targetId
       ) return;
       dispatch({ type: "historyLoading", conversationId: targetId });
-      setBufferFor(targetId, "");
       try {
         const data = await getConversationHistory(
           {
@@ -1278,45 +1338,7 @@ export function useChatStream({
           ownActiveRun && !ownActiveRun.controller.signal.aborted;
         // 同会话的活流：历史只提供已落库内容，后续事件继续由原 SSE 补上。
         const activeForSnapshot = Boolean(activeStream);
-        const messages: ChatMessage[] = data.items.flatMap((item) => {
-          let content = item.role === "user" ? item.content || "" : visibleAssistantText(item.content || "");
-          if (item.role !== "user" && classifyToolSelectorText(content) === "selector") {
-            return [];
-          }
-          // 答案已收但这一轮没跑完：服务端不再给卡片，这里补一句人话，顺便告诉
-          // 用户唯一的出口——发新消息即可解锁这一轮。
-          if (item.role !== "user" && item.error_code === USER_INPUT_RECOVERY_REQUIRED && !content.trim()) {
-            content = RECOVERY_REQUIRED_NOTICE;
-          }
-          // 服务端遗留的 pending 轮次且本地没有活流：补提示文案并放行输入框，
-          // 发新消息时后端会把这一轮收敛为失败。不能走全局 error——那禁用输入框，
-          // 反而把唯一的解锁出口堵死。
-          if (
-            !activeForSnapshot &&
-            item.role !== "user" &&
-            item.status === "pending" &&
-            !content.trim()
-          ) {
-            content = STALE_PENDING_NOTICE;
-          }
-          return {
-            id: item.id,
-            role: item.role === "user" ? "user" : "assistant",
-            content,
-            status: item.status,
-            errorCode: item.error_code,
-            timestamp: item.created_at ?? null,
-            markdown: item.role !== "user",
-            events: item.display_metadata?.events ?? [],
-            assistantSteps: item.assistant_steps,
-            phases: [],
-            model: item.model ?? null,
-            executionDurationMs: item.execution_duration_ms,
-            startedAt: fromIso(item.created_at),
-            completedAt: null,
-            attachments: item.attachments ?? [],
-          };
-        });
+        const messages = data.items.map((item) => historyMessage(item, activeForSnapshot));
         const visibleMessages = activeForSnapshot
           ? (() => {
               const liveMessages = chatStateRef.current.conversationId === targetId
@@ -1442,8 +1464,9 @@ export function useChatStream({
       submitUserInput,
       clearRestoreDraft: () => dispatch({ type: "draftRestored" }),
       reloadHistory,
+      loadMessage,
     }),
-    [state, isRunning, runningConversationIds, stopCurrent, reloadHistory, sendMessage, submitApproval, submitUserInput],
+    [state, isRunning, runningConversationIds, stopCurrent, reloadHistory, loadMessage, sendMessage, submitApproval, submitUserInput],
   );
 
   return handle;

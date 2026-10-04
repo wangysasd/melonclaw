@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import ModelRequest, ModelResponse
+from langchain.agents.middleware.types import ExtendedModelResponse, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage
 
 
@@ -22,6 +22,8 @@ class ToolNameGuardMiddleware(AgentMiddleware):
 
     @staticmethod
     def _validate(response: ModelResponse | AIMessage) -> None:
+        if isinstance(response, ExtendedModelResponse):
+            response = response.model_response
         messages = [response] if isinstance(response, AIMessage) else response.result
         for message in messages:
             if not isinstance(message, AIMessage):

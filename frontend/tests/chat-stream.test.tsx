@@ -41,6 +41,72 @@ beforeEach(() => {
 });
 
 describe("chat run lifecycle", () => {
+  it("loads a delivered reply from older pages while preserving the active stream", async () => {
+    const ref = { path: "/outputs/report.html" };
+    const latest = { id: "latest", role: "assistant", content: "最新回复", status: "completed", assistant_steps: [], artifacts: [] };
+    const old = { ...latest, id: "old", content: "[报告](/outputs/report.html)", artifacts: [ref] };
+    vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, items: [latest] });
+    let emit!: (event: StreamEvent) => void;
+    let finish!: () => void;
+    vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent }) => new Promise<void>((resolve) => {
+      emit = onEvent; finish = resolve;
+      emit({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: "live-user", message_id: "live" });
+      emit({ type: "text", text: "正在回答" });
+    }));
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let sending!: Promise<void>;
+    act(() => { sending = result.current.sendMessage("继续"); });
+    await waitFor(() => expect(result.current.state.messages.at(-1)?.content).toBe("正在回答"));
+    vi.mocked(getConversationHistory)
+      .mockResolvedValueOnce({ ...emptyHistory, items: [latest], next_before_seq: 42 })
+      .mockResolvedValueOnce({ ...emptyHistory, items: [old], next_before_seq: null });
+    const controller = new AbortController();
+    await act(async () => { expect(await result.current.loadMessage("old", controller.signal)).toBe(true); });
+    expect(getConversationHistory).toHaveBeenLastCalledWith({ conversationId: "c1", userId: "u", beforeSeq: 42, limit: 100 }, controller.signal);
+    expect(result.current.state.messages.map((item) => item.id)).toEqual(["old", "latest", "live-user", "live"]);
+    expect(result.current.state.messages[0].artifacts).toEqual([ref]);
+    expect(result.current.state.messages.at(-1)?.content).toBe("正在回答");
+    expect(result.current.isRunning).toBe(true);
+    await act(async () => {
+      emit({ type: "completed", message_id: "live", content: "完成", assistant_steps: [], artifacts: [ref] });
+      emit({ type: "done", terminal_reason: "completed" });
+      finish(); await sending;
+    });
+    expect(result.current.state.messages.at(-1)?.artifacts).toEqual([ref]);
+    expect(sendMessageStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores an artifact history page after switching conversations", async () => {
+    const page = deferred<ConversationHistory>();
+    const { result, rerender } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    vi.mocked(getConversationHistory).mockReturnValueOnce(page.promise);
+    let locating!: Promise<boolean>;
+    act(() => { locating = result.current.loadMessage("old", new AbortController().signal); });
+    mocks.session = { ...mocks.session, conversationId: "c2", epoch: 2 };
+    rerender();
+    await waitFor(() => expect(result.current.state.conversationId).toBe("c2"));
+    await act(async () => {
+      page.resolve({ ...emptyHistory, items: [{ id: "old", role: "assistant", content: "旧内容", status: "completed", assistant_steps: [], artifacts: [] }] });
+      expect(await locating).toBe(false);
+    });
+    expect(result.current.state.messages.some((item) => item.id === "old")).toBe(false);
+  });
+
+  it("preserves reasoning and JSON when reloading completed history", async () => {
+    const content = '<think>历史分析</think>{"tools":[]}正文';
+    vi.mocked(getConversationHistory).mockResolvedValue({ ...emptyHistory, items: [
+      { id: "a1", role: "assistant", content, status: "completed", assistant_steps: [
+        { id: "s1", ordinal: 0, status: "completed", content, is_final: true, tool_calls: [] },
+      ] },
+    ] });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    expect(result.current.state.messages[0].content).toBe(content);
+    expect(result.current.state.messages[0].assistantSteps[0].content).toBe(content);
+  });
+
   it("sends MCP JSON once while keeping optimistic messages, sidebar and error drafts redacted", async () => {
     mocks.session.conversationId = "c2";
     mocks.session.projectId = "";
@@ -310,7 +376,7 @@ describe("chat run lifecycle", () => {
     await act(() => result.current.sendMessage("test"));
     expect(result.current.state.error).toBe("网络中断"); expect(mocks.session.runStatus).toBe("failed");
   });
-  it("shows tool selection while hiding the selector JSON", async () => {
+  it("preserves every content delta and the completed snapshot", async () => {
     const stream = deferred<void>(); let emit!: (event: StreamEvent) => void;
     vi.mocked(sendMessageStream).mockImplementation((_id, _input, { onEvent }) => {
       emit = onEvent;
@@ -323,21 +389,15 @@ describe("chat run lifecycle", () => {
     await waitFor(() => expect(emit).toBeDefined());
     expect(mocks.session.runStatus).toBe("starting");
     act(() => emit({ type: "run_phase", phase: "selecting_tools" }));
-    act(() => emit({ type: "text", text: '{"tools":' }));
-    expect(mocks.session.runStatus).toBe("selecting_tools");
-    act(() => emit({ type: "text", text: "[]}" }));
-    expect(result.current.state.messages[1].content).toBe("");
-    expect(mocks.session.runStatus).toBe("selecting_tools");
-    act(() => emit({ type: "run_phase", phase: "thinking" }));
-    expect(mocks.session.runStatus).toBe("thinking");
-    expect(result.current.state.messages[1].content).toBe("");
-    act(() => emit({ type: "text", text: "正文" }));
+    act(() => emit({ type: "text", text: '<think>正在分析' }));
+    expect(result.current.state.messages[1].content).toBe('<think>正在分析');
     expect(mocks.session.runStatus).toBe("responding");
-    act(() => emit({ type: "tool_call", name: "example", args: {}, status: "started" }));
-    expect(mocks.session.runStatus).toBe("processing");
-    act(() => emit({ type: "completed", message_id: "a1", content: '{"tools":[]}', assistant_steps: [] }));
+    act(() => emit({ type: "text", text: '</think>{"tools":[]}' }));
+    expect(result.current.state.messages[1].content).toBe('<think>正在分析</think>{"tools":[]}');
+    const content = '<think>正在分析</think>{"tools":[]}正文';
+    act(() => emit({ type: "completed", message_id: "a1", content, assistant_steps: [] }));
     await act(async () => { emit({ type: "done", terminal_reason: "completed" }); stream.resolve(); await task; });
-    expect(result.current.state.messages[1].content).toBe("");
+    expect(result.current.state.messages[1].content).toBe(content);
   });
   it("clears approval only after resume is accepted and can show a subsequent interrupt", async () => {
     const approval = {
@@ -411,9 +471,15 @@ describe("chat run lifecycle", () => {
       emit({ type: "assistant_step_started", message_id: "a1", step: { id: "run:step:0", ordinal: 0, content: "", status: "streaming", is_final: false, tool_calls: [] } });
       emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "你" });
       emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "好" });
+      emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "分析", content_kind: "reasoning" });
+      emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "答复", content_kind: "text" });
+      emit({ type: "assistant_text_delta", message_id: "a1", step_id: "run:step:0", delta: "核对", content_kind: "reasoning" });
       emit({ type: "run_phase", phase: "processing" });
     });
-    expect(result.current.state.messages[1].assistantSteps[0].content).toBe("你好");
+    expect(result.current.state.messages[1].assistantSteps[0].content_blocks).toEqual([
+      { type: "text", text: "你好" }, { type: "reasoning", text: "分析" },
+      { type: "text", text: "答复" }, { type: "reasoning", text: "核对" },
+    ]);
     await act(async () => {
       emit({ type: "completed", message_id: "a1", content: "你好", assistant_steps: [] });
       emit({ type: "done", terminal_reason: "completed" });

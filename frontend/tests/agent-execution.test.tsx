@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { AgentExecution } from "../src/components/AgentExecution";
+import { AgentExecution, ReasoningPanel } from "../src/components/AgentExecution";
 import { INITIAL_CHAT_STATE, reducer, type ChatMessage } from "../src/hooks/useChatStream";
 import {
   buildAgentRun,
@@ -41,6 +41,52 @@ function progressStep(overrides: Partial<AssistantStep> = {}): AssistantStep {
 }
 
 describe("agent run derivation", () => {
+  it("preserves interleaved reasoning and text, including reasoning in a final step", () => {
+    const blocks = [
+      { type: "reasoning" as const, text: "分析一" },
+      { type: "text" as const, text: "行动说明" },
+      { type: "reasoning" as const, text: "分析二" },
+    ];
+    const run = buildAgentRun(assistant({ assistantSteps: [progressStep({ content: "分析一行动说明分析二", content_blocks: blocks })] }));
+    expect(run.reasoning.map((item) => item.content)).toEqual(["分析一", "分析二"]);
+    expect(run.liveAnswer).toBe("行动说明");
+    expect(run.steps).toHaveLength(0);
+    render(<ReasoningPanel run={run} />);
+    expect(screen.getByText("思考过程 · 正在生成")).toBeTruthy();
+    expect(screen.getByText("分析一")).toBeTruthy();
+    const completed = buildAgentRun(assistant({ status: "completed", content: "回答", assistantSteps: [progressStep({ is_final: true, content_blocks: blocks })] }));
+    expect(completed.steps).toHaveLength(0);
+    expect(completed.reasoning).toHaveLength(2);
+    expect(completed.finalAnswer).toBe("回答");
+  });
+
+  it.each(["streaming", "completed"] as const)("omits empty reasoning for a %s answer", (status) => {
+    const run = buildAgentRun(assistant({ status, content: "你好", assistantSteps: [progressStep({ is_final: true, content: "你好" })] }));
+    const { container } = render(<ReasoningPanel run={run} />);
+    expect(container.querySelector(".assistant-reasoning")).toBeNull();
+  });
+
+  it("omits whitespace-only reasoning", () => {
+    const run = buildAgentRun(assistant({ status: "completed", assistantSteps: [progressStep({ content_blocks: [{ type: "reasoning", text: " \n " }] })] }));
+    const { container } = render(<ReasoningPanel run={run} />);
+    expect(container.querySelector(".assistant-reasoning")).toBeNull();
+  });
+
+  it("keeps typed deltas ordered through completion and timing reconciliation", () => {
+    let state = { ...INITIAL_CHAT_STATE, messages: [assistant({ status: "streaming", assistantSteps: [progressStep()] })] };
+    state = reducer(state, { type: "assistantTextDelta", messageId: "a1", stepId: "run:step:0", delta: "分析", contentKind: "reasoning" });
+    state = reducer(state, { type: "assistantTextDelta", messageId: "a1", stepId: "run:step:0", delta: "说明", contentKind: "text" });
+    expect(state.messages[0].assistantSteps[0].content_blocks).toEqual([
+      { type: "reasoning", text: "分析" }, { type: "text", text: "说明" },
+    ]);
+    state = reducer(state, { type: "runActivity", activity: { type: "run_activity", id: "model", kind: "model", status: "started" } });
+    state = reducer(state, { type: "runActivity", activity: { type: "run_activity", id: "model", kind: "model", status: "completed", duration_ms: 200, first_reasoning_ms: 10 } });
+    expect(state.messages[0].timings?.activities).toHaveLength(1);
+    const snapshot = state.messages[0].assistantSteps;
+    state = reducer(state, { type: "completed", messageId: "a1", content: "说明", assistantSteps: snapshot, timings: { preparation_ms: 30, activities: state.messages[0].timings!.activities } });
+    expect(state.messages[0].timings?.preparation_ms).toBe(30);
+    expect(state.messages[0].assistantSteps[0].content_blocks).toHaveLength(2);
+  });
   it("keeps progress text and tool calls in causal order inside one run", () => {
     const steps: AssistantStep[] = [
       progressStep({
@@ -58,11 +104,11 @@ describe("agent run derivation", () => {
 
     expect(run.status).toBe("running");
     expect(run.steps.map((step) => step.id)).toEqual([
-      "run:step:0:text",
+      "run:step:0:text:0",
       "run:step:0:tool:c1",
       "run:step:0:tool:c2",
-      "run:step:1:text",
     ]);
+    expect(run.liveAnswer).toBe("正在整理建议……");
     expect(run.finalAnswer).toBeNull();
   });
 
@@ -119,18 +165,27 @@ describe("agent run derivation", () => {
     );
 
     expect(run.status).toBe("completed");
-    expect(run.steps.map((step) => step.id)).toEqual(["run:step:0:text"]);
+    expect(run.steps.map((step) => step.id)).toEqual(["run:step:0:text:0"]);
     expect(run.finalAnswer).toBe("最终答复");
     expect(run.durationMs).toBe(16_400);
   });
 
-  it("keeps a process message without tool calls inside the trace while streaming", () => {
-    // 过程消息也可能没有任何工具调用：不能凭形状把它当成最终回答。
+  it("shows the current tool-free message as a provisional answer", () => {
     const steps: AssistantStep[] = [progressStep({ id: "run:step:0", content: "我先说明一下思路" })];
     const run = buildAgentRun(assistant({ assistantSteps: steps }));
 
     expect(run.finalAnswer).toBeNull();
-    expect(run.steps).toHaveLength(1);
+    expect(run.liveAnswer).toBe("我先说明一下思路");
+    expect(run.steps).toHaveLength(0);
+  });
+
+  it("returns provisional text to the timeline when the same step declares a tool", () => {
+    const step = progressStep({ content: "先核对数据" });
+    expect(buildAgentRun(assistant({ assistantSteps: [step] })).liveAnswer).toBe("先核对数据");
+    const withTool = progressStep({ ...step, tool_calls: [{ call_id: "c1", name: "read_file", batch_index: 0, status: "running" }] });
+    const run = buildAgentRun(assistant({ assistantSteps: [withTool] }));
+    expect(run.liveAnswer).toBeNull();
+    expect(run.steps.map((item) => item.type)).toEqual(["assistant_progress", "tool_call"]);
   });
 
   it("marks a pending history message as unconfirmed instead of running", () => {
@@ -157,6 +212,29 @@ describe("agent run derivation", () => {
 });
 
 describe("agent step grouping", () => {
+  it("renders tool-bearing AIMessage text before results and updates it while the tool is running", async () => {
+    let state = reducer({ ...INITIAL_CHAT_STATE, messages: [assistant()] }, {
+      type: "assistantStepStarted", messageId: "a1", step: progressStep(),
+    });
+    state = reducer(state, {
+      type: "assistantTextDelta", messageId: "a1", stepId: "run:step:0", delta: "我先检索。",
+    });
+    const view = render(<AgentExecution run={buildAgentRun(state.messages[0])} />);
+    expect(buildAgentRun(state.messages[0]).liveAnswer).toBe("我先检索。");
+    expect(view.container.querySelector(".agent-execution-body")).toBeNull();
+    state = reducer(state, {
+      type: "assistantToolCall", messageId: "a1", stepId: "run:step:0",
+      call: { call_id: "probe", name: "internet_search", batch_index: 0, status: "running" },
+    });
+    state = reducer(state, {
+      type: "assistantTextDelta", messageId: "a1", stepId: "run:step:0", delta: "正在组织检索参数。",
+    });
+    view.rerender(<AgentExecution run={buildAgentRun(state.messages[0])} />);
+    expect(await screen.findByText("我先检索。正在组织检索参数。")).toBeTruthy();
+    expect(state.messages[0].assistantSteps[0].tool_calls[0].status).toBe("running");
+    expect(view.container.querySelector(".agent-execution-body")).not.toBeNull();
+  });
+
   it("renders each tool once and keeps its details expandable", () => {
     const steps: AssistantStep[] = [
       progressStep({
@@ -171,9 +249,6 @@ describe("agent step grouping", () => {
     const { container } = render(
       <AgentExecution run={buildAgentRun(assistant({ status: "completed", assistantSteps: steps }))} />,
     );
-    act(() => {
-      (screen.getByRole("button", { name: /完成/ }) as HTMLButtonElement).click();
-    });
     expect(container.querySelectorAll(".agent-tool")).toHaveLength(2);
     expect(container.querySelectorAll(".agent-tool summary")[0].textContent).toContain("查看目录");
     expect(container.querySelectorAll(".agent-tool summary")[1].textContent).toContain("查找内容");
@@ -198,7 +273,7 @@ describe("agent step grouping", () => {
     ];
     const groups = groupAgentSteps(buildAgentRun(assistant({ assistantSteps: steps })).steps);
 
-    expect(groups.map((group) => group.kind)).toEqual(["text", "tools", "text"]);
+    expect(groups.map((group) => group.kind)).toEqual(["text", "tools"]);
   });
 
   it("keeps groups from different steps separate", () => {
@@ -285,12 +360,45 @@ describe("tool call summary", () => {
 });
 
 describe("agent execution panel", () => {
+  it("keeps total duration without timing details or an empty toggle for a plain answer", () => {
+    const run = buildAgentRun(assistant({ status: "completed", content: "你好", assistantSteps: [progressStep({ is_final: true, content: "你好" })],
+      executionDurationMs: 1700,
+      timings: { preparation_ms: 1100, activities: [{ type: "run_activity", id: "model", kind: "model", status: "completed", duration_ms: 600, first_text_ms: 500 }] } }));
+    const { container } = render(<AgentExecution run={run} />);
+    expect(screen.getByText("· 耗时 1.7s")).toBeTruthy();
+    expect(screen.queryByText("查看耗时")).toBeNull();
+    expect(container.querySelector(".agent-run-timings")).toBeNull();
+    expect(container.querySelector(".assistant-reasoning")).toBeNull();
+    expect((screen.getByRole("button", { name: "执行状态，完成" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(container.querySelector(".agent-execution-chevron")).toBeNull();
+  });
+
+  it("keeps final-step reasoning below completion and outside the timeline collapse", () => {
+    const run = buildAgentRun(assistant({ status: "completed", content: "最终答复", assistantSteps: [
+      progressStep({ status: "completed", content: "中间说明" }),
+      progressStep({ id: "run:step:1", ordinal: 1, is_final: true, status: "completed", content_blocks: [{ type: "reasoning", text: "分析内容" }, { type: "text", text: "最终答复" }] }),
+    ] }));
+    const { container } = render(<AgentExecution run={run} />);
+    const panel = container.querySelector(".agent-execution")!;
+    const reasoning = panel.querySelector("details.assistant-reasoning") as HTMLDetailsElement;
+    expect(panel.children[0].className).toBe("agent-execution-head");
+    expect(panel.children[1]).toBe(reasoning);
+    expect(reasoning.open).toBe(false);
+    fireEvent.click(screen.getByText("思考过程"));
+    expect(reasoning.open).toBe(true);
+    expect(reasoning.textContent).toContain("分析内容");
+    expect(reasoning.textContent).not.toContain("最终答复");
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
+    expect(container.querySelector(".agent-execution-body")).toBeNull();
+    expect(reasoning.open).toBe(true);
+  });
   it("forces the running execution open and blocks collapsing", () => {
-    const steps: AssistantStep[] = [progressStep({ id: "run:step:0", content: "分析项目结构" })];
+    const steps: AssistantStep[] = [progressStep({ id: "run:step:0", content: "分析项目结构", tool_calls: [{ call_id: "c1", name: "read_file", batch_index: 0, status: "running" }] })];
     const { container } = render(
       <AgentExecution run={buildAgentRun(assistant({ assistantSteps: steps }))} />,
     );
-    const head = screen.getByRole("button", { name: /正在生成回复|正在准备/ }) as HTMLButtonElement;
+    const head = screen.getByRole("button", { name: /正在读取文件/ }) as HTMLButtonElement;
 
     expect(head.disabled).toBe(true);
     expect(head.getAttribute("aria-expanded")).toBe("true");
@@ -353,7 +461,7 @@ describe("agent execution panel", () => {
     const head = screen.getByRole("button", { name: /正在生成回复|正在准备/ }) as HTMLButtonElement;
 
     expect(head.disabled).toBe(true);
-    expect(container.querySelector(".agent-step-pending")?.textContent).toContain("正在生成回复");
+    expect(container.querySelector(".agent-execution-body")).toBeNull();
   });
 
   it("renders nothing when the message has no execution steps", () => {
@@ -366,30 +474,58 @@ describe("agent execution panel", () => {
     expect(container.querySelector(".agent-execution")).toBeNull();
   });
 
-  it("keeps the called tools readable while the run is collapsed", () => {
+  it("keeps tools visible after completion and history reload, with separate details for repeated names", () => {
     const steps: AssistantStep[] = [
       progressStep({
         id: "run:step:0",
         status: "completed",
         tool_calls: [
-          { call_id: "c1", name: "read_file", batch_index: 0, status: "completed" },
-          { call_id: "c2", name: "grep", batch_index: 1, status: "completed" },
+          { call_id: "c1", name: "read_file", batch_index: 0, status: "completed", args_preview: '{"path":"first.txt"}', result_preview: "第一个结果" },
+          { call_id: "c2", name: "read_file", batch_index: 1, status: "completed", args_preview: '{"path":"second.txt"}', result_preview: "第二个结果" },
         ],
       }),
       progressStep({ id: "run:step:1", ordinal: 1, status: "completed", content: "最终答复", is_final: true }),
     ];
-    const { container } = render(
-      <AgentExecution
-        run={buildAgentRun(assistant({ status: "completed", content: "最终答复", assistantSteps: steps }))}
-      />,
-    );
-    const head = container.querySelector(".agent-execution-head") as HTMLElement;
-
+    const message = assistant({ status: "completed", content: "最终答复", assistantSteps: steps });
+    const { container, rerender, unmount } = render(<AgentExecution run={buildAgentRun({ ...message, status: "streaming" })} />);
+    rerender(<AgentExecution run={buildAgentRun(message)} />);
+    expect(screen.getByRole("button", { name: /完成/ }).getAttribute("aria-expanded")).toBe("true");
+    const tools = container.querySelectorAll<HTMLDetailsElement>("details.agent-tool");
+    expect(tools).toHaveLength(2);
+    expect(Array.from(tools).map((tool) => tool.querySelector("summary")?.textContent)).toEqual([
+      expect.stringContaining("first.txt"), expect.stringContaining("second.txt"),
+    ]);
+    expect(tools[0].open).toBe(false);
+    fireEvent.click(tools[0].querySelector("summary")!);
+    expect(tools[0].open).toBe(true);
+    expect(tools[1].open).toBe(false);
+    expect(tools[0].textContent).toContain("第一个结果");
+    expect(tools[0].textContent).not.toContain("第二个结果");
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
+    rerender(<AgentExecution run={buildAgentRun({ ...message, assistantSteps: [...steps] })} />);
     expect(container.querySelector(".agent-execution-body")).toBeNull();
-    // 收起状态也不能把"调用了哪些工具"藏起来。
-    expect(head.textContent).not.toContain("已调用 2 个工具");
-    expect(head.textContent).not.toContain("读取文件");
-    expect(head.textContent).not.toContain("查找内容");
+    unmount();
+    const history = render(<AgentExecution run={buildAgentRun(message)} />);
+    expect(history.container.querySelectorAll(".agent-tool")).toHaveLength(2);
+  });
+
+  it("keeps a completed subagent visible when there are no root tool steps", () => {
+    const { container } = render(<AgentExecution
+      run={buildAgentRun(assistant({ status: "completed", content: "最终答复" }))}
+      events={[
+        { type: "subagent_started", subagent_id: "child", subagent_name: "分析助手" },
+        { type: "subagent_text", subagent_id: "child", text: "分析已完成" },
+        { type: "subagent_completed", subagent_id: "child" },
+      ]}
+      messageStatus="completed"
+    />);
+    expect(screen.getByRole("button", { name: /完成/ }).getAttribute("aria-expanded")).toBe("true");
+    const node = container.querySelector<HTMLDetailsElement>(".agent-subagent")!;
+    expect(node.querySelector("summary")?.textContent).toContain("分析助手");
+    expect(node.open).toBe(false);
+    fireEvent.click(node.querySelector("summary")!);
+    expect(node.open).toBe(true);
+    expect(node.textContent).toContain("分析已完成");
   });
 
   it("keeps failed runs expanded so the failure point stays visible", () => {
@@ -425,6 +561,14 @@ describe("agent execution panel", () => {
 });
 
 describe("streaming reducer updates", () => {
+  it("keeps waiting until visible text arrives instead of treating step start as output", () => {
+    let state = { ...INITIAL_CHAT_STATE, messages: [assistant({ phases: ["waiting_model"] })] };
+    state = reducer(state, { type: "assistantStepStarted", messageId: "a1", step: progressStep() });
+    expect(state.messages[0].phases.at(-1)).toBe("waiting_model");
+    state = reducer(state, { type: "assistantTextDelta", messageId: "a1", stepId: "run:step:0", delta: "正文" });
+    expect(state.messages[0].phases.at(-1)).toBe("responding");
+  });
+
   it("appends progress deltas into the same step instead of creating new entries", () => {
     let state = { ...INITIAL_CHAT_STATE, messages: [assistant()] };
     state = reducer(state, { type: "assistantStepStarted", messageId: "a1", step: progressStep() });
@@ -445,6 +589,17 @@ describe("streaming reducer updates", () => {
     state = reducer(state, { type: "assistantTextDelta", messageId: "a1", stepId: "run:step:0", delta: "已完成的说明" });
 
     expect(state.messages[0].assistantSteps?.[0].content).toBe("已完成的说明");
+  });
+
+  it("excludes approval waiting time when resuming the live clock", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    try {
+      const state = reducer({ ...INITIAL_CHAT_STATE, messages: [assistant({ status: "interrupted", startedAt: 1_000,
+        executionDurationMs: 4_000, timings: { preparation_ms: 10, activities: [] } })] },
+      { type: "messageStarted", assistantMessageId: "a1", userMessageId: null, resuming: true, preparationDurationMs: 5 });
+      expect(state.messages[0].startedAt).toBe(96_000);
+      expect(state.messages[0].timings?.preparation_ms).toBe(15);
+    } finally { clock.mockRestore(); }
   });
 
   it("ignores late events that would revive a finished run", () => {

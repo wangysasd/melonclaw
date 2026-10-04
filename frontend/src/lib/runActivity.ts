@@ -72,6 +72,9 @@ const PHASE_STAGES: Record<string, string> = {
   starting: "正在准备",
   selecting_tools: "正在选择工具",
   thinking: "正在分析",
+  waiting_model: "等待模型响应",
+  preparing_tools: "正在准备工具调用",
+  preparing_file: "正在生成文件内容",
   responding: "正在生成回复",
   processing: "正在处理工具结果",
 };
@@ -124,6 +127,7 @@ export function stoppedRunSummary(run: AgentRun, events: DisplayEvent[]) {
   };
   const preserved: string[] = [];
   if (run.finalAnswer) preserved.push("已收到的回答");
+  if (run.reasoning.some((step) => step.content.trim())) preserved.push("思考内容");
   if (run.steps.some((step) => step.type === "assistant_progress" && step.content.trim())
     || events.some((event) => event.type === "subagent_text" && typeof event.text === "string" && event.text.trim())) preserved.push("过程文本");
   if (tools.some((tool) => tool.result)) preserved.push("工具结果");

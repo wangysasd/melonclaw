@@ -10,7 +10,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import AsyncIterator
+from time import perf_counter
 from typing import Any
+
+from langgraph.stream import CustomTransformer
 
 from melonclaw.output.assistant_steps import AssistantStepAccumulator
 from melonclaw.output.content import content_to_text
@@ -19,7 +22,7 @@ from melonclaw.output.formatting import (
     _preview,
     sanitize_text,
 )
-from melonclaw.output.visible_text import VisibleTextFilter, visible_text
+from melonclaw.output.model_activity import model_text_with_activity
 
 DISPLAY_EVENT_TYPES = frozenset(
     {
@@ -61,19 +64,30 @@ def _parent_call_id(handle: Any) -> str | None:
     return str(value) if value else None
 
 
-def _is_tool_selector_message(message_stream: Any) -> bool:
-    """隐藏内部工具选择器消息，读取当前 v3 的启动元数据。"""
+async def _consume_run_phases(
+    scope_stream: Any,
+    output: asyncio.Queue[dict[str, Any] | BaseException | object],
+) -> None:
+    """只接受根命名空间的工具选择阶段，不转发任意 custom 载荷。"""
 
-    candidates = [
-        getattr(message_stream, "metadata", None),
-        getattr(message_stream, "_start_metadata", None),
-    ]
-    for metadata in candidates:
-        if not isinstance(metadata, dict):
+    async for event in scope_stream.extensions["custom"]:
+        if not isinstance(event, dict):
             continue
-        if metadata.get("tool_selector") or "tool-selector" in (metadata.get("tags") or []):
-            return True
-    return False
+        if event.get("type") == "run_activity":
+            if event.get("kind") == "selection" and event.get("status") in ("started", "completed"):
+                safe = {"type": "run_activity", "id": str(event.get("id", ""))[:64],
+                        "kind": "selection", "status": event["status"]}
+                if isinstance(event.get("duration_ms"), int) and event["duration_ms"] >= 0:
+                    safe["duration_ms"] = event["duration_ms"]
+                if event.get("outcome") in ("selected", "degraded"):
+                    safe["outcome"] = event["outcome"]
+                await output.put(safe)
+            continue
+        if event.get("type") != "run_phase":
+            continue
+        phase = event.get("phase")
+        if phase in ("selecting_tools", "waiting_model"):
+            await output.put({"type": "run_phase", "phase": phase})
 
 
 def _tool_output_text(value: Any) -> str:
@@ -112,62 +126,42 @@ async def _consume_messages(
     """消费一个命名空间中的模型文本投影。"""
 
     async for message_stream in scope_stream.messages:
-        if _is_tool_selector_message(message_stream):
-            if scope is None:
-                await output.put({"type": "run_phase", "phase": "selecting_tools"})
-            # 仍然把该 message 的生产者排空，避免阻塞 v3 的共享 pump。
-            async for _ in message_stream.text:
-                pass
-            if scope is None:
-                await output.put({"type": "run_phase", "phase": "thinking"})
-            continue
-
+        model_started = perf_counter()
+        timings: dict[str, int] = {}
         if scope is None:
-            await output.put({"type": "run_phase", "phase": "thinking"})
+            await output.put({"type": "run_phase", "phase": "waiting_model"})
             if projector is None:
-                text_filter = VisibleTextFilter()
-                async for delta in message_stream.text:
-                    text = text_filter.feed(content_to_text(delta))
+                async for _, delta in model_text_with_activity(message_stream, output, report_activity=True):
+                    text = content_to_text(delta)
                     if text:
                         await output.put({"type": "text", "text": sanitize_text(text)})
-                tail = text_filter.finish()
-                if tail:
-                    await output.put({"type": "text", "text": sanitize_text(tail)})
                 continue
             source_message_id = str(getattr(message_stream, "id", None) or "") or None
             started = projector.start_step(source_message_id=source_message_id)
             await output.put(started)
             step_id = str(started["step"]["id"])
+            await output.put({"type": "run_activity", "id": step_id, "kind": "model", "status": "started"})
         else:
             step_id = ""
         chunks: list[str] = []
-        text_filter = VisibleTextFilter() if scope is not None else None
-        async for delta in message_stream.text:
+        async for kind, delta in model_text_with_activity(message_stream, output, report_activity=scope is None):
             text = content_to_text(delta)
             if not text:
                 continue
             chunks.append(text)
+            timings.setdefault(f"first_{kind}_ms", int((perf_counter() - model_started) * 1000))
             if scope is None:
-                event = projector.project_text_delta(step_id, text)
+                event = projector.project_text_delta(step_id, text, kind=kind)
                 if event is not None:
                     await output.put(event)
             else:
-                text = text_filter.feed(text)
-                if not text:
-                    continue
                 await output.put(
                     {
                         "type": "subagent_text",
                         **_scope_fields(scope),
                         "text": sanitize_text(text),
+                        "content_kind": kind,
                     }
-                )
-
-        if scope is not None:
-            tail = text_filter.finish()
-            if tail:
-                await output.put(
-                    {"type": "subagent_text", **_scope_fields(scope), "text": sanitize_text(tail)}
                 )
 
         # 非流式 provider 可能只在最终 message 中提供正文；不要让它在前端
@@ -179,7 +173,7 @@ async def _consume_messages(
             message = None
         if scope is None:
             raw_tool_calls = getattr(message, "tool_calls", None) if message is not None else None
-            full_content = getattr(message, "content", "") if message is not None else ""
+            full_content = getattr(message, "content_blocks", getattr(message, "content", "")) if message is not None else ""
             if isinstance(message, dict):
                 raw_tool_calls = message.get("tool_calls")
                 full_content = message.get("content", "")
@@ -192,8 +186,10 @@ async def _consume_messages(
                 tool_calls=tool_calls,
             ):
                 await output.put(event)
+            await output.put({"type": "run_activity", "id": step_id, "kind": "model", "status": "completed",
+                              "duration_ms": int((perf_counter() - model_started) * 1000), **timings})
         elif not chunks:
-            text = visible_text(content_to_text(getattr(message, "content", "")))
+            text = content_to_text(getattr(message, "content", ""))
             if text:
                 await output.put(
                     {
@@ -212,100 +208,123 @@ async def _consume_tool_calls(
 ) -> None:
     """消费一个命名空间中的工具调用生命周期。"""
 
-    async for call in scope_stream.tool_calls:
-        raw_call_id = getattr(call, "tool_call_id", None) or "unknown"
-        call_id = str(raw_call_id)
-        name = sanitize_text(str(getattr(call, "tool_name", None) or "unknown"))
-        if scope is None:
-            if projector is None:
-                raise RuntimeError("根 Agent 工具投影器未初始化。")
-            args = getattr(call, "input", None)
-            call_event = projector.project_tool_call(
+    pending: set[asyncio.Task[None]] = set()
+    try:
+        async for call in scope_stream.tool_calls:
+            task = asyncio.create_task(_consume_tool_call(call, scope, output, projector))
+            pending.add(task)
+        if pending:
+            await asyncio.gather(*pending)
+    finally:
+        for task in pending:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
+async def _consume_tool_call(
+    call: Any,
+    scope: dict[str, Any] | None,
+    output: asyncio.Queue[dict[str, Any] | BaseException | object],
+    projector: AssistantStepAccumulator | None,
+) -> None:
+    """独立排空一项工具结果，快工具不等待同批慢工具。"""
+
+    raw_call_id = getattr(call, "tool_call_id", None) or "unknown"
+    started = perf_counter()
+    call_id = str(raw_call_id)
+    name = sanitize_text(str(getattr(call, "tool_name", None) or "unknown"))
+    if scope is None:
+        if projector is None:
+            raise RuntimeError("根 Agent 工具投影器未初始化。")
+        args = getattr(call, "input", None)
+        call_event = projector.project_tool_call(
+            call_id=call_id,
+            name=name,
+            batch_index=getattr(call, "index", None),
+            args=args,
+        )
+        if call_event is not None:
+            await output.put(call_event)
+        try:
+            async for _ in call.output_deltas:
+                pass
+        except Exception as exc:  # noqa: BLE001 - 结果事件仍需告知前端
+            result_event = projector.project_tool_result(
                 call_id=call_id,
-                name=name,
-                batch_index=int(getattr(call, "index", 0) or 0),
-                args=args,
+                result=str(exc),
+                status="failed",
+                error=str(exc),
+                duration_ms=int((perf_counter() - started) * 1000),
             )
-            if call_event is not None:
-                await output.put(call_event)
-            try:
-                async for _ in call.output_deltas:
-                    pass
-            except Exception as exc:  # noqa: BLE001 - 结果事件仍需告知前端
-                result_event = projector.project_tool_result(
-                    call_id=call_id,
-                    result=str(exc),
-                    status="failed",
-                    error=str(exc),
-                )
-            else:
-                result_event = projector.project_tool_result(
-                    call_id=call_id,
-                    result=call.error or _tool_output_text(getattr(call, "output", None)),
-                    status="failed" if call.error else "completed",
-                    error=str(call.error) if call.error else None,
-                )
-            if result_event is not None:
-                await output.put(result_event)
-            continue
-        call_key = f"id:{call_id}" if scope is None else f"{scope['subagent_id']}:id:{call_id}"
-        fields = {} if scope is None else _scope_fields(scope)
-        event_type = "tool_call" if scope is None else "subagent_tool_call"
-        result_type = "tool_result" if scope is None else "subagent_tool_result"
+        else:
+            result_event = projector.project_tool_result(
+                call_id=call_id,
+                result=call.error or _tool_output_text(getattr(call, "output", None)),
+                status="failed" if call.error else "completed",
+                error=str(call.error) if call.error else None,
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+        if result_event is not None:
+            await output.put(result_event)
+        return
+    call_key = f"id:{call_id}" if scope is None else f"{scope['subagent_id']}:id:{call_id}"
+    fields = {} if scope is None else _scope_fields(scope)
+    event_type = "tool_call" if scope is None else "subagent_tool_call"
+    result_type = "tool_result" if scope is None else "subagent_tool_result"
+    await output.put(
+        {
+            "type": event_type,
+            "call_key": call_key,
+            "call_id": call_id,
+            "name": name,
+            "status": "started",
+            **fields,
+        }
+    )
+    args = getattr(call, "input", None)
+    if args is not None:
         await output.put(
             {
                 "type": event_type,
                 "call_key": call_key,
                 "call_id": call_id,
                 "name": name,
-                "status": "started",
+                "status": "args",
+                "args": _preview(_decode_tool_args(args)),
                 **fields,
             }
         )
-        args = getattr(call, "input", None)
-        if args is not None:
-            await output.put(
-                {
-                    "type": event_type,
-                    "call_key": call_key,
-                    "call_id": call_id,
-                    "name": name,
-                    "status": "args",
-                    "args": _preview(_decode_tool_args(args)),
-                    **fields,
-                }
-            )
-        try:
-            # output_deltas 会在工具完成时关闭；即使没有增量，也必须排空它，
-            # 否则 ToolCallStream 的 output 还没有被填充。
-            async for _ in call.output_deltas:
-                pass
-        except Exception as exc:  # noqa: BLE001 - 结果事件仍需告知前端
-            await output.put(
-                {
-                    "type": result_type,
-                    "call_key": call_key,
-                    "call_id": call_id,
-                    "name": name,
-                    "content": sanitize_text(str(exc)),
-                    "status": "failed",
-                    **fields,
-                }
-            )
-            continue
-        content = call.error or _tool_output_text(getattr(call, "output", None))
+    try:
+        # output_deltas 会在工具完成时关闭；即使没有增量，也必须排空它，
+        # 否则 ToolCallStream 的 output 还没有被填充。
+        async for _ in call.output_deltas:
+            pass
+    except Exception as exc:  # noqa: BLE001 - 结果事件仍需告知前端
         await output.put(
             {
                 "type": result_type,
                 "call_key": call_key,
                 "call_id": call_id,
                 "name": name,
-                "content": sanitize_text(str(content)),
-                "status": "failed" if call.error else "completed",
+                "content": sanitize_text(str(exc)),
+                "status": "failed",
                 **fields,
             }
         )
-
+        return
+    content = call.error or _tool_output_text(getattr(call, "output", None))
+    await output.put(
+        {
+            "type": result_type,
+            "call_key": call_key,
+            "call_id": call_id,
+            "name": name,
+            "content": sanitize_text(str(content)),
+            "status": "failed" if call.error else "completed",
+            **fields,
+        }
+    )
 
 async def _consume_scope(
     handle: Any,
@@ -391,7 +410,9 @@ async def _iter_v3_research_events(
 ) -> AsyncIterator[dict[str, Any]]:
     """使用 Deep Agents/LangGraph v3 投影并发消费根 Agent 与子 Agent。"""
 
-    stream_kwargs: dict[str, Any] = {"config": config, "version": "v3"}
+    stream_kwargs: dict[str, Any] = {
+        "config": config, "version": "v3", "transformers": [CustomTransformer],
+    }
     if context is not None:
         stream_kwargs["context"] = context
     stream_result = agent.astream_events(agent_input, **stream_kwargs)
@@ -409,6 +430,7 @@ async def _iter_v3_research_events(
         asyncio.create_task(_consume_messages(stream, None, queue, projector)),
         asyncio.create_task(_consume_tool_calls(stream, None, queue, projector)),
         asyncio.create_task(_consume_subagents(stream, None, queue)),
+        asyncio.create_task(_consume_run_phases(stream, queue)),
     ]
 
     async def supervise() -> None:

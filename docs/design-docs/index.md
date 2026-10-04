@@ -7,7 +7,9 @@
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | [前端视觉一致性](ui-consistency.md) | 已实现 | 共享 Token、Ant Design 主题、资源网格、聊天与浮层、响应式规范 |
-| [聊天结果组件](chat-result-components.md) | 已实现 | 固定结果协议、图片／文件、表格、差异、来源与基础数据图表、图表字段错误提示 |
+| [聊天结果组件](chat-result-components.md) | 已实现 | 固定结果协议、图片／文件、表格、差异、来源与基础数据图表、图表字段错误提示、JSON 语法错误诊断 |
+| [对话产物与 HTML 预览](conversation-artifacts.md) | 已实现 | 正文链接与末尾卡片、事务保存的可重建交付索引、完整会话产物抽屉、当前文件语义、自包含 HTML 隔离预览和源码 |
+| [会话／项目文件浏览器](workspace-file-browser.md) | 已实现 | 实际工作区目录与附件原位展开、移除根目录导航、只读预览／下载、保留本对话产物来源，无快照 |
 | [长任务状态与停止反馈](long-task-feedback.md) | 已实现 | 观测阶段、已确认任务清单、阅读历史时的新内容提示、取消后的保留与未知结果说明 |
 | [聊天确认与问题卡](chat-interaction-cards.md) | 已实现 | 统一卡片、授权对象摘要、单项直接提交、多项明确选择、问答与授权区分、页面内决定回执 |
 | [聊天生成 Skill](chat-skill-creation.md) | 已实现 | 内置 skill-creator、受限文本草稿、聊天来源、角色范围、复用安装审批与文件/数据库恢复 |
@@ -16,8 +18,9 @@
 | [用户唯一租户归属](one-tenant-per-user.md) | 已实现 | 用户行固定归属一个租户；服务端解析租户上下文，项目与会话仍按用户归属，Tenant Memory 沿用租户隔离与角色授权 |
 | [聊天附件上传设计](chat-attachments.md) | 已实现 | 首版支持图片、文本、带文本层 PDF 和 DOCX/XLSX/PPTX；包含两阶段上传、消息原子绑定、解析、hydration、权限边界和清理任务。详细讨论稿仍保留在本地 `note/上传附件技术设计.md` |
 | [用户决策 HITL](user-input-hitl.md) | 已实现 | Agent 在关键决策不确定时通过 `ask_user` 暂停，前端展示选项，服务端校验并从原 Checkpoint 恢复；包含幂等、TTL、历史恢复和当前边界 |
-| [完整 AI 消息流展示](assistant-message-stream.md) | 已实现 | 根 Agent 多轮 AI 文本、工具调用/结果、终态保存与历史回放；子 Agent 继续使用任务卡 |
-| [Agent 执行过程展示](agent-execution-display.md) | 已实现 | 一次运行聚合为一个可折叠执行区域：运行状态与耗时、过程文本/工具条目的时间线、最终回答分离、折叠与默认展开规则、工具耗时来源 |
+| [完整 AI 消息流展示](assistant-message-stream.md) | 已实现 | 根 Agent 多轮完整 content（含推理文本）、工具调用/结果、终态保存与历史回放；内部工具选择调用源头隔离，custom 通道报告阶段；子 Agent 继续使用任务卡 |
+| [回复流畅性与推理协议](response-fluency.md) | 已实现 | 用户轮次工具初选与受控目录扩展、并行工具结果、有序思考块、实时正文/思考展示、空尾部答案回退、可见轨迹截断、供应商协议适配及阶段计时 |
+| [Agent 执行过程展示](agent-execution-display.md) | 已实现 | 一次运行聚合为一个可折叠执行区域：运行状态与耗时、临时正文预览、过程文本/工具时间线、工具完成后默认可见、摘要下方的实际思考、最终回答分离与折叠规则 |
 | [执行准备与流式归约去重](execution-stream-performance.md) | 已实现 | 幂等回放与锁后构建、单一消息对事务、共享步骤投影、历史懒加载和前端文本批量归约 |
 | [会话与项目工作区](conversations-and-project-workspaces.md) | 已实现 | 普通会话独立持久工作区，Project 内会话共享项目工作区；包含普通会话加入项目、附件作用域、Agent 缓存与安全边界 |
 | [侧栏项目与会话管理](sidebar-resource-management.md) | 已实现 | 项目展开、资源操作、普通会话的移动级联菜单，以及输入框项目选择器与侧栏的联动 |
@@ -53,3 +56,5 @@
 空工具名快速失败护栏已实现，见 [空工具名快速失败](tool-name-guard.md)。
 
 - [聊天错误恢复与发送前反馈](chat-error-recovery.md)：已实现；错误来源、只读同步和附件发送前门槛。
+
+- 文件面板平级标签与两行工具栏：已实现，见[文件浏览器设计](workspace-file-browser.md#简化后的面板结构)。

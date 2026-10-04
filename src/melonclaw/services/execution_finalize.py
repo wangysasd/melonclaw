@@ -56,6 +56,7 @@ async def mark_execution_status(
     assistant_steps: list[dict[str, Any]] | None = None,
     content: str | None = None,
     execution_duration_ms: int | None = None,
+    timings: dict[str, Any] | None = None,
 ) -> None:
     """写入助手的最终状态；写不进去不抛错，保留原始异常给上层。"""
 
@@ -73,6 +74,8 @@ async def mark_execution_status(
             values["content"] = content
         if execution_duration_ms is not None:
             values["execution_duration_ms"] = execution_duration_ms
+        if timings is not None:
+            values["display_metadata"]["timings"] = timings
         await storage.update_assistant(
             execution.conversation_id,
             execution.assistant_message_id,

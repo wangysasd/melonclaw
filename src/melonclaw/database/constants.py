@@ -8,6 +8,7 @@ BUSINESS_TABLES = (
     "projects",
     "chat_conversations",
     "chat_messages",
+    "conversation_artifacts",
     "user_interactions",
     "chat_attachments",
     "chat_message_attachments",

@@ -1,5 +1,15 @@
 /** melon-result v1：显式结果数据，绝不接收可执行代码或图表 option。 */
 export type AssetRef = { attachment_id: string } | { path: string };
+export function assetKey(ref: AssetRef): string {
+  return "path" in ref ? ref.path : `/attachments/${ref.attachment_id.toLowerCase()}`;
+}
+export function markdownAssetRef(href: string): AssetRef | null {
+  try {
+    const decoded = decodeURIComponent(href);
+    return decoded.startsWith("/attachments/")
+      ? parseAssetRef({ attachment_id: decoded.slice(13) }) : parseAssetRef({ path: decoded });
+  } catch { return null; }
+}
 export type ResultSource = { id: string; title: string; url?: string; quote?: string; ref?: AssetRef; locator?: string };
 export type Cell = string | number | boolean | null;
 export type ResultBlock =
@@ -47,7 +57,7 @@ function cell(value: unknown): value is Cell {
 class ResultValidationError extends Error {}
 
 function parseResultValue(raw: string): ResultBlock | null {
-  if (raw.length > 200_000) return null;
+  if (raw.length > 200_000) throw new ResultValidationError("结果块超过 200000 字符，请改用文件交付。");
   try {
     const value: unknown = JSON.parse(raw);
     if (!record(value) || value.version !== 1) return null;
@@ -89,6 +99,7 @@ function parseResultValue(raw: string): ResultBlock | null {
     }
   } catch (error) {
     if (error instanceof ResultValidationError) throw error;
+    if (error instanceof SyntaxError) throw new ResultValidationError("结果 JSON 语法错误：请检查字符串中的英文双引号、反斜杠或换行是否正确转义，以及括号和逗号是否完整。");
     return null;
   }
 }

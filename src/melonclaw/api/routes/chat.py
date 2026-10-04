@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from time import perf_counter
 from uuid import UUID
 
 from fastapi import APIRouter, Request
@@ -29,6 +30,7 @@ async def send_message(
     if not manager.ready:
         return JSONResponse(await manager.status(), status_code=503)
     try:
+        preparation_started = perf_counter()
         execution = await manager.prepare_message(
             conversation_id,
             payload.user_id,
@@ -39,6 +41,7 @@ async def send_message(
             attachment_ids=payload.attachment_ids,
             capabilities=payload.capabilities,
         )
+        execution.preparation_duration_ms = int((perf_counter() - preparation_started) * 1000)
     except Exception as exc:  # noqa: BLE001 - 准备阶段需要真实 HTTP 状态码
         return error_response(exc)
     return stream_response(manager.stream_execution(execution))

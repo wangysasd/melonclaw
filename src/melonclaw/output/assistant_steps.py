@@ -11,19 +11,19 @@ from collections import OrderedDict
 from time import time
 from typing import Any
 
-from melonclaw.output.content import content_to_text
+from melonclaw.output.content import answer_text, content_to_text, display_blocks
 from melonclaw.output.formatting import _decode_tool_args, _preview, sanitize_text
-from melonclaw.output.visible_text import VisibleTextFilter, visible_text
 
 STEP_STATUSES = frozenset({"streaming", "running", "completed", "failed", "waiting", "unknown"})
-TOOL_STATUSES = frozenset({"running", "completed", "failed", "waiting", "unknown"})
+TOOL_STATUSES = frozenset({"queued", "running", "completed", "failed", "waiting", "unknown"})
 MAX_STEP_TEXT = 120 * 1024
 MAX_STEPS_BYTES = 512 * 1024
 MAX_PENDING_CALLS = 128
+TRUNCATION_MARKER = "\n…（执行轨迹已截断）"
 
 
 def _now_ms() -> int:
-    """统一使用 epoch 毫秒：前端只用它算工具耗时，不参与业务状态判断。"""
+    """epoch 毫秒只记录观测时间；运行耗时优先使用单调时钟 duration_ms。"""
 
     return int(time() * 1000)
 
@@ -33,7 +33,18 @@ def _copy_steps(steps: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
 
 
 def _text(value: Any) -> str:
-    return sanitize_text(visible_text(content_to_text(value)))
+    return sanitize_text(content_to_text(value))
+
+
+def _step_answer_text(step: dict[str, Any]) -> str:
+    content = answer_text(step.get("content_blocks", step.get("content", "")))
+    return "" if step.get("truncated") and content.strip() == TRUNCATION_MARKER.strip() else content
+
+
+def _step_display_text(step: dict[str, Any]) -> str:
+    if "content_blocks" in step:
+        return "".join(block["text"] for block in step["content_blocks"])
+    return str(step.get("content", ""))
 
 
 def _tool_snapshot(
@@ -79,6 +90,8 @@ def _step_status_from_tools(
     if not tool_calls:
         return fallback
     statuses = {str(tool.get("status", "unknown")) for tool in tool_calls}
+    if "queued" in statuses:
+        return "running"
     for status in ("running", "waiting", "failed", "unknown"):
         if status in statuses:
             return status
@@ -89,7 +102,7 @@ class AssistantStepAccumulator:
     """维护一条 assistant 消息内的有序 steps。
 
     ``project_*`` 方法用于输出 SSE，同时更新本地快照；``apply_event`` 用于执行
-    服务消费已经投影出的事件。两条路径都只保留过滤、脱敏和限长后的内容。
+    服务消费已经投影出的事件。两条路径都只保留脱敏和限长后的内容。
     """
 
     def __init__(
@@ -104,8 +117,6 @@ class AssistantStepAccumulator:
         self.steps = _copy_steps(steps)
         # 通常只增长正文；保守估算新增 repr 字节，接近上限才精确扫描。
         self._total_bytes = len(str(self.steps).encode("utf-8"))
-        self._filters: dict[str, VisibleTextFilter] = {}
-        self._had_delta: set[str] = set()
         self._current_step_id: str | None = None
         self._tool_step_id: str | None = None
         self._call_to_step: dict[str, str] = {}
@@ -122,7 +133,7 @@ class AssistantStepAccumulator:
                 call_id = str(tool.get("call_id", ""))
                 if call_id:
                     self._call_to_step[call_id] = step_id
-                    if tool.get("status") in {"running", "waiting"}:
+                    if tool.get("status") in {"queued", "running", "waiting"}:
                         self._tool_step_id = step_id
             self._current_step_id = step_id
 
@@ -160,7 +171,6 @@ class AssistantStepAccumulator:
             step["source_message_id"] = source_message_id
         self.steps.append(step)
         self._current_step_id = step_id
-        self._filters[step_id] = VisibleTextFilter()
         self._enforce_total_limit()
         return {
             "type": "assistant_step_started",
@@ -180,7 +190,6 @@ class AssistantStepAccumulator:
             step["truncated"] = True
         step["content"] = existing + visible
         if visible:
-            self._had_delta.add(step_id)
             # repr 对引号的选择可能随整段正文变化；两类引号都计入转义开销，
             # 保证估算只会早触发精确检查，不会越过总量上限。
             self._total_bytes += len(repr(visible).encode("utf-8")) - 2
@@ -189,25 +198,33 @@ class AssistantStepAccumulator:
             self._enforce_total_limit()
         return visible
 
-    def project_text_delta(self, step_id: str, value: Any) -> dict[str, Any] | None:
+    def project_text_delta(self, step_id: str, value: Any, *, kind: str = "text") -> dict[str, Any] | None:
         text = content_to_text(value)
         if not text:
             return None
-        text_filter = self._filters.setdefault(step_id, VisibleTextFilter())
-        delta = text_filter.feed(text)
-        delta = self._append_text(step_id, delta)
+        step = self._step(step_id)
+        if step is None:
+            return None
+        before = str(step.get("content", ""))
+        delta = self._append_text(step_id, text)
         if not delta:
             return None
+        if kind == "reasoning" or "content_blocks" in step:
+            blocks = step.setdefault("content_blocks", [{"type": "text", "text": before}] if before else [])
+            if blocks and blocks[-1]["type"] == kind:
+                blocks[-1]["text"] += delta
+            else:
+                blocks.append({"type": kind, "text": delta})
+            self._total_bytes += len(delta.encode("utf-8")) + 32
+            if self._total_bytes >= MAX_STEPS_BYTES:
+                self._enforce_total_limit()
         return {
             "type": "assistant_text_delta",
             "message_id": self.message_id,
             "step_id": step_id,
             "delta": delta,
+            "content_kind": kind,
         }
-
-    def _flush_filter(self, step_id: str) -> str:
-        text_filter = self._filters.setdefault(step_id, VisibleTextFilter())
-        return self._append_text(step_id, text_filter.finish())
 
     def _ensure_tool(
         self,
@@ -237,13 +254,17 @@ class AssistantStepAccumulator:
             tools.sort(key=lambda item: int(item.get("batch_index", 0)))
         else:
             existing["name"] = sanitize_text(name) or existing.get("name", "unknown")
-            existing["batch_index"] = batch_index
+            if status == "queued":
+                existing["batch_index"] = batch_index
             if args_preview is not None:
                 existing["args_preview"] = _preview(args_preview)
             elif args is not None:
                 existing["args_preview"] = _preview(_decode_tool_args(args))
             if status in TOOL_STATUSES and existing.get("status") not in {"completed", "failed"}:
-                existing["status"] = status
+                if status != "queued" or existing.get("status") == "queued":
+                    existing["status"] = status
+            if started_at is not None and "started_at" not in existing:
+                existing["started_at"] = int(started_at)
         self._call_to_step[call_id] = str(step["id"])
         self._tool_step_id = str(step["id"])
         pending = self._pending_results.pop(call_id, None)
@@ -256,11 +277,12 @@ class AssistantStepAccumulator:
         *,
         call_id: str,
         name: str,
-        batch_index: int = 0,
+        batch_index: int | None = None,
         args: Any = None,
         args_preview: str | None = None,
         step_id: str | None = None,
         started_at: int | None = None,
+        status: str = "running",
     ) -> dict[str, Any] | None:
         step = self._step(step_id) if step_id else self._step_for_call(call_id)
         if step is None:
@@ -270,10 +292,11 @@ class AssistantStepAccumulator:
                 {
                     "call_id": call_id,
                     "name": name,
-                    "batch_index": batch_index,
+                    "batch_index": batch_index or 0,
+                    "status": status,
                     "args": args,
                     "args_preview": args_preview,
-                    "started_at": started_at if started_at is not None else _now_ms(),
+                    "started_at": (started_at if started_at is not None else _now_ms()) if status == "running" else None,
                 },
             )
             return None
@@ -281,10 +304,11 @@ class AssistantStepAccumulator:
             step,
             call_id=call_id,
             name=name,
-            batch_index=batch_index,
+            batch_index=batch_index if batch_index is not None else len(step.get("tool_calls", [])),
             args=args,
             args_preview=args_preview,
-            started_at=started_at if started_at is not None else _now_ms(),
+            status=status,
+            started_at=(started_at if started_at is not None else _now_ms()) if status == "running" else None,
         )
         step["status"] = "running"
         self._enforce_total_limit()
@@ -304,6 +328,8 @@ class AssistantStepAccumulator:
             tool["error"] = sanitize_text(str(result["error"]))
         completed_at = result.get("completed_at")
         tool["completed_at"] = int(completed_at) if completed_at is not None else _now_ms()
+        if result.get("duration_ms") is not None:
+            tool["duration_ms"] = max(0, int(result["duration_ms"]))
 
     def project_tool_result(
         self,
@@ -314,6 +340,7 @@ class AssistantStepAccumulator:
         error: str | None = None,
         step_id: str | None = None,
         completed_at: int | None = None,
+        duration_ms: int | None = None,
     ) -> dict[str, Any] | None:
         step = self._step(step_id) if step_id else self._step_for_call(call_id)
         result_preview = _preview(result) if result is not None else None
@@ -323,6 +350,8 @@ class AssistantStepAccumulator:
             "error": error,
             "completed_at": completed_at if completed_at is not None else _now_ms(),
         }
+        if duration_ms is not None:
+            result_data["duration_ms"] = duration_ms
         if step is None:
             self._bounded_pending(self._pending_results, call_id, result_data)
             return None
@@ -366,15 +395,22 @@ class AssistantStepAccumulator:
         if step is None:
             return []
         full_text = _text(content)
-        filtered_tail = self._flush_filter(step_id)
+        blocks = display_blocks(content)
+        if any(block["type"] == "reasoning" for block in blocks):
+            available = MAX_STEP_TEXT
+            bounded = []
+            for block in blocks:
+                value = sanitize_text(block["text"][:available])
+                if value:
+                    bounded.append({"type": block["type"], "text": value})
+                    available -= len(value)
+            step["content_blocks"] = bounded
         if full_text:
             # 完整 AIMessage 是本轮文本的最终对账快照；流式 delta 只负责低延迟，
             # provider 在结束时补齐的正文不能因为前端已经收到部分 delta 而丢失。
             step["content"] = full_text[:MAX_STEP_TEXT]
             if len(full_text) > MAX_STEP_TEXT:
                 step["truncated"] = True
-        elif filtered_tail and step_id not in self._had_delta:
-            self._append_text(step_id, filtered_tail)
         emitted_tools: list[dict[str, Any]] = []
         pending_calls = list(self._pending_calls.values())
         self._pending_calls.clear()
@@ -389,6 +425,7 @@ class AssistantStepAccumulator:
                 args=call.get("args"),
                 step_id=step_id,
                 started_at=call.get("started_at"),
+                status=call.get("status", "queued"),
             )
             if event is not None:
                 emitted_tools.append(event)
@@ -403,7 +440,7 @@ class AssistantStepAccumulator:
                             "result": copy.deepcopy(call_snapshot),
                         }
                     )
-        step["status"] = "running" if step.get("tool_calls") else "completed"
+        step["status"] = _step_status_from_tools(step.get("tool_calls", []), "completed")
         self._enforce_total_limit()
         self._current_step_id = step_id
         return [
@@ -415,19 +452,43 @@ class AssistantStepAccumulator:
                 "content": step.get("content", ""),
                 "tool_calls": copy.deepcopy(step.get("tool_calls", [])),
                 "status": step["status"],
+                "content_blocks": copy.deepcopy(step.get("content_blocks")),
             }
         ]
 
     def _enforce_total_limit(self) -> None:
         self._total_bytes = len(str(self.steps).encode("utf-8"))
         while self._total_bytes > MAX_STEPS_BYTES:
-            candidates = [item for item in self.steps if item.get("content")]
+            candidates = [
+                item for item in self.steps
+                if _step_display_text(item) not in {"", TRUNCATION_MARKER}
+            ]
             if not candidates:
                 break
-            largest = max(candidates, key=lambda item: len(str(item.get("content", ""))))
-            content = str(largest.get("content", ""))
-            keep = max(0, len(content) - max(1024, len(content) // 10))
-            largest["content"] = content[:keep] + "\n…（执行轨迹已截断）"
+            largest = max(candidates, key=lambda item: len(_step_display_text(item)))
+            content = _step_display_text(largest)
+            if largest.get("truncated") and content.endswith(TRUNCATION_MARKER):
+                content = content[:-len(TRUNCATION_MARKER)]
+            # 短步骤每次至多减半，避免只超出少量字节却整段删除。
+            # 每轮至少删除一个原字符；标记不再次参与截断，保证循环终止。
+            remove = min(max(1024, len(content) // 10), max(1, len(content) // 2))
+            keep = max(0, len(content) - remove)
+            largest["content"] = content[:keep] + TRUNCATION_MARKER
+            if "content_blocks" in largest:
+                bounded = []
+                remaining = keep
+                for block in largest["content_blocks"]:
+                    if remaining <= 0:
+                        break
+                    value = block["text"][:remaining]
+                    bounded.append({"type": block["type"], "text": value})
+                    remaining -= len(value)
+                if bounded:
+                    bounded[-1]["text"] += TRUNCATION_MARKER
+                else:
+                    kind = largest["content_blocks"][0]["type"] if largest["content_blocks"] else "text"
+                    bounded.append({"type": kind, "text": TRUNCATION_MARKER})
+                largest["content_blocks"] = bounded
             largest["truncated"] = True
             self._total_bytes = len(str(self.steps).encode("utf-8"))
 
@@ -438,7 +499,6 @@ class AssistantStepAccumulator:
             if not step or any(item.get("id") == step.get("id") for item in self.steps):
                 return
             self.steps.append(step)
-            self._filters.setdefault(str(step.get("id")), VisibleTextFilter())
             self._current_step_id = str(step.get("id"))
             self._enforce_total_limit()
             return
@@ -447,7 +507,7 @@ class AssistantStepAccumulator:
         if step is None:
             return
         if event_type == "assistant_text_delta":
-            self._append_text(step_id, str(event.get("delta", "")))
+            self.project_text_delta(step_id, str(event.get("delta", "")), kind=event.get("content_kind", "text"))
         elif event_type == "assistant_tool_call":
             call = event.get("call") or {}
             self._ensure_tool(
@@ -474,6 +534,8 @@ class AssistantStepAccumulator:
             step["content"] = sanitize_text(str(event.get("content", "")))[:MAX_STEP_TEXT]
             step["tool_calls"] = copy.deepcopy(event.get("tool_calls") or [])
             step["status"] = event.get("status", step.get("status", "completed"))
+            if event.get("content_blocks") is not None:
+                step["content_blocks"] = copy.deepcopy(event["content_blocks"])
             for tool in step["tool_calls"]:
                 self._call_to_step[str(tool.get("call_id", ""))] = step_id
         if event_type != "assistant_text_delta":
@@ -484,7 +546,7 @@ class AssistantStepAccumulator:
             content = _text(final_content or "")
             candidate = None
             for step in reversed(self.steps):
-                if not step.get("tool_calls") and (step.get("content") or content):
+                if not step.get("tool_calls") and _step_answer_text(step).strip():
                     candidate = step
                     break
             if candidate is None and content:
@@ -504,22 +566,24 @@ class AssistantStepAccumulator:
                 if step.get("status") in {"streaming", "running"}:
                     step["status"] = "waiting"
                 for tool in step.get("tool_calls", []) or []:
-                    if tool.get("status") == "running":
+                    if tool.get("status") in {"queued", "running"}:
                         tool["status"] = "waiting"
         else:
             for step in self.steps:
                 if step.get("status") in {"streaming", "running", "waiting"}:
                     step["status"] = "failed" if status == "failed" else "unknown"
                 for tool in step.get("tool_calls", []) or []:
-                    if tool.get("status") in {"running", "waiting"}:
+                    if tool.get("status") in {"queued", "running", "waiting"}:
                         tool["status"] = "unknown"
         self._enforce_total_limit()
         return _copy_steps(self.steps)
 
     def visible_content(self) -> str:
         for step in reversed(self.steps):
-            if step.get("content"):
-                return str(step["content"])
+            if not step.get("tool_calls"):
+                content = _step_answer_text(step)
+                if content.strip():
+                    return content
         return ""
 
 
@@ -558,6 +622,7 @@ def events_from_snapshot(message_id: str, steps: list[dict[str, Any]]) -> list[d
             "content": step.get("content", ""),
             "tool_calls": copy.deepcopy(step.get("tool_calls", [])),
             "status": step.get("status", "completed"),
+            "content_blocks": copy.deepcopy(step.get("content_blocks")),
         })
     return events
 

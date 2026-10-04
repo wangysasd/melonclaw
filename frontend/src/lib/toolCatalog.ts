@@ -251,6 +251,15 @@ export const TOOL_CATALOG: readonly ToolDefinition[] = [
     availabilityLabel: "按客户端能力",
   },
   {
+    name: "find_tools",
+    label: "查找可用工具",
+    description: "按名称或用途检索已授权工具，并在本轮后续调用中启用。",
+    category: "collaboration",
+    icon: "search",
+    availability: "core",
+    availabilityLabel: "核心工具",
+  },
+  {
     name: "list_mcp_tools",
     label: "查看 MCP 工具",
     description: "列出 MCP 服务、发现状态和运行时工具名称。",

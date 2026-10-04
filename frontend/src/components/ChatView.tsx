@@ -11,13 +11,12 @@ import { UserQuestionPanel } from "./UserQuestionPanel";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 import { ResultProvider } from "./ResultContext";
+import { ArtifactWorkspace, ArtifactTrigger, MessageArtifactCards } from "./ArtifactWorkspace";
 import { FailureNotice } from "./FailureNotice";
 import { StoppedRunNotice } from "./StoppedRunNotice";
 import { useUnreadChat } from "../hooks/useUnreadChat";
-import { AgentExecution } from "./AgentExecution";
-import { ToolCatalogDialog } from "./ToolCatalogDialog";
+import { AgentExecution, ExecutionActivityTiming } from "./AgentExecution";
 import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
-import { useServiceStatus } from "../hooks/useServiceStatus";
 import { buildAgentRun } from "../lib/agentRun";
 import { attachmentBadge } from "../lib/attachmentFiles";
 import { copyText } from "../lib/clipboard";
@@ -48,25 +47,88 @@ function questionKey(question: UserQuestionRequest): string {
 
 const WELCOME_PROMPTS = [
   {
-    key: "search",
-    icon: <Icon name="search" size={18} className="prompt-icon" />,
-    label: "来了解我",
-    description: "先来了解我能胜任什么工作",
-    prompt: "告诉我你有什么技能，并给出适用场景。",
+    key: "capabilities",
+    icon: <Icon name="brain" size={18} className="prompt-icon" />,
+    label: "了解助手能力",
+    description: "查看可以协助处理的研究任务",
+    prompt: "请介绍你能协助我完成哪些研究任务，并举例说明各自的适用场景。",
   },
   {
-    key: "organize",
-    icon: <Icon name="list-checks" size={18} className="prompt-icon" />,
-    label: "整理思路",
-    description: "把杂乱内容变成行动清单",
-    prompt: "请把下面这段内容整理成清晰的要点清单，并标出待确认的问题。",
+    key: "industry-outlook",
+    icon: <Icon name="scan-search" size={18} className="prompt-icon" />,
+    label: "查看行业观点",
+    description: "查询行业或赛道的最新周度观点",
+    prompt: "请查询【行业/赛道】最新一条周度观点，区分行业观点与赛道观点，保留原文并注明日期。",
   },
   {
-    key: "plan",
+    key: "research-reports",
+    icon: <Icon name="book-open" size={18} className="prompt-icon" />,
+    label: "检索研究报告",
+    description: "按公司、行业或方向查找最新报告",
+    prompt: "请按【公司/行业/研究方向】检索最新研究报告，列出标题、发布时间、摘要和评级信息，完整保留返回内容。",
+  },
+  {
+    key: "market-review",
     icon: <Icon name="calendar-days" size={18} className="prompt-icon" />,
-    label: "制定计划",
-    description: "拆解目标，安排节奏与下一步",
-    prompt: "请根据我的目标制定一周学习计划，安排每天的重点、时间和复盘方式。",
+    label: "复盘近期市场",
+    description: "回顾最近交易日或一周的A股行情",
+    prompt: "请复盘最近一个交易日的A股市场，梳理主要指数、行业板块表现和市场驱动因素，并总结后续观察要点。",
+  },
+  {
+    key: "financial-model",
+    icon: <Icon name="calculator" size={18} className="prompt-icon" />,
+    label: "查询公司财务数据",
+    description: "查看财务三表、指标或预测数据",
+    prompt: "请查询【公司】的营业收入、归母净利润等指标，或展示利润表、资产负债表、现金流量表；注明年份并区分实际值与预测值。",
+  },
+  {
+    key: "article-search",
+    icon: <Icon name="search" size={18} className="prompt-icon" />,
+    label: "搜索研究文章",
+    description: "查找主题文章与发布时间、摘要",
+    prompt: "请检索【主题】相关研究文章，整理标题、发布日期和正文摘要；若没有检索到，请明确说明。",
+  },
+  {
+    key: "performance-review",
+    icon: <Icon name="list-checks" size={18} className="prompt-icon" />,
+    label: "梳理业绩表现",
+    description: "提炼财务指标、经营亮点与风险",
+    prompt: "请点评【公司】最新一期业绩，提取核心财务指标，分析盈利驱动、经营亮点和潜在风险。",
+  },
+  {
+    key: "core-assumptions",
+    icon: <Icon name="brain" size={18} className="prompt-icon" />,
+    label: "拆解经营假设",
+    description: "分析业务贡献与关键变量敏感性",
+    prompt: "请拆解【公司】的业务线贡献和关键经营假设，说明各变量变化对收入、利润预测的敏感性。",
+  },
+  {
+    key: "earnings-forecast",
+    icon: <Icon name="calculator" size={18} className="prompt-icon" />,
+    label: "分析盈利预测",
+    description: "查看预测指标、业务贡献和变动原因",
+    prompt: "请查询【公司】未来几年的营收、净利润和每股收益预测，拆分业务贡献，解释预测变动并与同行对比。",
+  },
+  {
+    key: "stock-valuation",
+    icon: <Icon name="scan-search" size={18} className="prompt-icon" />,
+    label: "分析个股估值",
+    description: "结合历史分位、同业比较与基本面",
+    prompt: "请分析【公司】的PE、PB、PS指标、近1年和3年历史分位及同业估值差异，梳理估值支撑逻辑与风险。",
+  },
+  {
+    key: "industry-research",
+    icon: <Icon name="blocks" size={18} className="prompt-icon" />,
+    label: "研究行业赛道",
+    description: "梳理产业链、供需变化与竞争格局",
+    prompt: "请研究【行业/赛道】的产业链、供需变化、竞争格局和增长驱动，结合A股行业配置视角列出关键观察指标与风险。",
+  },
+  {
+    key: "macro-assets",
+    icon: <Icon name="globe-2" size={18} className="prompt-icon" />,
+    label: "分析宏观与资产",
+    description: "理解政策、利率汇率和跨资产传导",
+    prompt: "请分析【宏观主题】对经济周期、货币政策、利率、汇率、债券及海内外市场的传导关系，梳理跨资产逻辑并标注不确定性。",
   },
 ];
 
@@ -181,7 +243,7 @@ const MessageBubble = memo(function MessageBubble({
   userId: string;
   projectId: string;
 }) {
-  const metaLabel = message.role === "user" ? userName : "MelonClaw";
+  const metaLabel = message.role === "user" ? userName : __MELONCLAW_NAME__;
   const metaDetail =
     message.role === "user"
       ? formatMessageTime(message.timestamp ?? null)
@@ -191,13 +253,14 @@ const MessageBubble = memo(function MessageBubble({
       message.role === "assistant" ? buildAgentRun(message, conversationId) : null,
     [message, conversationId],
   );
-  // 执行过程与最终回答彻底分离：折叠只作用于执行过程，回答正文始终独立渲染。
-  const displayContent = run ? run.finalAnswer ?? "" : message.content;
-  const renderedContent = useDeferredValue(displayContent);
+  // 生成中的最后一个无工具 step 只作临时预览；终态仍使用服务端的最终正文。
+  const displayContent = run ? run.finalAnswer ?? run.liveAnswer ?? "" : message.content;
+  const deferredContent = useDeferredValue(displayContent);
+  const renderedContent = run?.status === "running" ? displayContent : deferredContent;
 
   return (
-    <ResultProvider userId={userId} conversationId={conversationId ?? ""} projectId={projectId || null}>
-    <article className={`message ${message.role}`}>
+    <ResultProvider userId={userId} conversationId={conversationId ?? ""} projectId={projectId || null} messageId={message.id}>
+    <article className={`message ${message.role}`} id={`message-${message.id}`} tabIndex={-1}>
       <div className={`avatar ${message.role === "user" ? "user-avatar" : "assistant-avatar"}`}>
         <img
           src={
@@ -205,7 +268,7 @@ const MessageBubble = memo(function MessageBubble({
               ? "/assets/brand/melon.png"
               : "/assets/brand/melonclaw-mark.png"
           }
-          alt={message.role === "user" ? userName : "MelonClaw"}
+          alt={message.role === "user" ? userName : __MELONCLAW_NAME__}
         />
       </div>
       <div className="message-content">
@@ -234,16 +297,19 @@ const MessageBubble = memo(function MessageBubble({
           conversationId={conversationId}
         />
         <div className="message-body">
+          {run?.status === "running" && run.liveAnswer ? <span className="assistant-live-label">生成中</span> : null}
           {message.role === "user" || displayContent ? (
             <Bubble
               placement={message.role === "user" ? "end" : "start"}
               variant={message.role === "assistant" ? "borderless" : "filled"}
               content={message.role === "assistant"
-                ? <Markdown source={renderedContent} streaming={message.status === "streaming"} />
+                ? <Markdown source={renderedContent} streaming={message.status === "streaming"} fileCardsAtEnd={message.status === "completed"} deliveredFiles={message.artifacts} />
                 : message.content}
             />
           ) : null}
         </div>
+        {run ? <ExecutionActivityTiming run={run} /> : null}
+        {message.role === "assistant" && message.status === "completed" ? <MessageArtifactCards artifacts={message.artifacts} /> : null}
         {run && message.status !== "streaming" ? <FailureNotice message={message} run={run} onSync={onSync} syncDisabled={syncDisabled} /> : null}
         {message.status === "cancelled" && run ? <StoppedRunNotice run={run} events={message.events} onSync={onSync} syncDisabled={syncDisabled} /> : null}
         <MessageFooter message={message} />
@@ -269,11 +335,9 @@ export function ChatView({
   onInitialSkillApplied,
 }: ChatViewProps = {}) {
   const session = useSession();
-  const { status } = useServiceStatus();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState("");
   const [awayFromBottom, setAwayFromBottom] = useState(false);
-  const [toolCatalogOpen, setToolCatalogOpen] = useState(false);
   const scrollFrame = useRef<number | null>(null);
   const approvalRef = useRef<HTMLDivElement>(null);
 
@@ -376,6 +440,7 @@ export function ChatView({
   const topbarTitle = projectName ? `${projectName}/${conversationTitle}` : conversationTitle;
 
   return (
+    <ArtifactWorkspace key={`${session.userId}:${session.conversationId ?? "new"}:${conversationProjectId ?? ""}`} userId={session.userId} conversationId={session.conversationId} projectId={conversationProjectId ?? null} projectName={projectName} messages={chatMatchesSelection ? chat.state.messages : []} onLocateMessage={chat.loadMessage}>
     <div className="chat-view">
       <header className="topbar">
         <div className="topbar-leading">
@@ -394,26 +459,8 @@ export function ChatView({
             {topbarTitle}
           </div>
         </div>
-        <button
-          type="button"
-          className="tool-catalog-trigger"
-          onClick={() => setToolCatalogOpen(true)}
-          aria-haspopup="dialog"
-          aria-expanded={toolCatalogOpen}
-          aria-label="系统状态"
-        >
-          <Icon name="shield-check" size={16} />
-          <span>系统状态</span>
-        </button>
+        <div className="topbar-actions"><ArtifactTrigger /></div>
       </header>
-
-      <ToolCatalogDialog
-        open={toolCatalogOpen}
-        userId={session.userId}
-        status={status}
-        modelOptions={session.modelOptions}
-        onClose={() => setToolCatalogOpen(false)}
-      />
 
       <div className="conversation" ref={scrollRef} aria-label="聊天记录"
         onScroll={() => setAwayFromBottom(!scroll.isNearBottom())}>
@@ -425,9 +472,9 @@ export function ChatView({
         ) : !hasMessages && !chat.state.approval && !chat.state.error ? (
           <div className="welcome">
             <div className="welcome-mark">
-              <img src="/assets/brand/melonclaw-mark.png" alt="" />
+              <img src="/assets/brand/melonclaw-word.png" alt="MelonClaw" />
             </div>
-            <h1>今天，让我们一起做些什么</h1>
+            <h1>请选择您需要的研究服务</h1>
             <Prompts
               className="prompt-grid"
               wrap
@@ -519,5 +566,6 @@ export function ChatView({
         }
       />
     </div>
+    </ArtifactWorkspace>
   );
 }

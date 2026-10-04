@@ -13,6 +13,7 @@ import { tokenCss } from "./theme/tokens";
 import { antdTheme, overlayStyles } from "./theme/antd";
 import "./styles/chat.css";
 import "./styles/sidebar.css";
+import "./styles/artifacts.css";
 
 function Workspace() {
   const session = useSession();

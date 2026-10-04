@@ -149,6 +149,19 @@ chat_messages = Table(
     Index("ix_chat_messages_conversation_seq", "conversation_id", "seq"),
 )
 
+conversation_artifacts = Table(
+    "conversation_artifacts",
+    metadata,
+    Column("conversation_id", PGUUID(as_uuid=True), ForeignKey("chat_conversations.id", ondelete="CASCADE"), primary_key=True),
+    Column("ref_key", String(64), primary_key=True),
+    Column("ref", JSONB, nullable=False),
+    Column("message_id", PGUUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False),
+    Column("message_seq", Integer, nullable=False),
+    Column("ordinal", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Index("ix_conversation_artifacts_delivery", "conversation_id", desc("message_seq"), "ordinal"),
+)
+
 user_interactions = Table(
     "user_interactions",
     metadata,

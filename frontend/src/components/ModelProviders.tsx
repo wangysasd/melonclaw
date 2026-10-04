@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { App as AntdApp, Button, Input, Modal, Switch } from "antd";
+import { App as AntdApp, Button, Input, Modal, Select, Switch } from "antd";
 
 import {
   createModel,
@@ -566,6 +566,22 @@ function ProviderModal({
           <label className="provider-edit-field">
             <span>Provider Type</span>
             <Input value={provider?.provider_type === "openai_compatible" || !provider ? "OpenAI Completions API" : provider.provider_type} disabled />
+          </label>
+          <label className="provider-edit-field">
+            <span>思考输出格式</span>
+            <Select aria-label="思考输出格式" disabled={saving || testing}
+              value={(() => { try { return (JSON.parse(form.extraConfig)._melonclaw?.reasoning_format as string) ?? "openai"; } catch { return "openai"; } })()}
+              options={[
+                { value: "openai", label: "标准 OpenAI" },
+                { value: "reasoning_content", label: "独立思考字段（DeepSeek / MiniMax reasoning_split）" },
+                { value: "think_tags", label: "正文中的 think 标签（MiniMax）" },
+                { value: "reasoning_details", label: "reasoning_details 文本与摘要" },
+              ]}
+              onChange={(value) => { try {
+                const config = parseJsonObject(form.extraConfig, "扩展配置");
+                config._melonclaw = { reasoning_format: value };
+                setForm((current) => ({ ...current, extraConfig: JSON.stringify(config, null, 2) }));
+              } catch (error) { notify.error(error instanceof Error ? error.message : String(error)); } }} />
           </label>
           <label className="provider-edit-field">
             <span>API Key Env</span>

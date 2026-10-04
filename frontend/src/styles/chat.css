@@ -94,7 +94,7 @@
 /* 欢迎页 */
 
 .welcome {
-  max-width: 640px;
+  max-width: 1040px;
   margin: 8vh auto 0;
   display: flex;
   flex-direction: column;
@@ -104,8 +104,9 @@
 }
 
 .welcome-mark img {
-  width: 64px;
-  height: 64px;
+  display: block;
+  width: 240px;
+  height: 80px;
   object-fit: contain;
 }
 
@@ -493,7 +494,7 @@
 .prompt-grid {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
   margin-top: 10px;
   text-align: left;
@@ -1681,7 +1682,7 @@
 }
 
 .prompt-grid.ant-prompts { display: block; }
-.prompt-grid.ant-prompts .ant-prompts-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+.prompt-grid.ant-prompts .ant-prompts-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
 .prompt-grid.ant-prompts .ant-prompts-item { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-card); background: #fff; color: var(--ink); box-shadow: none; transition: border-color var(--duration-fast) var(--ease-apple), background var(--duration-fast) var(--ease-apple);
   padding: var(--space-4);
 }
@@ -1690,9 +1691,6 @@
 .prompt-grid.ant-prompts .ant-prompts-desc { font-size: var(--text-md); }
 .prompt-grid.ant-prompts .prompt-icon { color: var(--brand-primary); }
 .prompt-grid.ant-prompts .ant-prompts-item:nth-child(3) .prompt-icon { color: var(--brand-coral); }
-@media (max-width: 640px) { .prompt-grid.ant-prompts .ant-prompts-list { grid-template-columns: 1fr;
-} }
-
 .send-button {
   width: 32px;
   height: 32px;
@@ -1732,13 +1730,17 @@
 
 @media (max-width: 900px) {
   .prompt-grid {
-    grid-template-columns: 1fr;
-    max-width: 480px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 680px;
     margin-right: auto;
     margin-left: auto;
   }
-  .prompt-grid.ant-prompts .ant-prompts-list { grid-template-columns: 1fr;
+  .prompt-grid.ant-prompts .ant-prompts-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+@media (max-width: 640px) {
+  .prompt-grid { grid-template-columns: 1fr; }
+  .prompt-grid.ant-prompts .ant-prompts-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
@@ -1973,13 +1975,6 @@
 .agent-step-progress { font-size: var(--text-md); color: var(--ink); }
 .agent-step-progress .message-markdown { max-width: none; font-size: var(--text-md); }
 
-.agent-step-pending {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  font-size: var(--text-md);
-}
 
 /* 同一步的多个工具只保留布局容器，不再增加重复的可交互摘要层。 */
 .agent-tool-list {
@@ -2112,4 +2107,19 @@
 }
 .result-table-wrapper > .result-secondary-actions button {
   padding-inline: var(--space-1);
+}
+
+.assistant-reasoning { color: var(--muted); font-size: var(--text-md); }
+.assistant-reasoning { margin: 8px 0 10px; }
+.assistant-reasoning summary { cursor: pointer; margin: 6px 0; }
+.assistant-reasoning-title { margin: 6px 0; }
+.assistant-reasoning-content p { margin: 0; }
+.assistant-reasoning-part + .assistant-reasoning-part { margin-top: 8px; }
+.assistant-live-label { display: block; margin: 4px 0; color: var(--muted); font-size: 14px; }
+
+.agent-activity-timing {
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
 }

@@ -16,6 +16,10 @@ vi.mock("../src/api/client", () => ({
   uploadAttachment: vi.fn(),
 }));
 
+vi.mock("../src/api/results", () => ({
+  conversationArtifacts: vi.fn(async () => ({ items: [] })),
+}));
+
 vi.mock("antd", async (importOriginal) => {
   const actual = await importOriginal<typeof import("antd")>();
   return {
@@ -79,6 +83,7 @@ const chatStub = {
   submitUserInput: vi.fn(),
   clearRestoreDraft: vi.fn(),
   reloadHistory: vi.fn(),
+  loadMessage: vi.fn(),
 };
 vi.mock("../src/hooks/useChatStream", () => ({ useChatStream: () => chatStub }));
 
@@ -156,6 +161,43 @@ describe("chatview draft", () => {
 
 describe("long-running chat feedback", () => {
   const assistantMessage = (): ChatMessage => ({ id: "a1", role: "assistant", content: "", status: "streaming", markdown: false, events: [], assistantSteps: [], phases: ["responding"] });
+  it("shows streaming text and reasoning in the message, then reconciles tool and final output", () => {
+    const step = { id: "s1", ordinal: 0, content: "先分析临时回答", status: "streaming" as const, is_final: false, tool_calls: [], content_blocks: [
+      { type: "reasoning" as const, text: "先分析" }, { type: "text" as const, text: "临时回答" },
+    ] };
+    chatState.messages = [{ ...assistantMessage(), assistantSteps: [step] }];
+    const view = render(<ChatView />);
+    expect(view.container.querySelector(".message-body")?.textContent).toContain("临时回答");
+    expect(view.container.querySelector(".assistant-reasoning")?.textContent).toContain("先分析");
+    expect(view.container.querySelector(".agent-execution-body")).toBeNull();
+
+    const toolStep = { ...step, tool_calls: [{ call_id: "c1", name: "read_file", batch_index: 0, status: "running" as const }] };
+    chatState.messages = [{ ...assistantMessage(), assistantSteps: [toolStep] }];
+    view.rerender(<ChatView />);
+    expect(view.container.querySelector(".message-body")?.textContent).not.toContain("临时回答");
+    expect(view.container.querySelector(".agent-execution-body")?.textContent).toContain("临时回答");
+
+    chatState.messages = [{ ...assistantMessage(), status: "completed", content: "最终答复", assistantSteps: [
+      { ...toolStep, status: "completed", tool_calls: [{ ...toolStep.tool_calls[0], status: "completed" as const }] },
+      { id: "s2", ordinal: 1, content: "最终答复", status: "completed", is_final: true, tool_calls: [] },
+    ] }];
+    view.rerender(<ChatView />);
+    expect(view.container.querySelector(".message-body")?.textContent).toContain("最终答复");
+    expect(view.container.querySelector(".assistant-reasoning summary")?.textContent).toBe("思考过程");
+    const execution = view.container.querySelector(".agent-execution")!;
+    expect(execution.children[0].className).toBe("agent-execution-head");
+    expect(execution.children[0].textContent).toContain("完成");
+    expect(execution.children[1].className).toBe("assistant-reasoning");
+    expect(execution.querySelector(".agent-tool summary")?.textContent).toContain("读取文件");
+    expect(execution.querySelector(".agent-execution-body")).not.toBeNull();
+    expect(execution.textContent).not.toContain("查看耗时");
+    expect(execution.textContent).not.toContain("最终答复");
+    fireEvent.click(screen.getByRole("button", { name: /查看执行步骤，完成/ }));
+    expect(execution.querySelector(".agent-execution-body")).toBeNull();
+    expect(execution.querySelector(".assistant-reasoning")).not.toBeNull();
+    expect(view.container.querySelector(".message-body")?.textContent).toContain("最终答复");
+    view.unmount();
+  });
   it("marks new text while browsing history and keeps the scroll position until clicked", async () => {
     chatState.messages = [assistantMessage()];
     const view = render(<ChatView />);

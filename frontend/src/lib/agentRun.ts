@@ -30,6 +30,7 @@ export interface AssistantProgressStep {
   content: string;
   /** 仍在流式生成，用于 Markdown 的流式渲染。 */
   streaming: boolean;
+  contentKind?: "text" | "reasoning";
 }
 
 export interface ToolCallStep {
@@ -44,6 +45,7 @@ export interface ToolCallStep {
   status: AssistantToolCall["status"];
   /** 服务端同时给了开始与结束时间才计算，否则为 null（不编造耗时）。 */
   durationMs: number | null;
+  startedAt?: number;
 }
 
 export type AgentStep = AssistantProgressStep | ToolCallStep;
@@ -97,6 +99,7 @@ export interface AgentRun {
   conversationId: string | null;
   status: AgentRunStatus;
   /** 当前消息最后观测到的公开阶段，不读取别的消息的全局状态。 */
+  timings?: ChatMessage["timings"];
   phase: ChatMessage["phases"][number] | null;
   startedAt: number | null;
   completedAt: number | null;
@@ -104,6 +107,10 @@ export interface AgentRun {
   durationMs: number | null;
   /** 过程步骤（按 ordinal + batch_index 的因果顺序）。 */
   steps: AgentStep[];
+  /** 模型实际返回的可读思考，与过程折叠状态独立。 */
+  reasoning: AssistantProgressStep[];
+  /** 当前根模型步骤的正文预览；工具调用出现时归回执行过程。 */
+  liveAnswer: string | null;
   /** 最终回答正文；与执行过程分离，不受折叠影响。 */
   finalAnswer: string | null;
 }
@@ -156,7 +163,7 @@ export function isRunForcedOpen(status: AgentRunStatus): boolean {
   return status === "running";
 }
 
-/** 实时运行时展开；进入完成态后默认收起，但仍可由用户展开查看完整过程。 */
+/** 状态决定的默认值；完成后的工具列表由展示组件保持展开，纯文字过程收起。 */
 export function isRunDefaultOpen(status: AgentRunStatus): boolean {
   return status !== "completed";
 }
@@ -186,6 +193,7 @@ function runStatusFromMessage(message: ChatMessage): AgentRunStatus {
 }
 
 function toolDuration(tool: AssistantToolCall): number | null {
+  if (typeof tool.duration_ms === "number") return Math.max(0, tool.duration_ms);
   const { started_at: startedAt, completed_at: completedAt } = tool;
   if (typeof startedAt !== "number" || typeof completedAt !== "number") return null;
   const duration = completedAt - startedAt;
@@ -194,18 +202,15 @@ function toolDuration(tool: AssistantToolCall): number | null {
 
 function stepToEntries(step: AssistantStep): AgentStep[] {
   const entries: AgentStep[] = [];
-  if (step.content.trim()) {
-    entries.push({
-      id: `${step.id}:text`,
-      type: "assistant_progress",
-      stepId: step.id,
-      content: step.content,
-      streaming: false,
+  const tools = [...step.tool_calls].sort((a, b) => a.batch_index - b.batch_index);
+  const blocks = step.content_blocks ?? [{ type: "text" as const, text: step.content }];
+  for (const [index, block] of blocks.entries()) {
+    if (block.text.trim()) entries.push({
+      id: `${step.id}:text:${index}`, type: "assistant_progress", stepId: step.id,
+      content: block.text, streaming: false, contentKind: block.type,
     });
   }
-  const tools = [...step.tool_calls].sort(
-    (left, right) => left.batch_index - right.batch_index,
-  );
+
   for (const tool of tools) {
     entries.push({
       id: `${step.id}:tool:${tool.call_id}`,
@@ -218,6 +223,7 @@ function stepToEntries(step: AssistantStep): AgentStep[] {
       error: tool.error ?? null,
       status: tool.status,
       durationMs: toolDuration(tool),
+      startedAt: tool.received_at,
     });
   }
   return entries;
@@ -227,8 +233,8 @@ function stepToEntries(step: AssistantStep): AgentStep[] {
  * 把助手消息归约成 AgentRun。
  *
  * - 工具结果按 `call_id` 合并进对应工具步骤，同名工具重复调用也各自独立。
- * - 只有后端终态快照标记的最终 step（`is_final`）才从执行过程里剥离为最终回答；
- *   流式期间没有任何 step 是最终回答，全部按过程展示。
+ * - 只有后端终态快照标记的最终 step（`is_final`）才是最终回答；
+ *   流式期间最近一个无工具 step 的正文只是临时预览。
  * - 纯函数：不读时间、不写状态，便于测试与复用。
  */
 export function buildAgentRun(
@@ -240,22 +246,41 @@ export function buildAgentRun(
     (left, right) => left.ordinal - right.ordinal,
   );
   const finalStep = ordered.find((step) => step.is_final) ?? null;
+  const latest = ordered.at(-1) ?? null;
+  const liveStep = status === "running" && latest && latest.tool_calls.length === 0
+    ? latest : null;
+  const liveAnswer = liveStep
+    ? (liveStep.content_blocks ?? [{ type: "text" as const, text: liveStep.content }])
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("") || null
+    : null;
 
   const steps: AgentStep[] = [];
+  const reasoning: AssistantProgressStep[] = [];
   for (const step of ordered) {
-    if (finalStep && step.id === finalStep.id) continue;
     const entries = stepToEntries(step);
     if (isTerminalRun(status) || status === "unconfirmed") {
       for (const entry of entries) {
-        if (entry.type === "tool_call" && (entry.status === "running" || entry.status === "waiting")) entry.status = "unknown";
+        if (entry.type === "tool_call" && (entry.status === "queued" || entry.status === "running" || entry.status === "waiting")) entry.status = "unknown";
       }
     }
-    steps.push(...entries);
+    for (const entry of entries) {
+      if (entry.type === "assistant_progress" && entry.contentKind === "reasoning") {
+        reasoning.push(entry);
+      } else if (step.id !== finalStep?.id && (step.id !== liveStep?.id || entry.type !== "assistant_progress")) {
+        steps.push(entry);
+      }
+    }
   }
   // 只把最后一段过程文本标成流式：避免每来一个 delta 就重渲染整段时间线的 Markdown。
   const tail = steps.at(-1);
-  if (status === "running" && tail?.type === "assistant_progress") {
+  if (status === "running" && tail?.type === "assistant_progress" && tail.stepId === latest?.id) {
     tail.streaming = true;
+  }
+  if (status === "running" && reasoning.at(-1)?.stepId === latest?.id
+    && latest?.content_blocks?.at(-1)?.type === "reasoning") {
+    reasoning[reasoning.length - 1].streaming = true;
   }
 
   const startedAt =
@@ -274,6 +299,7 @@ export function buildAgentRun(
     conversationId,
     status,
     phase: message.phases.at(-1) ?? null,
+    timings: message.timings,
     startedAt,
     completedAt,
     durationMs: durationMs ?? (
@@ -282,6 +308,8 @@ export function buildAgentRun(
         : null
     ),
     steps,
+    reasoning,
+    liveAnswer,
     finalAnswer: isTerminalRun(status) && message.content.trim()
       ? message.content
       : null,

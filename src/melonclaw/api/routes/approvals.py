@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from time import perf_counter
 from uuid import UUID
 
 from fastapi import APIRouter, Request
@@ -29,6 +30,7 @@ async def submit_approval(
     if not manager.ready:
         return JSONResponse(await manager.status(), status_code=503)
     try:
+        preparation_started = perf_counter()
         execution, command = await manager.prepare_approval(
             conversation_id,
             payload.user_id,
@@ -36,6 +38,7 @@ async def submit_approval(
             approval_batch_id=payload.approval_batch_id,
             assistant_message_id=payload.assistant_message_id,
         )
+        execution.preparation_duration_ms = int((perf_counter() - preparation_started) * 1000)
     except Exception as exc:  # noqa: BLE001 - 准备阶段需要真实 HTTP 状态码
         return error_response(exc)
     return stream_response(manager.stream_execution(execution, agent_input=command))

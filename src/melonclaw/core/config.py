@@ -78,6 +78,7 @@ class Settings:
     attachment_image_outbound_max_edge: int = 1568
     attachment_image_outbound_jpeg_quality: int = 85
     attachment_image_cache_entries: int = 32
+    tool_selection_timeout_seconds: int = 10
     agent_cache_entries: int = 32
     user_input_ttl_seconds: int = 24 * 60 * 60
 
@@ -96,6 +97,7 @@ def load_settings() -> Settings:
         workspace_root=_create_workspace_root(),
         database_url=os.getenv("DATABASE_URL", ""),
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
+        tool_selection_timeout_seconds=_int_setting("MELONCLAW_TOOL_SELECTION_TIMEOUT_SECONDS", 10),
         agent_cache_entries=_int_setting("MELONCLAW_AGENT_CACHE_ENTRIES", 32),
         attachment_max_file_bytes=_int_setting(
             "MELONCLAW_ATTACHMENT_MAX_FILE_MB", 20

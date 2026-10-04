@@ -77,25 +77,21 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.brand-mark {
-  width: 36px;
+  width: 140px;
   height: 36px;
-  object-fit: contain;
-  flex-shrink: 0;
+  flex: 0 0 140px;
+  overflow: hidden;
 }
 
 .brand-wordmark {
-  width: 150px;
-  height: 36px;
+  width: 176px;
+  height: auto;
   display: block;
-  flex: 0 1 auto;
-  min-width: 0;
-  object-fit: cover;
-  object-position: center;
+  flex: 0 0 176px;
+  max-width: none;
+  object-fit: contain;
+  filter: brightness(1.004);
+  transform: translateX(-8.6px);
 }
 
 .sidebar-primary-actions {
@@ -479,12 +475,20 @@
   font-size: var(--text-md);
 }
 
-/* 底部：用户选择器 */
+/* 底部：用户选择器与系统状态 */
 
 .sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   flex: 0 0 auto;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
   padding-top: 14px;
+}
+
+.sidebar-system-status {
+  width: 100%;
+  justify-content: flex-start;
 }
 
 .user-picker-label {

@@ -40,6 +40,7 @@ const RUN_STATUS_LABELS: Record<AgentRunStatus, string> = {
 };
 
 const TOOL_STATUS_LABELS: Record<AssistantToolStatus, string> = {
+  queued: "待执行",
   running: "执行中",
   completed: "完成",
   failed: "失败",
@@ -95,9 +96,9 @@ export function ExecutionHeader({
       className="agent-execution-head"
       onClick={onToggle}
       disabled={disabled}
-      aria-expanded={open}
-      aria-label={`查看执行步骤，${stage ?? RUN_STATUS_LABELS[run.status]}`}
-      title={disabled ? "正在执行，结束后可展开查看步骤" : undefined}
+      aria-expanded={disabled && run.status !== "running" ? undefined : open}
+      aria-label={`${disabled && run.status !== "running" ? "执行状态" : "查看执行步骤"}，${stage ?? RUN_STATUS_LABELS[run.status]}`}
+      title={run.status === "running" ? "正在执行，结束后可展开查看步骤" : undefined}
     >
       <Icon
         name={runStatusIcon(run.status)}
@@ -110,22 +111,48 @@ export function ExecutionHeader({
       {run.status === "unconfirmed" ? (
         <span className="agent-execution-hint">未连接这次执行，请重新同步会话</span>
       ) : null}
-      <Icon
+      {!disabled || run.status === "running" ? <Icon
         name="chevron-right"
         size={14}
         className="agent-execution-chevron"
         rotate={open ? 90 : 0}
-      />
+      /> : null}
     </button>
   );
 }
 
+/** 当前活动计时放在聊天正文下方，更新只影响这一行。 */
+export function ExecutionActivityTiming({ run }: { run: AgentRun }) {
+  const activity = run.timings ? [...run.timings.activities].reverse().find((item) => item.status === "started") : undefined;
+  const activeTool = run.steps.find((step): step is ToolCallStep => step.type === "tool_call" && step.status === "running" && step.startedAt !== undefined);
+  const activityTime = useElapsedMs(activeTool?.startedAt ?? activity?.receivedAt ?? null, run.status === "running" && (!!activity || !!activeTool));
+  if (run.status !== "running" || (!activity && !activeTool)) return null;
+  return <div className="agent-activity-timing" role="status">
+    本次{activeTool ? "工具执行" : activity?.kind === "selection" ? "工具选择" : "模型请求"} {formatDuration(activityTime)}
+  </div>;
+}
+
 function AssistantProgressItem({ step }: { step: AssistantProgressStep }) {
-  return (
-    <div className="agent-step agent-step-progress">
-      <Markdown source={step.content} streaming={step.streaming} />
-    </div>
-  );
+  const body = <Markdown source={step.content} streaming={step.streaming} />;
+  return <div className="agent-step agent-step-progress">{body}</div>;
+}
+
+/** 只展示实际可读思考，位于执行摘要下方，不随执行时间线收起。 */
+export function ReasoningPanel({ run }: { run: AgentRun }) {
+  if (run.reasoning.length === 0) return null;
+  const body = run.reasoning.map((step) => <div key={step.id} className="assistant-reasoning-part">
+        <Markdown source={step.content} streaming={step.streaming} />
+      </div>);
+  if (run.status === "running") {
+    return <section className="assistant-reasoning" aria-label="思考过程">
+      <div className="assistant-reasoning-title">思考过程{run.reasoning.at(-1)?.streaming ? " · 正在生成" : ""}</div>
+      <div className="assistant-reasoning-content">{body}</div>
+    </section>;
+  }
+  return <details className="assistant-reasoning">
+    <summary>思考过程</summary>
+    <div className="assistant-reasoning-content">{body}</div>
+  </details>;
 }
 
 function ToolCallItem({ tool }: { tool: ToolCallStep }) {
@@ -187,22 +214,13 @@ export function ExecutionTimeline({
   run,
   events,
   messageStatus,
-  phaseLabel,
 }: {
   run: AgentRun;
   events: DisplayEvent[];
   messageStatus: MessageStatus | "streaming" | null;
-  phaseLabel?: string;
 }) {
   if (run.steps.length === 0 && events.length === 0) {
-    // 只有确实还在跑的时候才显示阶段占位；等待/待确认时给转圈会误导。
-    if (!phaseLabel || run.status !== "running") return null;
-    return (
-      <div className="agent-step-pending" role="status">
-        <Icon name="loader-circle" size={16} className="mc-icon-spin" />
-        {`${phaseLabel}…`}
-      </div>
-    );
+    return null;
   }
   return (
     <div className="agent-timeline">
@@ -240,11 +258,14 @@ export function AgentExecution({
   // null = 用户还没手动操作过，按状态默认值；有值后不再被 rerender 或重复完成事件覆盖。
   const [override, setOverride] = useState<boolean | null>(null);
   const forcedOpen = isRunForcedOpen(run.status);
-  // 运行中强制展开；完成后默认收起，用户点击状态摘要即可恢复完整时间线。
-  const open = forcedOpen ? true : override ?? isRunDefaultOpen(run.status);
-  // 旧历史消息可能既没有步骤也没有事件：保持原样展示，不凭空造一个空执行区域。
+  const hasTimeline = run.steps.length > 0 || events.length > 0;
+  const hasTools = run.steps.some((step) => step.type === "tool_call") || events.length > 0;
+  // 工具列表完成后仍默认可见；用户可以收起，思考栏始终独立。
+  const open = forcedOpen ? true : override ?? (hasTools || isRunDefaultOpen(run.status));
+  // 纯文字回复保留状态与真实总耗时；没有观测信息时不造空区域。
   const hasContent =
-    run.steps.length > 0 || events.length > 0 || !isTerminalRun(run.status);
+    hasTimeline || run.reasoning.length > 0 || run.durationMs !== null
+    || run.timings !== undefined || !isTerminalRun(run.status);
   if (!hasContent) return null;
   return (
     <section
@@ -256,10 +277,11 @@ export function AgentExecution({
         stage={stage}
         plan={plan}
         open={open}
-        disabled={forcedOpen}
+        disabled={forcedOpen || !hasTimeline}
         onToggle={() => setOverride(!open)}
       />
-      {open ? (
+      <ReasoningPanel run={run} />
+      {open && hasTimeline ? (
         <div className="agent-execution-body">
           {plan ? <details className="agent-task-plan">
             <summary>查看任务清单</summary>
@@ -272,7 +294,6 @@ export function AgentExecution({
             run={run}
             events={events}
             messageStatus={messageStatus}
-            phaseLabel={stage ?? undefined}
           />
         </div>
       ) : null}

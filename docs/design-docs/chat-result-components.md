@@ -5,7 +5,7 @@
 
 ## 背景与目标
 
-在现有聊天链路内，让输出成为可查看、可核对、可下载的结果。普通文字继续使用 Markdown；图片、文件、差异、数据图表和来源使用固定组件。没有引入 A2UI，也不运行模型输出的 HTML、JavaScript 或任意 ECharts 配置。
+在现有聊天链路内，让输出成为可查看、可核对、可下载的结果。普通文字继续使用 Markdown；图片、文件、差异、数据图表和来源使用固定组件。没有引入 A2UI，聊天正文不执行模型 HTML／JavaScript 或任意 ECharts 配置；HTML 文件的独立隔离预览见 [对话产物](conversation-artifacts.md)。
 
 ## 方案与数据流
 
@@ -14,7 +14,7 @@
 3. `resultBlocks.ts` 校验版本、类型、字段白名单、大小、行宽、有限数值和来源 URL。`ResultBlockView` 选择固定组件。绘图和数据表共用 `rows`，缺失值使用 null、不填零；CSV 导出空单元格。
 4. 附件引用 `attachment_id`，沿用附件权限 API；服务端 hydration 在模型请求副本中提供真实 ID，不把图片 base64 写入图状态。
 5. 成果文件只能引用 `/outputs/` 的虚拟路径。`ResultFileService` 解析有效用户、校验会话和所属项目后使用现有工作区定位；`storage/results.py` 用目录 fd 和 `O_NOFOLLOW` 逐层打开，拒绝隐藏路径、相对跳转、符号链接和非普通文件。
-6. 文件名、类型、大小来自服务器。下载时再次核验，以受控流读取同一个文件描述符，避免检查后替换路径。前端用 Blob 下载，失败可见；预览只允许核验的图片、小型 UTF-8 文本和 PDF。
+6. 文件名、类型、大小来自服务器。下载时再次核验，以受控流读取同一个文件描述符，避免检查后替换路径。前端用 Blob 下载，失败可见；图片、小型 UTF-8 文本和 PDF 共用产物面板预览，HTML 另经受限预览响应。
 
 ## 统一结果格式
 
@@ -55,7 +55,7 @@ ref 只接受 `{"attachment_id":"实际 UUID"}` 或 `{"path":"/outputs/实际文
 - `GET /api/conversations/{conversation_id}/result-files?user_id=...&path=/outputs/...`：返回 file_name、size_bytes、media_type、preview_kind。
 - `GET /api/conversations/{conversation_id}/result-files/content?user_id=...&path=/outputs/...`：默认 attachment 下载；`preview=true` 仅在支持的类型上内联。
 
-重新解析用户有效租户归属、重新校验会话／项目，不相信模型的身份或宿主机路径。内容响应带 nosniff、sandbox CSP、no-store。PNG/JPEG/WebP/GIF 检查实际内容和像素限制；PDF 检查标识，浏览器预览放在 sandbox iframe；文本预览上限 200000 字节，React 纯文本渲染。其它类型（含 HTML、SVG、Office）只下载。成果读取受现有单附件大小限制控制，不新增环境变量。
+重新解析用户有效租户归属、重新校验会话／项目，不相信模型的身份或宿主机路径。内容响应带 nosniff、sandbox CSP、no-store。PNG/JPEG/WebP/GIF 检查实际内容和像素限制；PDF 检查标识，浏览器预览放在 sandbox iframe；文本预览上限 200000 字节，React 纯文本渲染（Markdown 可安全渲染并切换源码）。SVG、Office 等只下载。HTML 普通 content 接口仍仅下载，专门预览响应和 2 MB UTF-8 约束见 [对话产物](conversation-artifacts.md)。成果读取受现有单附件大小限制控制，不新增环境变量。
 
 没有新增 Agent 工具，没有新增副作用；文件生成仍走既有 HITL 工具，不加入 Interpreter/PTC。读取 HTTP 接口无需 HITL，因只读且先校验归属。
 
@@ -88,3 +88,5 @@ npm --prefix frontend run build
 - 前端结果组件测试覆盖真实 Markdown 接入、未闭合流式围栏、格式失败与危险字段拒绝、图表／数据表一致性、公式文本／CSV 转义、编号来源定位、图片失败重试、真实元信息展示、纯文本预览与下载失败、长差异折叠。
 - 桌面与 390px 窄屏使用实际组件、ECharts／Mermaid，以及实际 ResultFileService 和 HTTP 读取路由，数据与归属仓储使用本地固定夹具。两种图表、图片、文件预览正常；窄屏整页无横向溢出，表格自己滚动、按钮 44px。截获下载 Blob 核对绘图 CSV 数值及单位，Mermaid SVG 导出成功，文本预览显示实际文件正文。
 - 未连接真实数据库、模型或外部 MCP 进行端到端验证；不能据此声称模型稳定遵守格式或来源事实已经独立核验。
+
+结果块使用严格 JSON 和 `melon-result` 围栏。来源标题／引用内的英文双引号、反斜杠和换行须按 JSON 规则转义；语法错误时界面明确提示检查转义及括号、逗号，并保留原文，不自动猜测修复来源内容。修改输出提示词后，重启后端以让下一轮回复使用新约束；历史消息保持原文。

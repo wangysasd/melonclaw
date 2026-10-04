@@ -273,6 +273,7 @@ export type AssistantStepStatus =
   | "unknown";
 
 export type AssistantToolStatus =
+  | "queued"
   | "running"
   | "completed"
   | "failed"
@@ -290,6 +291,10 @@ export interface AssistantToolCall {
   /** epoch 毫秒；服务端只在真实观测到调用/结果时写入，缺失表示没有可靠耗时。 */
   started_at?: number;
   completed_at?: number;
+  /** 工具实际执行的单调时钟耗时，毫秒。 */
+  duration_ms?: number;
+  /** 当前订阅观测到实际执行的客户端时间，不持久化。 */
+  received_at?: number;
 }
 
 export interface AssistantStep {
@@ -300,6 +305,7 @@ export interface AssistantStep {
   status: AssistantStepStatus;
   is_final: boolean;
   tool_calls: AssistantToolCall[];
+  content_blocks?: { type: "text" | "reasoning"; text: string }[];
   truncated?: boolean;
 }
 
@@ -316,11 +322,13 @@ export interface Message {
   content: string;
   /** 新协议始终返回完整的助手步骤快照；空数组表示本轮没有过程步骤。 */
   assistant_steps: AssistantStep[];
+  artifacts: ({ path: string } | { attachment_id: string })[];
   execution_duration_ms?: number | null;
   created_at?: string;
   error_code?: string | null;
   model?: MessageModel | null;
   display_metadata?: {
+    timings?: RunTimings;
     events?: DisplayEvent[];
     skill?: { id: string; display_name: string };
     capabilities?: string[];
@@ -503,8 +511,26 @@ export interface SendUserInputInput {
 
 /* ---------- SSE 流事件 ---------- */
 
+export interface RunActivity {
+  type: "run_activity";
+  id: string;
+  kind: "model" | "selection";
+  status: "started" | "completed" | "unknown";
+  duration_ms?: number;
+  first_text_ms?: number;
+  first_reasoning_ms?: number;
+  outcome?: "selected" | "degraded";
+  receivedAt?: number;
+}
+
+export interface RunTimings {
+  preparation_ms: number;
+  activities: RunActivity[];
+}
+
 export type StreamEvent =
-  | { type: "run_phase"; phase: "selecting_tools" | "thinking" }
+  | RunActivity
+  | { type: "run_phase"; phase: "selecting_tools" | "thinking" | "waiting_model" | "preparing_tools" | "preparing_file" | "responding" }
   | {
       type: "message_started";
       conversation_id: string;
@@ -514,6 +540,7 @@ export type StreamEvent =
       resuming?: boolean;
       model?: MessageModel;
       attachments?: AttachmentSummary[];
+      preparation_duration_ms?: number;
     }
   | { type: "text"; text: string }
   | {
@@ -526,6 +553,7 @@ export type StreamEvent =
       message_id: string;
       step_id: string;
       delta: string;
+      content_kind?: "text" | "reasoning";
     }
   | {
       type: "assistant_tool_call";
@@ -547,6 +575,7 @@ export type StreamEvent =
       content: string;
       tool_calls: AssistantToolCall[];
       status: AssistantStepStatus;
+      content_blocks?: AssistantStep["content_blocks"];
     }
   | {
       type: "tool_call";
@@ -611,7 +640,9 @@ export type StreamEvent =
       content: string;
       /** 终态权威快照；前端不再从局部增量推断最终步骤。 */
       assistant_steps: AssistantStep[];
+      artifacts: ({ path: string } | { attachment_id: string })[];
       execution_duration_ms?: number | null;
+      timings?: RunTimings;
       replayed?: boolean;
     }
   | { type: "done"; message_id?: string; terminal_reason?: string; replayed?: boolean }

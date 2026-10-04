@@ -82,6 +82,12 @@ describe("explicit task plan", () => {
 });
 
 describe("stop outcome", () => {
+  it("reports preserved reasoning when generation stops before a final answer", () => {
+    const source = message([], { status: "cancelled" });
+    source.assistantSteps[0].content_blocks = [{ type: "reasoning", text: "已分析部分问题" }];
+    const run = buildAgentRun(source);
+    expect(stoppedRunSummary(run, []).preserved).toEqual(["思考内容"]);
+  });
   it("preserves received content and separates completed, failed and unconfirmed operations", () => {
     const run = buildAgentRun(message([
       tool("write_file", "completed", { args_preview: '{"file_path":"report.md"}', result_preview: "written" }),
