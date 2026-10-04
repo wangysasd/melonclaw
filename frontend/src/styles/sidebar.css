@@ -35,13 +35,6 @@
   padding: var(--space-4) var(--space-2);
 }
 
-.collapsed-brand-mark {
-  width: 36px;
-  height: 36px;
-  object-fit: contain;
-  flex: 0 0 auto;
-}
-
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -263,7 +256,7 @@
 }
 
 .project-group { min-width: 0; }
-.project-children { margin-left: 13px; padding-left: var(--space-2); border-left: 1px solid var(--line); }
+.project-children { margin-left: 13px; padding-left: var(--space-2); }
 .project-children .conversation-item { padding-left: var(--space-1);
   min-height: var(--control-height-lg);
   border-radius: var(--radius-control);
@@ -550,7 +543,7 @@
   font-size: var(--text-md);
 }
 
-/* 折叠态（桌面）：只保留品牌标志和恢复按钮。 */
+/* 折叠态（桌面）：只保留恢复侧栏按钮。 */
 
 .sidebar-content.is-collapsed .sidebar-expand {
   flex: 0 0 auto;

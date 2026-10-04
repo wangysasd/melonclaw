@@ -237,11 +237,6 @@ export function SidebarContent({
   if (collapsed) {
     return (
       <div className="sidebar-content is-collapsed">
-        <img
-          className="collapsed-brand-mark"
-          src="/assets/brand/melonclaw-mark.png"
-          alt="MelonClaw"
-        />
         <button
           type="button"
           className="icon-button sidebar-expand"
@@ -249,7 +244,7 @@ export function SidebarContent({
           aria-label="展开侧栏"
           title="展开侧栏"
         >
-          <Icon name="chevron-right" size={16} />
+          <Icon name="panel-right" size={16} />
         </button>
       </div>
     );
@@ -272,7 +267,7 @@ export function SidebarContent({
           aria-label="收起侧栏"
           title="收起侧栏"
         >
-          <Icon name="chevron-right" size={16} rotate={180} />
+          <Icon name="panel-left" size={16} />
         </button>
       </div>
 
@@ -356,7 +351,7 @@ export function SidebarContent({
                         title={`在「${project.name}」中新建会话`}
                         aria-label={`在「${project.name}」中新建会话`}
                       >
-                        <Icon name="message-square-plus" size={16} />
+                        <Icon name="square-pen" size={16} />
                       </button>
                     </div>
                     {expanded ? (
