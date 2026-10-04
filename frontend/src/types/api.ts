@@ -39,6 +39,7 @@ export interface ModelOption {
   scope?: "global" | "user";
   config_version?: number;
   input_modalities?: string[];
+  context_window?: number;
 }
 
 export interface ModelCatalog {
@@ -218,6 +219,7 @@ export interface ManageableModel {
   /** 是否为默认模型（全局至多一个，每个用户的个人模型至多一个）。 */
   is_default: boolean;
   input_modalities: string[];
+  context_window: number;
   created_by: string;
 }
 
@@ -529,6 +531,8 @@ export interface RunTimings {
 }
 
 export type StreamEvent =
+  | { type: "model_usage"; call_id: string; kind: "main" | "selection" | "summary" | "subagent"; model_id: string; status: "started" | "completed" | "failed"; estimated_input_tokens: number; input_tokens: number | null; output_tokens: number | null; cache_read_tokens: number | null }
+  | { type: "context_usage"; scope: "main" | "subagent"; estimated_input_tokens: number; context_window: number; summary_trigger_tokens: number }
   | RunActivity
   | { type: "run_phase"; phase: "selecting_tools" | "thinking" | "waiting_model" | "preparing_tools" | "preparing_file" | "responding" }
   | {

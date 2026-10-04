@@ -6,11 +6,11 @@ from melonclaw.middleware.attachment_hydration import (
     AttachmentHydrationProvider,
 )
 from melonclaw.middleware.file_ordering import FileOperationOrderingMiddleware
-from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
+from melonclaw.middleware.tool_selection import ToolPoolMiddleware
 from melonclaw.middleware.user_input_guard import UserInputGuardMiddleware
 
 __all__ = [
-    "CatalogToolSelectorMiddleware",
+    "ToolPoolMiddleware",
     "FileOperationOrderingMiddleware",
     "AttachmentHydrationMiddleware",
     "AttachmentHydrationProvider",

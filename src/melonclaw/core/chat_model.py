@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
+from langchain_core.exceptions import ContextOverflowError
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_openai import ChatOpenAI
 from pydantic import Field
@@ -14,7 +15,11 @@ from melonclaw.core.reasoning import ThinkTagParser, protocol_options, reasoning
 
 
 class ModelInvocationError(RuntimeError):
-    """模型调用失败；保留 cause 供执行层分类，不改变重试策略。"""
+    """模型调用失败；保留 cause 和流式输出标记供重试分类。"""
+
+    def __init__(self, message: str, *, partial_output: bool = False) -> None:
+        super().__init__(message)
+        self.partial_output = partial_output
 
 
 class ProviderChatOpenAI(ChatOpenAI):
@@ -85,14 +90,17 @@ class ProviderChatOpenAI(ChatOpenAI):
     async def _agenerate(self, *args: Any, **kwargs: Any) -> Any:
         try:
             return await super()._agenerate(*args, **kwargs)
+        except ContextOverflowError:
+            raise
         except Exception as exc:
-            raise ModelInvocationError(str(exc)) from exc
+            raise ModelInvocationError("模型请求失败，请检查模型服务状态或配置。") from exc
 
     async def _astream(self, *args: Any, **kwargs: Any) -> AsyncIterator[Any]:
         parser = ThinkTagParser()
         ordinal = -1
         last_kind = None
         last = None
+        partial_output = False
         try:
             async for chunk in super()._astream(*args, **kwargs):
                 if self.reasoning_format != "openai" and isinstance(chunk.message, AIMessageChunk):
@@ -112,6 +120,7 @@ class ProviderChatOpenAI(ChatOpenAI):
                     chunk.message.content = blocks
                     chunk.message.response_metadata["output_version"] = "v1"
                     last = chunk
+                partial_output |= bool(chunk.message.content or chunk.message.tool_call_chunks)
                 yield chunk
             if self.reasoning_format == "think_tags" and last is not None:
                 tail = parser.feed("", final=True)
@@ -122,15 +131,19 @@ class ProviderChatOpenAI(ChatOpenAI):
                             last_kind = block["type"]
                         block["index"] = ordinal
                     yield last.model_copy(update={"message": AIMessageChunk(content=tail, response_metadata={"output_version": "v1"})})
+        except ContextOverflowError as exc:
+            if not partial_output:
+                raise
+            raise ModelInvocationError("模型输出中断，上下文超出限制。", partial_output=True) from exc
         except Exception as exc:
-            raise ModelInvocationError(str(exc)) from exc
+            raise ModelInvocationError("模型请求失败，请检查模型服务状态或配置。", partial_output=partial_output) from exc
 
     @property
     def lc_secrets(self) -> dict[str, str]:
         return {**super().lc_secrets, "default_headers": "MELONCLAW_PROVIDER_HEADERS"}
 
 
-def build_chat_model(model: ResolvedModel) -> ChatOpenAI:
+def build_chat_model(model: ResolvedModel, *, output_reserve: int = 4096) -> ChatOpenAI:
     """按一次运行解析出的模型配置创建 ChatModel，不打印凭据。"""
 
     # adapter_type 是唯一的工厂分派键：模型目录里的行（不论平台种子还是用户
@@ -147,11 +160,16 @@ def build_chat_model(model: ResolvedModel) -> ChatOpenAI:
         api_key=model.api_key,
         base_url=model.base_url,
         temperature=0,
+        max_retries=0,
+        max_tokens=output_reserve,
+        stream_usage=True,
         default_headers=model.request_headers,
         extra_body=extra_body,
         reasoning_format=reasoning_format,
     )
     profile = {
+        "max_input_tokens": model.context_window - output_reserve,
+        "max_output_tokens": output_reserve,
         "image_inputs": "image" in model.input_modalities,
         "pdf_inputs": "file" in model.input_modalities,
     }

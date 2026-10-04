@@ -23,6 +23,7 @@ from typing import Any
 import httpx
 
 from melonclaw.core.config import provider_env_key
+from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW, MAX_CONTEXT_WINDOW
 from melonclaw.services.provider_config import ModelConfigError, validate_provider_advanced
 from melonclaw.services.skill_content import check_requirements, preview_content
 from melonclaw.services.skill_import import MAX_ARCHIVE_ENTRIES, MAX_ARCHIVE_TOTAL_BYTES
@@ -138,11 +139,12 @@ class ModelConfigPayload:
     scope: str
     display_name: str
     model_name: str
+    context_window: int = DEFAULT_CONTEXT_WINDOW
     enabled: bool = True
 
 
 def validate_model_payload(payload: ModelConfigPayload) -> None:
-    """校验模型配置；连接与凭据归属供应商，模型只记名称。"""
+    """校验模型名称与上下文窗口；连接与凭据归属供应商。"""
 
     if not MODEL_KEY_RE.fullmatch(payload.model_key):
         raise ModelConfigError(
@@ -152,8 +154,14 @@ def validate_model_payload(payload: ModelConfigPayload) -> None:
         raise ModelConfigError("供应商标识不能为空。")
     if not payload.display_name.strip():
         raise ModelConfigError("模型显示名称不能为空。")
+    validate_context_window(payload.context_window)
     if not payload.model_name.strip():
         raise ModelConfigError("模型名称不能为空。")
+
+
+def validate_context_window(value: int) -> None:
+    if type(value) is not int or not 0 < value <= MAX_CONTEXT_WINDOW:
+        raise ModelConfigError("上下文窗口必须是 1 到 2147483647 之间的整数 tokens。")
 
 
 def model_public_dict(row: dict[str, Any], provider_row: dict[str, Any]) -> dict[str, Any]:
@@ -170,6 +178,7 @@ def model_public_dict(row: dict[str, Any], provider_row: dict[str, Any]) -> dict
         "enabled": bool(row["enabled"]),
         "is_default": bool(row["is_default"]),
         "input_modalities": [str(item) for item in row["input_modalities"]],
+        "context_window": int(row["context_window"]),
         "created_by": row["created_by"],
     }
 
@@ -708,6 +717,7 @@ class ResourceService:
             source_type="manual",
             display_name=payload.display_name,
             model_name=payload.model_name,
+            context_window=payload.context_window,
             created_by=user_id,
             enabled=payload.enabled,
         )
@@ -732,6 +742,7 @@ class ResourceService:
         enabled: bool | None = None,
         display_name: str | None = None,
         model_name: str | None = None,
+        context_window: int | None = None,
         is_default: bool | None = None,
     ) -> None:
         """更新模型配置；连接与凭据的变更走供应商管理。
@@ -741,6 +752,8 @@ class ResourceService:
 
         role = await self._role(user_id)
         await self._require_model_row(user_id, model_key, role)
+        if context_window is not None:
+            validate_context_window(context_window)
         if is_default is not None:
             if not is_default:
                 raise ModelConfigError("不支持取消默认模型，请把默认切换给其他模型。")
@@ -756,6 +769,8 @@ class ResourceService:
             if not model_name.strip():
                 raise ModelConfigError("模型名称不能为空。")
             fields["model_name"] = model_name.strip()
+        if context_window is not None:
+            fields["context_window"] = context_window
         if fields:
             await self.storage.update_model_row(model_key, **fields)
 

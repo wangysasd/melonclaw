@@ -58,10 +58,13 @@ it("edits provider advanced settings and preserves the selected status when savi
   fireEvent.click(screen.getByText("高级配置"));
   fireEvent.change(screen.getByLabelText("请求头 JSON"), { target: { value: '{"X-Client":"test"}' } });
   fireEvent.change(screen.getByLabelText("扩展配置 JSON"), { target: { value: '{"enable_thinking":true}' } });
+  fireEvent.mouseDown(screen.getByRole("combobox", { name: "思考输出格式" }));
+  fireEvent.click(await screen.findByText("独立思考字段（DeepSeek）"));
   fireEvent.click(screen.getByRole("switch", { name: "状态" }));
   fireEvent.click(screen.getByRole("button", { name: /确\s*定/ }));
   await waitFor(() => expect(updateProvider).toHaveBeenCalledWith("deepseek", expect.objectContaining({
-    enabled: false, apiKeyEnv: "TEST_API_KEY", requestHeaders: { "X-Client": "test" }, extraConfig: { enable_thinking: true },
+    enabled: false, apiKeyEnv: "TEST_API_KEY", requestHeaders: { "X-Client": "test" },
+    extraConfig: { _melonclaw: { reasoning_format: "reasoning_content" }, enable_thinking: true },
   })));
 });
 

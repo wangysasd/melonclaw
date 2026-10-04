@@ -16,6 +16,7 @@ import {
   updateProvider,
 } from "../api/client";
 import type { ManageableModel, ManageableProvider } from "../types/api";
+import { ContextWindowInput, DEFAULT_CONTEXT_WINDOW, ModelContextWindowEditor } from "./ModelContextWindow";
 import { Icon } from "./Icon";
 import { getProviderAvatar } from "./providerIcons";
 
@@ -568,22 +569,6 @@ function ProviderModal({
             <Input value={provider?.provider_type === "openai_compatible" || !provider ? "OpenAI Completions API" : provider.provider_type} disabled />
           </label>
           <label className="provider-edit-field">
-            <span>思考输出格式</span>
-            <Select aria-label="思考输出格式" disabled={saving || testing}
-              value={(() => { try { return (JSON.parse(form.extraConfig)._melonclaw?.reasoning_format as string) ?? "openai"; } catch { return "openai"; } })()}
-              options={[
-                { value: "openai", label: "标准 OpenAI" },
-                { value: "reasoning_content", label: "独立思考字段（DeepSeek / MiniMax reasoning_split）" },
-                { value: "think_tags", label: "正文中的 think 标签（MiniMax）" },
-                { value: "reasoning_details", label: "reasoning_details 文本与摘要" },
-              ]}
-              onChange={(value) => { try {
-                const config = parseJsonObject(form.extraConfig, "扩展配置");
-                config._melonclaw = { reasoning_format: value };
-                setForm((current) => ({ ...current, extraConfig: JSON.stringify(config, null, 2) }));
-              } catch (error) { notify.error(error instanceof Error ? error.message : String(error)); } }} />
-          </label>
-          <label className="provider-edit-field">
             <span>API Key Env</span>
             <Input value={form.apiKeyEnv} placeholder="如 DASHSCOPE_API_KEY" disabled={saving || testing}
               onChange={(event) => setForm((current) => ({ ...current, apiKeyEnv: event.target.value }))} />
@@ -630,11 +615,42 @@ function ProviderModal({
               onChange={(event) => setForm((current) => ({ ...current, requestHeaders: event.target.value }))} />
           </label>
           <label className="provider-edit-field">
+            <span>思考输出格式</span>
+            <Select
+              aria-label="思考输出格式"
+              disabled={saving || testing}
+              value={(() => {
+                try { return JSON.parse(form.extraConfig)._melonclaw?.reasoning_format ?? "openai"; }
+                catch { return "openai"; }
+              })()}
+              options={[
+                { value: "openai", label: "标准 OpenAI（默认）" },
+                { value: "reasoning_content", label: "独立思考字段（DeepSeek）" },
+                { value: "think_tags", label: "正文 think 标签（MiniMax）" },
+                { value: "reasoning_details", label: "思考详情字段（OpenRouter）" },
+              ]}
+              onChange={(value: string) => {
+                try {
+                  const config = parseJsonObject(form.extraConfig, "扩展配置");
+                  config._melonclaw = { reasoning_format: value };
+                  setForm((current) => ({ ...current, extraConfig: JSON.stringify(config, null, 2) }));
+                } catch (error) {
+                  notify.error(error instanceof Error ? error.message : String(error));
+                }
+              }}
+            />
+          </label>
+          <label className="provider-edit-field">
             <span>扩展配置 JSON</span>
             <Input.TextArea rows={4} value={form.extraConfig} disabled={saving || testing}
+              aria-describedby="provider-extra-config-help"
               onChange={(event) => setForm((current) => ({ ...current, extraConfig: event.target.value }))} />
           </label>
-          <p className="resource-hint">扩展配置作为附加请求体发送，请勿填写密钥。请求头留空保留，输入 {"{}"} 清空。</p>
+          <p className="resource-hint provider-edit-help" id="provider-extra-config-help">
+            上方选择会同步到 <code>_melonclaw.reasoning_format</code>。
+            <code>_melonclaw</code> 仅用于本地解析，其余扩展配置作为附加请求体发送，请勿填写密钥。
+          </p>
+          <p className="resource-hint">请求头留空保留，输入 {"{}"} 清空。</p>
         </details>
         <p className="resource-hint">
           {isAdmin ? "供应商配置全局共享" : "供应商由管理员统一管理"}
@@ -676,7 +692,7 @@ function ModelManageModal({
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteSearch, setRemoteSearch] = useState("");
   const [showManual, setShowManual] = useState(false);
-  const [manual, setManual] = useState({ modelKey: "", displayName: "", modelName: "" });
+  const [manual, setManual] = useState({ modelKey: "", displayName: "", modelName: "", contextWindow: DEFAULT_CONTEXT_WINDOW as number | null });
   const [busyKey, setBusyKey] = useState("");
 
   useEffect(() => {
@@ -740,7 +756,8 @@ function ModelManageModal({
   };
 
   const submitManual = () => {
-    if (!provider) return;
+    const contextWindow = manual.contextWindow;
+    if (!provider || !contextWindow || contextWindow <= 0) return;
     void runAction(async () => {
       await createModel({
         userId,
@@ -749,9 +766,10 @@ function ModelManageModal({
         scope: modelScope,
         displayName: manual.displayName.trim(),
         modelName: manual.modelName.trim(),
+        contextWindow,
       });
       setShowManual(false);
-      setManual({ modelKey: "", displayName: "", modelName: "" });
+      setManual({ modelKey: "", displayName: "", modelName: "", contextWindow: DEFAULT_CONTEXT_WINDOW as number | null });
     }, "已创建模型");
   };
 
@@ -781,11 +799,12 @@ function ModelManageModal({
                   {!model.enabled ? <span className="resource-warning">（已停用）</span> : null}
                 </span>
                 <span className="resource-description">
-                  {model.model_key} · {model.model_name}
+                  {model.model_key} · {model.model_name} · 窗口 {model.context_window.toLocaleString()} tokens
                 </span>
               </span>
               {(model.scope === "global" ? isAdmin : model.created_by === userId) ? (
                 <>
+                  <ModelContextWindowEditor model={model} userId={userId} onChanged={onChanged} />
                   <Switch
                     size="small"
                     checked={model.enabled}
@@ -870,7 +889,8 @@ function ModelManageModal({
             value={manual.modelName}
             onChange={(event) => setManual((c) => ({ ...c, modelName: event.target.value }))}
           />
-          <Button type="primary" onClick={submitManual}>
+          <ContextWindowInput value={manual.contextWindow} onChange={(value) => setManual((current) => ({ ...current, contextWindow: value }))} />
+          <Button type="primary" onClick={submitManual} disabled={!manual.contextWindow || manual.contextWindow <= 0}>
             创建
           </Button>
         </div>

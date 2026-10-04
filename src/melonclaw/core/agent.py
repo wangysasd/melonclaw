@@ -8,11 +8,13 @@ from typing import Any
 
 from deepagents import create_deep_agent
 from deepagents.backends.protocol import BackendProtocol
+from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 
 from melonclaw.backend import build_agent_backend
+from melonclaw.core.agent_controls import build_agent_controls
 from melonclaw.core.chat_model import build_chat_model
 from melonclaw.core.config import Settings
 from melonclaw.core.hitl import SENSITIVE_TOOL_INTERRUPTS, mcp_interrupts
@@ -36,14 +38,14 @@ from melonclaw.middleware import (
 )
 from melonclaw.middleware.skill_refresh import SkillRefreshMiddleware
 from melonclaw.middleware.tool_name_guard import ToolNameGuardMiddleware
-from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
+from melonclaw.middleware.tool_selection import ToolPoolMiddleware
+from melonclaw.middleware.usage_observation import UsageObservationMiddleware
 from melonclaw.tool.mcp_install import McpInstallProvider, build_mcp_install_tools
 from melonclaw.tool.skill_install import SkillInstallProvider, build_skill_install_tools
 from melonclaw.tool.tool_discovery import build_tool_discovery
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
 
 TOOL_NAMES_PREVIEW_LIMIT = 12
-MAX_SELECTED_TOOLS_PER_MODEL_CALL = 16
 
 
 @dataclass(frozen=True)
@@ -93,27 +95,24 @@ def _tool_name(tool: object) -> str:
 def _build_tool_selector_middleware(
     model: BaseChatModel,
     tools: list[object],
-    timeout_seconds: int = 10,
-) -> AgentMiddleware:
-    """构造动态工具选择器。
+    settings: Settings,
+) -> ToolPoolMiddleware:
+    """组装官方选择器的按需生命周期，仅索引已授权的应用工具。"""
 
-    所有模型都经 ``chat_model.py`` 的 OpenAI 兼容 ``ChatOpenAI`` 适配，目录行的
-    ``provider`` 只是展示标签（用户自建行由运营者填写），因此这里不按 provider
-    分派，统一使用项目的目录型选择器。
-    """
-
-    return CatalogToolSelectorMiddleware(
+    return ToolPoolMiddleware(
         model=model,
-        catalog_tool_names=[
-            _tool_name(tool)
+        catalog_tools=[
+            tool
             for tool in tools
             if _tool_name(tool) not in {
                 FIND_TOOLS_NAME, MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "prepare_skill_creation",
                 "confirm_skill_install", "prepare_mcp_install", "test_mcp_install", "confirm_mcp_install",
             }
         ],
-        max_tools=MAX_SELECTED_TOOLS_PER_MODEL_CALL,
-        timeout_seconds=timeout_seconds,
+        pool_size=settings.tool_pool_size,
+        selection_size=settings.tool_selection_size,
+        max_requests=settings.tool_selection_max_requests,
+        timeout_seconds=settings.tool_selection_timeout_seconds,
     )
 
 
@@ -150,7 +149,8 @@ async def build_research_agent(
 
     workspace_dir.mkdir(parents=True, exist_ok=True)
     resolved_model = model
-    chat_model: BaseChatModel = build_chat_model(resolved_model)
+    settings.summary_trigger_tokens(resolved_model.context_window)
+    chat_model: BaseChatModel = build_chat_model(resolved_model, output_reserve=settings.agent_output_reserve)
     tools = await build_agent_tools(
         settings,
         mcp_servers=mcp_servers,
@@ -162,8 +162,8 @@ async def build_research_agent(
         tools.extend(build_mcp_install_tools(mcp_install_provider))
     resolved_mcp_servers = mcp_servers or {}
     user_input_enabled = supports_user_input(client_capabilities)
-    tools.append(build_tool_discovery(list(tools)))
-    tool_selector = _build_tool_selector_middleware(chat_model, tools, settings.tool_selection_timeout_seconds)
+    tools.append(build_tool_discovery(settings.tool_selection_max_requests))
+    tool_selector = _build_tool_selector_middleware(chat_model, tools, settings)
     interpreter = build_interpreter_middleware()
     backend, skill_sources, skill_permissions = build_agent_backend(
         workspace_dir,
@@ -198,10 +198,10 @@ async def build_research_agent(
         print(f"已启用 MCP 服务: {server_names}")
         print(f"已注入 Agent 工具: {_format_tool_summary(tools)}")
         print(
-            "每轮主模型动态选择工具上限: "
-            f"{MAX_SELECTED_TOOLS_PER_MODEL_CALL}"
+            "会话业务工具池上限: "
+            f"{settings.tool_pool_size}"
         )
-        print("动态工具选择器: CatalogToolSelectorMiddleware")
+        print("动态工具选择器: ToolPoolMiddleware")
 
     middleware: list[AgentMiddleware] = [
         SkillRefreshMiddleware(backend, skill_sources),
@@ -220,11 +220,34 @@ async def build_research_agent(
     if attachment_hydration_provider is not None:
         middleware.insert(0, AttachmentHydrationMiddleware(attachment_hydration_provider))
 
+    middleware = [*build_agent_controls(
+        chat_model, backend, settings, context_window=resolved_model.context_window,
+        tool_pool=tool_selector,
+    ), *middleware]
+    middleware = [m for m in middleware if not isinstance(m, UsageObservationMiddleware)] + [
+        m for m in middleware if isinstance(m, UsageObservationMiddleware)
+    ]
+    child_controls = build_agent_controls(
+        chat_model, backend, settings, context_window=resolved_model.context_window,
+        scope="subagent", tool_pool=tool_selector,
+    )
+    child_middleware = [m for m in child_controls if not isinstance(m, UsageObservationMiddleware)] + [
+        tool_selector, *[m for m in child_controls if isinstance(m, UsageObservationMiddleware)]
+    ]
     agent = create_deep_agent(
         name="quickstart-research-agent",
         model=chat_model,
         tools=tools,
         middleware=middleware,
+        subagents=[{
+            **GENERAL_PURPOSE_SUBAGENT,
+            "tools": tools,
+            "middleware": child_middleware,
+            "skills": skill_sources or None,
+            "system_prompt": GENERAL_PURPOSE_SUBAGENT["system_prompt"] + (
+                "\n优先使用当前工具；缺少能力时调用 find_tools 描述具体需求，下一轮使用新增工具。"
+            ),
+        }],
         backend=backend,
         skills=skill_sources or None,
         permissions=skill_permissions or None,
@@ -238,6 +261,7 @@ async def build_research_agent(
         interrupt_on={**SENSITIVE_TOOL_INTERRUPTS, **mcp_interrupts(tools)},
     )
 
+    agent.melonclaw_usage_enabled = settings.agent_usage_enabled
     agent.melonclaw_mcp_failed = any(
         getattr(tool, "metadata", None) and tool.metadata.get("mcp_failures") for tool in tools
     )

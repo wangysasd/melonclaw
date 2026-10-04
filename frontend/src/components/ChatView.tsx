@@ -10,6 +10,7 @@ import { ApprovalPanel } from "./ApprovalPanel";
 import { UserQuestionPanel } from "./UserQuestionPanel";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
+import { MessageUsage } from "./MessageUsage";
 import { ResultProvider } from "./ResultContext";
 import { ArtifactWorkspace, ArtifactTrigger, MessageArtifactCards } from "./ArtifactWorkspace";
 import { FailureNotice } from "./FailureNotice";
@@ -17,7 +18,7 @@ import { StoppedRunNotice } from "./StoppedRunNotice";
 import { useUnreadChat } from "../hooks/useUnreadChat";
 import { AgentExecution, ExecutionActivityTiming } from "./AgentExecution";
 import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
-import { buildAgentRun } from "../lib/agentRun";
+import { buildAgentRun, isTerminalRun } from "../lib/agentRun";
 import { attachmentBadge } from "../lib/attachmentFiles";
 import { copyText } from "../lib/clipboard";
 import { formatMessageTime } from "../lib/format";
@@ -312,6 +313,7 @@ const MessageBubble = memo(function MessageBubble({
         {message.role === "assistant" && message.status === "completed" ? <MessageArtifactCards artifacts={message.artifacts} /> : null}
         {run && message.status !== "streaming" ? <FailureNotice message={message} run={run} onSync={onSync} syncDisabled={syncDisabled} /> : null}
         {message.status === "cancelled" && run ? <StoppedRunNotice run={run} events={message.events} onSync={onSync} syncDisabled={syncDisabled} /> : null}
+        {run && isTerminalRun(run.status) ? <MessageUsage events={message.events} /> : null}
         <MessageFooter message={message} />
       </div>
     </article>

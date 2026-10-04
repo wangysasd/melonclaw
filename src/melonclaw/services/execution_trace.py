@@ -26,6 +26,12 @@ class ExecutionTrace:
             return
         if kind not in DISPLAY_EVENT_TYPES:
             return
+        if kind in {"model_usage", "context_usage"}:
+            key = "call_id" if kind == "model_usage" else "scope"
+            previous = next((item for item in self.events if item.get("type") == kind and item.get(key) == event.get(key)), None)
+            if previous is not None:
+                previous.update(event)
+                return
         if kind == "subagent_text":
             for previous in reversed(self.events):
                 if previous.get("subagent_id") != event.get("subagent_id"):
@@ -40,6 +46,9 @@ class ExecutionTrace:
         return {"events": self.events, "timings": self.timings}
 
     def close(self) -> None:
+        for event in self.events:
+            if event.get("type") == "model_usage" and event.get("status") == "started":
+                event["status"] = "unknown"
         for activity in self.timings["activities"]:
             if activity["status"] == "started":
                 activity["status"] = "unknown"

@@ -88,6 +88,7 @@ def make_row(model_key, **overrides):
         "enabled": True,
         "is_default": False,
         "input_modalities": ["text"],
+        "context_window": 1_000_000,
         "created_by": "admin",
         "version": 1,
     }

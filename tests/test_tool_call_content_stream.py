@@ -7,11 +7,14 @@ import httpx
 import pytest
 from langchain.agents import create_agent
 from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
 
 from melonclaw.core.chat_model import ProviderChatOpenAI
-from melonclaw.middleware.tool_selection import CatalogToolSelectorMiddleware
+from melonclaw.core.tool_catalog import catalog_fingerprint
+from melonclaw.middleware.tool_selection import ToolPoolMiddleware
 from melonclaw.output.assistant_steps import AssistantStepAccumulator
 from melonclaw.output.events import iter_research_events
+from melonclaw.tool.tool_discovery import build_tool_discovery
 
 
 @pytest.mark.parametrize("with_selector", [False, True])
@@ -57,6 +60,8 @@ def test_content_streams_before_and_during_tool_call_generation_and_survives_exe
         def respond(request):
             body = json.loads(request.content)
             messages = body["messages"]
+            if with_selector:
+                assert {t["function"]["name"] for t in body["tools"]} == {"find_tools", "read_probe"}
             selection = messages[0]["role"] == "system" and "你是工具路由器" in messages[0]["content"]
             has_result = any(m["role"] == "tool" for m in messages)
             requests.append("selector" if selection else "answer")
@@ -88,13 +93,21 @@ def test_content_streams_before_and_during_tool_call_generation_and_survives_exe
                 model="probe-model", api_key="offline-placeholder", base_url="https://probe.invalid/v1",
                 http_async_client=client,
             )
-            middleware = [CatalogToolSelectorMiddleware(
-                model=model, catalog_tool_names={"read_probe", "other_probe"}, max_tools=1,
+            middleware = [ToolPoolMiddleware(
+                model=model, catalog_tools=[read_probe, other_probe], pool_size=1,
             )] if with_selector else []
-            agent = create_agent(model, tools=[read_probe, other_probe], middleware=middleware)
+            agent = create_agent(model, tools=[read_probe, other_probe, build_tool_discovery()], middleware=middleware, checkpointer=InMemorySaver())
             projector = AssistantStepAccumulator(message_id="answer", run_id="probe")
+            config = {"configurable": {"thread_id": "probe"}}
+            if with_selector:
+                await agent.aupdate_state(config, {
+                    "messages": [{"role": "user", "content": "test", "id": "u"}],
+                    "tool_pool": {"fingerprint": catalog_fingerprint([read_probe, other_probe]),
+                                  "turn_id": "u", "names": ["read_probe"], "processed": [], "outcome": "selected"},
+                }, as_node="ToolPoolMiddleware.before_model")
             stream = iter_research_events(
-                agent, {"messages": [{"role": "user", "content": "test"}]}, {}, projector=projector,
+                agent, {"messages": [{"role": "user", "content": "test", "id": "u"}]},
+                config, projector=projector,
             )
             emitted = []
             try:
@@ -123,7 +136,7 @@ def test_content_streams_before_and_during_tool_call_generation_and_survives_exe
                 assert [s["content"] for s in snapshot] == [preamble + during_call, final]
                 assert snapshot[0]["tool_calls"][0]["name"] == "read_probe"
                 assert snapshot[0]["tool_calls"][0]["result_preview"] == "probe result"
-                assert requests == (["selector", "answer", "answer"] if with_selector else ["answer", "answer"])
+                assert requests == ["answer", "answer"]
             finally:
                 finish_generation.set()
                 finish_tool.set()

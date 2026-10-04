@@ -18,6 +18,7 @@ from sqlalchemy import and_, delete, func, insert, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from melonclaw.core.config import provider_env_key
+from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW
 from melonclaw.database.schema import (
     model_configs,
     model_providers,
@@ -490,6 +491,7 @@ class ResourceRepositoryMixin:
         enabled: bool = True,
         is_default: bool = False,
         input_modalities: list[str] | None = None,
+        context_window: int = DEFAULT_CONTEXT_WINDOW,
     ) -> dict[str, Any]:
         timestamp = _now()
         row = {
@@ -503,6 +505,7 @@ class ResourceRepositoryMixin:
             "enabled": enabled,
             "is_default": is_default,
             "input_modalities": list(input_modalities or ["text"]),
+            "context_window": context_window,
             "created_by": created_by,
             "version": 1,
             "created_at": timestamp,

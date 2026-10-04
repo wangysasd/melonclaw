@@ -13,6 +13,9 @@ from typing import Any, Literal
 
 MODEL_SOURCE = Literal["system", "custom"]
 
+DEFAULT_CONTEXT_WINDOW = 1_000_000
+MAX_CONTEXT_WINDOW = 2_147_483_647
+
 CUSTOM_MODEL_ID_PREFIX = "custom:"
 
 @dataclass(frozen=True)
@@ -28,6 +31,7 @@ class ResolvedModel:
     base_url: str | None
     api_key: str = field(repr=False)
     input_modalities: frozenset[str] = frozenset({"text"})
+    context_window: int = DEFAULT_CONTEXT_WINDOW
     config_version: int = 1
     provider_version: int = 1
     request_headers: dict[str, str] = field(default_factory=dict, repr=False)
@@ -66,6 +70,7 @@ class ResolvedModel:
             "config_version": self.config_version,
             "provider_version": self.provider_version,
             "input_modalities": sorted(self.input_modalities),
+            "context_window": self.context_window,
         }
 
 
@@ -104,6 +109,7 @@ def catalog_item(
         "is_default": bool(row["is_default"]),
         "scope": row["scope"],
         "input_modalities": _row_modalities(row),
+        "context_window": int(row["context_window"]),
     }
 
 
@@ -132,6 +138,7 @@ def resolve_model_row(
         base_url=provider_row["base_url"],
         api_key=api_key,
         input_modalities=frozenset(_row_modalities(row)),
+        context_window=int(row["context_window"]),
         config_version=int(row["version"]),
         provider_version=int(provider_row["version"]),
         request_headers=dict(provider_row["request_headers"]),

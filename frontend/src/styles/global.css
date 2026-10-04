@@ -792,6 +792,11 @@ body {
   margin: var(--space-4) 0;
   font-weight: var(--weight-medium);
 }
+.provider-edit-help {
+  font-size: var(--text-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .provider-edit-modal .ant-modal-body {
   max-height: calc(100dvh - 240px);
   overflow-y: auto;

@@ -468,6 +468,10 @@ describe("agent execution panel", () => {
     const { container } = render(
       <AgentExecution
         run={buildAgentRun(assistant({ status: "completed", content: "很久以前的答复" }))}
+        events={[
+          { type: "model_usage", call_id: "main", kind: "main", input_tokens: 10, output_tokens: 4 },
+          { type: "context_usage", scope: "main", estimated_input_tokens: 100 },
+        ]}
       />,
     );
 

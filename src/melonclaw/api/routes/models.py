@@ -65,6 +65,7 @@ async def create_model(
                 scope=body.scope,
                 display_name=body.display_name,
                 model_name=body.model_name,
+                context_window=body.context_window,
                 enabled=body.enabled,
             ),
         )
@@ -89,6 +90,7 @@ async def update_model(
             enabled=body.enabled,
             display_name=body.display_name,
             model_name=body.model_name,
+            context_window=body.context_window,
             is_default=body.is_default,
         )
         return JSONResponse({"ok": True})

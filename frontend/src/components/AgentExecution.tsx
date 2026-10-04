@@ -253,13 +253,14 @@ export function AgentExecution({
   events?: DisplayEvent[];
   messageStatus?: MessageStatus | "streaming" | null;
 }) {
-  const stage = currentRunStage(run, events, waitingFor);
+  const timelineEvents = events.filter((event) => event.type !== "model_usage" && event.type !== "context_usage");
+  const stage = currentRunStage(run, timelineEvents, waitingFor);
   const plan = confirmedTaskPlan(run.steps);
   // null = 用户还没手动操作过，按状态默认值；有值后不再被 rerender 或重复完成事件覆盖。
   const [override, setOverride] = useState<boolean | null>(null);
   const forcedOpen = isRunForcedOpen(run.status);
-  const hasTimeline = run.steps.length > 0 || events.length > 0;
-  const hasTools = run.steps.some((step) => step.type === "tool_call") || events.length > 0;
+  const hasTimeline = run.steps.length > 0 || timelineEvents.length > 0;
+  const hasTools = run.steps.some((step) => step.type === "tool_call") || timelineEvents.length > 0;
   // 工具列表完成后仍默认可见；用户可以收起，思考栏始终独立。
   const open = forcedOpen ? true : override ?? (hasTools || isRunDefaultOpen(run.status));
   // 纯文字回复保留状态与真实总耗时；没有观测信息时不造空区域。
@@ -292,7 +293,7 @@ export function AgentExecution({
           </details> : null}
           <ExecutionTimeline
             run={run}
-            events={events}
+            events={timelineEvents}
             messageStatus={messageStatus}
           />
         </div>

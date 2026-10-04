@@ -54,6 +54,7 @@ def make_row(**overrides):
         "enabled": True,
         "is_default": False,
         "input_modalities": ["text"],
+        "context_window": 1_000_000,
         "created_by": "admin-1",
         "version": 3,
     }
@@ -781,3 +782,57 @@ class PersonalProviderCreationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(storage.providers["my-gateway"]["enabled"])
         with self.assertRaisesRegex(ModelConfigError, "个人 API Key"):
             await service.create_model("member-2", make_payload(scope="user", model_key="other"))
+
+
+class ModelContextWindowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_default_window_and_update_roundtrip(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload())
+        await service.create_model("admin-1", make_payload())
+        row = storage.rows["my-gpt"]
+        provider = storage.providers["my-gateway"]
+        self.assertEqual(row["context_window"], 1_000_000)
+        await service.update_model("admin-1", "my-gpt", context_window=128_000)
+        self.assertEqual(model_public_dict(row, provider)["context_window"], 128_000)
+        self.assertEqual(catalog_item(row, provider)["context_window"], 128_000)
+        resolved = resolve_model_row(row, provider)
+        self.assertEqual(resolved.context_window, 128_000)
+        self.assertEqual(resolved.public_dict()["context_window"], 128_000)
+        from melonclaw.core.chat_model import build_chat_model
+        model = build_chat_model(resolved)
+        self.assertEqual(model.profile["max_input_tokens"], 128_000 - 4096)
+        self.assertEqual(model.max_retries, 0)
+
+    async def test_invalid_window_rejected_at_create_and_update(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload())
+        await service.create_model("admin-1", make_payload())
+        for value in (0, -1, 1.5, True, "1000000", 2_147_483_648):
+            with self.subTest(value=value):
+                with self.assertRaises(ModelConfigError):
+                    validate_model_payload(make_payload(context_window=value))
+                with self.assertRaises(ModelConfigError):
+                    await service.update_model("admin-1", "my-gpt", context_window=value)
+        self.assertEqual(storage.rows["my-gpt"]["context_window"], 1_000_000)
+
+    def test_api_window_default_and_strict_validation(self):
+        from pydantic import ValidationError
+
+        from melonclaw.api.schemas import ModelConfigCreateRequest, ModelConfigUpdateRequest
+        fields = dict(user_id="admin-1", model_key="model", provider_key="provider", scope="global",
+                      display_name="Model", model_name="remote")
+        self.assertEqual(ModelConfigCreateRequest(**fields).context_window, 1_000_000)
+        self.assertIsNone(ModelConfigUpdateRequest(user_id="admin-1").context_window)
+        for value in (0, -1, 1.5, True, "1000000", 2_147_483_648):
+            with self.assertRaises(ValidationError):
+                ModelConfigCreateRequest(**fields, context_window=value)
+
+    async def test_member_cannot_change_shared_model_window(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload())
+        await service.create_model("admin-1", make_payload())
+        with self.assertRaises(ResourcePermissionError):
+            await service.update_model("member-1", "my-gpt", context_window=128_000)

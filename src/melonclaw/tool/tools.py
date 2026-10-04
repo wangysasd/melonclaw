@@ -7,10 +7,10 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from melonclaw.core.config import Settings
@@ -21,7 +21,6 @@ from melonclaw.core.mcp_config import (
 )
 from melonclaw.tool.search import internet_search
 
-ToolDefinition = Callable[..., Any] | dict[str, Any]
 MCP_CATALOG_TOOL_NAME = "list_mcp_tools"
 
 
@@ -57,10 +56,10 @@ def _safe_mcp_exception(exc: BaseException) -> str:
     return redact_mcp_sensitive_text(_format_mcp_exception(exc), os.environ)
 
 
-def build_custom_tools(settings: Settings) -> list[ToolDefinition]:
-    """返回本项目领域工具。"""
+def build_custom_tools(settings: Settings) -> list[BaseTool]:
+    """在装配入口生成完整工具定义，供选择器与 Agent 共用。"""
 
-    return [internet_search]
+    return [StructuredTool.from_function(internet_search)]
 
 
 def build_mcp_catalog_tool(
@@ -110,7 +109,7 @@ def build_mcp_catalog_tool(
 async def _load_mcp_tools_with_catalog(
     servers: dict[str, dict[str, Any]],
     tool_allowlists: dict[str, tuple[str, ...]] | None = None,
-) -> tuple[list[ToolDefinition], dict[str, tuple[str, ...]], dict[str, str]]:
+) -> tuple[list[BaseTool], dict[str, tuple[str, ...]], dict[str, str]]:
     """发现 MCP 工具，同时记录实际暴露给 Agent 的工具清单。"""
 
     valid = {name: config for name, config in servers.items() if not config.get("configuration_error")}
@@ -177,7 +176,7 @@ def wrap_mcp_tool(server_name, original, config):
 async def load_mcp_tools(
     servers: dict[str, dict[str, Any]],
     tool_allowlists: dict[str, tuple[str, ...]] | None = None,
-) -> list[ToolDefinition]:
+) -> list[BaseTool]:
     """加载多个 MCP 服务的工具，并跳过发现失败的服务。"""
 
     if not servers:
@@ -201,8 +200,8 @@ async def build_agent_tools(
     *,
     mcp_servers: dict[str, dict[str, Any]] | None = None,
     mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
-) -> list[ToolDefinition]:
-    """异步组合自定义 callable 和可选 MCP 工具。
+) -> list[BaseTool]:
+    """异步组合已具备名称、描述与参数 schema 的应用和 MCP 工具。
 
     MCP 配置由运行时按当前用户从数据库解析后显式传入。
     """
@@ -210,7 +209,7 @@ async def build_agent_tools(
     servers = mcp_servers or {}
     allowlists = mcp_tool_allowlists or {}
 
-    tools: list[ToolDefinition] = build_custom_tools(settings)
+    tools: list[BaseTool] = build_custom_tools(settings)
     if not servers:
         tools.append(build_mcp_catalog_tool({}, {}))
         return tools

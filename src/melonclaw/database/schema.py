@@ -23,6 +23,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
+from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW
+
 metadata = MetaData()
 
 tenants = Table(
@@ -518,6 +520,8 @@ model_configs = Table(
     Column("enabled", Boolean, nullable=False, server_default="true"),
     # 默认模型：全局至多一个，每个用户的个人模型至多一个。
     Column("is_default", Boolean, nullable=False, server_default="false"),
+    Column("context_window", Integer, nullable=False, server_default=str(DEFAULT_CONTEXT_WINDOW)),
+    CheckConstraint("context_window > 0", name="ck_model_configs_context_window"),
     # 模型接受的输入形态（["text"] / ["text", "image"]），目录与运行时共用。
     Column("input_modalities", JSONB, nullable=False, server_default='["text"]'),
     Column(

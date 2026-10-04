@@ -50,6 +50,23 @@ def _int_setting(name: str, default: int, *, minimum: int = 1) -> int:
     return value
 
 
+def _bool_setting(name: str, default: bool) -> bool:
+    raw = os.getenv(name, str(default)).strip().lower()
+    if raw not in {"true", "false", "1", "0"}:
+        raise RuntimeError(f"{name} 必须是 true/false 或 1/0。")
+    return raw in {"true", "1"}
+
+
+def _ratio_setting(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} 必须是 0 到 1 之间的小数。") from exc
+    if not 0 < value < 1:
+        raise RuntimeError(f"{name} 必须大于 0 且小于 1。")
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     """应用运行配置，不包含模型连接或模型凭据。"""
@@ -79,8 +96,38 @@ class Settings:
     attachment_image_outbound_jpeg_quality: int = 85
     attachment_image_cache_entries: int = 32
     tool_selection_timeout_seconds: int = 10
+    tool_pool_size: int = 16
+    tool_selection_size: int = 8
+    tool_selection_max_requests: int = 4
+    agent_output_reserve: int = 4096
+    agent_summary_trigger_ratio: float = 0.8
+    agent_summary_keep_tokens: int = 4096
+    agent_model_call_limit: int = 30
+    agent_tool_call_limit: int = 100
+    agent_retry_max_retries: int = 2
+    agent_retry_initial_delay: int = 1
+    agent_retry_max_delay: int = 10
+    agent_usage_enabled: bool = True
+    agent_todo_enabled: bool = True
     agent_cache_entries: int = 32
     user_input_ttl_seconds: int = 24 * 60 * 60
+
+    def __post_init__(self) -> None:
+        if not 0 < self.agent_summary_trigger_ratio < 1:
+            raise ValueError("摘要触发比例必须大于 0 且小于 1。")
+        if self.agent_output_reserve <= 0 or self.agent_summary_keep_tokens <= 0:
+            raise ValueError("输出预留和摘要保留 token 必须大于 0。")
+        if self.agent_retry_max_delay < self.agent_retry_initial_delay:
+            raise ValueError("最大重试间隔不能小于初始间隔。")
+
+    def summary_trigger_tokens(self, context_window: int) -> int:
+        """按数据库模型窗口计算阈值，并校验输出与近期保留预算。"""
+        trigger = int(context_window * self.agent_summary_trigger_ratio)
+        if context_window <= self.agent_output_reserve or trigger + self.agent_output_reserve > context_window:
+            raise ValueError("模型上下文窗口不足以容纳压缩阈值与输出预留，请调整模型窗口或摘要比例。")
+        if self.agent_summary_keep_tokens >= trigger:
+            raise ValueError("摘要保留 token 必须小于当前模型的触发阈值。")
+        return trigger
 
     @property
     def psycopg_database_url(self) -> str:
@@ -98,6 +145,19 @@ def load_settings() -> Settings:
         database_url=os.getenv("DATABASE_URL", ""),
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
         tool_selection_timeout_seconds=_int_setting("MELONCLAW_TOOL_SELECTION_TIMEOUT_SECONDS", 10),
+        tool_pool_size=_int_setting("MELONCLAW_TOOL_POOL_SIZE", 16),
+        tool_selection_size=_int_setting("MELONCLAW_TOOL_SELECTION_SIZE", 8),
+        tool_selection_max_requests=_int_setting("MELONCLAW_TOOL_SELECTION_MAX_REQUESTS", 4),
+        agent_output_reserve=_int_setting("MELONCLAW_AGENT_OUTPUT_RESERVE", 4096),
+        agent_summary_trigger_ratio=_ratio_setting("MELONCLAW_AGENT_SUMMARY_TRIGGER_RATIO", 0.8),
+        agent_summary_keep_tokens=_int_setting("MELONCLAW_AGENT_SUMMARY_KEEP_TOKENS", 4096),
+        agent_model_call_limit=_int_setting("MELONCLAW_AGENT_MODEL_CALL_LIMIT", 30),
+        agent_tool_call_limit=_int_setting("MELONCLAW_AGENT_TOOL_CALL_LIMIT", 100),
+        agent_retry_max_retries=_int_setting("MELONCLAW_AGENT_RETRY_MAX_RETRIES", 2, minimum=0),
+        agent_retry_initial_delay=_int_setting("MELONCLAW_AGENT_RETRY_INITIAL_DELAY", 1, minimum=0),
+        agent_retry_max_delay=_int_setting("MELONCLAW_AGENT_RETRY_MAX_DELAY", 10, minimum=0),
+        agent_usage_enabled=_bool_setting("MELONCLAW_AGENT_USAGE_ENABLED", True),
+        agent_todo_enabled=_bool_setting("MELONCLAW_AGENT_TODO_ENABLED", True),
         agent_cache_entries=_int_setting("MELONCLAW_AGENT_CACHE_ENTRIES", 32),
         attachment_max_file_bytes=_int_setting(
             "MELONCLAW_ATTACHMENT_MAX_FILE_MB", 20

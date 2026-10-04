@@ -13,8 +13,10 @@ from collections.abc import AsyncIterator
 from time import perf_counter
 from typing import Any
 
+from langchain_core.runnables.config import merge_configs
 from langgraph.stream import CustomTransformer
 
+from melonclaw.core.model_usage import ModelUsageCallback
 from melonclaw.output.assistant_steps import AssistantStepAccumulator
 from melonclaw.output.content import content_to_text
 from melonclaw.output.formatting import (
@@ -26,6 +28,8 @@ from melonclaw.output.model_activity import model_text_with_activity
 
 DISPLAY_EVENT_TYPES = frozenset(
     {
+        "model_usage",
+        "context_usage",
         "subagent_started",
         "subagent_text",
         "subagent_tool_call",
@@ -67,11 +71,20 @@ def _parent_call_id(handle: Any) -> str | None:
 async def _consume_run_phases(
     scope_stream: Any,
     output: asyncio.Queue[dict[str, Any] | BaseException | object],
+    *, child: bool = False,
 ) -> None:
     """只接受根命名空间的工具选择阶段，不转发任意 custom 载荷。"""
 
     async for event in scope_stream.extensions["custom"]:
         if not isinstance(event, dict):
+            continue
+        if event.get("type") == "context_usage":
+            keys = ("estimated_input_tokens", "context_window", "summary_trigger_tokens")
+            if all(isinstance(event.get(k), int) and event[k] >= 0 for k in keys):
+                await output.put({"type": "context_usage", "scope": "subagent" if child else "main",
+                                  **{k: event[k] for k in keys}})
+            continue
+        if child:
             continue
         if event.get("type") == "run_activity":
             if event.get("kind") == "selection" and event.get("status") in ("started", "completed"):
@@ -337,6 +350,7 @@ async def _consume_scope(
         asyncio.create_task(_consume_messages(handle, scope, output)),
         asyncio.create_task(_consume_tool_calls(handle, scope, output)),
         asyncio.create_task(_consume_subagents(handle, scope, output)),
+        asyncio.create_task(_consume_run_phases(handle, output, child=True)),
     ]
     errors: list[BaseException] = []
     try:
@@ -410,6 +424,11 @@ async def _iter_v3_research_events(
 ) -> AsyncIterator[dict[str, Any]]:
     """使用 Deep Agents/LangGraph v3 投影并发消费根 Agent 与子 Agent。"""
 
+    end_marker = object()
+    queue: asyncio.Queue[dict[str, Any] | BaseException | object] = asyncio.Queue()
+    if getattr(agent, "melonclaw_usage_enabled", False):
+        callback = ModelUsageCallback(queue.put_nowait, model_id=getattr(context, "model_id", ""))
+        config = merge_configs(config, {"callbacks": [callback]})
     stream_kwargs: dict[str, Any] = {
         "config": config, "version": "v3", "transformers": [CustomTransformer],
     }
@@ -418,8 +437,6 @@ async def _iter_v3_research_events(
     stream_result = agent.astream_events(agent_input, **stream_kwargs)
     stream = await stream_result if inspect.isawaitable(stream_result) else stream_result
 
-    end_marker = object()
-    queue: asyncio.Queue[dict[str, Any] | BaseException | object] = asyncio.Queue()
     if projector is None:
         projector = AssistantStepAccumulator(
             message_id=assistant_message_id or "assistant",

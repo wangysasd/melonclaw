@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW, MAX_CONTEXT_WINDOW
+
 # 传输层护栏，防止超大 JSON 体进入业务层；附件实际业务上限来自
 # ``Settings.attachment_max_per_message``，由 ExecutionService / Repository 校验。
 MAX_ATTACHMENT_IDS_PER_MESSAGE = 200
@@ -181,7 +183,7 @@ class UserProviderKeyRequest(BaseModel):
 
 
 class ModelConfigCreateRequest(BaseModel):
-    """新建自定义模型；连接与凭据归属供应商，模型只记名称。"""
+    """新建模型；连接与凭据归属供应商，模型保存名称和上下文窗口。"""
 
     user_id: str = Field(min_length=1, max_length=64)
     model_key: str = Field(min_length=1, max_length=64)
@@ -189,6 +191,7 @@ class ModelConfigCreateRequest(BaseModel):
     scope: Literal["global", "user"]
     display_name: str = Field(min_length=1, max_length=120)
     model_name: str = Field(min_length=1, max_length=160)
+    context_window: int = Field(default=DEFAULT_CONTEXT_WINDOW, strict=True, gt=0, le=MAX_CONTEXT_WINDOW)
     enabled: bool = True
 
 
@@ -203,6 +206,7 @@ class ModelConfigUpdateRequest(BaseModel):
     enabled: bool | None = None
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
     model_name: str | None = Field(default=None, min_length=1, max_length=160)
+    context_window: int | None = Field(default=None, strict=True, gt=0, le=MAX_CONTEXT_WINDOW)
     is_default: bool | None = None
 
 

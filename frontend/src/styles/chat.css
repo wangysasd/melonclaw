@@ -1793,8 +1793,7 @@
     margin-left: 0;
   }
 
-  .tool-catalog-item-heading code,
-  .tool-catalog-item-description {
+  .tool-catalog-item-heading code {
     display: none;
   }
 
@@ -2144,3 +2143,24 @@
   font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
 }
+
+/* Capability groups share a compact, readable hierarchy at every viewport. */
+.tool-catalog-content { font-size: 14px; }
+.tool-catalog-section + .tool-catalog-section { border-top: 1px solid var(--line); padding-top: 22px; }
+.tool-catalog-subgroup { margin-top: 14px; }
+.tool-catalog-subgroup h4 { display: flex; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 500; color: var(--muted); }
+.tool-catalog-subgroup h4 span { font-size: 12px; }
+.tool-catalog-item-copy { flex: 1; }
+.tool-catalog-item-copy > strong, .tool-catalog-item-heading strong { font-size: 14px; white-space: normal; }
+.tool-catalog-item-heading { flex-wrap: wrap; }
+.tool-catalog-item-description { white-space: normal; overflow-wrap: anywhere; }
+.tool-catalog-status-list { margin: 0; }
+.tool-catalog-status-list > div { display: grid; grid-template-columns: 100px 1fr; gap: 12px; padding: 10px 0; }
+.tool-catalog-status-list dt { color: var(--muted); }
+.tool-catalog-status-list dd { margin: 0; }
+@media (max-width: 480px) {
+  .tool-catalog-item { flex-wrap: wrap; }
+  .tool-catalog-badge { max-width: 100%; white-space: normal; }
+}
+
+.message-token-usage { margin-top: var(--space-2); color: var(--muted); font-size: var(--text-md); }

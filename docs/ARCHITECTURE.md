@@ -65,7 +65,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | `api/` | HTTP 边界：路由、Schema、错误映射、SSE 编码、应用生命周期 | `app.py`、`routes/*`（含 `user_input.py`）、`schemas.py`、`sse.py` |
 | `output/` | 通过当前 Deep Agents v3 事件投影提取模型完整文本，并把根 Agent 的每次 AIMessage 投影成有序 assistant steps；子 Agent 保留任务卡事件 | `events.py`、`model_activity.py`、`assistant_steps.py`、`formatting.py` |
 | `memory/` | Global / Tenant / User 三级长期记忆的中间件、工具与服务 | `service.py`、`middleware.py`、`tools.py` |
-| `middleware/` | Agent 中间件：文件操作顺序、工具动态选择、用户提问批次护栏 | `file_ordering.py`、`tool_selection.py`、`user_input_guard.py` |
+| `middleware/` | Agent 中间件：文件操作顺序、工具动态选择、用户提问批次护栏、任务预算与运行控制 | `file_ordering.py`、`tool_selection.py`、`user_input_guard.py`、`task_budget.py`、`summarization.py`、`todo.py` |
 | `backend/` | Deep Agents Backend 的构造与路径路由 | `factory.py` |
 | `tool/` | 注入 Agent 的工具（联网搜索、MCP 目录、受控 Skill 安装） | `tools.py`、`search.py` |
 
@@ -123,6 +123,12 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 
 `ChatService` 向 runtime 注入 `ChatSkillInstallService` provider，`core/agent.py` 使用 `tool/skill_install.py` 的协议创建准备和确认工具。身份由 `ToolRuntime` 的 `AgentContext.user_id/tenant_id/conversation_id/project_id` 提供，每次执行重新查询用户、会话与项目；模型不提供身份。聊天与页面共用导入服务，confirm 通过 `core/hitl.py` 审批，按草稿核对完整清单及会话，不进入 PTC。ZIP 附件使用 archive 类型，仓储绑定时无需文档解析或视觉模型，hydration 仅传附件 ID。安装并启用在原操作日志 ready 提交中完成，下一轮快照生效。教程通过现有内置索引默认启用。详见 [设计与边界](design-docs/chat-skill-install.md)。
 
+### Agent 运行控制
+
+`core/agent_controls.py` 是主/子 Agent 运行中间件组装入口，配置统一来自 `core/config.py`。模型窗口从 `model_configs.context_window` 进入 ResolvedModel，默认 1,000,000；压缩阈值为当前窗口乘 `.env` 的比例（默认 0.8），主/子 Agent 与上下文观测使用同一窗口。API 和资源管理 UI 支持创建/编辑，配置版本递增使缓存失效。`middleware/summarization.py` 按官方 SummarizationMiddleware 名称替换默认实例，在官方计数前复用工具池的请求过滤；摘要算法、offload 和溢出恢复仍由官方实现负责。官方 ModelRetryMiddleware、ModelCallLimitMiddleware、ToolCallLimitMiddleware 和 TodoListMiddleware 分别负责瞬时重试、调用限额和任务清单。Todo 关闭时由 `middleware/todo.py` 显式替换默认 Todo 插槽，不注入工具或提示词，并清空旧清单；主/子 Agent 均覆盖模型 profile 的自动注入。`middleware/task_budget.py` 用私有状态把官方 thread 计数按业务用户消息分段，审批恢复不重置。供应商 SDK 重试关闭，模型边界保留 ContextOverflowError 并禁止已输出流的重放。
+
+`middleware/usage_observation.py` 估算模型出站上下文；`core/model_usage.py` 以每次执行独立 callback 采集包括内部调用的 token 用量。`output/events.py` 负责安全事件输出，`services/execution_trace.py` 负责按调用 ID 合并并沿既有 display_metadata 持久化。没有新增表或业务数据旁路。详见 [运行控制设计](design-docs/agent-runtime-controls.md)。
+
 ## 5. 关键取舍与历史教训
 
 ### 5.1 `LocalShellBackend` 不是安全沙箱
@@ -143,11 +149,11 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 
 ### 5.3 内容块转换是框架职责，路由是应用职责
 
-标准内容块到各家 provider 请求体的转换由 LangChain 提供；“该不该发这种块”和“被拒之后怎么降级”属于应用层职责。第三方非标准推理协议是例外：`core/reasoning.py` 解析供应商 `extra_config._melonclaw.reasoning_format`，`core/chat_model.py` 同时适配响应增量、完整消息和下一次请求。原始推理字段保存在 Checkpoint，展示只使用脱敏限长的有序内容块；签名、加密片段不进入 UI，也不从展示快照重建模型历史。
+标准内容块到各家 provider 请求体的转换由 LangChain 提供；“该不该发这种块”和“被拒之后怎么降级”属于应用层职责。第三方非标准推理协议是例外：管理员通过供应商高级配置内的格式下拉框或扩展 JSON 声明协议，两者共用 `extra_config._melonclaw.reasoning_format`。`core/reasoning.py` 解析该声明，省略时默认 `openai`，本地 `_melonclaw` 字段在出站前剥离；`core/chat_model.py` 同时适配响应增量、完整消息和下一次请求。原始推理字段保存在 Checkpoint，展示只使用脱敏限长的有序内容块；签名、加密片段不进入 UI，也不从展示快照重建模型历史。
 
 ### 5.3.1 回复流畅性与会话内工具选择
 
-`core/tool_catalog.py` 定义轮次 ID、目录摘要和 Checkpoint 状态；`middleware/tool_selection.py` 每用户轮次初选一次，审批和提问恢复复用。共享 Project Agent 不保存会话选择。目录摘要覆盖名称、描述和输入 schema；变更会使缓存失效。`tool/tool_discovery.py` 的 `find_tools` 仅检索组装时已授权目录，用 Command 激活后续可见 schema；轮次上限由 reducer 共同约束并行发现结果，不扩大 MCP 白名单、HITL 或 PTC。选择超时配置仍从 `core/config.py` 进入。
+`core/tool_catalog.py` 定义请求 ID、目录摘要和 Checkpoint 工具池；`tool/tool_discovery.py` 的 `find_tools` 只提交具体能力需求，不执行候选工具。`middleware/tool_selection.py` 在 before_model 统一处理本消息预算内的待处理请求，委托官方 `LLMToolSelectorMiddleware`，其 handler 只收集工具名，不调用主模型。选择参数使用需求文本而非原始用户消息。池与已处理 ID 在模型执行前落入 Checkpoint；跨消息复用，审批恢复不重新选择。容量有限，最近选择/实际请求的工具优先保留。目录摘要覆盖已授权工具名称、描述和 schema；变化清池，旧请求不自动重放。共享 Project Agent 实例不保存会话状态，主/子 Agent 显式装配工具池 middleware，PrivateStateAttr 阻止父子池传播。超时、结构化输出失败保留旧池且发出降级阶段，不输出异常细节；取消向上传播。不扩大 MCP 白名单、HITL 或 PTC。池容量、单次扩充、每消息预算和超时均从 `core/config.py` 进入，详见 [按需工具池](design-docs/on-demand-tool-pool.md)。
 
 `output/events.py` 并发排空各 ToolCallStream，快工具结果不等待慢工具。生成调用仅标记 queued；观测工具执行才记开始时间，耗时用单调时钟。`services/execution_trace.py` 保存阶段耗时及子 Agent 展示轨迹；准备阶段仍在 SSE 之前，错误保持 HTTP 语义。`output/stream_redaction.py` 在连续增量之间识别凭据，普通正文不作整段缓冲。SSE 与最终 `assistant_steps.content_blocks` 同时保留正文/推理顺序；细节见 [回复流畅性与推理协议](design-docs/response-fluency.md)。
 

@@ -162,22 +162,31 @@ describe("chatview draft", () => {
 describe("long-running chat feedback", () => {
   const assistantMessage = (): ChatMessage => ({ id: "a1", role: "assistant", content: "", status: "streaming", markdown: false, events: [], assistantSteps: [], phases: ["responding"] });
   it("shows streaming text and reasoning in the message, then reconciles tool and final output", () => {
+    const usageEvents = [
+      { type: "model_usage", call_id: "main", kind: "main", status: "started", input_tokens: null, output_tokens: null },
+      { type: "model_usage", call_id: "main", kind: "main", status: "completed", input_tokens: 31429, output_tokens: 2023 },
+      { type: "model_usage", call_id: "main", kind: "main", status: "completed", input_tokens: 31429, output_tokens: 2023 },
+      { type: "model_usage", call_id: "selector", kind: "selection", status: "completed", input_tokens: 10, output_tokens: 4 },
+      { type: "context_usage", scope: "main", estimated_input_tokens: 14449, context_window: 1000000, summary_trigger_tokens: 800000 },
+    ];
     const step = { id: "s1", ordinal: 0, content: "先分析临时回答", status: "streaming" as const, is_final: false, tool_calls: [], content_blocks: [
       { type: "reasoning" as const, text: "先分析" }, { type: "text" as const, text: "临时回答" },
     ] };
-    chatState.messages = [{ ...assistantMessage(), assistantSteps: [step] }];
+    chatState.messages = [{ ...assistantMessage(), events: usageEvents, assistantSteps: [step] }];
     const view = render(<ChatView />);
     expect(view.container.querySelector(".message-body")?.textContent).toContain("临时回答");
     expect(view.container.querySelector(".assistant-reasoning")?.textContent).toContain("先分析");
     expect(view.container.querySelector(".agent-execution-body")).toBeNull();
+    expect(view.container.querySelector(".message-token-usage")).toBeNull();
+    expect(screen.queryByText(/模型用量|最近一次主模型上下文/)).toBeNull();
 
     const toolStep = { ...step, tool_calls: [{ call_id: "c1", name: "read_file", batch_index: 0, status: "running" as const }] };
-    chatState.messages = [{ ...assistantMessage(), assistantSteps: [toolStep] }];
+    chatState.messages = [{ ...assistantMessage(), events: usageEvents, assistantSteps: [toolStep] }];
     view.rerender(<ChatView />);
     expect(view.container.querySelector(".message-body")?.textContent).not.toContain("临时回答");
     expect(view.container.querySelector(".agent-execution-body")?.textContent).toContain("临时回答");
 
-    chatState.messages = [{ ...assistantMessage(), status: "completed", content: "最终答复", assistantSteps: [
+    chatState.messages = [{ ...assistantMessage(), events: usageEvents, status: "completed", content: "最终答复", assistantSteps: [
       { ...toolStep, status: "completed", tool_calls: [{ ...toolStep.tool_calls[0], status: "completed" as const }] },
       { id: "s2", ordinal: 1, content: "最终答复", status: "completed", is_final: true, tool_calls: [] },
     ] }];
@@ -192,6 +201,12 @@ describe("long-running chat feedback", () => {
     expect(execution.querySelector(".agent-execution-body")).not.toBeNull();
     expect(execution.textContent).not.toContain("查看耗时");
     expect(execution.textContent).not.toContain("最终答复");
+    const usage = screen.getByLabelText("输入输出 token 数");
+    expect(usage.textContent).toBe("输入 31439 | 输出 2027");
+    expect(execution.contains(usage)).toBe(false);
+    expect(view.container.querySelector(".message-body")!.compareDocumentPosition(usage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(usage.compareDocumentPosition(view.container.querySelector(".message-actions")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText(/模型用量|最近一次主模型上下文/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /查看执行步骤，完成/ }));
     expect(execution.querySelector(".agent-execution-body")).toBeNull();
     expect(execution.querySelector(".assistant-reasoning")).not.toBeNull();

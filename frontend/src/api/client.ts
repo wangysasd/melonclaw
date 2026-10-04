@@ -294,6 +294,7 @@ export function createModel(input: {
   scope: "global" | "user";
   displayName: string;
   modelName: string;
+  contextWindow?: number;
   enabled?: boolean;
 }): Promise<{ ok: boolean }> {
   return apiRequest("/api/models", {
@@ -305,6 +306,7 @@ export function createModel(input: {
       scope: input.scope,
       display_name: input.displayName,
       model_name: input.modelName,
+      context_window: input.contextWindow,
       enabled: input.enabled ?? true,
     },
   });
@@ -317,6 +319,7 @@ export function updateModel(
     enabled?: boolean;
     displayName?: string;
     modelName?: string;
+    contextWindow?: number;
     /** 设为平台默认模型（仅管理员、global scope）。 */
     isDefault?: boolean;
   },
@@ -328,6 +331,7 @@ export function updateModel(
       enabled: input.enabled,
       display_name: input.displayName,
       model_name: input.modelName,
+      context_window: input.contextWindow,
       is_default: input.isDefault,
     },
   });

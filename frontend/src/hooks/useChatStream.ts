@@ -1,3 +1,4 @@
+import { mergeDisplayEvent } from "../lib/modelUsage";
 import { mcpChatDisplay } from "../lib/mcpChat";
 import type { AssetRef } from "../lib/resultBlocks";
 import {
@@ -479,8 +480,8 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         messages: upsertLastAssistant(state, (message) => ({
-          ...appendPhase(message, "processing"),
-          events: [...message.events, action.event],
+          ...(["model_usage", "context_usage"].includes(action.event.type) ? message : appendPhase(message, "processing")),
+          events: mergeDisplayEvent(message.events, action.event),
         })),
       };
     case "completed":
@@ -918,6 +919,10 @@ export function useChatStream({
             sessionRef.current.setRunStatus("failed");
             message.error(event.message || "助手运行失败。请重试。");
           }
+          break;
+        case "model_usage":
+        case "context_usage":
+          dispatchFor(conversationId, { type: "displayEvent", event: event as DisplayEvent });
           break;
         case "tool_call":
         case "tool_result":

@@ -307,6 +307,7 @@ class ChatService:
         enabled: bool | None = None,
         display_name: str | None = None,
         model_name: str | None = None,
+        context_window: int | None = None,
         is_default: bool | None = None,
     ) -> None:
         await self.conversations.resolve_user(user_id)
@@ -316,6 +317,7 @@ class ChatService:
             enabled=enabled,
             display_name=display_name,
             model_name=model_name,
+            context_window=context_window,
             is_default=is_default,
         )
 

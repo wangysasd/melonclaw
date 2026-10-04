@@ -1,49 +1,39 @@
-"""工具目录选择的纯函数与会话状态，不持有运行中的会话数据。"""
+"""按需工具请求与会话工具池的 Checkpoint 状态。"""
 
 import hashlib
 import json
 from typing import Annotated, Any
 
 from langchain.agents.middleware import AgentState
+from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.messages import HumanMessage
 from typing_extensions import NotRequired
 
 FIND_TOOLS_NAME = "find_tools"
-MAX_TOOL_EXPANSIONS = 4
-MAX_DISCOVERED_TOOLS = 16
 
 
-def append_discoveries(left: list[dict], right: list[dict]) -> list[dict]:
-    """合并并行 Command 的发现结果，整个轮次共同受次数与数量上限约束。"""
-
+def append_requests(left: list[dict], right: list[dict]) -> list[dict]:
+    """合并并行请求，按工具调用 ID 去重；执行预算由 middleware 统一控制。"""
     records = [*left, *right]
     if not records:
         return []
     turn = records[-1]["turn_id"]
     result = []
-    names: set[str] = set()
+    seen = set()
     for record in records:
-        if record["turn_id"] != turn:
-            continue
-        accepted = []
-        for name in record["names"]:
-            if name not in names and len(names) < MAX_DISCOVERED_TOOLS:
-                accepted.append(name)
-                names.add(name)
-        result.append({"turn_id": turn, "names": accepted})
-        if len(result) == MAX_TOOL_EXPANSIONS:
-            break
+        if record["turn_id"] == turn and record["id"] not in seen:
+            result.append(record)
+            seen.add(record["id"])
     return result
 
 
 class CatalogSelectionState(AgentState):
-    tool_selection: NotRequired[dict[str, Any]]
-    tool_discoveries: Annotated[list[dict[str, Any]], append_discoveries]
+    tool_pool: NotRequired[Annotated[dict[str, Any], PrivateStateAttr]]
+    tool_requests: Annotated[list[dict[str, Any]], PrivateStateAttr, append_requests]
 
 
 def selection_turn(state: Any, context: Any = None) -> str:
-    """审批恢复继续使用原业务用户消息；独立框架调用使用 HumanMessage ID。"""
-
+    """审批恢复使用原业务用户消息；独立框架调用使用 HumanMessage ID。"""
     message_id = getattr(context, "user_message_id", "")
     if message_id:
         return str(message_id)
@@ -52,5 +42,5 @@ def selection_turn(state: Any, context: Any = None) -> str:
 
 
 def catalog_fingerprint(tools: list[Any]) -> str:
-    catalog = [(t.name, t.description, t.args) for t in tools]
+    catalog = sorted((t.name, t.description, t.args) for t in tools)
     return hashlib.sha256(json.dumps(catalog, sort_keys=True, default=str).encode()).hexdigest()
