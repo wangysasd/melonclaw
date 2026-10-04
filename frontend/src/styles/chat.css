@@ -73,6 +73,27 @@
   background: var(--brand-soft);
 }
 
+.artifact-trigger { position: relative; justify-content: center; width: 36px; padding: 5px 6px; }
+.artifact-trigger-tooltip {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 7px);
+  right: 0;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: #30343b;
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-apple), visibility var(--duration-fast) var(--ease-apple);
+}
+.artifact-trigger:hover .artifact-trigger-tooltip,
+.artifact-trigger:focus-visible .artifact-trigger-tooltip { opacity: 1; visibility: visible; }
+
 .conversation {
   width: 100%;
   flex: 1;

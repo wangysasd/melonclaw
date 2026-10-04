@@ -71,10 +71,10 @@ describe("workspace file browser", () => {
     fireEvent.click(screen.getByRole("link", { name: "报告" }));
     await screen.findByTitle("report.html");
     fireEvent.click(screen.getByRole("button", { name: "文件", exact: true }));
-    const row = await within(screen.getByRole("region", { name: "文件列表" })).findByRole("button", { name: /^report.html$/ });
+    const row = await within(screen.getByRole("region", { name: "文件列表" })).findByRole("button", { name: /^report.html 输出$/ });
     await waitFor(() => expect(document.activeElement).toBe(row));
     expect(directory).toHaveBeenCalledWith(expect.anything(), "/outputs", { q: "", sort: "name", offset: 200 }, expect.anything());
-    expect(screen.getByRole("button", { name: /^first.txt$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^first.txt 输出$/ })).toBeTruthy();
   });
   it("shows attachment original names and returns to the registered attachment list", async () => {
     attachments.mockResolvedValue({ items: [{ attachment_id: "registered-id", file_name: "原始资料.txt", size_bytes: 4, modified_at: "" }], next_offset: null });
@@ -82,15 +82,12 @@ describe("workspace file browser", () => {
     blob.mockResolvedValue({ text: async () => "附件内容" });
     render(<Fixture />);
     fireEvent.click(screen.getByRole("button", { name: "查看会话或项目文件" }));
-    fireEvent.click(screen.getByRole("button", { name: /^上传附件$/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /^原始资料.txt$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^原始资料.txt 上传$/ }));
     expect(await screen.findByText("附件内容")).toBeTruthy();
     expect(metadata).toHaveBeenCalledWith({ attachment_id: "registered-id" }, expect.anything(), expect.anything());
     fireEvent.click(screen.getByRole("button", { name: "文件", exact: true }));
-    expect(await within(screen.getByRole("region", { name: "文件列表" })).findByRole("button", { name: /^原始资料.txt$/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^上传附件$/ }).getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: /^上传附件$/ }));
-    expect(within(screen.getByRole("region", { name: "文件列表" })).queryByRole("button", { name: /^原始资料.txt$/ })).toBeNull();
+    expect(await within(screen.getByRole("region", { name: "文件列表" })).findByRole("button", { name: /^原始资料.txt 上传$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^上传附件$/ })).toBeNull();
   });
   it("paginates the root and ignores late responses after identity changes", async () => {
     const scope = { userId: "owner", conversationId: "conversation", projectId: null };

@@ -31,6 +31,7 @@ export const ICON_NAMES = [
   "message-circle",
   "message-circle-plus",
   "message-square-plus",
+  "panel-right",
   "plus",
   "plug",
   "pencil-line",

@@ -15,8 +15,8 @@ import { WorkspaceFileBrowser } from "./WorkspaceFileBrowser";
 
 export function ArtifactTrigger() {
   const controls = useArtifacts();
-  return controls ? <button type="button" className="tool-catalog-trigger" onClick={controls.openList} aria-expanded={controls.open} aria-label="查看会话或项目文件">
-    <Icon name="folder" size={16} /><span>文件</span>
+  return controls ? <button type="button" className="tool-catalog-trigger artifact-trigger" onClick={controls.openList} aria-expanded={controls.open} aria-label="查看会话或项目文件">
+    <Icon name="panel-right" size={22} /><span className="artifact-trigger-tooltip" aria-hidden="true">文件</span>
   </button> : null;
 }
 
