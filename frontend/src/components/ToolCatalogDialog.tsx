@@ -103,7 +103,7 @@ export function ToolCatalogDialog({ open, userId, status, modelOptions, onClose 
       <div className="tool-catalog-content">
         <Section id="models" title="模型" icon="brain" description="当前用户已配置的模型；可用状态不代表已完成连接检测。" count={availableModels.length + " 可用"}>
           <ul className="tool-catalog-list">{modelOptions.map(model => <li className="tool-catalog-item" key={model.id}><span className="tool-catalog-item-copy"><strong>{model.display_name}{model.is_default ? " · 默认" : ""}</strong><span className="tool-catalog-item-description">{model.provider} · {model.source === "system" ? "内置模型" : "个人模型"}</span></span><span className={`tool-catalog-badge ${model.available ? "is-runtime" : ""}`}>{model.available ? "可用" : "不可用"}</span></li>)}</ul>
-          {!modelOptions.length ? <p className="tool-catalog-empty">尚未配置模型，请先在技能|连接器中配置。</p> : null}
+          {!modelOptions.length ? <p className="tool-catalog-empty">尚未配置模型，请先在拓展中配置。</p> : null}
         </Section>
         <Section id="tools" title="工具" icon="wrench" count={fixedTools.length} description="固定能力目录；实际调用受当前模型、客户端与权限配置约束。">
           {TOOL_CATEGORIES.filter(category => category.id !== "mcp").map(category => <div className="tool-catalog-subgroup" key={category.id}><h4>{category.label}<span>{fixedTools.filter(tool => tool.category === category.id).length}</span></h4>{toolList(fixedTools.filter(tool => tool.category === category.id))}</div>)}

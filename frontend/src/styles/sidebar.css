@@ -25,8 +25,8 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: var(--space-4) var(--space-3);
-  gap: var(--space-3);
+  padding: var(--space-4) var(--space-3) var(--space-2);
+  gap: var(--space-5);
   min-height: 0;
 }
 
@@ -71,7 +71,7 @@
   display: flex;
   align-items: center;
   width: 140px;
-  height: 36px;
+  height: var(--control-height-md);
   flex: 0 0 140px;
   overflow: hidden;
 }
@@ -153,36 +153,13 @@
   line-height: 1;
 }
 
-.sidebar-resource-entry {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: var(--control-height-lg);
-  padding: var(--space-2);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: #f4f4f5;
-  color: var(--ink);
-  font-size: var(--text-md);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-apple);
-}
-
-.sidebar-resource-entry:hover,
-.sidebar-resource-entry.is-active {
-  background: var(--brand-soft);
-  color: var(--brand-primary);
-}
-
 .sidebar-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
   padding-right: 2px;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
@@ -470,20 +447,6 @@
 
 /* 底部：用户选择器与系统状态 */
 
-.sidebar-footer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  flex: 0 0 auto;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  padding-top: 14px;
-}
-
-.sidebar-system-status {
-  width: 100%;
-  justify-content: flex-start;
-}
-
 .user-picker-label {
   font-size: var(--text-xs);
   color: var(--muted);
@@ -561,3 +524,65 @@
     display: none;
   }
 }
+
+/* 常驻导航与 Home 内部侧栏分层，收起后只保留顶栏展开入口。 */
+.global-nav {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0 8px;
+  background: var(--sidebar);
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+.global-nav-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.global-nav-button:hover, .global-nav-button.is-active { background: var(--hover); color: var(--ink); }
+.global-nav :is(button):focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+.global-nav-footer { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.global-status-dot { position: absolute; right: 5px; bottom: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--status-warning); }
+.global-status-dot.is-ready { background: var(--status-success); }
+.user-picker.is-compact .user-trigger { width: 36px; height: 36px; padding: 3px; justify-content: center; border: 0; background: transparent; }
+.user-picker.is-compact .user-trigger-copy, .user-picker.is-compact .user-trigger > span:last-child:not(.user-avatar) { display: none; }
+.home-workspace { display: flex; flex: 1; min-width: 0; height: 100dvh; }
+.home-workspace[hidden] { display: none; }
+.home-workspace .sidebar.is-collapsed { display: none; }
+.sidebar-reopen { display: none; }
+.home-workspace:has(.sidebar.is-collapsed) .sidebar-reopen { display: inline-flex; }
+@media (max-width: 768px) {
+  .sidebar-reopen { display: inline-flex; }
+}
+
+
+.current-user-menu .ant-dropdown-menu,
+.user-switch-menu .ant-dropdown-menu {
+  width: 228px;
+  max-width: calc(100vw - 64px);
+}
+
+.current-user-menu .ant-dropdown-menu {
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.current-user-menu .ant-dropdown-menu-item { min-height: 36px; border-radius: 10px; font-size: var(--text-md); }
+.current-user-menu .current-user-menu-profile { min-height: 40px; background: var(--hover); padding: 6px 8px; }
+.current-user-profile { display: flex; align-items: center; gap: 8px; }
+.current-user-name { min-width: 0; overflow-wrap: anywhere; }
+.current-user-menu .ant-dropdown-menu-item-divider { margin: 4px 8px; }
+
+.global-nav-button.is-active { color: #000; }

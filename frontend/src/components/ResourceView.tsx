@@ -15,13 +15,14 @@ interface ResourceViewProps {
   onTrySkill?: (skill: SkillOption) => void;
   /** 打开时默认选中的 TAB（模型选择器「添加自定义模型」跳进来时传 models）。 */
   initialTab?: string;
+  onTabChange?: (tab: string) => void;
 }
 
 /**
  * 技能与连接器管理区：占据侧栏之外的整个聊天区域，也可管理自定义模型。
  * 权限提示：后端对每个操作都做强校验，这里只做展示层隐藏。
  */
-export function ResourceView({ onClose, onTrySkill, initialTab = "skills" }: ResourceViewProps) {
+export function ResourceView({ onClose, onTrySkill, initialTab = "skills", onTabChange }: ResourceViewProps) {
   const session = useSession();
   const { message } = AntdApp.useApp();
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -31,11 +32,11 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills" }: Res
   );
 
   return (
-    <main className="resource-view" data-active-tab={activeTab} aria-label="技能|连接器">
+    <main className="resource-view" data-active-tab={activeTab} aria-label="拓展">
       <header className="resource-view-header">
         <div className="resource-view-title">
           <Icon name="blocks" size={16} />
-          <h1>技能|连接器</h1>
+          <h1>拓展</h1>
         </div>
         <Button icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>
           返回聊天
@@ -44,7 +45,7 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills" }: Res
       <Tabs
         className="resource-view-tabs"
         activeKey={activeTab}
-        onChange={setActiveTab}
+        onChange={(tab) => { setActiveTab(tab); onTabChange?.(tab); }}
         items={[
           {
             key: "skills",

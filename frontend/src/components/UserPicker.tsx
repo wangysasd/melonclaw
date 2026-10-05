@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { App as AntdApp, Dropdown, Input, Modal } from "antd";
+import { App as AntdApp, Dropdown, Input, Modal, Tooltip } from "antd";
 
 import { Icon } from "./Icon";
 import { createDevUser } from "../api/client";
@@ -9,7 +9,7 @@ import { useSession } from "../state/session";
 const ADMIN_ROLES = new Set(["admin", "owner"]);
 
 /** 模拟用户选择器：开发入口，非生产认证；租户由用户配置自动推导。 */
-export function UserPicker() {
+export function UserPicker({ compact = false }: { compact?: boolean }) {
   const session = useSession();
   const { message } = AntdApp.useApp();
   const [creating, setCreating] = useState(false);
@@ -75,11 +75,13 @@ export function UserPicker() {
   };
 
   return (
-    <div className="user-picker">
-      <div className="user-picker-label">模拟用户</div>
+    <div className={`user-picker${compact ? " is-compact" : ""}`}>
+      {!compact && <div className="user-picker-label">模拟用户</div>}
+      <Tooltip title={compact ? "更换用户" : undefined} placement="right" trigger={["hover", "focus"]}>
       <Dropdown
+        classNames={{ root: "user-switch-menu" }}
         trigger={["click"]}
-        placement="topLeft"
+        placement="rightBottom"
         menu={{
           items,
           selectable: true,
@@ -93,9 +95,10 @@ export function UserPicker() {
       >
         <button
           type="button"
-          className="user-trigger"
-          aria-label="选择模拟用户"
+          className={compact ? "global-nav-button" : "user-trigger"}
+          aria-label="更换用户"
         >
+          {compact ? <Icon name="user-switch" size={20} /> : <>
           <span
             className="user-avatar"
             style={avatarStyle(session.userId)}
@@ -110,8 +113,10 @@ export function UserPicker() {
               : session.userId || "正在加载用户…"}
           </span>
           <Icon name="chevron-down" size={14} />
+          </>}
         </button>
       </Dropdown>
+      </Tooltip>
       <Modal
         title="新建用户"
         open={creating}

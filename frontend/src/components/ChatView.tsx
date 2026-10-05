@@ -323,14 +323,16 @@ const MessageBubble = memo(function MessageBubble({
 
 /** 聊天主视图：消息与审批共用阅读流，底部保留输入区与状态提醒。 */
 interface ChatViewProps {
+  active?: boolean;
   onOpenProjectDialog?: () => void;
-  /** 打开技能|连接器页的模型供应商 TAB。 */
+  /** 打开拓展页的模型供应商 TAB。 */
   onOpenModelSettings?: () => void;
   initialSkill?: SkillOption | null;
   onInitialSkillApplied?: () => void;
 }
 
 export function ChatView({
+  active = true,
   onOpenProjectDialog,
   onOpenModelSettings,
   initialSkill = null,
@@ -341,11 +343,15 @@ export function ChatView({
   const [draft, setDraft] = useState("");
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const scrollFrame = useRef<number | null>(null);
+  const visibility = useRef({ active, awayFromBottom });
+  visibility.current = { active, awayFromBottom };
+  const readingPosition = useRef(0);
   const approvalRef = useRef<HTMLDivElement>(null);
 
   const scroll = useMemo(
     () => ({
       isNearBottom: () => {
+        if (!visibility.current.active) return !visibility.current.awayFromBottom;
         const element = scrollRef.current;
         if (!element) return true;
         return (
@@ -357,7 +363,7 @@ export function ChatView({
         scrollFrame.current = requestAnimationFrame(() => {
           scrollFrame.current = null;
           const element = scrollRef.current;
-          if (!element) return;
+          if (!element || !visibility.current.active) return;
           element.scrollTo({
             top: element.scrollHeight,
             behavior: smooth && !window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto",
@@ -392,6 +398,13 @@ export function ChatView({
   useEffect(() => {
     if (!chat.state.historyLoading) scroll.scrollToBottom();
   }, [chat.state.conversationId, chat.state.historyLoading, scroll]);
+
+  useEffect(() => {
+    if (!active) return;
+    if (visibility.current.awayFromBottom) {
+      if (scrollRef.current) scrollRef.current.scrollTop = readingPosition.current;
+    } else scroll.scrollToBottom();
+  }, [active, scroll]);
 
   // 失败回滚：仅当输入框为空时回填草稿（对齐旧 restoreDraft）。
   useEffect(() => {
@@ -448,14 +461,14 @@ export function ChatView({
         <div className="topbar-leading">
           <button
             type="button"
-            className="icon-button mobile-menu"
+            className="icon-button sidebar-reopen"
             onClick={() =>
               window.dispatchEvent(new Event("melonclaw:open-sidebar"))
             }
-            aria-label="打开项目与会话导航"
-            title="打开导航"
+            aria-label="展开侧栏"
+            title="展开侧栏"
           >
-            <Icon name="menu" size={18} />
+            <Icon name="panel-left" size={18} />
           </button>
           <div className="topbar-session-name">
             {topbarTitle}
@@ -465,7 +478,11 @@ export function ChatView({
       </header>
 
       <div className="conversation" ref={scrollRef} aria-label="聊天记录"
-        onScroll={() => setAwayFromBottom(!scroll.isNearBottom())}>
+        onScroll={() => {
+          if (!active) return;
+          readingPosition.current = scrollRef.current?.scrollTop ?? 0;
+          setAwayFromBottom(!scroll.isNearBottom());
+        }}>
         {chat.state.historyLoading ? (
           <div className="conversation-state">
             <Spin />

@@ -271,3 +271,26 @@ it("disables historical recovery buttons while the current conversation is runni
   rerender(<ChatView />);
   for (const button of screen.getAllByRole<HTMLButtonElement>("button", { name: "重新同步会话，核对结果" })) expect(button.disabled).toBe(false);
 });
+
+
+describe("navigation visibility", () => {
+  it("keeps the draft and reading position while hidden", async () => {
+    const view = render(<ChatView active />);
+    await flush();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "保留的草稿" } });
+    const history = screen.getByLabelText("聊天记录");
+    Object.defineProperties(history, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    history.scrollTop = 300;
+    fireEvent.scroll(history);
+    view.rerender(<ChatView active={false} />);
+    history.scrollTop = 0;
+    fireEvent.scroll(history);
+    view.rerender(<ChatView active />);
+    await flush();
+    expect(history.scrollTop).toBe(300);
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("保留的草稿");
+  });
+});

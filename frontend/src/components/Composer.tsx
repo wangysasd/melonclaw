@@ -55,7 +55,7 @@ export interface ComposerProps {
   /** 显式取消当前会话输出；只在停止模式下调用。 */
   onStop?: () => void;
   onOpenProjectDialog?: () => void;
-  /** 打开技能|连接器页的模型供应商 TAB（模型选择器底部「添加自定义模型」）。 */
+  /** 打开拓展页的模型供应商 TAB（模型选择器底部「添加自定义模型」）。 */
   onOpenModelSettings?: () => void;
 }
 

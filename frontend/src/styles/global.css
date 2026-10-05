@@ -99,10 +99,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-4) var(--page-padding);
+  padding: var(--space-2) var(--page-padding);
   border-bottom: 1px solid var(--line);
   gap: var(--space-4);
-  flex-wrap: wrap;
+  height: 49px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
 }
 
 .resource-view-title {
@@ -113,9 +115,9 @@ body {
 
 .resource-view-title h1 {
   margin: 0;
-  font-size: var(--text-title);
+  font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
-  line-height: var(--line-height-title);
+  line-height: var(--control-height-md);
 }
 
 .resource-view-tabs {

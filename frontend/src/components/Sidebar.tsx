@@ -2,8 +2,6 @@ import { App as AntdApp, Button, Drawer, Dropdown, Input, Modal, type MenuProps 
 import { useEffect, useState } from "react";
 
 import { Icon } from "./Icon";
-import { UserPicker } from "./UserPicker";
-import { ToolCatalogDialog } from "./ToolCatalogDialog";
 import { listConversations } from "../api/client";
 import { formatConversationTime } from "../lib/format";
 import { useSession } from "../state/session";
@@ -27,26 +25,18 @@ export interface SidebarContentProps {
   onToggleCollapse: () => void;
   onNewConversation: () => void;
   onOpenProjectDialog: (moveConversationId?: string) => void;
-  onOpenResources: () => void;
-  resourcesActive?: boolean;
   onNavigateChat?: () => void;
   onSelectConversationCloseMobile?: () => void;
-  onOpenSystemStatus?: () => void;
-  systemStatusOpen?: boolean;
 }
 
-/** 侧栏内容：品牌区、新建对话、技能|连接器、项目/会话、用户与系统状态。 */
+/** Home 内的项目与会话导航。 */
 export function SidebarContent({
   collapsed,
   onToggleCollapse,
   onNewConversation,
   onOpenProjectDialog,
-  onOpenResources,
-  resourcesActive = false,
   onNavigateChat,
   onSelectConversationCloseMobile,
-  onOpenSystemStatus,
-  systemStatusOpen = false,
 }: SidebarContentProps) {
   const session = useSession();
   const { modal, message } = AntdApp.useApp();
@@ -285,17 +275,6 @@ export function SidebarContent({
             <kbd>K</kbd>
           </span>
         </button>
-
-        <button
-          type="button"
-          className={["sidebar-resource-entry", resourcesActive ? "is-active" : ""].filter(Boolean).join(" ")}
-          onClick={onOpenResources}
-          aria-pressed={resourcesActive}
-          title="技能|连接器（也可管理自定义模型）"
-        >
-          <Icon name="blocks" size={16} />
-          <span>技能|连接器</span>
-        </button>
       </div>
 
       <div className="sidebar-scroll">
@@ -424,21 +403,6 @@ export function SidebarContent({
           autoFocus
         />
       </Modal>
-
-      <div className="sidebar-footer">
-        <UserPicker />
-        <button
-          type="button"
-          className="tool-catalog-trigger sidebar-system-status"
-          onClick={onOpenSystemStatus}
-          aria-haspopup="dialog"
-          aria-expanded={systemStatusOpen}
-          aria-label="系统状态"
-        >
-          <Icon name="shield-check" size={16} />
-          <span>系统状态</span>
-        </button>
-      </div>
     </div>
   );
 }
@@ -446,15 +410,11 @@ export function SidebarContent({
 export interface SidebarProps {
   onNewConversation: () => void;
   onOpenProjectDialog: (moveConversationId?: string) => void;
-  onOpenResources: () => void;
-  resourcesActive?: boolean;
   onNavigateChat?: () => void;
 }
 
 /** 侧栏容器：桌面折叠态 + 移动端抽屉（≤768px）。 */
-export function Sidebar({ onNewConversation, onOpenProjectDialog, onOpenResources, resourcesActive, onNavigateChat }: SidebarProps) {
-  const session = useSession();
-  const [systemStatusOpen, setSystemStatusOpen] = useState(false);
+export function Sidebar({ onNewConversation, onOpenProjectDialog, onNavigateChat }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(() =>
     !window.matchMedia("(max-width: 768px)").matches &&
     readStorage(SIDEBAR_STORAGE_KEY) === "true"
@@ -468,7 +428,10 @@ export function Sidebar({ onNewConversation, onOpenProjectDialog, onOpenResource
     const onChange = () => {
       if (!media.matches) setMobileOpen(false);
     };
-    const onOpenFromHeader = () => setMobileOpen(true);
+    const onOpenFromHeader = () => {
+      if (media.matches) setMobileOpen(true);
+      else { setCollapsed(false); writeStorage(SIDEBAR_STORAGE_KEY, "false"); }
+    };
     media.addEventListener("change", onChange);
     window.addEventListener("melonclaw:open-sidebar", onOpenFromHeader);
     return () => {
@@ -497,11 +460,7 @@ export function Sidebar({ onNewConversation, onOpenProjectDialog, onOpenResource
           onToggleCollapse={toggleCollapse}
           onNewConversation={onNewConversation}
           onOpenProjectDialog={onOpenProjectDialog}
-          onOpenResources={onOpenResources}
-          resourcesActive={resourcesActive}
           onNavigateChat={onNavigateChat}
-          onOpenSystemStatus={() => setSystemStatusOpen(true)}
-          systemStatusOpen={systemStatusOpen}
         />
       </aside>
       <Drawer
@@ -526,33 +485,16 @@ export function Sidebar({ onNewConversation, onOpenProjectDialog, onOpenResource
       >
         <SidebarContent
           collapsed={false}
-          onToggleCollapse={toggleCollapse}
+          onToggleCollapse={() => setMobileOpen(false)}
           onNewConversation={() => {
             onNewConversation();
             setMobileOpen(false);
           }}
           onOpenProjectDialog={onOpenProjectDialog}
-          onOpenResources={() => {
-            onOpenResources();
-            setMobileOpen(false);
-          }}
-          resourcesActive={resourcesActive}
           onNavigateChat={onNavigateChat}
           onSelectConversationCloseMobile={() => setMobileOpen(false)}
-          onOpenSystemStatus={() => {
-            setMobileOpen(false);
-            setSystemStatusOpen(true);
-          }}
-          systemStatusOpen={systemStatusOpen}
         />
       </Drawer>
-      <ToolCatalogDialog
-        open={systemStatusOpen}
-        userId={session.userId}
-        status={session.status}
-        modelOptions={session.modelOptions}
-        onClose={() => setSystemStatusOpen(false)}
-      />
     </>
   );
 }

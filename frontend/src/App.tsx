@@ -6,6 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ChatView } from "./components/ChatView";
 import { ProjectDialog } from "./components/ProjectDialog";
 import { ResourceView } from "./components/ResourceView";
+import { GlobalNav } from "./components/GlobalNav";
+import { readStorage, writeStorage } from "./state/storage";
 import { Sidebar } from "./components/Sidebar";
 import { SessionProvider, useSession } from "./state/session";
 import type { SkillOption } from "./types/api";
@@ -20,7 +22,7 @@ function Workspace() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [moveConversationId, setMoveConversationId] = useState<string | null>(null);
   const [view, setView] = useState<"chat" | "resources">("chat");
-  const [resourceTab, setResourceTab] = useState("skills");
+  const [resourceTab, setResourceTab] = useState(() => { const tab = readStorage("melonclaw.resource_tab.v1"); return tab && ["skills", "mcp", "models"].includes(tab) ? tab : "skills"; });
   const [initialSkill, setInitialSkill] = useState<SkillOption | null>(null);
 
   const openProjectDialog = (conversationId?: string) => {
@@ -56,19 +58,27 @@ function Workspace() {
 
   return (
     <div className="app-shell">
-      <Sidebar
-        onNewConversation={newConversation}
-        onOpenProjectDialog={openProjectDialog}
-        onOpenResources={() => {
-          setResourceTab("skills");
-          setView("resources");
-        }}
-        resourcesActive={view === "resources"}
-        onNavigateChat={() => setView("chat")}
-      />
+      <GlobalNav view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} />
+      <div className="home-workspace" hidden={view !== "chat"}>
+        <Sidebar key={`sidebar:${session.userId}`} onNewConversation={newConversation} onOpenProjectDialog={openProjectDialog} onNavigateChat={() => setView("chat")} />
+        <ChatView
+          key={`chat:${session.userId}`}
+          active={view === "chat"}
+          onOpenProjectDialog={() => openProjectDialog()}
+          onOpenModelSettings={() => {
+            setResourceTab("models");
+            writeStorage("melonclaw.resource_tab.v1", "models");
+            setView("resources");
+          }}
+          initialSkill={initialSkill}
+          onInitialSkillApplied={clearInitialSkill}
+        />
+      </div>
       {view === "resources" ? (
         <ResourceView
+          key={session.userId}
           initialTab={resourceTab}
+          onTabChange={(tab) => { setResourceTab(tab); writeStorage("melonclaw.resource_tab.v1", tab); }}
           onClose={() => setView("chat")}
           onTrySkill={(skill) => {
             session.startNewConversation();
@@ -76,17 +86,7 @@ function Workspace() {
             setView("chat");
           }}
         />
-      ) : (
-        <ChatView
-          onOpenProjectDialog={() => openProjectDialog()}
-          onOpenModelSettings={() => {
-            setResourceTab("models");
-            setView("resources");
-          }}
-          initialSkill={initialSkill}
-          onInitialSkillApplied={clearInitialSkill}
-        />
-      )}
+      ) : null}
       <ProjectDialog
         open={projectDialogOpen}
         moveConversationId={moveConversationId}
