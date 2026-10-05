@@ -1711,7 +1711,6 @@
 .prompt-grid.ant-prompts .ant-prompts-label,
 .prompt-grid.ant-prompts .ant-prompts-desc { font-size: var(--text-md); }
 .prompt-grid.ant-prompts .prompt-icon { color: var(--brand-primary); }
-.prompt-grid.ant-prompts .ant-prompts-item:nth-child(3) .prompt-icon { color: var(--brand-coral); }
 .send-button {
   width: 32px;
   height: 32px;

@@ -375,7 +375,8 @@ export function ChatView({
   );
 
   const chat = useChatStream({ scroll });
-  const unread = useUnreadChat(chat.state.messages, `${session.userId}:${session.conversationId}`, awayFromBottom, chat.state.historyLoading);
+  const chatContextKey = `${session.userId}:${session.projectId}:${session.conversationId ?? "new"}`;
+  const unread = useUnreadChat(chat.state.messages, chatContextKey, awayFromBottom, chat.state.historyLoading);
   const userQuestionExpired = useUserQuestionExpired(
     chat.state.userQuestion?.expires_at,
   );
@@ -395,6 +396,10 @@ export function ChatView({
     chat.clearRestoreDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.state.conversationId, session.conversationId, session.draftConversationId]);
+  useEffect(() => {
+    setAwayFromBottom(false);
+    readingPosition.current = 0;
+  }, [chatContextKey]);
   useEffect(() => {
     if (!chat.state.historyLoading) scroll.scrollToBottom();
   }, [chat.state.conversationId, chat.state.historyLoading, scroll]);
