@@ -6,8 +6,14 @@ import { Icon } from "./Icon";
 import { UserPicker } from "./UserPicker";
 import { ToolCatalogDialog } from "./ToolCatalogDialog";
 
-export function GlobalNav({ view, onHome, onResources }: {
-  view: "chat" | "resources"; onHome: () => void; onResources: () => void;
+export type WorkspaceView = "chat" | "resources" | "amp" | "mindera";
+
+export function GlobalNav({ view, onHome, onResources, onAmp, onMindera }: {
+  view: WorkspaceView;
+  onHome: () => void;
+  onResources: () => void;
+  onAmp: () => void;
+  onMindera: () => void;
 }) {
   const session = useSession();
   const [statusOpen, setStatusOpen] = useState(false);
@@ -27,6 +33,12 @@ export function GlobalNav({ view, onHome, onResources }: {
           <button className={`global-nav-button${view === "resources" ? " is-active" : ""}`} aria-label="拓展" aria-current={view === "resources" ? "page" : undefined} onClick={onResources}>
             {view === "resources" ? <img src="/assets/icons/blocks-filled.svg" width={20} height={20} alt="" aria-hidden="true" /> : <Icon name="blocks" size={20} />}
           </button>
+        </Tooltip>
+        <Tooltip title="AMP" placement="right" trigger={["hover", "focus"]}>
+          <button className={`global-nav-button global-nav-letter${view === "amp" ? " is-active" : ""}`} aria-label="AMP" aria-current={view === "amp" ? "page" : undefined} onClick={onAmp}>A</button>
+        </Tooltip>
+        <Tooltip title="Mindera" placement="right" trigger={["hover", "focus"]}>
+          <button className={`global-nav-button global-nav-letter${view === "mindera" ? " is-active" : ""}`} aria-label="Mindera" aria-current={view === "mindera" ? "page" : undefined} onClick={onMindera}>M</button>
         </Tooltip>
         <div className="global-nav-footer">
           <UserPicker compact />

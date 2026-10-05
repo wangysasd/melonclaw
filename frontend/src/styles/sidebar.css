@@ -586,3 +586,8 @@
 .current-user-menu .ant-dropdown-menu-item-divider { margin: 4px 8px; }
 
 .global-nav-button.is-active { color: #000; }
+
+.global-nav-letter { font-size: var(--text-lg); font-weight: var(--weight-semibold); line-height: 1; }
+.placeholder-view { display: flex; flex: 1; flex-direction: column; min-width: 0; height: 100dvh; background: var(--canvas); }
+.placeholder-view-header h1 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); line-height: var(--control-height-md); }
+.placeholder-view-content { display: grid; flex: 1; place-items: center; color: var(--muted); font-size: var(--text-md); }

@@ -6,7 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ChatView } from "./components/ChatView";
 import { ProjectDialog } from "./components/ProjectDialog";
 import { ResourceView } from "./components/ResourceView";
-import { GlobalNav } from "./components/GlobalNav";
+import { GlobalNav, type WorkspaceView } from "./components/GlobalNav";
+import { PlaceholderView } from "./components/PlaceholderView";
 import { readStorage, writeStorage } from "./state/storage";
 import { Sidebar } from "./components/Sidebar";
 import { SessionProvider, useSession } from "./state/session";
@@ -21,7 +22,7 @@ function Workspace() {
   const session = useSession();
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [moveConversationId, setMoveConversationId] = useState<string | null>(null);
-  const [view, setView] = useState<"chat" | "resources">("chat");
+  const [view, setView] = useState<WorkspaceView>("chat");
   const [resourceTab, setResourceTab] = useState(() => { const tab = readStorage("melonclaw.resource_tab.v1"); return tab && ["skills", "mcp", "models"].includes(tab) ? tab : "skills"; });
   const [initialSkill, setInitialSkill] = useState<SkillOption | null>(null);
 
@@ -58,7 +59,7 @@ function Workspace() {
 
   return (
     <div className="app-shell">
-      <GlobalNav view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} />
+      <GlobalNav view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} onAmp={() => setView("amp")} onMindera={() => setView("mindera")} />
       <div className="home-workspace" hidden={view !== "chat"}>
         <Sidebar key={`sidebar:${session.userId}`} onNewConversation={newConversation} onOpenProjectDialog={openProjectDialog} onNavigateChat={() => setView("chat")} />
         <ChatView
@@ -87,6 +88,8 @@ function Workspace() {
           }}
         />
       ) : null}
+      {view === "amp" ? <PlaceholderView title="AMP" /> : null}
+      {view === "mindera" ? <PlaceholderView title="Mindera" /> : null}
       <ProjectDialog
         open={projectDialogOpen}
         moveConversationId={moveConversationId}
