@@ -91,6 +91,7 @@ export async function streamRequest(
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal,

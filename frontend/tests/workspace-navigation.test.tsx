@@ -5,6 +5,8 @@ import App from "../src/App";
 
 const disposed = vi.fn();
 const session = { userId: "u1", users: [], status: { status: "ready" }, modelOptions: [], startNewConversation: vi.fn() };
+vi.mock("../src/components/AuthGate", () => ({ AuthGate: ({ children }: { children: (user: { user_id: string }) => React.ReactNode }) => children({ user_id: "u1" }) }));
+
 vi.mock("../src/state/session", () => ({ SessionProvider: ({ children }: { children: React.ReactNode }) => children, useSession: () => session }));
 vi.mock("../src/components/ChatView", () => ({ ChatView: () => {
   const [draft, setDraft] = useState("");

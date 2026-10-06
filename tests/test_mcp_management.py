@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from account_fixtures import authenticated_route_app
 
 from melonclaw.api.app import create_app
 from melonclaw.api.mcp_schemas import McpCreateRequest
@@ -141,7 +142,7 @@ def test_snapshot_delete_and_preference_invalidate_and_empty_allowlist():
 def test_api_rejects_forged_scope_and_does_not_echo_invalid_secrets():
     async def run():
         manager, storage = service()
-        app = create_app()
+        app = authenticated_route_app(create_app(), "alice")
         app.state.chat = SimpleNamespace(runtime=manager.runtime)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"

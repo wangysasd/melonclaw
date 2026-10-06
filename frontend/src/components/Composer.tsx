@@ -127,6 +127,13 @@ export function Composer({
   const [selectedSkill, setSelectedSkill] = useState<SkillOption | null>(null);
   const [skillPrefixWidth, setSkillPrefixWidth] = useState(0);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  useEffect(() => {
+    const checkDraft = (event: Event) => {
+      if (value.trim() || attachments.length) event.preventDefault();
+    };
+    window.addEventListener("melonclaw-check-draft", checkDraft);
+    return () => window.removeEventListener("melonclaw-check-draft", checkDraft);
+  }, [value, attachments.length]);
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<ComposerAttachment | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);

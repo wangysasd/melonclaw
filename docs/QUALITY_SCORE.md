@@ -34,7 +34,7 @@
 ## 环境陷阱（会误导判断）
 
 1. **不要裸跑 `pytest` / `ruff`**。两者已声明为 dev 依赖，统一用 `uv run pytest` / `uv run ruff`；直接敲 `pytest` 可能命中 PATH 上其它项目的同名工具，产生假通过。
-2. **服务启动既不建表也不迁移**。`verify_schema` 只做校验，建表必须显式执行 `uv run melonclaw-db-init`（数据库按可清空重建维护，没有增量迁移）。
+2. **服务启动既不建表也不升级**。`verify_schema` 只做校验；首次建库显式执行 `uv run melonclaw-db-init`，保留历史数据的结构变更显式执行 `uv run melonclaw-db-update`。
 3. **lint 规则集写在 `pyproject.toml`**。不要在没有配置的情况下直接跑 `uvx ruff check`，不同 ruff 版本的默认集不同（0.16 的默认集包含 I / TRY / BLE）。
 
 ## 改进优先级
@@ -43,3 +43,8 @@
 2. 使用真实 PostgreSQL 补消息对事务与会话锁并发测试，并覆盖 Agent 到 SSE 的完整事件顺序。
 3. 整理剩余 8 处 lint 告警（`uv run ruff check --select TRY,BLE src tests` 可复现），然后扩大 `select`。
 4. 提升可观测性，让 agent 能自行验证“启动耗时”“事件延迟”这类可测目标。
+
+
+## 2026-10-06 账户管理增量验证
+
+密码登录、profile 免密矩阵、全员切换、软删除、租户启停和可撤销 Cookie 会话已加入回归。真实 PostgreSQL 生命周期测试使用独立临时 schema；连接从 MELONCLAW_TEST_DATABASE_URL 读取，未配置时跳过。脚本全量检查通过，细节见[执行记录](exec-plans/completed/user-management-login.md)。仅 profile=dev 开放全员切换任意身份，这是开发需求，仍不具备生产用户间权限隔离。

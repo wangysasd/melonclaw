@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from melonclaw.api.background_stream import close_stream_tasks
 from melonclaw.services.chat import ChatService
 
 
@@ -28,4 +29,5 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             await startup_task
         except asyncio.CancelledError:
             pass
+        await close_stream_tasks()
         await manager.close()

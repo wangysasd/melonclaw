@@ -87,6 +87,13 @@
   transform: translateX(-8.6px);
 }
 
+.brand-wordmark.is-rms-brand {
+  width: 140px;
+  flex-basis: 140px;
+  /* 抵消图片内部左侧留白，让 R 在下方新建对话按钮左边缘内侧 2px。 */
+  transform: translateX(-32.7px);
+}
+
 .sidebar-primary-actions {
   display: flex;
   flex-direction: column;

@@ -10,9 +10,9 @@ from sqlalchemy import text
 
 from melonclaw.core.mcp_config import load_builtin_mcp_seed
 from melonclaw.core.mcp_credentials import encode_credentials
+from melonclaw.core.passwords import hash_password
 from melonclaw.database.database import Database
 from melonclaw.repository.constants import DEFAULT_SIMULATED_USER_ID
-from melonclaw.repository.errors import SeedDataConflictError
 from melonclaw.repository.mappers import _now
 from melonclaw.repository.seed_data import (
     PROVIDER_SEEDS,
@@ -33,30 +33,20 @@ async def seed_demo_data(database: Database) -> None:
                 "INSERT INTO tenants "
                 "(tenant_id, tenant_name_zh, created_at) "
                 "VALUES (:tenant_id, :tenant_name_zh, :created_at) "
-                "ON CONFLICT (tenant_id) DO UPDATE SET "
-                "tenant_name_zh = EXCLUDED.tenant_name_zh"
+                "ON CONFLICT (tenant_id) DO NOTHING"
             ),
             [{**item, "created_at": timestamp} for item in TENANT_SEEDS],
         )
         for item in USER_SEEDS:
-            # PostgreSQL 在冲突行不满足 UPDATE WHERE 时不会更新，也不会把该行放进 RETURNING。
-            # 因此无返回行表示既有用户已归属另一租户，不能在重跑种子时静默改归属。
-            result = await connection.execute(
+            await connection.execute(
                 text(
                     "INSERT INTO users "
-                    "(user_id, tenant_id, user_name_zh, tenant_role, tenant_status, created_at) "
-                    "VALUES "
-                    "(:user_id, :tenant_id, :user_name_zh, :tenant_role, :tenant_status, :created_at) "
-                    "ON CONFLICT (user_id) DO UPDATE SET "
-                    "user_name_zh = EXCLUDED.user_name_zh, "
-                    "tenant_role = EXCLUDED.tenant_role "
-                    "WHERE users.tenant_id = EXCLUDED.tenant_id "
-                    "RETURNING user_id"
+                    "(user_id, tenant_id, user_name_zh, tenant_role, tenant_status, password_hash, created_at) "
+                    "VALUES (:user_id, :tenant_id, :user_name_zh, :tenant_role, :tenant_status, :password_hash, :created_at) "
+                    "ON CONFLICT (user_id) DO NOTHING"
                 ),
-                {**item, "created_at": timestamp},
+                {**item, "password_hash": hash_password("admin"), "created_at": timestamp},
             )
-            if result.scalar_one_or_none() is None:
-                raise SeedDataConflictError(str(item["user_id"]))
 
 
 async def seed_builtin_data(database: Database) -> None:

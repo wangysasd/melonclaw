@@ -39,7 +39,7 @@ export function workspaceAttachments(scope: ResultScope, query: FileListQuery, s
   return apiRequest<{ items: (AttachmentSummary & { modified_at: string })[]; next_offset: number | null }>(`/api/conversations/${encodeURIComponent(scope.conversationId)}/files/attachments`, { query: { user_id: scope.userId, ...query }, signal });
 }
 export async function fetchResultBlob(url: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await fetch(url, { signal });
+  const response = await fetch(url, { signal, credentials: "include" });
   if (!response.ok) throw await parseErrorResponse(response);
   return response.blob();
 }

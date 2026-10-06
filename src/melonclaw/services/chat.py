@@ -25,7 +25,6 @@ from melonclaw.repository import (
     RequestRecord,
     UserContext,
 )
-from melonclaw.repository.constants import SYSTEM_TENANT_ID
 from melonclaw.services.attachments import AttachmentService
 from melonclaw.services.conversations import ConversationService
 from melonclaw.services.errors import (
@@ -36,10 +35,8 @@ from melonclaw.services.errors import (
 from melonclaw.services.execution import ExecutionService, PreparedExecution
 from melonclaw.services.mcp_install import ChatMcpInstallService
 from melonclaw.services.resource_service import (
-    ADMIN_ROLES,
     ModelConfigPayload,
     ProviderConfigPayload,
-    ResourcePermissionError,
     ResourceService,
 )
 from melonclaw.services.results import ResultFileService
@@ -163,34 +160,6 @@ class ChatService:
     async def users(self) -> dict[str, Any]:
         return await self.conversations.users()
 
-    async def create_user(
-        self,
-        actor_user_id: str,
-        user_id: str,
-        user_name_zh: str,
-    ) -> None:
-        """admin 创建普通用户：落在系统租户，角色 member。
-
-        权限矩阵与全局资源一致：仅 admin/owner 可创建用户；
-        用户 ID 全局唯一且只允许小写字母、数字、下划线和连字符。
-        """
-
-        actor = await self.conversations.resolve_user(actor_user_id)
-        if actor.tenant_role not in ADMIN_ROLES:
-            raise ResourcePermissionError("该操作需要管理员权限。")
-        if not USER_ID_RE.fullmatch(user_id):
-            raise ValueError("用户 ID 只能包含小写字母、数字、下划线和连字符。")
-        if not user_name_zh or len(user_name_zh) > 3:
-            raise ValueError("显示名称长度须在 1 到 3 个字符之间。")
-        storage = self._require_ready()
-        if await storage.user_exists(user_id):
-            raise ValueError(f"用户 {user_id!r} 已存在。")
-        await storage.create_user(
-            user_id=user_id,
-            user_name_zh=user_name_zh,
-            tenant_id=SYSTEM_TENANT_ID,
-            tenant_role="member",
-        )
 
     async def models(
         self,

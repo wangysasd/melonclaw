@@ -72,6 +72,7 @@ class Settings:
     """应用运行配置，不包含模型连接或模型凭据。"""
 
     workspace_root: Path
+    profile: str = ""
     data_root: Path = field(default_factory=_create_data_root)
     database_url: str = field(default="", repr=False)
     tavily_api_key: str = field(default="", repr=False)
@@ -142,6 +143,7 @@ def load_settings() -> Settings:
 
     return Settings(
         workspace_root=_create_workspace_root(),
+        profile=os.getenv("profile", ""),
         database_url=os.getenv("DATABASE_URL", ""),
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
         tool_selection_timeout_seconds=_int_setting("MELONCLAW_TOOL_SELECTION_TIMEOUT_SECONDS", 10),
@@ -242,3 +244,12 @@ def provider_env_key(name: str) -> str | None:
     if not name or not re.fullmatch(r"[A-Z][A-Z0-9_]*(?:_API_KEY|_ACCESS_TOKEN)", name):
         return None
     return os.getenv(name, "").strip() or None
+
+
+def allowed_origins() -> list[str]:
+    """CORS 与 Cookie 写请求共用的精确来源白名单。"""
+    raw = os.getenv("MELONCLAW_ALLOWED_ORIGINS", "")
+    origins = [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
+    if "*" in origins:
+        raise ValueError("Cookie 来源配置必须使用明确的 Origin，不能使用通配符。")
+    return origins or ["http://localhost:8001", "http://127.0.0.1:8001"]

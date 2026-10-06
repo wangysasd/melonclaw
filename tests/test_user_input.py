@@ -964,6 +964,9 @@ def test_agent_cache_key_includes_client_capabilities(monkeypatch, tmp_path):
         async def mcp_revision(self):
             return "rev"
 
+        async def get_user_context(self, user_id):
+            return SimpleNamespace(tenant_id="system")
+
         async def models_revision(self):
             return "rev"
 
@@ -1025,6 +1028,9 @@ def test_ordinary_conversation_uses_its_own_workspace(monkeypatch, tmp_path):
 
         async def mcp_revision(self):
             return "rev"
+
+        async def get_user_context(self, user_id):
+            return SimpleNamespace(tenant_id="system")
 
         async def models_revision(self):
             return "rev"

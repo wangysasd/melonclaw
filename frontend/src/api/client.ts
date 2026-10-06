@@ -1,3 +1,4 @@
+import { identityHeaders } from "./auth";
 import type {
   ConversationHistory,
   ConversationSummary,
@@ -57,7 +58,7 @@ export async function parseErrorResponse(response: Response): Promise<ApiError> 
     const body: unknown = await response.json();
     if (body && typeof body === "object") {
       const record = body as Record<string, unknown>;
-      const text = record.error ?? record.message;
+      const text = record.error ?? record.message ?? record.detail;
       if (typeof text === "string" && text.trim()) {
         message = text;
       }
@@ -66,6 +67,8 @@ export async function parseErrorResponse(response: Response): Promise<ApiError> 
   } catch {
     // 响应体不是 JSON 时保留默认文案。
   }
+  if (response.status === 401) window.dispatchEvent(new Event("melonclaw-auth-expired"));
+  if (response.status === 409 && message.includes("当前用户已变化")) window.dispatchEvent(new Event("melonclaw-auth-change"));
   return new ApiError(response.status, message, errorCode);
 }
 
@@ -95,10 +98,12 @@ export async function apiRequest<T>(
   try {
     response = await fetch(url, {
       method: options.method ?? "GET",
+      credentials: "include",
+      cache: "no-store",
       headers:
         options.body !== undefined
-          ? { "Content-Type": "application/json" }
-          : undefined,
+          ? { "Content-Type": "application/json", ...identityHeaders() }
+          : identityHeaders(),
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       signal: options.signal,
     });
@@ -155,7 +160,7 @@ export async function downloadSkill(
   const url = `${API_BASE_URL}/api/skills/${encodeURIComponent(name)}/download${buildQuery({ user_id: input.userId, scope: input.scope })}`;
   let response: Response;
   try {
-    response = await fetch(url);
+    response = await fetch(url, { credentials: "include", headers: identityHeaders() });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new ApiError(0, "无法连接到 MelonClaw 服务，请检查网络或服务状态。");
@@ -184,6 +189,8 @@ export async function prepareSkillImport(input: {
   form.append("file", input.file);
   if (input.targetId) form.append("target_id", input.targetId);
   const response = await fetch(`${API_BASE_URL}/api/skills/import/prepare`, {
+    credentials: "include",
+    headers: identityHeaders(),
     method: "POST",
     body: form,
   });
@@ -505,21 +512,6 @@ export function listDevUsers(
   return apiRequest<{ items: DevUser[] }>("/api/dev/users", { signal });
 }
 
-export function createDevUser(input: {
-  actorUserId: string;
-  userId: string;
-  userNameZh: string;
-}): Promise<{ ok: boolean }> {
-  return apiRequest("/api/dev/users", {
-    method: "POST",
-    body: {
-      actor_user_id: input.actorUserId,
-      user_id: input.userId,
-      user_name_zh: input.userNameZh,
-    },
-  });
-}
-
 export function listProjects(
   input: { userId: string },
   signal?: AbortSignal,
@@ -664,7 +656,7 @@ function parseXhrError(request: XMLHttpRequest): ApiError {
     const body: unknown = JSON.parse(request.responseText);
     if (body && typeof body === "object") {
       const record = body as Record<string, unknown>;
-      const text = record.error ?? record.message;
+      const text = record.error ?? record.message ?? record.detail;
       if (typeof text === "string" && text.trim()) message = text;
       if (typeof record.error_code === "string") errorCode = record.error_code;
     }
@@ -702,6 +694,8 @@ export function uploadAttachment(
     }
     const request = new XMLHttpRequest();
     request.open("POST", url);
+    request.withCredentials = true;
+    for (const [key, value] of Object.entries(identityHeaders())) request.setRequestHeader(key, value);
     const handleAbort = () => request.abort();
     signal?.addEventListener("abort", handleAbort, { once: true });
     const detach = () => signal?.removeEventListener("abort", handleAbort);

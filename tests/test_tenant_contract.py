@@ -21,7 +21,7 @@ def test_api_does_not_declare_client_tenant_id():
         assert "tenant_id" not in model.model_fields, model.__name__
 
     for route in app.routes:
-        if isinstance(route, APIRoute):
+        if isinstance(route, APIRoute) and not route.path.startswith("/api/admin/"):
             assert "tenant_id" not in inspect.signature(route.endpoint).parameters, (
                 route.path
             )

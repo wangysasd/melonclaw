@@ -1,36 +1,71 @@
 #!/usr/bin/env bash
 # 一键启动 MelonClaw 本地开发环境：后端 FastAPI + 前端 Vite。
-# 用法: scripts/start.sh
+# 用法: scripts/start.sh [frontend] [--profile dev|prod]
 # 可用环境变量: MELONCLAW_HOST / MELONCLAW_PORT / MELONCLAW_FRONTEND_HOST /
 # MELONCLAW_FRONTEND_PORT / UV_CACHE_DIR
 set -euo pipefail
 
-if [ "$#" -gt 1 ]; then
-  echo "用法: $0 [frontend]" >&2
-  exit 2
-fi
+TARGET=all
+PROFILE=dev
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    all)
+      TARGET=all
+      shift
+      ;;
+    frontend|--frontend)
+      TARGET=frontend
+      shift
+      ;;
+    --profile)
+      if [ "$#" -lt 2 ]; then
+        echo "参数 --profile 需要 dev 或 prod。" >&2
+        exit 2
+      fi
+      PROFILE="$2"
+      shift 2
+      ;;
+    --profile=*)
+      PROFILE="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      echo "用法: $0 [frontend] [--profile dev|prod]"
+      echo "  默认启动前后端，默认 profile 为 dev（读取 .env）"
+      echo "  --profile prod 读取 .env.prod"
+      echo "  frontend       只启动前端"
+      exit 0
+      ;;
+    *)
+      echo "未知参数: $1。用法: $0 [frontend] [--profile dev|prod]" >&2
+      exit 2
+      ;;
+  esac
+done
 
-case "${1:-all}" in
-  all)
-    FRONTEND_ONLY=0
-    ;;
-  frontend|--frontend)
-    FRONTEND_ONLY=1
-    ;;
-  -h|--help)
-    echo "用法: $0 [frontend]"
-    echo "  无参数    启动前后端"
-    echo "  frontend  只启动前端"
-    exit 0
-    ;;
+case "$PROFILE" in
+  dev|prod) ;;
   *)
-    echo "未知参数: $1。用法: $0 [frontend]" >&2
+    echo "无效 profile：$PROFILE（仅支持 dev 或 prod）。" >&2
     exit 2
     ;;
 esac
-
+if [ "$TARGET" = "frontend" ]; then
+  FRONTEND_ONLY=1
+else
+  FRONTEND_ONLY=0
+fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="${TMPDIR:-/tmp}/melonclaw-dev"
+if [ "$PROFILE" = "prod" ]; then
+  ENV_FILE="$ROOT/.env.prod"
+else
+  ENV_FILE="$ROOT/.env"
+fi
+if [ ! -f "$ENV_FILE" ]; then
+  echo "启动失败：profile=$PROFILE 对应的环境文件不存在：$ENV_FILE" >&2
+  exit 1
+fi
 mkdir -p "$RUN_DIR"
 
 BACKEND_HOST="${MELONCLAW_HOST:-127.0.0.1}"
@@ -66,7 +101,8 @@ start_backend() {
   echo "启动后端: http://$BACKEND_HOST:$BACKEND_PORT ..."
   (
     cd "$ROOT" &&
-      nohup env UV_CACHE_DIR="$UV_CACHE_DIR" uv run melonclaw-web \
+      nohup env UV_CACHE_DIR="$UV_CACHE_DIR" MELONCLAW_ENV_FILE="$ENV_FILE" \
+        profile="$PROFILE" uv run melonclaw-web \
         >"$RUN_DIR/backend.log" 2>&1 &
     echo $! >"$RUN_DIR/backend.pid"
   )
@@ -74,9 +110,14 @@ start_backend() {
 
 start_frontend() {
   echo "启动前端: http://$FRONTEND_HOST:$FRONTEND_PORT ..."
+  local vite_mode=development
+  if [ "$PROFILE" = "prod" ]; then
+    vite_mode=prod
+  fi
   (
     cd "$ROOT/frontend" &&
       nohup npm run dev -- \
+        --mode "$vite_mode" \
         --host "$FRONTEND_HOST" \
         --port "$FRONTEND_PORT" \
         --strictPort \
@@ -98,9 +139,9 @@ wait_for() { # url 名称 超时秒数
   return 0
 }
 
-wait_for_backend() { # url 名称 超时秒数
+wait_for_backend() { # 公开就绪探测 URL 名称 超时秒数
   local url="$1" name="$2" timeout="${3:-30}" i=0
-  until curl -sf "$url" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ready"'; do
+  until curl -sf -o /dev/null "$url"; do
     i=$((i + 1))
     if [ "$i" -ge "$timeout" ]; then
       echo "等待 $name 就绪超时（${timeout}s）。"
@@ -112,8 +153,8 @@ wait_for_backend() { # url 名称 超时秒数
 }
 
 show_backend_status() {
-  local url="http://$BACKEND_HOST:$BACKEND_PORT/api/status"
-  echo "后端当前状态："
+  local url="http://$BACKEND_HOST:$BACKEND_PORT/api/ready"
+  echo "后端公开探测："
   curl -sS --max-time 3 "$url" || echo "无法读取后端状态。"
   echo
 }
@@ -128,7 +169,7 @@ backend_ok=1
 frontend_ok=0
 if [ "$FRONTEND_ONLY" -eq 0 ]; then
   backend_ok=0
-  wait_for_backend "http://$BACKEND_HOST:$BACKEND_PORT/api/status" "后端" 30 && backend_ok=1
+  wait_for_backend "http://$BACKEND_HOST:$BACKEND_PORT/api/ready" "后端" 30 && backend_ok=1
 fi
 wait_for "http://$FRONTEND_HOST:$FRONTEND_PORT" "前端" 30 && frontend_ok=1
 

@@ -245,8 +245,8 @@ export function SidebarContent({
       <div className="brand-row">
         <div className="brand">
           <img
-            className="brand-wordmark"
-            src="/assets/brand/melonclaw-word.png"
+            className={`brand-wordmark${__MELONCLAW_IS_RMS_BRAND__ ? " is-rms-brand" : ""}`}
+            src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-word-rms.png" : "/assets/brand/melonclaw-word.png"}
             alt="MelonClaw"
           />
         </div>

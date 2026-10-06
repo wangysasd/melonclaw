@@ -52,7 +52,7 @@ function Probe() {
 async function renderBootstrapped() {
   session = null;
   const view = render(
-    <SessionProvider>
+    <SessionProvider initialUserId="u1">
       <Probe />
     </SessionProvider>,
   );
@@ -87,27 +87,20 @@ beforeEach(() => {
 });
 
 describe("project conversation navigation", () => {
-  it("reloads the skill picker for each user and ignores the previous user's late response", async () => {
+  it("ignores a previous provider's late skill response after switching identity", async () => {
     const oldSkills = deferred<{ items: { id: string; display_name: string; description: string }[] }>();
-    vi.mocked(client.listSkills).mockResolvedValueOnce({ items: [{ id: "global:writing-guidelines", display_name: "Writing Guidelines", description: "" }] });
     const view = await renderBootstrapped();
-    await waitFor(() => expect(session?.skills).toHaveLength(1));
-
-    vi.mocked(client.listSkills).mockImplementationOnce(() => oldSkills.promise)
-      .mockResolvedValueOnce({ items: [] });
-    let firstSwitch!: Promise<void>;
-    act(() => { firstSwitch = session!.changeUser("u2"); });
-    expect(session?.skills).toEqual([]);
-    await waitFor(() => expect(client.listSkills).toHaveBeenCalledWith({ userId: "u2" }));
-
-    await act(async () => { await session!.changeUser("u3"); });
-    expect(session?.skills).toEqual([]);
+    vi.mocked(client.listSkills).mockImplementationOnce(() => oldSkills.promise);
+    let loading!: Promise<void>;
+    act(() => { loading = session!.refreshSkills(); });
+    view.unmount();
+    const next = await renderBootstrapped();
     await act(async () => {
-      oldSkills.resolve({ items: [{ id: "global:writing-guidelines", display_name: "Writing Guidelines", description: "" }] });
-      await firstSwitch;
+      oldSkills.resolve({ items: [{ id: "old", display_name: "Old", description: "" }] });
+      await loading;
     });
     expect(session?.skills).toEqual([]);
-    view.unmount();
+    next.unmount();
   });
 
   it("selects a conversation in another project without an intermediate empty chat", async () => {

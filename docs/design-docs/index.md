@@ -6,9 +6,11 @@
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
-| [常驻全局导航](global-navigation.md) | 已实现 | 全局窄栏、Home 独立折叠、拓展 TAB 记忆和聊天状态保留 |
+| [常驻全局导航](global-navigation.md) | 已实现 | 全局窄栏、rms 品牌开关控制 A/M/登录页及侧栏字标/助手头像/Browser Tab、Home 独立折叠、拓展 TAB 记忆和聊天状态保留 |
 | [Agent 运行控制与用量](agent-runtime-controls.md) | 已实现 | 数据库模型窗口与可见工具摘要计数、任务调用预算、瞬时重试、显式 Todo 启停与跨模型用量账本；主／子装配及审批恢复、流中断行为验收覆盖，无新增表 |
 | [按需官方工具选择与会话池](on-demand-tool-pool.md) | 已实现 | 官方选择、find_tools 按需触发、跨消息复用、目录失效、父子隔离与并行预算；应用工具在装配入口统一包装，真实构建路径已覆盖回归验证 |
+| [MelonClaw 登录页](melonclaw-login-page.md) | 已实现 | 非 RMS 与空品牌的浅蓝玻璃 AI 登录页、响应式表单与原认证链路 |
+| [RMS 登录页](rms-login-page.md) | 已实现 | RMS 品牌左右分栏式登录、玻璃环本地配图、精简文案与原认证链路 |
 | [前端视觉一致性](ui-consistency.md) | 已实现 | 共享 Token、Ant Design 主题、资源网格、聊天与浮层、响应式规范 |
 | [聊天结果组件](chat-result-components.md) | 已实现 | 固定结果协议、图片／文件、表格、差异、来源与基础数据图表、图表字段错误提示、JSON 语法错误诊断 |
 | [对话产物与 HTML 预览](conversation-artifacts.md) | 已实现 | 正文链接与末尾卡片、事务保存的可重建交付索引、完整会话产物抽屉、当前文件语义、自包含 HTML 隔离预览和源码 |
@@ -18,6 +20,7 @@
 | [聊天生成 Skill](chat-skill-creation.md) | 已实现 | 内置 skill-creator、受限文本草稿、聊天来源、角色范围、复用安装审批与文件/数据库恢复 |
 | [聊天安装个人 MCP](chat-mcp-install.md) | 已实现 | JSON 凭据隔离、持久草稿、个人归属、测试/安装分别审批、事务幂等与下一轮生效 |
 | [MCP 两层配置与 JSON 导入](mcp-two-layer.md) | 已实现 | 角色归属、个人偏好、同名不回退、JSON 单向填表、凭据明文存储与 API 不回显、连接测试、工具白名单交集与缺失诊断、探测调度/缓存、卡片仅展示使用状态、无后台检测、工具权限胶囊对齐与编辑体验 |
+| [用户管理与开发登录](user-management-login.md) | 已实现 | 两张业务表、密码登录、dev 免密、全员切换、软删除与租户启停；可撤销 Cookie 会话 |
 | [用户唯一租户归属](one-tenant-per-user.md) | 已实现 | 用户行固定归属一个租户；服务端解析租户上下文，项目与会话仍按用户归属，Tenant Memory 沿用租户隔离与角色授权 |
 | [聊天附件上传设计](chat-attachments.md) | 已实现 | 首版支持图片、文本、带文本层 PDF 和 DOCX/XLSX/PPTX；包含两阶段上传、消息原子绑定、解析、hydration、权限边界和清理任务。详细讨论稿仍保留在本地 `note/上传附件技术设计.md` |
 | [用户决策 HITL](user-input-hitl.md) | 已实现 | Agent 在关键决策不确定时通过 `ask_user` 暂停，前端展示选项，服务端校验并从原 Checkpoint 恢复；包含幂等、TTL、历史恢复和当前边界 |
@@ -61,3 +64,9 @@
 - [聊天错误恢复与发送前反馈](chat-error-recovery.md)：已实现；错误来源、只读同步和附件发送前门槛。
 
 - 文件面板平级标签与两行工具栏：已实现，见[文件浏览器设计](workspace-file-browser.md#简化后的面板结构)。
+
+- 用户管理与登录补充已实现：密码再次确认、头像菜单修改密码、仅 dev 开放免密登录与用户切换，见[账户设计](user-management-login.md)。
+
+- 数据库初始化与保留数据升级约定：首次／重大重建使用 db-init，增量功能使用 db-update，见[架构第 6 节](../ARCHITECTURE.md#6-数据库变更流程)。
+
+- [账户 review 修复](account-review-fixes.md)：已实现；同站来源白名单、刷新乱序、散列校验与公开就绪探测。

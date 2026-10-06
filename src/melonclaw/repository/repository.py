@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from melonclaw.database.database import Database
+from melonclaw.repository.accounts import AccountRepositoryMixin
 from melonclaw.repository.artifacts import ArtifactRepositoryMixin
 from melonclaw.repository.attachments import AttachmentRepositoryMixin
 from melonclaw.repository.conversations import ConversationRepositoryMixin
@@ -19,6 +22,7 @@ from melonclaw.repository.users import UserRepositoryMixin
 
 
 class BusinessRepository(
+    AccountRepositoryMixin,
     UserRepositoryMixin,
     ProjectRepositoryMixin,
     ConversationRepositoryMixin,
@@ -35,6 +39,8 @@ class BusinessRepository(
 
     def __init__(self, database: Database) -> None:
         self.database = database
+        # 留出业务查询连接，避免所有连接被等待下游 SQL 的身份锁占满。
+        self._account_slots = asyncio.Semaphore(4)
 
     @property
     def engine(self) -> AsyncEngine:

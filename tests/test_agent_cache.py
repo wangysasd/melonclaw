@@ -32,6 +32,9 @@ def test_agent_build_locks_cover_waiters_and_are_released(monkeypatch, tmp_path)
         async def mcp_revision(self):
             return "mcp-rev"
 
+        async def get_user_context(self, user_id):
+            return SimpleNamespace(tenant_id="system")
+
         async def models_revision(self):
             return "models-rev"
 

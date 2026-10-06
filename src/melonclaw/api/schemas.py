@@ -210,17 +210,6 @@ class ModelConfigUpdateRequest(BaseModel):
     is_default: bool | None = None
 
 
-class DevUserCreateRequest(BaseModel):
-    """admin 创建普通用户（开发模拟身份，非生产认证）。
-
-    新用户落在系统租户（system），角色 member；user_id 全局唯一。
-    """
-
-    actor_user_id: str = Field(min_length=1, max_length=64)
-    user_id: str = Field(min_length=1, max_length=64)
-    user_name_zh: str = Field(min_length=1, max_length=3)
-
-
 class SkillRemoteInstallRequest(BaseModel):
     """从远程市场安装 Skill（仅支持 GitHub zipball）。"""
 

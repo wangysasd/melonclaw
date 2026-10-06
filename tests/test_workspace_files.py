@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from account_fixtures import authenticated_route_app
 
 from melonclaw.api.app import create_app
 from melonclaw.services.conversations import ConversationService
@@ -134,7 +135,7 @@ def test_real_file_routes_share_project_files_but_keep_scope_and_delivery_constr
         runtime = SimpleNamespace(storage=storage, require_ready=lambda: storage,
                                   workspace_dir=Mock(side_effect=lambda _, proj: project if proj else ordinary),
                                   settings=SimpleNamespace(attachment_max_file_bytes=3_000_000, attachment_image_max_pixels=100))
-        app = create_app()
+        app = authenticated_route_app(create_app(), "owner")
         app.state.chat = SimpleNamespace(ready=True, results=ResultFileService(runtime, ConversationService(runtime)))
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             for cid in (first_id, second_id):
@@ -170,9 +171,11 @@ def test_real_file_routes_share_project_files_but_keep_scope_and_delivery_constr
             for path in ("/.artifacts", "/src/..", "/../ordinary"):
                 denied = await client.get(base, params={"user_id": "owner", "path": path})
                 assert denied.status_code == 404 and str(tmp_path) not in denied.text
+            authenticated_route_app(app, "other")
             for endpoint in ("", "/attachments", "/metadata", "/content", "/html-preview"):
                 denied = await client.get(base + endpoint, params={"user_id": "other", "path": "/src/app.py"})
                 assert denied.status_code == 404
+            authenticated_route_app(app, "owner")
             storage.get_project.return_value = None
             assert (await client.get(base, params={"user_id": "owner"})).status_code == 404
     asyncio.run(run())

@@ -100,7 +100,7 @@ class SchemaVerificationTests(unittest.IsolatedAsyncioTestCase):
         message = str(caught.exception)
         assert "model_configs" in message
         assert "is_default" in message
-        assert "重建数据库" in message
+        assert "melonclaw-db-update" in message and "重建" in message
 
     async def test_extra_column_is_reported(self):
         database = make_database(

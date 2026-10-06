@@ -1,14 +1,14 @@
 # MelonClaw
 
 <p align="center">
-  <img src="frontend/public/assets/brand/melon-claw.png" alt="MelonClaw" width="314" height="314" />
+  <img src="frontend/public/assets/brand/melonclaw-readme.png" alt="MelonClaw" width="314" height="314" />
 </p>
 
 **基于 Deep Agents 的通用 AI 助手，在浏览器中完成研究、写作、文件处理和多步骤任务。**
 
 MelonClaw 将模型、工具、Skill、MCP、项目文件和长期记忆放在同一个工作界面中。你可以查看执行过程、回答助手的问题，并在文件修改、Shell 执行和外部工具调用前决定是否允许。
 
-当前适合本机开发与个人使用：页面使用开发模拟身份，默认的 `LocalShellBackend` 不是安全沙箱。
+当前适合本机开发与个人使用：页面提供账号密码登录及全员开发身份切换，默认的 `LocalShellBackend` 不是安全沙箱。
 
 ## 项目特点
 
@@ -60,7 +60,7 @@ createdb melonclaw
 uv run melonclaw-db-init
 ```
 
-此命令创建业务表、Checkpoint 和 Memory Store，写入 `system` 租户下的管理员 `admin`、23 家未启用且无凭据的供应商模板，并从共享 Skill 目录及可选 `mcp.json` 补录资源。**服务启动只校验表结构，不会建表或迁移。**
+此命令创建业务表、Checkpoint 和 Memory Store，写入 `system` 租户下的管理员 `admin`（初始密码固定为 `admin`，数据库保存哈希）、23 家未启用且无凭据的供应商模板，并从共享 Skill 目录及可选 `mcp.json` 补录资源。首次上线使用该命令。**服务启动只校验表结构，不会建表或升级。**
 
 ### 3. 启动前后端
 
@@ -70,11 +70,7 @@ scripts/start.sh
 
 - 浏览器打开 [MelonClaw](http://127.0.0.1:8001)。
 - 后端默认地址为 [http://127.0.0.1:8000](http://127.0.0.1:8000)。
-- 用下面的命令检查服务状态，返回内容应包含 `"status":"ready"`（可能带空格）：
-
-```bash
-curl -fsS http://127.0.0.1:8000/api/status
-```
+- 用用户 ID `admin` 和初始密码 `admin` 登录，在左下角“系统状态”检查就绪情况。`/api/status` 现在也要求登录 Cookie，匿名请求返回 401。
 
 `ready` 表示服务就绪，不表示模型已配置或外部 MCP 已连通。
 
@@ -86,18 +82,24 @@ curl -fsS http://127.0.0.1:8000/api/status
 4. 按服务商实际能力填写**上下文窗口**，启用模型，并按需设为默认。新模型默认填写 1,000,000 tokens（1M），这只是应用默认值，不能代表服务商实际支持 1M。
 5. 返回聊天，选择模型并发送一条消息。能收到回复，才算完成模型连通验证。
 
+聊天中的用户头像与导航栏一致，使用当前用户的姓名缩写和专属配色。
+
 管理员配置的模型显示在「内置模型」，可供所有用户使用；普通用户在已有供应商上填写个人 Key 后可添加「自定义模型」，仅本人可用。没有可用模型时仍可启动和管理配置，但不能聊天。
 
 ## 启动、停止与更新
 
 ```bash
-scripts/start.sh               # 启动前后端，不自动安装依赖或建表
-scripts/restart.sh             # 重启前后端
-scripts/shutdown.sh            # 停止前后端
-scripts/start.sh frontend      # 仅启动前端
-scripts/restart.sh frontend    # 仅重启前端
+scripts/start.sh                         # 默认 dev：读取 .env 启动前后端
+scripts/start.sh --profile prod          # 读取 .env.prod 启动前后端
+scripts/restart.sh --profile prod        # 读取 .env.prod 重启前后端
+scripts/restart.sh                       # 默认 dev：读取 .env 重启前后端
+scripts/shutdown.sh                      # 停止前后端
+scripts/start.sh frontend                # 仅启动前端
+scripts/restart.sh frontend --profile prod # 仅重启前端
 scripts/shutdown.sh frontend   # 仅停止前端
 ```
+
+启动和重启脚本的 `--profile` 默认值为 `dev`：dev 读取根目录 `.env`，prod 读取 `.env.prod`，并将所选值传给后端。直接运行 `uv run melonclaw-web` 时仍读取 `.env` 中的 `profile`。
 
 开发时也可在两个终端分别以前台方式运行，直接查看输出：
 
@@ -113,9 +115,9 @@ npm --prefix frontend run dev
 
 一键脚本的日志位于 `${TMPDIR:-/tmp}/melonclaw-dev/backend.log` 和同目录的 `frontend.log`。端口被占用时脚本拒绝启动；先确认占用进程，若为本项目服务再运行停止命令。
 
-更新代码后运行 `uv sync --locked` 和 `npm --prefix frontend ci`，再重启。如果已有表的结构发生变化，开发期采用清空重建：先停止服务、备份需要保留的数据，确认连接的是开发库，再使用数据库管理工具清空并重建，最后运行 `uv run melonclaw-db-init`。初始化命令不会替你清库，也不会修改已有表结构。
+更新代码后运行 `uv sync --locked` 和 `npm --prefix frontend ci`，再重启。新增功能需要调整数据库、且要保留历史数据时，先运行 `uv run melonclaw-db-update`；它只应用尚未执行的版本化更新，不删除业务数据。全新数据库仍运行 `uv run melonclaw-db-init`。
 
-清库会删除用户、模型配置、会话、Checkpoint 和 Memory 等数据库数据；工作区、附件和 Skill 正文在数据库外，不会随之删除。重建后需要重新配置模型和非种子用户；共享 Skill 与 MCP 种子可重新登记，个人资源需按归属重新处理。
+`melonclaw-db-init` 用于第一次系统上线，或重大变更决定放弃历史数据并重建数据库时。它不会主动清库；清库需在确认目标开发库、备份所需数据后自行执行。清空会删除用户、模型配置、会话、Checkpoint 和 Memory 等数据库内容；工作区、附件和 Skill 正文在数据库外，不会随之删除。重建后需重新配置模型及非种子用户。
 
 ## 配置文件与填写说明
 
@@ -141,11 +143,12 @@ npm --prefix frontend run dev
 | `MELONCLAW_WORKSPACE_DIR` | `~/.melonclaw/workspaces` | 会话／项目持久工作区，包含附件和输出文件 |
 | `MELONCLAW_DATA_DIR` | 仓库下 `.data/` | Skill 等平台资源的数据根，与 Agent 工作区分离 |
 | `MELONCLAW_USER_INPUT_TTL_SECONDS` | `86400` | 用户问题卡的有效期，单位秒 |
-| `MELONCLAW_IDENTITY_HEADER` | 空 | 可选可信网关注入身份的请求头名；普通本地开发保持为空 |
+| `profile` | 空 | 严格等于 `dev` 时显示并启用“免密登录”和侧栏“切换用户”；空、未配置或其他值关闭 |
+| `brand` | 空 | 仅值为 `rms`（忽略大小写）时显示全局导航中的 AMP（A）和 Mindera（M），启用左侧浅蓝玻璃环配图、右侧带柔和蓝色光晕的居中 Logo 和精简表单的 RMS 登录页（窄屏只显示 Logo 和表单），并切换欢迎页/侧栏字标、助手头像及 Browser Tab 标题/favicon（`RMS · 投研助手`）；其他值（含空值）隐藏入口并使用 MelonClaw 浅蓝登录页：左侧品牌、标题与表单，右侧玻璃 AI 环配图，窄屏只显示表单。dev 使用 `.env`，prod 使用 `.env.prod`，修改后重启前端或重新构建 |
 
 自定义数据根时，在初始化前把所需内置技能部署到该根下的 `skills/shared/`，包括 `.data/skills/shared/melonclaw-tutorial/` 和 `.data/skills/shared/skill-creator/`；不要将数据根直接指向某个 Skill 目录。个人技能保存在 `skills/users/`，临时导入文件在 `skills/tmp/`。备份时需同时考虑数据库、数据根和工作区。
 
-身份请求头本身不验证来源。启用它必须由可信网关覆盖客户端同名头并阻断绕过网关的访问；它不能将当前系统直接变成生产认证服务。
+身份以服务端 Cookie 会话为准，原 `MELONCLAW_IDENTITY_HEADER` 入口已移除。使用同源 `/api` 反代并保留 Host；写请求会校验来源。
 
 ### 监听地址与前端代理
 
@@ -158,7 +161,7 @@ npm --prefix frontend run dev
 | `MELONCLAW_FRONTEND_HOST` | `127.0.0.1` | 前端开发服务器监听地址 |
 | `MELONCLAW_FRONTEND_PORT` | `8001` | 前端开发服务器端口 |
 | `MELONCLAW_API_TARGET` | `http://127.0.0.1:8000` | Vite 的后端代理地址；未设置时跟随 `MELONCLAW_PORT` |
-| `MELONCLAW_ALLOWED_ORIGINS` | 本地开发来源 | 后端 CORS 允许来源，多个来源用逗号分隔；跨域访问时按实际地址配置 |
+| `MELONCLAW_ALLOWED_ORIGINS` | 本地开发来源 | CORS 与写请求共用的精确 Origin 白名单，逗号分隔，不支持 `*`；只支持同站跨域，跨站部署使用同源代理 |
 
 例如，先停止旧端口上的服务，再设置新端口：
 
@@ -324,7 +327,7 @@ HTML 预览支持不超过 2 MB 的 UTF-8 自包含页面和内嵌 CSS / JavaScr
 | 现象 | 检查与处理 |
 |---|---|
 | 数据库连接失败 | 检查 PostgreSQL 是否启动、数据库是否存在、账号权限和 `DATABASE_URL` 驱动格式；不要公开实际连接串 |
-| 提示表不存在或表结构不一致 | 首次运行执行 `uv run melonclaw-db-init`；已有表结构变化时按前文停止、备份、清空重建，启动服务不会迁移 |
+| 提示表不存在或表结构不一致 | 空数据库首次运行 `uv run melonclaw-db-init`；要保留现有数据时执行 `uv run melonclaw-db-update`；启动服务不会自动建表或升级 |
 | 前端无法启动或找不到 Vite | 运行 `npm --prefix frontend ci`；一键脚本不安装前端依赖 |
 | 端口被占用 | 确认是否为本项目旧服务后停止，或按前文导出新的前后端端口 |
 | 页面可打开但 API 不通 | 检查后端 `/api/status`、后端日志及 `MELONCLAW_API_TARGET`；改端口不能只改根目录 `.env` |
@@ -339,10 +342,27 @@ HTML 预览支持不超过 2 MB 的 UTF-8 自包含页面和内嵌 CSS / JavaScr
 
 全局导航底部「系统状态」可查看当前用户的模型、工具、技能和 MCP 配置情况，其中 MCP 的启用状态不等于实时连接状态。
 
+## 登录与用户／租户管理
+
+登录页展示 MelonClaw Logo、用户 ID 和密码。表单关闭浏览器自动填充并使用独立字段名，避免同源页面曾保存的大模型 URL/API Key 被当作登录凭据回填。仅 `.env` 中 `profile=dev` 时额外显示“免密登录”，点击直接进入 admin；按钮不带开发后缀，不显示额外提示。配置变更后重启后端。普通用户创建时必须设置初始密码并再次输入确认（5～128 字符），密码只保存哈希。
+
+仅 `profile=dev` 时，所有登录用户可通过左侧“更换用户”切换身份，包括 admin；切换后返回目标用户首页，原任务在后台继续，切回来可查询结果。刷新保留当前会话，左下角头像菜单“登出”撤销会话并回到登录页。未发送内容在切换前提示确认。
+
+头像菜单提供“修改密码”：填写新密码和再次确认，不需要旧密码；成功后返回登录页。管理员也可在用户管理中修改用户密码，两次输入必须一致。
+
+当前为 admin 时，左侧底部出现“系统管理”：
+
+- 用户管理：搜索／筛选、创建、编辑名称和所属租户、修改密码、软删除。用户 ID 创建后不可修改或复用；删除保留个人数据。
+- 租户管理：创建、搜索、修改名称、启停；租户 ID 不可修改，不提供删除。停用后成员不能登录或发起新业务请求，数据保留。
+- 一个用户只属于一个租户。换租户后个人项目、会话、附件、配置和用户记忆保留，租户记忆留在原租户。存在运行中或等待审批／回答的任务时，先结束任务再改归属、删除用户或停用租户。
+- 内置 admin 不可删除／转租户，system 不可停用。修改密码会撤销该用户相关会话，含其登录后切到别人的会话。忘记 admin 密码可在服务所在机器执行 `uv run melonclaw-admin-password`。
+
+初始化只补录缺失账户，不覆盖已经设置的密码或编辑的资料。完整接口与边界见[用户管理与登录设计](docs/design-docs/user-management-login.md)。
+
 ## 安全与当前边界
 
-- 页面用户是**开发模拟身份**，不是生产登录认证。初始仅有 `admin`，其他用户由管理员创建，默认属于 `system` 租户。
-- `LocalShellBackend` 不是沙箱，工作区目录也不是操作系统级隔离。当前仅适合本机 `127.0.0.1` 开发使用；面向共享或不可信用户前需要真实认证、独立沙箱及凭据隔离。
+- 页面提供密码登录；仅 `profile=dev` 时开放**全员可切换任意用户（含 admin）**的开发能力。非 dev 隐藏入口且后端拒绝免密登录及用户切换；当前应用仍定位于本机开发与个人使用。初始仅有 `admin`，其他用户由当前 admin 在系统管理中创建并选择租户。
+- `LocalShellBackend` 不是沙箱，工作区目录也不是操作系统级隔离。当前仅适合本机 `127.0.0.1` 开发使用；面向共享或不可信用户前需要收紧身份切换权限、独立沙箱及凭据隔离。
 - 文件写入、修改、删除、Shell、MCP 调用等通过人工审批；QuickJS 用于受限计算，不具备文件和网络权限。审批不能替代运行环境隔离，停止生成也不回滚副作用。
 - 不提交 `.env`，不在 Skill、URL、命令参数、截图或排障输出中暴露凭据。数据库及其备份也可能包含模型和 MCP 凭据。
 - 附件解析和 HTML 预览有类型、大小与访问限制，但不等同于恶意文件扫描或系统沙箱。不要让不可信用户直接使用宿主机执行能力。
@@ -374,3 +394,10 @@ scripts/check.sh frontend     # 仅前端相关检查
 
 
 全局侧边栏还提供 AMP 和 Mindera 两个入口作为页面占位。点击 A 打开 AMP 占位页，点击 M 打开 Mindera 占位页；当前不包含对应业务功能。
+
+
+### 登录来源与公开就绪探测
+
+Cookie 登录支持同源访问，以及 `MELONCLAW_ALLOWED_ORIGINS` 白名单中的同站跨域访问（例如同主机同协议不同端口）。Cookie 保持 `SameSite=Strict`，拒绝浏览器标记为跨站的写请求；不同站点或协议的部署应将 `/api` 反向代理到前端同源地址。`localhost` 与 `127.0.0.1` 不应混用。
+
+无需登录的 `GET /api/ready` 只返回 `{"ready": true/false}`：服务初始化完成返回 200，初始化中或失败返回 503，响应禁止缓存。`scripts/start.sh` 使用它等待后端就绪；`/api/auth/config` 只用于登录页配置，不代表就绪。已登录的 `/api/status` 提供详细状态。正常启动命令仍为 `scripts/start.sh --profile dev`；本次修复无数据库结构变化，无需运行 db-init 或 db-update。

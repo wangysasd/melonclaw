@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi.responses import StreamingResponse
 
+from melonclaw.api.background_stream import persistent_stream
 from melonclaw.output.formatting import sanitize_text
 
 
@@ -71,7 +72,7 @@ def stream_response(
     """创建统一配置的 SSE 响应。"""
 
     return StreamingResponse(
-        stream_events(events),
+        persistent_stream(stream_events(events)),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

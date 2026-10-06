@@ -1,3 +1,6 @@
+import { AuthGate } from "./components/AuthGate";
+import { AccountManagement } from "./components/AccountManagement";
+import "./styles/accounts.css";
 import { App as AntdApp, ConfigProvider } from "antd";
 import XProvider from "@ant-design/x/es/x-provider";
 import zhCN from "antd/locale/zh_CN";
@@ -59,7 +62,7 @@ function Workspace() {
 
   return (
     <div className="app-shell">
-      <GlobalNav view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} onAmp={() => setView("amp")} onMindera={() => setView("mindera")} />
+      <GlobalNav view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} onAmp={() => setView("amp")} onMindera={() => setView("mindera")} onAdmin={() => setView("admin")} />
       <div className="home-workspace" hidden={view !== "chat"}>
         <Sidebar key={`sidebar:${session.userId}`} onNewConversation={newConversation} onOpenProjectDialog={openProjectDialog} onNavigateChat={() => setView("chat")} />
         <ChatView
@@ -88,6 +91,7 @@ function Workspace() {
           }}
         />
       ) : null}
+      {view === "admin" && session.userId === "admin" ? <AccountManagement /> : null}
       {view === "amp" ? <PlaceholderView title="AMP" /> : null}
       {view === "mindera" ? <PlaceholderView title="Mindera" /> : null}
       <ProjectDialog
@@ -107,9 +111,7 @@ export default function App() {
       <style>{tokenCss}</style>
       <XProvider theme={antdTheme}>
         <AntdApp>
-          <SessionProvider>
-            <Workspace />
-          </SessionProvider>
+          <AuthGate>{(user) => <SessionProvider key={user.user_id} initialUserId={user.user_id}><Workspace /></SessionProvider>}</AuthGate>
         </AntdApp>
       </XProvider>
     </ConfigProvider>

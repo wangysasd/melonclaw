@@ -5,13 +5,11 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-import pytest
-
+from melonclaw.core.passwords import verify_password
 from melonclaw.repository.bootstrap import (
     seed_demo_data,
     seed_provider_data,
 )
-from melonclaw.repository.errors import SeedDataConflictError
 from melonclaw.repository.seed_data import (
     ADMIN_USER_SEED,
     PROVIDER_SEEDS,
@@ -56,14 +54,14 @@ def test_seed_data_is_system_tenant_and_admin_only():
     assert ADMIN_USER_SEED["tenant_role"] == "owner"
 
 
-def test_seed_rejects_existing_user_in_another_tenant():
+def test_seed_never_overwrites_existing_accounts():
     statements: list[tuple[str, dict[str, str]]] = []
 
     class Connection:
         async def execute(self, statement, values):
             sql = str(statement)
             statements.append((sql, values))
-            # PostgreSQL 的冲突更新 WHERE 不成立时，RETURNING 没有行。
+            # 种子 INSERT 冲突时不更新任何字段。
             return SimpleNamespace(scalar_one_or_none=lambda: None)
 
     class Transaction:
@@ -80,18 +78,19 @@ def test_seed_rejects_existing_user_in_another_tenant():
     transaction = Transaction()
     database = SimpleNamespace(engine=SimpleNamespace(begin=lambda: transaction))
 
-    with pytest.raises(SeedDataConflictError, match="租户归属与种子数据不一致"):
-        asyncio.run(seed_demo_data(database))
+    asyncio.run(seed_demo_data(database))
 
-    assert transaction.failed
-    assert len(statements) == 2  # 租户批量写入后，首个冲突用户立即失败。
+    assert not transaction.failed
+    assert len(statements) == 2  # 一次租户批量写入，一次 admin 写入。
     user_insert, seed = statements[1]
-    assert "WHERE users.tenant_id = EXCLUDED.tenant_id" in user_insert
-    assert "RETURNING user_id" in user_insert
+    assert "ON CONFLICT (user_id) DO NOTHING" in user_insert
+    assert "UPDATE" not in user_insert
     assert "tenant_role" in user_insert
     assert "tenant_status" in user_insert
     assert seed["tenant_role"] == "owner"
     assert seed["tenant_status"] == "active"
+    assert seed["password_hash"] != "admin"
+    assert verify_password("admin", seed["password_hash"])
 
 
 def test_provider_seeds_reference_valid_builtins():

@@ -36,7 +36,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 - **依赖方向由 `tests/test_architecture.py` 强制**，各包允许依赖谁见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 第 3 节。新增包时先在该测试的 `FORBIDDEN_IMPORTS` 里声明规则，再写实现。
 - 横切关注点只从固定入口进入：配置走 `core/config.py`，模型目录走 `core/model_catalog.py`，模型实例走 `core/chat_model.py`，MCP 走 `core/mcp_config.py`，长期记忆走 `memory/MemoryService`，业务数据读写走 `repository/`。不要另开旁路。
 - 依赖以 `pyproject.toml` 和 `uv.lock` 为准，使用 `uv sync` 管理环境；`requirements.txt` 仅作为 pip 兼容清单维护。
-- **不为数据库历史数据写兼容代码。** 这是开发期项目，允许清空存量数据库：能通过清空数据库简化设计时，就清空数据库并简化设计。表结构只改 `database/schema.py`，由 `uv run melonclaw-db-init` 的 `metadata.create_all` 一次性建表；不写 `ADD COLUMN IF NOT EXISTS` 迁移、不维护 `schema_migrations` 版本常量、不在读取路径上为“老数据可能没有这个字段”写 `or` / `hasattr` 兜底。发现这类代码应直接删除，而不是继续扩展它。
+- **数据库初始化与增量更新分开。** `uv run melonclaw-db-init` 只用于第一次系统上线，或重大变更明确决定放弃历史数据并重建数据库之后；该命令创建当前完整 schema、Checkpoint/Memory Store 并写入初始种子，不负责清库。新增功能若需要改表且应保留历史数据，必须新增按序、可审计的升级步骤，并通过 `uv run melonclaw-db-update` 执行；更新记录与每个升级步骤在同一事务提交，重复运行不重复执行已完成步骤，不删除用户业务数据。升级脚本集中在 `database/updates/`，包含必要的数据填充和约束检查；新数据库直接按 `database/schema.py` 创建，不在业务读取路径加入旧字段兜底。完成升级后校验 schema，并同步 README、架构文档、测试和本文件。本地开发允许在重大变更时清空历史数据，但须明确告知影响，且不得让 init 自动删除数据。
 
 ## 配置与可移植性
 
@@ -51,7 +51,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 - 文件写入、删除、Shell 执行、外部写操作和其他有副作用的工具必须明确经过 HITL 或受控权限边界。
 - PTC/Interpreter 只允许加入已经确认无需逐次审批且副作用明确受限的工具；不能因为主 Agent 配置了 HITL 就把写文件、Shell、数据库写入、发消息、交易或部署工具放入 PTC。
 - 任何新增工具都要说明输入校验、权限范围、错误处理、敏感信息脱敏和是否进入审批清单；进入审批清单的工具在 `core/hitl.py` 中登记，不进清单的要写明理由。
-- Web 的 `user_id` 是开发模拟身份；服务层必须从用户记录解析唯一且有效的租户归属，并重新校验 Project、Conversation 和附件归属。Conversation 只归属 `user_id + project_id`，`tenant_id` 由服务端解析后用于 Agent 和 Memory 运行上下文。开发模拟用户不能被描述成生产认证系统。初次上线只有 `system` 租户下的 `admin`（种子写入）；其他用户由 admin 通过 `POST /api/dev/users` 创建（系统租户 member），服务端校验 admin/owner 身份。
+- Web 使用 Cookie 会话，`user_id` 是与当前会话一致的页面身份断言；仅 profile=dev 开放全员显式切换（含 admin），仍是开发能力，不是生产权限隔离；服务层必须从用户记录解析唯一且有效的租户归属，并重新校验 Project、Conversation 和附件归属。Conversation 只归属 `user_id + project_id`，`tenant_id` 由服务端解析后用于 Agent 和 Memory 运行上下文。开发模拟用户不能被描述成生产认证系统。初次上线只有 `system` 租户下的 `admin`（种子写入）；其他用户由当前 system/admin 通过 `POST /api/admin/users` 创建并选择启用租户（member）；管理权限按当前身份校验，不按原登录身份保留。
 - 当前 `LocalShellBackend` 不是安全沙箱。若新增面向共享环境的能力，必须说明隔离方案、授权边界和部署限制。
 - 不依赖上游框架按类型自动推断模型能力。涉及多模态、文件类型、工具权限的判断必须由本仓库显式声明，原因见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 第 5.2 节。
 
@@ -60,7 +60,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 - 用户说明书 Skill `melonclaw-tutorial` 仅在用户显式要求根据新增或变化的项目功能更新时才修改；不要因功能变化主动更新该 Skill。此约定不影响 README.md 和 docs/ 的同步维护要求。`.data/skills/shared/melonclaw-tutorial/` 及其内容纳入 Git 版本管理，不得被 `.gitignore` 忽略。
 - 新功能的设计分析先写入 `note/note.md`，可长期复用的结论搬进 `docs/design-docs/` 并更新索引；至少包含背景与目标、方案概览、关键设计选择、数据/事件流、失败与安全边界、运行步骤、预期结果和验证记录。
 - 新增命令、环境变量、API、MCP 服务或用户可见行为时，同步更新 README.md；架构、依赖边界或横切入口变化时，同步更新 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-- 修改依赖、数据库结构或运行入口后，给出简洁的初始化/运行命令和验证结果。服务启动不会建表也不会迁移，建表必须执行 `uv run melonclaw-db-init`。
+- 修改依赖、数据库结构或运行入口后，给出简洁的初始化/运行命令和验证结果。首次建库执行 `uv run melonclaw-db-init`；保留历史数据的 schema 升级执行 `uv run melonclaw-db-update`；服务启动不会自动建表或升级。
 - 提交前运行 `scripts/check.sh`（后端编译、测试、lint，前端 lint、类型检查、测试，文档链接校验）。前端依赖未安装时脚本会跳过前端部分。
 - 需要真实外部 API、数据库或 MCP 服务的验证，应明确依赖和观察点；不要在日志或回复中暴露凭据。
 

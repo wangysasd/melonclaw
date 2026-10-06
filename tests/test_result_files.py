@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from account_fixtures import authenticated_route_app
 from PIL import Image
 
 from melonclaw.api.app import create_app
@@ -86,7 +87,7 @@ def test_api_stream_has_safe_headers_and_download_default(tmp_path):
 
 
 async def _api_stream_has_safe_headers_and_download_default(tmp_path):
-    app = create_app()
+    app = authenticated_route_app(create_app(), "owner")
     path = tmp_path / "file.txt"
     path.write_text("<script>not executed</script>")
     async def open_file(*args):

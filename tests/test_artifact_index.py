@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from account_fixtures import authenticated_route_app
 
 from melonclaw.api.app import create_app
 from melonclaw.repository import ConversationNotFoundError
@@ -110,7 +111,7 @@ def test_real_html_route_uses_current_file_and_keeps_download_restricted(tmp_pat
                                   settings=SimpleNamespace(attachment_max_file_bytes=3_000_000, attachment_image_max_pixels=100))
         conversations = SimpleNamespace(resolve_user=AsyncMock(return_value=SimpleNamespace(user_id="owner")),
                                         project_for_conversation=AsyncMock(return_value=None))
-        app = create_app()
+        app = authenticated_route_app(create_app(), "owner")
         app.state.chat = SimpleNamespace(ready=True, results=ResultFileService(runtime, conversations))
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             route = f"/api/conversations/{cid}/result-files"

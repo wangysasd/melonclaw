@@ -21,7 +21,7 @@ import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
 import { buildAgentRun, isTerminalRun } from "../lib/agentRun";
 import { attachmentBadge } from "../lib/attachmentFiles";
 import { copyText } from "../lib/clipboard";
-import { formatMessageTime } from "../lib/format";
+import { avatarStyle, formatMessageTime, userInitials } from "../lib/format";
 import { useUserQuestionExpired } from "../lib/userQuestionExpiry";
 import { useSession } from "../state/session";
 import { attachmentContentUrl } from "../api/client";
@@ -262,15 +262,18 @@ const MessageBubble = memo(function MessageBubble({
   return (
     <ResultProvider userId={userId} conversationId={conversationId ?? ""} projectId={projectId || null} messageId={message.id}>
     <article className={`message ${message.role}`} id={`message-${message.id}`} tabIndex={-1}>
-      <div className={`avatar ${message.role === "user" ? "user-avatar" : "assistant-avatar"}`}>
-        <img
-          src={
-            message.role === "user"
-              ? "/assets/brand/melon.png"
-              : "/assets/brand/melonclaw-mark.png"
-          }
-          alt={message.role === "user" ? userName : __MELONCLAW_NAME__}
-        />
+      <div
+        className={`avatar ${message.role === "user" ? "user-avatar" : "assistant-avatar"}`}
+        style={message.role === "user" ? avatarStyle(userId) : undefined}
+        role={message.role === "user" ? "img" : undefined}
+        aria-label={message.role === "user" ? userName : undefined}
+      >
+        {message.role === "user" ? userInitials(userName, userId) : (
+          <img
+            src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-mark-rms.png" : "/assets/brand/melonclaw-mark.png"}
+            alt={__MELONCLAW_NAME__}
+          />
+        )}
       </div>
       <div className="message-content">
         <div className="message-meta">
@@ -439,9 +442,8 @@ export function ChatView({
   };
 
   const hasMessages = chat.state.messages.length > 0;
-  const userName =
-    session.users.find((user) => user.user_id === session.userId)?.display_name ??
-    (session.userId || "用户");
+  const currentUser = session.users.find((user) => user.user_id === session.userId);
+  const userName = currentUser?.display_name || currentUser?.username || session.userId || "用户";
   const currentConversation = session.conversationId
     ? session.conversations.find((item) => item.id === session.conversationId)
       ?? session.recents.find((item) => item.id === session.conversationId)
@@ -496,7 +498,10 @@ export function ChatView({
         ) : !hasMessages && !chat.state.approval && !chat.state.error ? (
           <div className="welcome">
             <div className="welcome-mark">
-              <img src="/assets/brand/melonclaw-word.png" alt="MelonClaw" />
+              <img
+                src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-word-rms.png" : "/assets/brand/melonclaw-word.png"}
+                alt={__MELONCLAW_IS_RMS_BRAND__ ? "RMS" : "MelonClaw"}
+              />
             </div>
             <h1>请选择您需要的研究服务</h1>
             <Prompts

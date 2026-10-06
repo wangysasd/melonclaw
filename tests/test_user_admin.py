@@ -1,104 +1,49 @@
-"""admin 创建用户的权限与校验。"""
-
-import unittest
+"""账户输入、密码和内置记录保护。"""
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
-from sqlalchemy.exc import IntegrityError
+import pytest
+from pydantic import ValidationError
 
-from melonclaw.repository.users import UserRepositoryMixin
-from melonclaw.services.chat import ChatService
-from melonclaw.services.resource_service import ResourcePermissionError
-
-
-class FakeStorage:
-    def __init__(self):
-        self.created = []
-
-    async def user_exists(self, user_id):
-        return any(row["user_id"] == user_id for row in self.created)
-
-    async def create_user(self, **fields):
-        self.created.append(fields)
+from melonclaw.api.routes.accounts import UserCreate, UserEdit
+from melonclaw.core.passwords import hash_password, verify_password
+from melonclaw.services.accounts import AccountService
 
 
-def make_service(storage, actor_role="owner"):
-    async def resolve_user(user_id):
-        return SimpleNamespace(
-            user_id=user_id,
-            tenant_role=actor_role,
-            tenant_status="active",
-        )
-
-    runtime = SimpleNamespace(require_ready=lambda: storage)
-    conversations = SimpleNamespace(resolve_user=resolve_user)
-    # ChatService.__init__ 需要多个协作对象；创建用户只用到 conversations/runtime。
-    service = ChatService.__new__(ChatService)
-    service.runtime = runtime
-    service.conversations = conversations
-    return service
+def test_password_hash_is_salted_and_checks_exact_password():
+    password = " secret-password "
+    encoded = hash_password(password)
+    assert encoded != hash_password(password)
+    assert verify_password(password, encoded)
+    assert not verify_password(password.strip(), encoded)
+    assert not verify_password(password, None)
+    assert password not in encoded
+    with pytest.raises(ValueError):
+        hash_password("tiny")
 
 
-class CreateUserTests(unittest.IsolatedAsyncioTestCase):
-    async def test_admin_creates_member_in_system_tenant(self):
-        storage = FakeStorage()
-        await make_service(storage).create_user("admin", "zhangsan", "张三")
-        self.assertEqual(
-            storage.created,
-            [
-                {
-                    "user_id": "zhangsan",
-                    "user_name_zh": "张三",
-                    "tenant_id": "system",
-                    "tenant_role": "member",
-                }
-            ],
-        )
-
-    async def test_member_cannot_create_user(self):
-        with self.assertRaises(ResourcePermissionError):
-            await make_service(FakeStorage(), actor_role="member").create_user(
-                "zhangsan", "lisi", "李四"
-            )
-
-    async def test_rejects_bad_user_id(self):
-        with self.assertRaises(ValueError):
-            await make_service(FakeStorage()).create_user("admin", "Zhang San", "张三")
-
-    async def test_rejects_duplicate(self):
-        storage = FakeStorage()
-        service = make_service(storage)
-        await service.create_user("admin", "zhangsan", "张三")
-        with self.assertRaises(ValueError):
-            await service.create_user("admin", "zhangsan", "三")
-
-    async def test_rejects_long_name(self):
-        with self.assertRaises(ValueError):
-            await make_service(FakeStorage()).create_user("admin", "longname", "张三四五")
+def test_create_accepts_full_name_and_rejects_invalid_ids_and_immutable_edits():
+    body = UserCreate(user_id="u-1", user_name_zh="  张三的全名  ", tenant_id="team", password="new-password", confirm_password="new-password")
+    assert body.user_name_zh == "张三的全名"
+    assert "new-password" not in repr(body)
+    with pytest.raises(ValidationError):
+        UserCreate(user_id="a b", user_name_zh="用户", tenant_id="t", password="new-password", confirm_password="new-password")
+    with pytest.raises(ValidationError):
+        UserEdit(user_id="changed", user_name_zh="用户", tenant_id="t")
 
 
-class RepositoryDuplicateGuardTests(unittest.IsolatedAsyncioTestCase):
-    async def test_integrity_error_mapped_to_value_error(self):
-        """并发创建撞主键时，DB 唯一约束兜底并转成可读的 422。"""
-
-        class Connection:
-            async def execute(self, *_args):
-                raise IntegrityError("INSERT INTO users ...", {}, Exception("dup"))
-
-        class Transaction:
-            async def __aenter__(self):
-                return Connection()
-
-            async def __aexit__(self, *_args):
-                return False
-
-        mixin = UserRepositoryMixin()
-        mixin.engine = SimpleNamespace(begin=lambda: Transaction())
-        with self.assertRaises(ValueError) as caught:
-            await mixin.create_user(
-                user_id="zhangsan", user_name_zh="张三", tenant_id="system"
-            )
-        self.assertIn("已存在", str(caught.exception))
-
-
-if __name__ == "__main__":
-    unittest.main()
+def test_account_service_protects_admin_and_hashes_new_password():
+    async def run():
+        storage = SimpleNamespace(save_account_user=AsyncMock(), delete_account_user=AsyncMock(), save_account_tenant=AsyncMock())
+        service = AccountService(storage)
+        for action in [service.delete_user("admin"), service.save_user("admin", "管理员", "another"), service.save_tenant("system", "系统", False)]:
+            with pytest.raises(ValueError):
+                await action
+        await service.save_user("alice", "用户长名称", "team", "new-password")
+        args = storage.save_account_user.call_args
+        assert args.kwargs == {"create": True}
+        assert args.args[1]["tenant_id"] == "team"
+        assert verify_password("new-password", args.args[1]["password_hash"])
+        storage.delete_account_user.assert_not_called()
+    asyncio.run(run())

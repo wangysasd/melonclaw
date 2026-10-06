@@ -233,11 +233,12 @@ def test_connection_reflections_redact_url_and_header_credentials():
 
 def test_invalid_message_schema_does_not_echo_config():
     import httpx
+    from account_fixtures import authenticated_route_app
 
     from melonclaw.api.app import create_app
 
     async def run():
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app()), base_url="http://test") as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=authenticated_route_app(create_app(), "admin")), base_url="http://test") as client:
             response = await client.post(f"/api/conversations/{uuid4()}/messages", json={
                 "user_id": "admin", "request_id": str(uuid4()), "content": json.dumps(CONFIG) + "x" * 12000,
             })

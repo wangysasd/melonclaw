@@ -31,8 +31,10 @@ tenants = Table(
     "tenants",
     metadata,
     Column("tenant_id", String(64), primary_key=True),
-    Column("tenant_name_zh", String(5), nullable=False, unique=True),
+    Column("tenant_name_zh", String(64), nullable=False, unique=True),
+    Column("enabled", Boolean, nullable=False, server_default="true"),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
 )
 
 users = Table(
@@ -45,10 +47,24 @@ users = Table(
         ForeignKey("tenants.tenant_id", ondelete="RESTRICT"),
         nullable=False,
     ),
-    Column("user_name_zh", String(3), nullable=False),
+    Column("user_name_zh", String(64), nullable=False),
     Column("tenant_role", String(32), nullable=False, server_default="member"),
     Column("tenant_status", String(16), nullable=False, server_default="active"),
+    Column("password_hash", Text, nullable=True),
+    CheckConstraint("tenant_status IN ('active', 'deleted')", name="ck_users_status"),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
+)
+
+auth_sessions = Table(
+    "auth_sessions",
+    metadata,
+    Column("token_hash", String(64), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False),
+    # 仅用于密码重置撤销，不赋予原登录者的权限。
+    Column("login_user_id", String(64), ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
 )
 
 projects = Table(

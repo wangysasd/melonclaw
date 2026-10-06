@@ -34,12 +34,12 @@ Project 或普通 Conversation 的受控 `.attachments/` 目录，`services/atta
 
 持久化分两块，职责不重叠：
 
-- `database/` + `repository/`：业务数据（用户、Project、Conversation、消息、审批、用户问题交互、Memory 事件），由 `melonclaw-db-init` 建表。
+- `database/` + `repository/`：业务数据（用户、Project、Conversation、消息、审批、用户问题交互、Memory 事件）；首次建库由 `melonclaw-db-init` 创建，保留数据的结构升级由 `melonclaw-db-update` 执行。
 - LangGraph Checkpointer：Agent 图状态，与业务表分离。
 
 `tenants` 与 `users` 是一对多关系：`users.tenant_id` 是非空外键，租户角色和状态也直接保存在用户行中，不设成员关联表。请求只提供开发模拟 `user_id`；服务层读取该用户唯一且有效的租户归属，生成 Agent 和 Memory 的运行上下文。Tenant Memory 按这个租户 ID 分区并按用户租户角色授权；Memory 操作会再次核对运行上下文与数据库归属。用户租户归属没有运行时变更入口，调整开发数据时重建数据库。
 
-**身份决定租户隔离的实际强度。** 当前浏览器可提交任意 `user_id`，它只是开发模拟身份，不能抵御冒用其他用户。`api/identity.py` 的受信任身份头目前仅接入附件路由；面向共享环境时，必须先让所有受保护路由统一使用可信认证，并隔离 Agent 的文件与 Shell 能力。任何客户端请求、API Schema、查询或表单参数都不得定义或消费 `tenant_id`；租户 ID 只能从服务端读取的用户记录进入运行上下文。
+**身份决定租户隔离的实际强度。** 当前浏览器可提交任意 `user_id`，它只是开发模拟身份，不能抵御冒用其他用户。`api/identity.py` 的受信任身份头目前仅接入附件路由；面向共享环境时，必须先让所有受保护路由统一使用可信认证，并隔离 Agent 的文件与 Shell 能力。普通业务请求不得用 `tenant_id` 指定运行上下文；管理用户资料的创建／编辑接口可以提交目标 tenant_id，后端验证租户有效性。运行租户始终从服务端用户记录解析。
 
 Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conversation_id` 列；
 消息、审批、用户问题和附件关系表使用 `conversation_id` 外键引用它。Conversation 归属由
@@ -113,7 +113,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
 | Skill 资源 | `services/skills.py` 解析正文；`skill_state.py` 统一有效状态；`skill_import.py` 导入更新；`skill_operations.py` 文件日志恢复；`skill_index.py` 索引重建 | 正文在文件系统，DB 保存归属、启停、版本和来源。持久草稿与内容提交受同数据根文件锁保护；更新保留 ID/偏好，删除先隔离目录。管理、Picker 和 Agent 共用有效状态；`skill_snapshot.py` 固定有效目录内容与摘要，`middleware/skill_refresh.py` 每轮刷新 Checkpoint 摘要。详见 [Skill 生命周期](design-docs/skill-lifecycle.md)。 |
 | Skill/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
-| 附件请求身份 | `api/identity.py` 的 `resolve_request_user_id()` | 附件路由决定 `user_id` 从哪里读（查询/表单，或部署方配置的受信任请求头）；**不做身份校验**，用户的唯一租户归属和资源所有权仍由服务层重新校验 |
+| HTTP 身份 | `api/auth.py` 的 `require_session()` | 统一验证 Cookie 会话、来源和页面身份断言；附件由 `api/identity.py` 读取已验证身份。管理授权按当前 system/admin，业务归属仍由服务层校验 |
 
 凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`TAVILY_API_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；给 Agent 的变量名集中在 `core/defaults.py` 声明，值只来自 `.env`。
 
@@ -168,15 +168,15 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 
 ## 6. 数据库变更流程
 
-数据库按“可清空重建”维护，`database/schema.py` 是唯一事实来源，不为历史数据写兼容迁移。
+`database/schema.py` 是新数据库当前结构的唯一事实来源；数据库维护分为首次／重建初始化与保留数据升级。
 
-1. 改 `database/schema.py` 的表定义（列、约束、部分唯一索引都写在这里）；
-2. 清空/重建数据库后执行 `uv run melonclaw-db-init`：`create_schema` 只做一次 `metadata.create_all`，`seed_demo_data` 写入演示数据，`reindex_skills_from_disk()` 从 `data_root/skills/` 补回 Skill 索引；
-3. 服务启动时 `verify_schema` 只做校验，**不会**自动迁移，也不会补列。
+1. 首次上线或重大变更决定放弃历史数据时，在空数据库执行 `uv run melonclaw-db-init`。它用 `metadata.create_all` 建业务表，并准备 Checkpoint、Memory Store 和初始种子；不主动清库。
+2. 新功能需调整现有数据库且保留历史数据时，新增有序升级脚本到 `database/updates/`，通过 `uv run melonclaw-db-update` 执行。升级 ID 与成功步骤保存在 `melonclaw_schema_updates`；DDL、必要的数据补齐和该 ID 在同一事务提交。重复运行会跳过已成功步骤。升级须校验前置表／数据状态，失败时事务回滚，不在业务读取路径添加旧结构兜底。
+3. 服务启动时 `verify_schema` 只校验，不自动建表或升级。缺少基础用户／租户表时提示 db-init；现有数据库缺少新对象或列时提示 db-update。
 
-清库会丢掉两类"看起来在代码里、实际只在数据库里"的东西，`db-init` 对它们的处理不同：**结构**必须由 `schema.py` 定义（当前结构校验由 `verify_schema` 执行），**索引类数据**由 `db-init` 从磁盘或仓库种子重建（内置 MCP 来自 `mcp.json`，Skill 索引来自 `data_root/skills/`）。新增任何"DB 只是投影"的资源时，都要同时给出重建入口，否则清库后它会静默消失而不是报错。
+`metadata.create_all` 只建缺失对象，从不 ALTER 已有表。保留数据升级必须显式维护版本化脚本；完成升级后由 `verify_schema` 对 `BUSINESS_TABLES` 逐表比对当前列。**业务表和资源表都必须登记在 `database/constants.py` 的 `BUSINESS_TABLES`**：漏登记会让漂移延迟到其他数据库操作才暴露。新数据库仍直接按 `schema.py` 创建。
 
-`metadata.create_all` 只建缺失的表，从不 ALTER 已有表。`verify_schema` 对 `BUSINESS_TABLES` 逐表比对当前定义的列；数据库结构变更通过清空开发库并重新初始化完成。**业务表和资源表都必须登记在 `database/constants.py` 的 `BUSINESS_TABLES`**：漏登记的表不会做列校验，漂移可能到种子 INSERT 才以数据库错误暴露。新增业务表时，同时把它加入 `BUSINESS_TABLES`。
+清库会丢掉两类“看起来在代码里、实际只在数据库里”的东西：**结构**从 `schema.py` 创建；**索引类数据**由 db-init 从磁盘或仓库种子重建（内置 MCP 来自 `mcp.json`，Skill 索引来自 `data_root/skills/`）。新增任何“DB 只是投影”的资源时，都要同时给出重建入口。重大变更选择清库时，要明确数据影响并由操作者执行清理；init 本身不得删除数据库内容。
 
 若重建数据库是为了改变用户的租户映射，先备份需要保留的文件，并清理 `MELONCLAW_WORKSPACE_DIR` 指向的旧工作区（未配置时为 `~/.melonclaw/workspaces`），再初始化数据库。建表命令不会清理工作区；沿用旧目录会留下与新数据库无对应记录的文件。工作区路径中的 UUID 和目录层级不是租户安全边界。
 
@@ -217,3 +217,13 @@ MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空�
 `services/result_index.py` 从已完成最终回复的 Markdown 语法提取明确文件／图片交付，history 和 completed（含幂等回放）使用同一派生 `artifacts` 字段；文件卡片、正文链接与会话产物列表共用引用。`ResultFileService.index` 经 repository 直接读取 `conversation_artifacts` 交付投影，按路径／附件 ID 合并最近来源，不加载消息正文或扫描工作区。最终正文的引用由 services 解析，repository 在完成回复的 CAS 事务中同步写入投影；以消息 seq 阻止迟到旧交付覆盖新来源。`melonclaw-db-init` 从已完成正文流式、原子重建投影，读取路径不做历史回退。文件仍读取当前内容，不保存版本快照。HTML 使用独立只读预览响应，UTF-8／2 MB 核验、HTTP 与 Blob 文档 meta CSP、无同源权限 sandbox；普通 content 的 HTML 下载边界保持严格。具体流与限制见 [对话产物](design-docs/conversation-artifacts.md)。
 
 文件浏览器复用 `ResultFileService` 的身份与实际工作区解析。`storage/workspace_files.py` 提供按目录读取、5,000 项扫描上限、分页和普通文件 fd 读取；拒绝隐藏路径、符号链接与特殊文件。`storage/results.py` 在同一读取机制上保留成果 `/outputs/` 引用约束。`api/routes/files.py` 的 `/files` 目录／内容接口不扩大 Agent 成果协议权限，内容与 HTML 策略复用既有响应构造。附件列表只经 `repository/attachments.py` 按实际项目／会话与用户查登记信息，不枚举内部物理目录。文件存在与完成回复的交付记录分别读取，不增加表或快照。详见 [文件浏览器](design-docs/workspace-file-browser.md)。
+
+
+## 用户管理与开发登录
+
+参见[用户管理与登录设计](design-docs/user-management-login.md)。users/tenants 维持一对多，辅助 auth_sessions 支持可撤销 Cookie 会话。账户用例位于 services/accounts.py，SQL 与并发边界位于 repository/accounts.py；API 统一依赖覆盖下载、SSE、上传、审批和普通 JSON 请求。请求中的 user_id 仅作会话身份断言，不能覆盖服务端身份。管理资料的 tenant_id 是目标字段，不是运行上下文覆盖参数。
+
+仅 profile=dev 开放免密登录和全员显式切换用户（含 admin）；非 dev 隐藏入口并拒绝对应接口。租户记忆不迁移，个人数据按用户所有权保留；Agent 缓存键增加租户维度。SSE 投递与业务执行生命周期分开，浏览器断开后执行继续，服务关闭才取消。账户变更使用 PostgreSQL 全局共享／独占事务锁与未完成助手消息检查，暂不追求管理操作的高并发吞吐。
+
+
+账户来源白名单统一从 `core/config.py` 解析，应用组装时保存快照供 CORS 与写请求校验共用。白名单只放行同站跨域，跨站写入继续拒绝，Cookie 保持 Strict。公开 `/api/ready` 只读取 `manager.ready`，以 200/503 表达初始化状态，不暴露内部错误；登录配置接口不承担就绪判断。详见[账户 review 修复](design-docs/account-review-fixes.md)。

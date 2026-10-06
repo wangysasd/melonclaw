@@ -7,7 +7,6 @@ from fastapi.responses import JSONResponse
 
 from melonclaw.api.dependencies import get_chat_service
 from melonclaw.api.errors import error_response
-from melonclaw.api.schemas import DevUserCreateRequest
 
 router = APIRouter()
 
@@ -28,13 +27,9 @@ async def dev_users(request: Request) -> JSONResponse:
         return error_response(exc)
 
 
-@router.post("/api/dev/users")
-async def create_dev_user(request: Request, body: DevUserCreateRequest) -> JSONResponse:
-    manager = get_chat_service(request)
-    if manager.storage is None:
-        return JSONResponse(await manager.status(), status_code=503)
-    try:
-        await manager.create_user(body.actor_user_id, body.user_id, body.user_name_zh)
-        return JSONResponse({"ok": True}, status_code=201)
-    except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
-        return error_response(exc)
+@router.get("/api/ready")
+async def readiness(request: Request) -> JSONResponse:
+    """公开探测只返回就绪状态，不暴露配置或初始化错误。"""
+    ready = get_chat_service(request).ready
+    return JSONResponse({"ready": ready}, status_code=200 if ready else 503,
+                        headers={"Cache-Control": "no-store"})

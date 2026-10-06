@@ -1,3 +1,4 @@
+import { switchUser } from "../api/auth";
 import {
   createContext,
   useCallback,
@@ -34,7 +35,6 @@ import type {
   ServiceStatus,
 } from "../types/api";
 import {
-  USER_STORAGE_KEY,
   conversationStorageKey,
   modelStorageKey,
   projectStorageKey,
@@ -169,7 +169,7 @@ const INITIAL_STATE: SessionState = {
   skillsError: null,
   conversationCursor: null,
   recentsCursor: null,
-  userId: readStorage(USER_STORAGE_KEY) ?? "",
+  userId: "",
   projectId: "",
   conversationId: null,
   draftConversationId: null,
@@ -474,9 +474,9 @@ export interface SessionContextValue extends SessionState {
   markConversationIdle: (conversationId: string) => void;
 }
 
-export function SessionProvider({ children }: { children: ReactNode }) {
+export function SessionProvider({ children, initialUserId = "" }: { children: ReactNode; initialUserId?: string }) {
   const { message } = AntdApp.useApp();
-  const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+  const [state, dispatch] = useReducer(reducer, { ...INITIAL_STATE, userId: initialUserId });
 
   // generation 与最新 state 通过 ref 供异步操作读取与过期校验（对齐旧实现）。
   const generationRef = useRef(0);
@@ -542,18 +542,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       dispatchSync({ type: "busy", busy: false });
       dispatchSync({ type: "runStatus", runStatus: null });
     }
-  }, [dispatchSync]);
-
-  const abortActiveRequests = useCallback(() => {
-    for (const controller of streamControllersRef.current.values()) {
-      controller.abort();
-    }
-    streamControllersRef.current.clear();
-    dataControllerRef.current?.abort();
-    dataControllerRef.current = null;
-    dispatchSync({ type: "runsCleared" });
-    dispatchSync({ type: "busy", busy: false });
-    dispatchSync({ type: "runStatus", runStatus: null });
   }, [dispatchSync]);
 
   const abortActiveDataRequests = useCallback(() => {
@@ -692,12 +680,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const refreshUsersInternal = useCallback(async () => {
     const usersData = await listDevUsers();
     const current = stateRef.current.userId;
-    const userId = usersData.items.some((user) => user.user_id === current)
-      ? current
-      : (usersData.items.find((user) => user.is_default)?.user_id ??
-        usersData.items[0]?.user_id ??
-        "");
-    writeStorage(USER_STORAGE_KEY, userId);
+    const userId = current;
+    if (!usersData.items.some((user) => user.user_id === current)) {
+      window.dispatchEvent(new Event("melonclaw-auth-expired"));
+      return;
+    }
     dispatchSync({ type: "bootstrapUsers", users: usersData.items, userId });
   }, [dispatchSync]);
 
@@ -745,33 +732,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const changeUser = useCallback(
     async (userId: string) => {
-      const snapshot = stateRef.current;
-      abortActiveRequests();
-      bumpGeneration();
-      const userChanged = userId !== snapshot.userId;
-      writeStorage(USER_STORAGE_KEY, userId);
-      dispatchSync({ type: "userSwitched", userId, resetContext: userChanged });
       try {
-        await Promise.all([loadModelsInternal(), loadProjectsInternal(), loadSkillsInternal()]);
-        await Promise.all([
-          loadConversationsInternal({ append: false, refreshOnly: false }),
-          loadRecentsInternal(),
-        ]);
+        await switchUser(userId);
       } catch (error) {
         message.error(error instanceof Error ? error.message : String(error));
       }
     },
-    [
-      abortActiveRequests,
-      bumpGeneration,
-      dispatchSync,
-      loadConversationsInternal,
-      loadModelsInternal,
-      loadProjectsInternal,
-      loadSkillsInternal,
-      loadRecentsInternal,
-      message,
-    ],
+    [message],
   );
 
   const openProject = useCallback(
@@ -1152,13 +1119,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         const users = usersData.items;
         const savedUserId = stateRef.current.userId;
-        const selected =
-          users.find((user) => user.user_id === savedUserId) ??
-          users.find((user) => user.is_default) ??
-          users[0] ??
-          null;
-        const userId = selected?.user_id ?? "";
-        writeStorage(USER_STORAGE_KEY, userId);
+        const userId = savedUserId;
+        if (!users.some((user) => user.user_id === userId)) {
+          window.dispatchEvent(new Event("melonclaw-auth-expired"));
+          return;
+        }
         dispatchSync({ type: "bootstrapUsers", users, userId });
 
         await Promise.all([

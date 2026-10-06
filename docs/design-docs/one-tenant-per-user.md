@@ -1,46 +1,33 @@
 # 用户唯一租户归属
 
-状态：已实现。
+状态：已实现。2026-10-06 更新。
 
 ## 背景与目标
 
-原来的 `users` 与 `tenants` 通过 `user_tenants` 多对多关联。请求未指定租户时，仓储会按租户 ID 排序后取第一条；前端还保存一份租户选择状态。Project、Conversation 和附件却始终归用户所有，同一会话可能在不同请求中得到不同的 Tenant Memory 上下文。
+原有多对多 user_tenants 在未指定租户时需要任取一个成员关系，容易使同一会话的 Memory 上下文不稳定。当前每名用户始终有且只有一个租户，移除独立成员关系表及前端租户选择。
 
-目标是让每名用户始终有且只有一个租户归属，移除请求和浏览器中的租户选择。项目仍处开发期，改表时清空数据库；不保留旧数据结构、旧 API 参数或本地存储的兼容分支。
+## 当前方案
 
-## 方案概览
+- tenants 与 users 一对多，users.tenant_id 是必填外键；tenant_role 与 tenant_status 位于用户行。
+- 当前 system/admin 可以通过用户管理创建用户并指定租户，也可修改归属。更换归属不迁移个人数据；租户记忆留在租户。存在未完成任务时拒绝变更。
+- Web 使用可撤销 Cookie 会话。业务请求 user_id 必须与当前会话身份一致；租户只能从服务端用户记录解析。只有管理用户资料接口允许提交目标 tenant_id，普通业务接口不能覆盖运行租户。
+- 项目、会话、附件和个人配置仍按 user_id 校验所有权。Conversation 仅记录 user_id + project_id，不重复存储租户。
+- Global / Tenant / User Memory 命名空间维持原结构。Memory 操作再次读取用户归属，拒绝与运行上下文不一致的租户；租户记忆发布仍遵守既有角色授权。
+- Agent 缓存键包含租户，变更归属后使用新实例。已出现于历史消息的旧租户信息不会被删除。
 
-- `tenants` 可拥有多名用户；`users.tenant_id` 是非空外键，`tenant_role` 与 `tenant_status` 位于用户行。业务 Schema 不再创建 `user_tenants`。
-- 用户租户归属是当前运行模型中的固定属性，没有更换租户的业务 API。演示种子显式写入 `tenant_role=member`、`tenant_status=active`；重复初始化只更新同租户用户的名称，已有用户归属与种子冲突时抛出 `SeedDataConflictError` 并要求重建数据库。
-- API 仅接收开发模拟 `user_id`，不得定义或消费客户端传入的 `tenant_id`。服务层按该 ID 查找状态为 `active` 的用户及其租户，再按 `user_id` 校验 Project、Conversation 和附件的归属。
-- Agent 运行上下文保留服务端读取的 `tenant_id` 和租户角色。Global / Tenant / User Memory 的 namespace 保持原结构；Tenant Memory 和审计记录使用该租户 ID。Memory 操作再次读取用户归属，并拒绝与运行上下文不一致的租户。
-
-## 数据流与关键取舍
+## 数据流
 
 ```text
-浏览器选择模拟用户并提交 user_id
-  → 服务层从 users → tenants 解析唯一有效归属
-  → 仓储按 user_id 校验业务资源所有权
-  → AgentContext 使用解析得到的租户 ID 和角色
-  → Memory 校验归属、选择 namespace、记录审计事件
+Cookie 会话 → 当前有效用户 → users.tenant_id → 启用中的租户
+→ 按用户校验 Project / Conversation / 附件 → AgentContext → Memory 再校验
 ```
 
-会话仍只保存 `user_id + project_id` 归属，不重复存 `tenant_id`。审批恢复、用户问题恢复、取消和过期问题收尾都重新解析当前用户；它们不能通过请求选择别的租户。前端切换用户会清理会话上下文和旧流，模型选择按用户保存在本地。
+仅 profile=dev 时，所有已登录用户可显式切换到其他用户（包括 admin），因此本方案是开发使用，不承诺生产权限隔离。profile 同时控制免密登录及用户切换，空值、未配置或其他值关闭两者。用户删除为软删除；租户不删除，仅启停。
 
-## 失败与安全边界
+## 初始化与验证
 
-- 用户不存在或 `tenant_status` 非 `active` 时，业务请求不能得到用户上下文。不存在“改选另一个租户”或按 ID 排序选第一个的路径。
-- 同租户用户的 Project、Conversation 和附件按 `user_id` 校验归属。但浏览器可伪造开发模拟 `user_id`，所以当前隔离不能抵御主动冒用；共享部署需要让所有受保护路由统一使用可信身份来源，并隔离 Agent 的文件和 Shell 能力。目前受信任身份头只接入附件路由。
-- Tenant Memory 的直接发布仍要求 `admin` 或 `owner` 角色。Agent 上下文中的租户与数据库归属不一致时，Memory 拒绝访问。
-- 清空数据库会删除业务记录、Checkpoints 和 Store 记忆。改变用户租户映射时，必须备份所需文件并同时清理配置的旧工作区根目录；建表命令不会删除工作区，旧文件可能失去数据库索引。工作区路径不是租户隔离边界。服务启动不会建表或迁移。
+表结构由 schema.py 定义，db-init 使用 create_all，不迁移旧库。重复初始化只补录缺失种子，不覆盖密码、资料、归属或状态。seed_data.py 中保留 system、dep-a、dep-b 租户模板，唯一种子用户为 system 下的 admin。
 
-## 运行与验证
+数据库结构变化时，先停止服务并保留所需数据，再清空重建目标开发库并执行 `uv run melonclaw-db-init`；首次初始化后使用 `admin/admin` 登录；`uv run melonclaw-admin-password` 作为可选改密命令。单纯通过管理页面修改用户租户，不需要清库或清理工作区。
 
-停止服务并清空目标开发数据库后，执行 `uv run melonclaw-db-init` 建表和写入演示用户，再启动 Web。预期 `users.tenant_id` 非空、`user_tenants` 不存在、演示用户各有一个租户，前端请求不包含 `tenant_id`。检查项目、会话、附件、消息和恢复路径是否从当前用户解析同一租户；检查无效用户和租户不匹配的 Memory 上下文被拒绝。
-
-代码契约检查见 `tests/test_schema.py`、`tests/test_bootstrap.py`、`tests/test_tenant_contract.py` 及前端测试；真实 PostgreSQL 初始化与应用请求的观察结果以执行计划的记录为准。
-
-
-## 当前开发数据中的部门租户
-
-开发数据库中另有两个显式部门租户：`dep-a`（部门A）和 `dep-b`（部门B）。张三的 `users.tenant_id` 指向 `dep-a`，李四指向 `dep-b`。新租户 ID 与中文名称在 `repository/seed_data.py` 登记，确保重复执行 db-init 时租户记录仍在。用户租户关系以 `users.tenant_id` 为准；改归属需要在事务中先确保租户存在，再更新该列。当前用户创建接口仍将新用户放入 `system` 租户，没有面向普通用户的换租户 API。
+测试见 tests/test_schema.py、tests/test_tenant_contract.py、tests/test_accounts_postgres.py。完整界面、API、运行及并发边界见[用户管理与开发登录](user-management-login.md)。

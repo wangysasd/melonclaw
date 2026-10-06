@@ -89,7 +89,7 @@ class ChatRuntime:
             self.memory_store_context, self.memory_store = await open_memory_store(
                 self.settings.database_url
             )
-            # 建表和演示数据初始化由 melonclaw-db-init 独立执行，
+            # 建表和初始种子由 melonclaw-db-init 执行，保留数据的结构升级由 melonclaw-db-update 执行，
             # 服务启动只检查当前结构，不修补旧表。
             await self.database.verify_schema(
                 require_checkpointer=True,
@@ -464,8 +464,12 @@ class ChatRuntime:
         )
         skills_revision, skill_dirs, skill_references = skill_state
         mcp_revision = mcp_snapshot_revision(mcp_rows)
+        user_context = await storage.get_user_context(user_id)
+        if user_context is None:
+            raise ValueError("用户不存在或所属租户已停用。")
         key = (
             workspace_key,
+            user_context.tenant_id,
             resolved_model.cache_key,
             normalized_capabilities,
             skills_revision,

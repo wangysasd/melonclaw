@@ -18,13 +18,12 @@ class SchemaValidationMixin:
         """由独立初始化命令调用；API lifespan 不会自动建表。"""
 
         async with self.engine.begin() as connection:
-            # 数据库按“可清空重建”维护：schema.py 是唯一事实来源，
-            # create_all 按外键拓扑顺序建表，索引、约束和部分唯一索引一并创建。
+            # db-init 仅用于首次初始化或重大变更后的空库重建。
+            # 常规保留数据升级由 melonclaw-db-update 单独执行。
             await connection.run_sync(
                 lambda sync_connection: metadata.create_all(sync_connection)
             )
-        # create_all 不会修补已有表。若用户没有按约定清空旧库，
-        # 在写入演示数据前就给出明确的重建提示。
+        # create_all 只创建缺失对象，不会修补已有表；增量变更由 db-update 执行。
         await self.verify_schema(require_checkpointer=False, require_store=False)
 
     async def verify_schema(
@@ -52,8 +51,14 @@ class SchemaValidationMixin:
         missing = [name for name in expected if name not in found]
         if missing:
             required = "、".join(missing)
+            if {"tenants", "users"}.issubset(found):
+                command = "uv run melonclaw-db-update"
+                message = "数据库需要应用增量更新"
+            else:
+                command = "uv run melonclaw-db-init"
+                message = "数据库尚未完成首次初始化"
             raise DatabaseSchemaError(
-                f"数据库尚未初始化，缺少表：{required}。请先运行 uv run melonclaw-db-init。"
+                f"{message}，缺少表：{required}。请运行 {command}。"
             )
 
         business_placeholders = ", ".join(
@@ -95,6 +100,6 @@ class SchemaValidationMixin:
             details = "；".join(mismatches)
             raise DatabaseSchemaError(
                 "数据库结构与当前 schema.py 不一致："
-                f"{details}。请清空/重建数据库后重新运行 "
-                "uv run melonclaw-db-init。"
+                f"{details}。请先运行 uv run melonclaw-db-update；"
+                "若当前数据库不属于受支持的升级路径，再按重大变更流程重建。"
             )
