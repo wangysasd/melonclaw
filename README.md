@@ -91,6 +91,7 @@ scripts/restart.sh            # 重启前后端
 - 页面打开但 API 不通：检查后端日志及 [就绪探测](http://127.0.0.1:8000/api/ready)；一键脚本日志默认在 `${TMPDIR:-/tmp}/melonclaw-dev/`。
 - 端口被占用：确认占用进程，若是本项目旧服务先停止。自定义端口需在启动终端导出 `MELONCLAW_PORT`、`MELONCLAW_FRONTEND_PORT`，停止和重启时保持一致；脚本与前端代理不会自动从根目录 `.env` 读取端口参数。
 - 模型列表为空：在页面添加并启用模型；模型列表测试成功后，仍需通过实际聊天验证。
+- 页面报 `crypto.randomUUID is not a function`：更新并重新构建前端后刷新页面。前端在普通 HTTP 地址下通过 `crypto.getRandomValues()` 生成标准 UUID 请求标识，登录、发消息、问题回答和附件上传不再依赖 `randomUUID` 可用。
 
 当前适合本机开发与个人使用。`LocalShellBackend` 不是安全沙箱，人工审批不能替代系统隔离；不要向不可信用户开放宿主机执行能力。
 

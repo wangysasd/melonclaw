@@ -11,6 +11,7 @@ import {
   validateAttachmentFile,
 } from "../lib/attachmentFiles";
 import { deleteAttachment, uploadAttachment } from "../api/client";
+import { createRequestId } from "../lib/requestId";
 import type { AttachmentCapabilities, AttachmentSummary } from "../types/api";
 
 /** 弹窗内暂存、尚未提交到输入区的附件。 */
@@ -91,7 +92,7 @@ export function AttachmentDialog({
   );
 
   const startUpload = (file: File, retry?: StagedAttachment) => {
-    const clientRequestId = retry?.clientRequestId ?? crypto.randomUUID();
+    const clientRequestId = retry?.clientRequestId ?? createRequestId();
     const temporaryId = `uploading-${clientRequestId}`;
     const placeholder: StagedAttachment = {
       attachment_id: temporaryId,

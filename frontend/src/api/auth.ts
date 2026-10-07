@@ -1,3 +1,4 @@
+import { createRequestId } from "../lib/requestId";
 import { conversationStorageKey, projectStorageKey, writeStorage } from "../state/storage";
 import { apiRequest } from "./client";
 
@@ -16,7 +17,7 @@ export function identityHeaders(): Record<string, string> {
 }
 export function notifyAuthChange() {
   window.dispatchEvent(new Event(AUTH_EVENT));
-  writeStorage(AUTH_STORAGE, crypto.randomUUID());
+  writeStorage(AUTH_STORAGE, createRequestId());
 }
 export const getAuthSession = () => apiRequest<AuthUser>("/api/auth/session");
 export const getAuthConfig = () => apiRequest<{ passwordless: boolean }>("/api/auth/config");

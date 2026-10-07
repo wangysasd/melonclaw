@@ -93,6 +93,7 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 
 ## 5. 行为约定
 
+- **请求标识**：登录通知、消息发送、用户问题回答和附件上传统一调用 `src/lib/requestId.ts`。优先使用 `crypto.randomUUID()`；普通 HTTP 页面缺少该方法时使用 `crypto.getRandomValues()` 生成标准 UUID v4，满足后端 UUID 校验与幂等约束。不使用时间戳或 `Math.random()` 替代。
 - 输入区支持 Enter 发送、Shift + Enter 换行；输入 `/` 打开当前 Project 的 Skill 目录，可按 Skill ID、名称、描述过滤，Escape 关闭。
 - **Skill 目录**：目录摘要由只读 `GET /api/skills` 提供；选中的 Skill 通过消息请求的 `skill_id` 传给后端，后端会重新校验并让 Agent 按对应的 `SKILL.md` 执行；未选择 Skill 时保持自动发现逻辑。
 - **Skill 管理卡片**：使用后端 `effective_enabled/personally_enabled/unavailable_reason/availability`。卡片身份为数据库 `id`，发消息使用 `selection_id`（范围化 ID）。主按钮只负责个人添加或使用；管理员在独立菜单执行「全员启用/全员关闭」，所有用户（含管理员）都可「对我关闭」。菜单还提供下载、上传/远程更新和删除。内容更新先显示正文、文件清单、增删及文本差异、依赖检查，确认时后端重查权限和版本。点击卡片按范围请求完整详情；异常项保留诊断和修复入口。管理员工具栏提供「恢复与检查」。

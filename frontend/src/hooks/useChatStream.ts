@@ -33,6 +33,7 @@ import type { RunActivity, RunTimings,
   Message,
 } from "../types/api";
 import { isUserQuestionExpired } from "../lib/userQuestionExpiry";
+import { createRequestId } from "../lib/requestId";
 import { useSession } from "../state/session";
 
 /** 与后端 `core/user_input.py` 的同名错误码保持一致。 */
@@ -1041,7 +1042,7 @@ export function useChatStream({
       const startProjectId = snapshot.projectId;
       const startModelId = snapshot.selectedModelId || "";
       const startingConversationId = snapshot.conversationId;
-      const localSubmissionId = startingConversationId ? null : `local:${crypto.randomUUID()}`;
+      const localSubmissionId = startingConversationId ? null : `local:${createRequestId()}`;
       if (localSubmissionId) {
         snapshot.markConversationSubmitted(localSubmissionId, startProjectId, displayText, true);
       }
@@ -1080,7 +1081,7 @@ export function useChatStream({
         chatStateRef.current = reducer(chatStateRef.current, reset);
         dispatch(reset);
       }
-      const requestId = crypto.randomUUID();
+      const requestId = createRequestId();
       const optimisticIds = [
         `optimistic-user-${requestId}`,
         `optimistic-assistant-${requestId}`,
@@ -1242,7 +1243,7 @@ export function useChatStream({
               userId: context.userId,
               interactionId: question.interaction_id,
               assistantMessageId: question.assistant_message_id,
-              decisionRequestId: crypto.randomUUID(),
+              decisionRequestId: createRequestId(),
               answer,
             },
             handlers,
