@@ -24,6 +24,7 @@ vi.mock("../src/components/ResourceView", () => ({ ResourceView: ({ initialTab, 
 beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); session.userId = "u1"; });
 it("preserves mounted chat and collapse state across navigation and remembers the tab after reload", () => {
   const view = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "我已确认并进入" }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "draft" } });
   fireEvent.click(screen.getByRole("button", { name: "收起" }));
   fireEvent.click(screen.getByRole("button", { name: "拓展" }));
@@ -44,6 +45,7 @@ it("preserves mounted chat and collapse state across navigation and remembers th
 });
 it("clears the mounted draft on user change", () => {
   const view = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: "我已确认并进入" }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "private" } });
   session.userId = "u2";
   view.rerender(<App />);

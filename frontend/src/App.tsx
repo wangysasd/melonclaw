@@ -1,3 +1,4 @@
+import { AccessNoticeGate } from "./components/ComplianceNotice";
 import { AuthGate } from "./components/AuthGate";
 import { AccountManagement } from "./components/AccountManagement";
 import "./styles/accounts.css";
@@ -111,7 +112,7 @@ export default function App() {
       <style>{tokenCss}</style>
       <XProvider theme={antdTheme}>
         <AntdApp>
-          <AuthGate>{(user) => <SessionProvider key={user.user_id} initialUserId={user.user_id}><Workspace /></SessionProvider>}</AuthGate>
+          <AccessNoticeGate><AuthGate>{(user) => <SessionProvider key={user.user_id} initialUserId={user.user_id}><Workspace /></SessionProvider>}</AuthGate></AccessNoticeGate>
         </AntdApp>
       </XProvider>
     </ConfigProvider>

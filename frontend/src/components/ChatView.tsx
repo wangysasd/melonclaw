@@ -1,3 +1,4 @@
+import { ComplianceStatement } from "./ComplianceNotice";
 import { Spin } from "antd";
 import Bubble from "@ant-design/x/es/bubble";
 import Prompts from "@ant-design/x/es/prompts";
@@ -513,6 +514,7 @@ export function ChatView({
                 if (prompt) setDraft(prompt);
               }}
             />
+            <ComplianceStatement />
           </div>
         ) : (
             <div className="message-list">

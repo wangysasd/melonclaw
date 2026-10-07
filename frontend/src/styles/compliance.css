@@ -1,0 +1,19 @@
+.compliance-statement {
+  width: 100%;
+  margin: 40px 0 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.compliance-statement h2 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.compliance-statement p { margin: 0 0 12px; }
+.access-notice p { font-size: 14px; line-height: 1.8; }
+.access-notice-risk { color: #b42318; font-weight: 700; }
