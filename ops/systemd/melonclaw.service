@@ -7,10 +7,10 @@ Wants=network-online.target
 Type=simple
 User=melonclaw
 Group=melonclaw
-WorkingDirectory=/opt/melonclaw/current
+WorkingDirectory=/opt/melonclaw
 Environment=MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/melonclaw/current/.venv/bin/melonclaw-web
+ExecStart=/opt/melonclaw/.venv/bin/melonclaw-web
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=90

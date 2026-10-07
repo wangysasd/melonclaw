@@ -448,6 +448,6 @@ Cookie 登录支持同源访问，以及 `MELONCLAW_ALLOWED_ORIGINS` 白名单�
 
 ## Linux 服务器部署与升级
 
-完整步骤见 [服务器部署目录](docs/deployment.md)，可安装的配置模板位于 `ops/`。推荐代码 `/opt/melonclaw/releases/<版本>`，`current` 指向当前版本；数据 `/var/lib/melonclaw/data`，工作区 `/var/lib/melonclaw/workspaces`；外部配置 `/etc/melonclaw/melonclaw.env`；日志 `/var/log/melonclaw`；临时运行目录 `/run/melonclaw`。PostgreSQL 使用独立持久存储。容器必须挂载数据目录和数据库持久卷，不能依赖容器内部文件系统。
+完整步骤见 [服务器部署目录](docs/deployment.md)，可安装的配置模板位于 `ops/`。代码固定放在 `/opt/melonclaw/`，在 `/opt` 下 clone 后原地更新，不使用软链接；数据 `/var/lib/melonclaw/data`，工作区 `/var/lib/melonclaw/workspaces`；外部配置 `/etc/melonclaw/melonclaw.env`；日志 `/var/log/melonclaw`；临时运行目录 `/run/melonclaw`。PostgreSQL 使用独立持久存储。容器必须挂载数据目录和数据库持久卷，不能依赖容器内部文件系统。
 
 `MELONCLAW_ENV_FILE` 指定配置文件；持久数据根与工作区禁止配置在当前代码目录内。服务器用 systemd 管理后端、Nginx 提供前端构建产物和同源 `/api`，不使用 Vite 开发服务器作为正式前端。升级只替换代码、安装依赖、按需执行 `melonclaw-db-update` 并重启；不清库、不覆盖用户 Skill、不删除持久目录。首次上线才执行 `melonclaw-db-init`。

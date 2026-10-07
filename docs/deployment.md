@@ -4,8 +4,7 @@
 
 | 路径 | 内容 | 升级处理 |
 |---|---|---|
-| `/opt/melonclaw/releases/<版本>` | 代码、虚拟环境、前端 dist、内置模板 | 新版本独立安装，旧版本保留供回滚 |
-| `/opt/melonclaw/current` | 当前版本软链接 | 停服后切换 |
+| `/opt/melonclaw/` | Git 仓库、虚拟环境、前端 dist、内置模板 | 停服后原地拉代码更新 |
 | `/var/lib/melonclaw/data` | 共享／个人 Skill、导入草稿、操作恢复记录 | 保留、备份，不覆盖 |
 | `/var/lib/melonclaw/workspaces` | 项目和会话文件，含 `.attachments`、`.artifacts` | 完整保留、备份 |
 | `/etc/melonclaw/melonclaw.env` | 凭据、数据库连接、外部路径、运行配置 | 独立维护，服务账号可读，权限 0600 |
@@ -17,7 +16,7 @@
 
 ## 首次部署
 
-在 Linux 上创建固定服务账号，安装 Python、uv、Node.js、PostgreSQL 客户端、Nginx；数据库服务需已配置。部署账号把代码放进版本目录，以 `uv sync --locked` 安装，`npm --prefix frontend ci` 和 `npm --prefix frontend run build` 构建前端。公开品牌变量可在构建时显式传入 `MELONCLAW_NAME` 和 `brand`；不把数据库或模型凭据传入浏览器。
+在 Linux 上创建固定服务账号，安装 Python、uv、Node.js、PostgreSQL 客户端、Nginx；数据库服务需已配置。部署账号在 `/opt` 下执行 `git clone <仓库地址> melonclaw`，代码固定放在 `/opt/melonclaw/`，不使用软链接，以 `uv sync --locked` 安装，`npm --prefix frontend ci` 和 `npm --prefix frontend run build` 构建前端。公开品牌变量可在构建时显式传入 `MELONCLAW_NAME` 和 `brand`；不把数据库或模型凭据传入浏览器。
 
 管理员准备目录和配置（账号需已创建，以下命令在代码根目录执行）：
 
@@ -27,11 +26,11 @@ sudo install -d -o root -g melonclaw -m 0750 /etc/melonclaw
 sudo install -o melonclaw -g melonclaw -m 0600 ops/melonclaw.env.example /etc/melonclaw/melonclaw.env
 ```
 
-通过服务器编辑器填写外部配置；不要把实际凭据写进仓库或输出到日志。修改 `DATABASE_URL`、实际站点 Origin，并确认 data/workspace 为外部路径。将 `/opt/melonclaw/current` 指向版本目录后，以服务账号安装模板并初始化全新数据库：
+通过服务器编辑器填写外部配置；不要把实际凭据写进仓库或输出到日志。修改 `DATABASE_URL`、实际站点 Origin，并确认 data/workspace 为外部路径。在 `/opt/melonclaw/` 完成依赖安装后，以服务账号安装模板并初始化全新数据库：
 
 ```bash
-sudo -u melonclaw env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/current/.venv/bin/melonclaw-resources --service-stopped install-builtins --source /opt/melonclaw/current/.data/skills/shared
-sudo -u melonclaw env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/current/.venv/bin/melonclaw-db-init
+sudo -u melonclaw env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/melonclaw-resources --service-stopped install-builtins --source /opt/melonclaw/.data/skills/shared
+sudo -u melonclaw env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/melonclaw-db-init
 ```
 
 安装 [systemd 服务](../ops/systemd/melonclaw.service)、[Nginx 示例](../ops/nginx/melonclaw.conf) 和 [日志轮转配置](../ops/melonclaw.logrotate)。Nginx 配置中的域名、请求体上限与实际附件限制同步；示例只包含 HTTP，实际远程站点需配置 HTTPS 或在上游终止 TLS，并让 `MELONCLAW_ALLOWED_ORIGINS` 与浏览器访问地址一致。
@@ -63,9 +62,9 @@ uv run melonclaw-resources --service-stopped migrate --source <旧工作区根> 
 
 ## 升级、回滚与备份
 
-停服后备份一致的数据库、数据根和工作区；在新 release 安装依赖、构建前端。若版本包含数据库升级，使用外部配置以服务账号执行 `melonclaw-db-update`，成功后切换 current 并启动。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
+升级前记录当前 Git 提交并停止服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。若版本包含数据库升级，使用外部配置以服务账号执行 `melonclaw-db-update`，成功后重启服务并检查 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
 
-回滚代码前确认数据库结构与旧版本兼容；不能仅切回软链接就假定 schema 可回滚。异机备份需要包含 PostgreSQL、整个 data/workspaces 和受控保存的配置，定期演练恢复；数据库与磁盘应在同一停写窗口或一致快照中备份。
+回滚代码前确认数据库结构与旧版本兼容；切回已记录的旧 Git 提交后，重新同步依赖和构建前端，再启动服务。代码回滚不会自动回滚数据库 schema。异机备份需要包含 PostgreSQL、整个 data/workspaces 和受控保存的配置，定期演练恢复；数据库与磁盘应在同一停写窗口或一致快照中备份。
 
 ## 当前验证边界
 
