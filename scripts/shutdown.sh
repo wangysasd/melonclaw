@@ -31,7 +31,8 @@ case "${1:-all}" in
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUN_DIR="${TMPDIR:-/tmp}/melonclaw-dev"
+RUN_DIR="${MELONCLAW_RUN_DIR:-${TMPDIR:-/tmp}/melonclaw-dev}"
+LOG_DIR="${MELONCLAW_LOG_DIR:-$RUN_DIR}"
 
 BACKEND_PORT="${MELONCLAW_PORT:-8000}"
 FRONTEND_PORT="${MELONCLAW_FRONTEND_PORT:-8001}"
@@ -100,14 +101,14 @@ echo
 if [ "$FRONTEND_ONLY" -eq 1 ]; then
   if port_free "$FRONTEND_PORT"; then
     echo "MelonClaw 前端开发环境已停止（前端 ${FRONTEND_PORT} 端口已释放）。"
-    echo "日志保留在: $RUN_DIR"
+    echo "日志保留在: $LOG_DIR"
   else
     echo "仍有进程占用前端端口，请手动检查: lsof -i tcp:${FRONTEND_PORT}"
     exit 1
   fi
 elif port_free "$BACKEND_PORT" && port_free "$FRONTEND_PORT"; then
   echo "MelonClaw 开发环境已停止（后端 ${BACKEND_PORT}、前端 ${FRONTEND_PORT} 端口已释放）。"
-  echo "日志保留在: $RUN_DIR"
+  echo "日志保留在: $LOG_DIR"
 else
   echo "仍有进程占用端口，请手动检查: lsof -i tcp:${BACKEND_PORT} -i tcp:${FRONTEND_PORT}"
   exit 1

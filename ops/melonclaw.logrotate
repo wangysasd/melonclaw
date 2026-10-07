@@ -1,0 +1,10 @@
+/var/log/melonclaw/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su melonclaw melonclaw
+}

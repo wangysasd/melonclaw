@@ -57,6 +57,7 @@ createdb melonclaw
 首次运行只需填好 `DATABASE_URL`；模型 Key 暂时不用写入 `.env`，Tavily 和 MCP 也都可暂不配置。
 
 ```bash
+uv run melonclaw-resources --service-stopped install-builtins --source .data/skills/shared
 uv run melonclaw-db-init
 ```
 
@@ -99,7 +100,7 @@ scripts/restart.sh frontend --profile prod # 仅重启前端
 scripts/shutdown.sh frontend   # 仅停止前端
 ```
 
-启动和重启脚本的 `--profile` 默认值为 `dev`：dev 读取根目录 `.env`，prod 读取 `.env.prod`，并将所选值传给后端。直接运行 `uv run melonclaw-web` 时仍读取 `.env` 中的 `profile`。
+启动和重启脚本的 `--profile` 默认值为 `dev`：dev 读取根目录 `.env`，prod 读取 `.env.prod`；显式指定 `MELONCLAW_ENV_FILE` 时优先读取该文件。脚本将所选 profile 传给后端。直接运行 `uv run melonclaw-web` 时仍读取 `.env` 中的 `profile`。
 
 开发时也可在两个终端分别以前台方式运行，直接查看输出：
 
@@ -113,11 +114,35 @@ uv run melonclaw-web
 npm --prefix frontend run dev
 ```
 
-一键脚本的日志位于 `${TMPDIR:-/tmp}/melonclaw-dev/backend.log` 和同目录的 `frontend.log`。端口被占用时脚本拒绝启动；先确认占用进程，若为本项目服务再运行停止命令。
+一键脚本的日志默认位于 `${TMPDIR:-/tmp}/melonclaw-dev/backend.log` 和同目录的 `frontend.log`。可在启动终端设置 `MELONCLAW_LOG_DIR` 指定日志目录，`MELONCLAW_RUN_DIR` 指定 PID／运行目录；启动、停止、重启必须使用一致的环境变量。端口被占用时脚本拒绝启动；先确认占用进程，若为本项目服务再运行停止命令。
 
 更新代码后运行 `uv sync --locked` 和 `npm --prefix frontend ci`，再重启。新增功能需要调整数据库、且要保留历史数据时，先运行 `uv run melonclaw-db-update`；它只应用尚未执行的版本化更新，不删除业务数据。全新数据库仍运行 `uv run melonclaw-db-init`。
 
 `melonclaw-db-init` 用于第一次系统上线，或重大变更决定放弃历史数据并重建数据库时。它不会主动清库；清库需在确认目标开发库、备份所需数据后自行执行。清空会删除用户、模型配置、会话、Checkpoint 和 Memory 等数据库内容；工作区、附件和 Skill 正文在数据库外，不会随之删除。重建后需重新配置模型及非种子用户。
+
+### Python 命令入口（`src/melonclaw/main_*`）
+
+这些文件是应用的命令入口，命令名称在 `pyproject.toml` 中注册。安装依赖后，从项目根目录用 `uv run` 执行：
+
+| 入口文件 | 命令 | 作用与使用时机 |
+|---|---|---|
+| [main_web.py](src/melonclaw/main_web.py) | `uv run melonclaw-web` | 启动 Web 后端，提供页面所需的 API 和 Agent 服务；前端需另外启动或部署。启动只校验数据库结构，不自动初始化或升级。 |
+| [main_db_init.py](src/melonclaw/main_db_init.py) | `uv run melonclaw-db-init` | 首次建库：创建当前完整业务表、Checkpoint 和 Memory Store，写入初始 admin、供应商模板和资源索引。不会主动清库；已有 admin 会跳过，不会把修改后的密码重置为 `admin`。 |
+| [main_db_update.py](src/melonclaw/main_db_update.py) | `uv run melonclaw-db-update` | 已有数据库升级：按序执行尚未应用的数据库更新并校验结构，保留历史业务数据；重复执行不会重跑已完成步骤。 |
+| [main_password.py](src/melonclaw/main_password.py) | `uv run melonclaw-admin-password` | 忘记 admin 密码、无法登录时的终端恢复入口。交互输入并确认新密码，写入密码哈希并撤销相关会话。正常登录后可直接在头像菜单修改密码，无需执行此命令。 |
+| [main_resources.py](src/melonclaw/main_resources.py) | `uv run melonclaw-resources --service-stopped <子命令>` | 停止服务后安装缺失的内置 Skill 模板，或复制迁移持久目录。不会覆盖已有用户资源，也不会删除源目录；`--service-stopped` 是操作者的停服确认，不会自动停止服务。 |
+
+资源命令有两个子命令：
+
+```bash
+# 把缺失的内置 Skill 安装到配置的数据根目录；首次安装后再运行 db-init 登记索引
+uv run melonclaw-resources --service-stopped install-builtins --source .data/skills/shared
+
+# 复制持久目录；将占位路径替换为实际目录，完成后按部署文档切换配置
+uv run melonclaw-resources --service-stopped migrate --source <原目录> --destination <目标目录>
+```
+
+目录迁移的停服、配置切换与校验步骤见[部署文档](docs/deployment.md)。
 
 ## 配置文件与填写说明
 
@@ -141,12 +166,31 @@ npm --prefix frontend run dev
 | `TAVILY_API_KEY` | 空 | Tavily 联网搜索凭据；留空仍能启动，但相关搜索能力不可用 |
 | `MELONCLAW_NAME` | `MelonClaw` | 聊天中的助手名称，留空也使用默认值；前端启动时读取 |
 | `MELONCLAW_WORKSPACE_DIR` | `~/.melonclaw/workspaces` | 会话／项目持久工作区，包含附件和输出文件 |
-| `MELONCLAW_DATA_DIR` | 仓库下 `.data/` | Skill 等平台资源的数据根，与 Agent 工作区分离 |
+| `MELONCLAW_DATA_DIR` | `~/.melonclaw/data` | Skill 等平台资源的数据根，与 Agent 工作区分离 |
 | `MELONCLAW_USER_INPUT_TTL_SECONDS` | `86400` | 用户问题卡的有效期，单位秒 |
 | `profile` | 空 | 严格等于 `dev` 时显示并启用“免密登录”和侧栏“切换用户”；空、未配置或其他值关闭 |
 | `brand` | 空 | 仅值为 `rms`（忽略大小写）时显示全局导航中的 AMP（A）和 Mindera（M），启用左侧浅蓝玻璃环配图、右侧带柔和蓝色光晕的居中 Logo 和精简表单的 RMS 登录页（窄屏只显示 Logo 和表单），并切换欢迎页/侧栏字标、助手头像及 Browser Tab 标题/favicon（`RMS · 投研助手`）；其他值（含空值）隐藏入口并使用 MelonClaw 浅蓝登录页：左侧品牌、标题与表单，右侧玻璃 AI 环配图，窄屏只显示表单。dev 使用 `.env`，prod 使用 `.env.prod`，修改后重启前端或重新构建 |
 
-自定义数据根时，在初始化前把所需内置技能部署到该根下的 `skills/shared/`，包括 `.data/skills/shared/melonclaw-tutorial/` 和 `.data/skills/shared/skill-creator/`；不要将数据根直接指向某个 Skill 目录。个人技能保存在 `skills/users/`，临时导入文件在 `skills/tmp/`。备份时需同时考虑数据库、数据根和工作区。
+首次安装时，在初始化前把所需内置技能部署到数据根下的 `skills/shared/`，包括 `.data/skills/shared/melonclaw-tutorial/` 和 `.data/skills/shared/skill-creator/`；不要将数据根直接指向某个 Skill 目录。仓库 `.data/skills/shared/` 仅作为随版本分发的内置模板，不是运行时存储。升级不得覆盖数据根中已有 Skill。个人技能保存在 `skills/users/`，临时导入文件在 `skills/tmp/`。备份时需同时考虑数据库、数据根和工作区。
+
+内置 Skill 安装是独立的 Python 运维命令，**服务启动时不会自动执行复制**。命令入口是 [main_resources.py](src/melonclaw/main_resources.py)，复制逻辑是 [storage/deployment.py](src/melonclaw/storage/deployment.py) 中的 `install_builtin_skills()`。
+
+`install-builtins` 将仓库 `.data/skills/shared/` 中的模板复制到 `MELONCLAW_DATA_DIR/skills/shared/`（默认 `~/.melonclaw/data/skills/shared/`）。目标已存在同名 Skill 目录时，整个 Skill 跳过，保留已有内容，避免覆盖管理员的修改。此命令只安装文件，不写数据库。
+
+首次上线时，在服务尚未启动、没有写入任务的情况下执行安装命令，再初始化全新数据库。`--service-stopped` 表示操作者已确认停止写入，命令不会替你停止服务。`melonclaw-db-init` 只扫描外部运行目录 `MELONCLAW_DATA_DIR/skills/` 登记 Skill，不同时扫描仓库模板目录：
+
+```bash
+uv run melonclaw-resources --service-stopped install-builtins --source .data/skills/shared
+uv run melonclaw-db-init
+```
+
+已有部署迁移目录时先停止所有应用进程和写入；使用下列命令复制并校验，遇到不同内容拒绝覆盖，源目录保留：
+
+```bash
+uv run melonclaw-resources --service-stopped migrate --source .data --destination ~/.melonclaw/data
+```
+
+已有部署切换路径时，先停止服务，备份原数据目录，将其完整复制到新的外部数据目录（包含隐藏文件和导入草稿，遇到同名不同内容先解决冲突），再修改 `MELONCLAW_DATA_DIR` 并重启；不要重新初始化或清空数据库。数据库中的 Skill 路径为相对路径，无需改表。若原配置显式指向仓库 `.data/`，必须同步修改该配置。工作区同理：复制原工作区后设置 `MELONCLAW_WORKSPACE_DIR`。升级只替换代码、安装依赖和执行必要的 `melonclaw-db-update`，保留数据目录、工作区和 PostgreSQL 数据；数据库同时保存 Memory、聊天和文件索引。显式配置的目录也应位于代码目录之外，容器部署需挂载持久卷。
 
 身份以服务端 Cookie 会话为准，原 `MELONCLAW_IDENTITY_HEADER` 入口已移除。使用同源 `/api` 反代并保留 Host；写请求会校验来源。
 
@@ -401,3 +445,9 @@ scripts/check.sh frontend     # 仅前端相关检查
 Cookie 登录支持同源访问，以及 `MELONCLAW_ALLOWED_ORIGINS` 白名单中的同站跨域访问（例如同主机同协议不同端口）。Cookie 保持 `SameSite=Strict`，拒绝浏览器标记为跨站的写请求；不同站点或协议的部署应将 `/api` 反向代理到前端同源地址。`localhost` 与 `127.0.0.1` 不应混用。
 
 无需登录的 `GET /api/ready` 只返回 `{"ready": true/false}`：服务初始化完成返回 200，初始化中或失败返回 503，响应禁止缓存。`scripts/start.sh` 使用它等待后端就绪；`/api/auth/config` 只用于登录页配置，不代表就绪。已登录的 `/api/status` 提供详细状态。正常启动命令仍为 `scripts/start.sh --profile dev`；本次修复无数据库结构变化，无需运行 db-init 或 db-update。
+
+## Linux 服务器部署与升级
+
+完整步骤见 [服务器部署目录](docs/deployment.md)，可安装的配置模板位于 `ops/`。推荐代码 `/opt/melonclaw/releases/<版本>`，`current` 指向当前版本；数据 `/var/lib/melonclaw/data`，工作区 `/var/lib/melonclaw/workspaces`；外部配置 `/etc/melonclaw/melonclaw.env`；日志 `/var/log/melonclaw`；临时运行目录 `/run/melonclaw`。PostgreSQL 使用独立持久存储。容器必须挂载数据目录和数据库持久卷，不能依赖容器内部文件系统。
+
+`MELONCLAW_ENV_FILE` 指定配置文件；持久数据根与工作区禁止配置在当前代码目录内。服务器用 systemd 管理后端、Nginx 提供前端构建产物和同源 `/api`，不使用 Vite 开发服务器作为正式前端。升级只替换代码、安装依赖、按需执行 `melonclaw-db-update` 并重启；不清库、不覆盖用户 Skill、不删除持久目录。首次上线才执行 `melonclaw-db-init`。

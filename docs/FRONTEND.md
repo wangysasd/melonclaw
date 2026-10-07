@@ -4,7 +4,7 @@
 
 聊天消息的助手作者名和头像替代文本使用仓库根目录 `.env` 中的 `MELONCLAW_NAME`（默认 `MelonClaw`）。Vite 启动或构建时读取并注入该展示值；修改 `.env` 后按 README 重启前后端。
 
-根目录环境变量 `brand` 为 `rms`（忽略大小写）时，全局导航显示 AMP（A）和 Mindera（M），登录页采用左右分栏布局（左侧浅蓝玻璃环配图、右侧居中 Logo 与精简登录表单，900px 以下隐藏配图），登录页与侧栏字标使用 `melonclaw-word-rms.png`，侧栏字标抵消图片内部左侧留白，使字母 R 位于新建对话按钮左边缘内侧 2px；助手头像改用 `melonclaw-mark-rms.png`，Browser Tab 显示 `RMS · 投研助手` 并使用其 48×48 压缩 favicon。其他值或未设置时隐藏 A/M 并保留现有标题、favicon 和图片。默认 dev profile 读取 `.env`；prod 启动脚本使用 `prod` mode，Vite production build 也会读取 `.env.prod`。改配置后重启前端或重新构建。
+根目录环境变量 `brand` 为 `rms`（忽略大小写）时，全局导航显示 AMP（A）和 Mindera（M），登录页采用左右分栏布局（左侧浅蓝玻璃环配图、右侧居中 Logo 与精简登录表单，900px 以下隐藏配图），登录页与侧栏字标使用 `melonclaw-word-rms.png`，侧栏字标抵消图片内部左侧留白，使字母 R 位于新建对话按钮左边缘内侧 2px；助手头像改用 `melonclaw-mark-rms.png`，Browser Tab 显示 `RMS · 投研助手` 并使用其 48×48 压缩 favicon。其他值或未设置时隐藏 A/M 并保留现有标题、favicon 和图片。默认 dev profile 读取 `.env`；prod 启动脚本使用 `prod` mode，Vite production build 也会读取 `.env.prod`。启动或构建时显式传入的 `MELONCLAW_NAME`、`brand` 优先于仓库环境文件；Vite 不直接读取后端 `MELONCLAW_ENV_FILE`，只需给构建进程传入这两个公开值，不能把服务端凭据注入前端。改配置后重启前端或重新构建。
 
 ## 1. 技术栈与命令
 

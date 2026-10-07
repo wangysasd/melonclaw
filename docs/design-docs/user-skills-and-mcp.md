@@ -39,7 +39,7 @@
 
 仓库 `mcp.json` 保留为种子：`melonclaw-db-init` 时单向同步进 DB；新导入的系统 MCP 默认全员启用，用户没有个人停用偏好时显示“已添加”。已存在行不覆盖管理员改过的运营字段。运行时切断文件直连，唯一入口是 DB。Tushare 工具白名单环境变量在种子阶段落进 `tool_allowlist` 列。
 
-> 2026-09 更新：仓库 `skills/` 目录已移除，不再作为种子。系统级 Skill 唯一存储是 `data_root/skills/shared/`（`.data/` 下），正文纳入版本控制（`cicc-*`/`htsc-*` 除外），`users/`、`tmp/` 不进版本控制；新增/更新一律走资源管理 UI 或 skill_import 服务，避免了仓库与数据根双副本。`source_type='builtin'` 表示 db-init 从共享目录登记的 Skill。
+> 2026-10 更新：运行时 Skill 唯一存储是 `MELONCLAW_DATA_DIR/skills/`，默认根为 `~/.melonclaw/data/`。仓库 `.data/skills/shared/` 仅分发内置模板，首次安装复制，升级不覆盖运行时内容；用户新增/更新走资源管理 UI 或 skill_import 服务。`source_type='builtin'` 表示 db-init 从共享目录登记的 Skill。
 
 ### Skill 注入
 

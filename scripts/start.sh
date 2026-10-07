@@ -56,8 +56,11 @@ else
   FRONTEND_ONLY=0
 fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUN_DIR="${TMPDIR:-/tmp}/melonclaw-dev"
-if [ "$PROFILE" = "prod" ]; then
+RUN_DIR="${MELONCLAW_RUN_DIR:-${TMPDIR:-/tmp}/melonclaw-dev}"
+LOG_DIR="${MELONCLAW_LOG_DIR:-$RUN_DIR}"
+if [ -n "${MELONCLAW_ENV_FILE:-}" ]; then
+  ENV_FILE="$MELONCLAW_ENV_FILE"
+elif [ "$PROFILE" = "prod" ]; then
   ENV_FILE="$ROOT/.env.prod"
 else
   ENV_FILE="$ROOT/.env"
@@ -66,7 +69,7 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "启动失败：profile=$PROFILE 对应的环境文件不存在：$ENV_FILE" >&2
   exit 1
 fi
-mkdir -p "$RUN_DIR"
+mkdir -p "$RUN_DIR" "$LOG_DIR"
 
 BACKEND_HOST="${MELONCLAW_HOST:-127.0.0.1}"
 BACKEND_PORT="${MELONCLAW_PORT:-8000}"
@@ -103,7 +106,7 @@ start_backend() {
     cd "$ROOT" &&
       nohup env UV_CACHE_DIR="$UV_CACHE_DIR" MELONCLAW_ENV_FILE="$ENV_FILE" \
         profile="$PROFILE" uv run melonclaw-web \
-        >"$RUN_DIR/backend.log" 2>&1 &
+        >"$LOG_DIR/backend.log" 2>&1 &
     echo $! >"$RUN_DIR/backend.pid"
   )
 }
@@ -121,7 +124,7 @@ start_frontend() {
         --host "$FRONTEND_HOST" \
         --port "$FRONTEND_PORT" \
         --strictPort \
-        >"$RUN_DIR/frontend.log" 2>&1 &
+        >"$LOG_DIR/frontend.log" 2>&1 &
     echo $! >"$RUN_DIR/frontend.pid"
   )
 }
@@ -185,16 +188,16 @@ if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ]; then
   fi
 else
   if [ "$FRONTEND_ONLY" -eq 1 ]; then
-    echo "前端未就绪，请查看日志: $RUN_DIR/frontend.log"
+    echo "前端未就绪，请查看日志: $LOG_DIR/frontend.log"
   else
-    echo "部分服务未就绪，请查看日志: $RUN_DIR/{backend,frontend}.log"
+    echo "部分服务未就绪，请查看日志: $LOG_DIR/{backend,frontend}.log"
   fi
   if [ "$FRONTEND_ONLY" -eq 0 ] && [ "$backend_ok" -eq 0 ]; then
     show_backend_status
   fi
   exit 1
 fi
-echo "日志目录: $RUN_DIR"
+echo "日志目录: $LOG_DIR"
 if [ "$FRONTEND_ONLY" -eq 1 ]; then
   echo "停止前端: scripts/shutdown.sh frontend"
 else

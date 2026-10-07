@@ -7,6 +7,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def _validate_persistent_root(root: Path) -> Path:
+    resolved = root.resolve()
+    project_root = Path(__file__).resolve().parents[3]
+    if resolved == project_root or project_root in resolved.parents:
+        raise ValueError("持久数据目录必须位于项目代码目录之外，请修改目录环境变量。")
+    return resolved
+
+
 def _create_workspace_root() -> Path:
     """返回跨进程保留的工作区根目录。"""
 
@@ -16,6 +24,7 @@ def _create_workspace_root() -> Path:
         if configured
         else Path.home() / ".melonclaw" / "workspaces"
     )
+    workspace_root = _validate_persistent_root(workspace_root)
     workspace_root.mkdir(parents=True, exist_ok=True)
     return workspace_root.resolve()
 
@@ -31,8 +40,9 @@ def _create_data_root() -> Path:
     data_root = (
         Path(configured).expanduser()
         if configured
-        else Path(__file__).resolve().parents[3] / ".data"
+        else Path.home() / ".melonclaw" / "data"
     )
+    data_root = _validate_persistent_root(data_root)
     data_root.mkdir(parents=True, exist_ok=True)
     return data_root.resolve()
 

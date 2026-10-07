@@ -227,3 +227,9 @@ MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空�
 
 
 账户来源白名单统一从 `core/config.py` 解析，应用组装时保存快照供 CORS 与写请求校验共用。白名单只放行同站跨域，跨站写入继续拒绝，Cookie 保持 Strict。公开 `/api/ready` 只读取 `manager.ready`，以 200/503 表达初始化状态，不暴露内部错误；登录配置接口不承担就绪判断。详见[账户 review 修复](design-docs/account-review-fixes.md)。
+
+## 用户文件与部署边界
+
+平台资源默认位于 `~/.melonclaw/data/`（`MELONCLAW_DATA_DIR`），用户和共享 Skill 正文、导入草稿、快照都在此根下。仓库 `.data/skills/shared/` 仅是内置模板，首次安装复制到数据根；升级不覆盖已有内容。工作区默认位于 `~/.melonclaw/workspaces/`（`MELONCLAW_WORKSPACE_DIR`），包含生成文件、附件原文和派生文本及 `.artifacts`。Memory、Checkpoint、业务记录和文件索引在 PostgreSQL。代码部署与三类持久数据独立；迁移时停服完整复制文件目录并切换配置，保持相对路径和数据库，无旧路径读取兜底。运行时不会自动迁移旧目录或删除文件。详见 [持久文件边界](design-docs/persistent-user-files.md)。
+
+部署操作通过 `melonclaw-resources` 显式进入 `storage/deployment.py`，只在停服期间复制和校验目录，不覆盖不同内容、不删除源文件、不写数据库。模板先复制到临时目录再发布，已有同名 Skill 整体保留。配置入口拒绝把运行数据根和工作区放进当前代码目录。Linux 服务器布局、systemd/Nginx 与迁移步骤见 [部署说明](deployment.md)；`ops/` 仅包含可安装模板，不含运行数据和凭据。

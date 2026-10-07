@@ -10,6 +10,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 | 想了解 | 去哪读 |
 |---|---|
 | 模块分层、依赖方向、横切入口、关键取舍与历史教训 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Linux 服务器目录、迁移、升级与备份 | [docs/deployment.md](docs/deployment.md) |
 | 前端结构、开发与部署、UI 约定 | [docs/FRONTEND.md](docs/FRONTEND.md) |
 | 各领域质量评分、已知差距、环境陷阱 | [docs/QUALITY_SCORE.md](docs/QUALITY_SCORE.md) |
 | 设计文档清单与状态 | [docs/design-docs/index.md](docs/design-docs/index.md) |
@@ -42,8 +43,8 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 
 - 不写入个人机器的绝对路径、用户名、数据库账号或本地密钥。项目根目录使用 `Path(__file__).resolve()` 或明确的配置项推导。
 - 外部服务地址、模型、数据库、工作区和 Web 监听参数通过环境变量或根目录配置文件提供。
-- `mcp.json` 保存内置 MCP 种子，`melonclaw-db-init` 把它单向同步进数据库，运行时只读数据库（`services/mcp.py` 装配 MCP，`skills` 表索引 Skill）。系统级 Skill 的唯一存储是 `MELONCLAW_DATA_DIR`（默认 `.data/`）下的 `skills/shared/`，新增/更新走资源管理 UI 或 skill_import 服务；`shared/` 正文纳入版本控制（`cicc-*`/`htsc-*` 除外），`users/`、`tmp/` 只保留空目录占位不进版本控制。`.env` 只保存凭据和占位符值。MCP 配置必须支持无 MCP 时正常启动。
-- 新增持久化路径时，区分临时 runtime、Web Project 持久 workspace、项目源文件和数据库数据，避免把用户数据写进仓库。
+- `mcp.json` 保存内置 MCP 种子，`melonclaw-db-init` 把它单向同步进数据库，运行时只读数据库（`services/mcp.py` 装配 MCP，`skills` 表索引 Skill）。系统级 Skill 的唯一存储是 `MELONCLAW_DATA_DIR`（默认 `~/.melonclaw/data/`）下的 `skills/shared/`，新增/更新走资源管理 UI 或 skill_import 服务；运行时正文不得写入仓库；仓库 `.data/skills/shared/` 仅保存内置分发模板（`cicc-*`/`htsc-*` 除外），安装时复制，升级不得覆盖运行时数据。`users/`、`tmp/` 仅在外部数据根按需创建，仓库不保留这两个目录或占位文件。`.env` 只保存凭据和占位符值。MCP 配置必须支持无 MCP 时正常启动。
+- 新增持久化路径时，区分临时 runtime、Web Project 持久 workspace、项目源文件和数据库数据，避免把用户数据写进仓库。持久数据根和工作区不得配置在代码目录内；Linux 部署约定见 `docs/deployment.md` 和 `ops/`，内置模板部署与迁移走 `melonclaw-resources`，不得覆盖已有用户资源。
 - 保持跨用户运行所需的相对路径和用户目录默认值；不要假设仓库位于某个固定用户名目录下。
 
 ## Agent 能力与安全边界

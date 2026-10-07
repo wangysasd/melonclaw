@@ -44,7 +44,7 @@ dist/
 .playwright-cli/
 # 本地资源数据根（Skill/MCP 内容），可用 MELONCLAW_DATA_DIR 重定向。
 # 版本化内置共享 Skill；其他本地内容（含 CICC/HTSC 内部研报类）不提交。
-# users/、tmp/ 只保留目录占位（.gitkeep），其内容不提交。
+# users/、tmp/ 为外部运行目录，仓库不保留占位。
 .data/*
 !.data/skills/
 .data/skills/*
@@ -53,9 +53,3 @@ dist/
 !.data/skills/shared/tushare-fetcher/
 !.data/skills/shared/melonclaw-tutorial/
 !.data/skills/shared/skill-creator/
-!.data/skills/users/
-!.data/skills/tmp/
-.data/skills/users/*
-.data/skills/tmp/*
-!.data/skills/users/.gitkeep
-!.data/skills/tmp/.gitkeep

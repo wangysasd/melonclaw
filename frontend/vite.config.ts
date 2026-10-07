@@ -17,10 +17,10 @@ export default defineConfig(({ mode }) => {
   // 只把助手名称和已归一化的品牌开关注入浏览器代码，不暴露其他环境变量。
   const env = loadEnv(mode, envRoot, ["MELONCLAW_NAME", "brand"]);
   const brandEnv = mode === "production" ? loadEnv("prod", envRoot, ["brand"]) : env;
-  const isRmsBrand = brandEnv.brand?.trim().toLowerCase() === "rms";
+  const isRmsBrand = (process.env.brand ?? brandEnv.brand)?.trim().toLowerCase() === "rms";
   return {
     define: {
-      __MELONCLAW_NAME__: JSON.stringify(env.MELONCLAW_NAME?.trim() || "MelonClaw"),
+      __MELONCLAW_NAME__: JSON.stringify((process.env.MELONCLAW_NAME ?? env.MELONCLAW_NAME)?.trim() || "MelonClaw"),
       __MELONCLAW_IS_RMS_BRAND__: JSON.stringify(isRmsBrand),
     },
     plugins: [

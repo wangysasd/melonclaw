@@ -50,7 +50,9 @@ case "$PROFILE" in
     ;;
 esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [ "$PROFILE" = "prod" ]; then
+if [ -n "${MELONCLAW_ENV_FILE:-}" ]; then
+  ENV_FILE="$MELONCLAW_ENV_FILE"
+elif [ "$PROFILE" = "prod" ]; then
   ENV_FILE="$ROOT/.env.prod"
 else
   ENV_FILE="$ROOT/.env"
