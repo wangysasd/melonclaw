@@ -6,5 +6,5 @@
     missingok
     notifempty
     copytruncate
-    su melonclaw melonclaw
+    su ubuntu ubuntu
 }

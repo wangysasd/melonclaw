@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=melonclaw
-Group=melonclaw
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/opt/melonclaw
 Environment=MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env
 Environment=PYTHONUNBUFFERED=1
