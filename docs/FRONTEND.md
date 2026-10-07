@@ -68,7 +68,7 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 - 模型供应商卡片左上角显示公司 logo：`frontend/public/assets/provider-logos/` 下 14 个 SVG（从 Yuxi 引用的 lobehub `icons-static-svg` 下载，映射与背景色/滤镜在 `src/components/providerIcons.ts`，沿用 Yuxi `modelIcon.js` 参数）；`img` 按映射 scale 缩放，单色图标走白色滤镜，彩色 `*-color` 不过滤镜；映射不到的自建供应商回落首字母头像。
 - 管理员新增/编辑供应商弹窗左下角提供「测试连接」，按当前表单字段临时请求 Models Endpoint（留空时使用 Base URL + `/models`），只返回发现数量、不保存配置；Key 输入留空会复用已有凭据或指定环境变量。
 
-技能删除确认弹窗标题为 16px，说明文字与取消、删除按钮为 14px。
+技能删除确认弹窗标题为 16px，说明文字与取消、删除按钮为 14px。连接器删除确认框居中展示，沿用统一圆角与留白，显示连接器名称、范围和传输类型；按共享、个人及恢复共享场景说明删除影响，取消按钮默认获得焦点。
 
 ### 消息区
 

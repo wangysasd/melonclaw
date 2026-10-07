@@ -1,5 +1,7 @@
 # Linux 服务器部署
 
+本次 Ubuntu 从拉代码到 HTTPS 的完整操作、每步作用和验收记录见 [首次上线流程](first-deployment.md)。
+
 ## 目录与归属
 
 | 路径 | 内容 | 升级处理 |
@@ -70,7 +72,7 @@ uv run melonclaw-resources --service-stopped migrate --source <旧工作区根> 
 
 ## 当前验证边界
 
-本机已执行文件迁移、数据库相对路径及 Skill 正文核对；Linux systemd、Nginx 和日志轮转需在目标服务器验收。目录分离不提供多用户 Shell 隔离：当前 LocalShellBackend 不是安全沙箱，共享远程部署仍需解决身份、执行隔离和授权边界后再开放给不可信用户。
+本机已执行文件迁移、数据库相对路径及 Skill 正文核对；2026-10-07 远程 Ubuntu 已确认 systemd 后端运行、本机 Nginx API／首页可访问、证书签发部署成功及 HTTPS 登录页可见。证书续期测试、日志轮转和完整业务场景仍需验收，详见 [首次上线记录](first-deployment.md#10-使用验收和当前结论)。目录分离不提供多用户 Shell 隔离：当前 LocalShellBackend 不是安全沙箱，共享远程部署仍需解决身份、执行隔离和授权边界后再开放给不可信用户。
 
 ## 已按旧账号准备目录时
 

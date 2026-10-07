@@ -95,9 +95,22 @@ export function McpManager({ userId, isAdmin, notify }: {
       if (alive.current) setRefreshing(false);
     }
   };
-  const remove = (item: McpServer) => modal.confirm({ rootClassName: "mcp-confirm", title: item.shadows_global ? "删除个人配置并恢复全局？" : "删除 MCP 配置？",
-    content: item.shadows_global ? "个人连接及凭据将删除，恢复全局来源，但保留你的使用偏好。" : "配置及凭据将删除。删除个人配置后若无可用全局项，将不再提供此服务。",
-    okText: "删除", cancelText: "取消", okButtonProps: { danger: true }, onOk: () => action(() => deleteMcp(item, userId)) });
+  const remove = (item: McpServer) => modal.confirm({
+    rootClassName: "mcp-confirm", centered: true, width: 440, icon: null,
+    styles: { container: { padding: 24 }, body: { padding: 0 } },
+    title: item.shadows_global ? "删除个人配置？" : "删除连接器？",
+    content: <div className="mcp-confirm-content">
+      <div className="mcp-confirm-resource"><AppLogo name={item.display_name} />
+        <div><strong>{item.display_name}</strong><span>{item.scope === "global" ? "系统共享" : "个人配置"} · {item.transport.toUpperCase()}</span></div>
+      </div>
+      <p>{item.shadows_global ? "个人连接及凭据将被删除，随后恢复使用系统共享配置。你的使用偏好会保留。"
+        : item.scope === "global" ? "此共享连接器及凭据将被永久删除，所有使用它的用户都将受到影响。"
+        : "此连接器及凭据将被永久删除，删除后将无法继续使用此服务。"}</p>
+      <p className="mcp-confirm-note">此操作无法撤销，配置变更从下一条消息生效。</p>
+    </div>,
+    okText: item.shadows_global ? "删除并恢复共享" : "确认删除", cancelText: "取消", autoFocusButton: "cancel",
+    okButtonProps: { danger: true }, onOk: () => action(() => deleteMcp(item, userId)),
+  });
   return <div className="resource-section mcp-manager">
     <div className="resource-actions"><Input aria-label="搜索 MCP 服务" placeholder="搜索 MCP 服务" value={query} onChange={e => setQuery(e.target.value)} />
       <Button type="primary" icon={<Icon name="plus" size={14} />} onClick={() => { detailRequest.current?.abort(); setEditor({}); }}>创建连接器</Button>

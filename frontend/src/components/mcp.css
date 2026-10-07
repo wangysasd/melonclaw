@@ -23,7 +23,20 @@
 .mcp-editor .mcp-test-result, .mcp-editor .mcp-test-tool-names { font-size: var(--text-md); }
 .mcp-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; }
 .mcp-editor-footer-actions { display: flex; align-items: center; gap: var(--space-2); }
-.mcp-confirm .ant-modal-confirm-title, .mcp-confirm .ant-modal-confirm-content, .mcp-confirm .ant-modal-confirm-btns .ant-btn { font-size: var(--text-md); }
+/* Confirm dialogs use a single body slot, so spacing is set explicitly. */
+.mcp-confirm .ant-modal-container { border-radius: var(--radius-overlay); }
+.mcp-confirm .ant-modal-body { padding: 0; }
+.mcp-confirm .ant-modal-confirm-title { font-size: var(--text-lg); }
+.mcp-confirm .ant-modal-confirm-content { margin-top: var(--space-4); font-size: var(--text-md); }
+.mcp-confirm-content { display: grid; gap: var(--space-3); }
+.mcp-confirm-resource { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--line-light); border-radius: var(--radius-card); background: var(--canvas); }
+.mcp-confirm-resource > div { display: grid; gap: var(--space-1); min-width: 0; }
+.mcp-confirm-resource strong { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.mcp-confirm-resource span { color: var(--muted); }
+.mcp-confirm-content p { margin: 0; line-height: var(--line-height-base); }
+.mcp-confirm-note { color: var(--muted); }
+.mcp-confirm .ant-modal-confirm-btns { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--line-light); }
+.mcp-confirm .ant-modal-confirm-btns .ant-btn { margin-inline-start: 0; min-height: 36px; padding-inline: var(--space-4); font-size: var(--text-md); }
 .mcp-editor .ant-collapse, .mcp-editor .ant-alert { margin: 14px 0; }
 .mcp-editor .mcp-json-import-button { margin-top: var(--space-2); }
 .mcp-fields { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--space-4); padding: var(--space-4); background: var(--canvas); border-radius: var(--radius-card); margin-top: var(--space-4); }
