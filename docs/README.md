@@ -4,6 +4,7 @@
 
 | 文档 | 内容 | 什么时候读 |
 |---|---|---|
+| [configuration.md](configuration.md) | 可选环境变量、数据库连接、手动启动 | 快速启动之外需要调整配置时 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 模块分层、依赖方向、横切关注点入口、关键取舍 | 改动模块边界、新增包或跨层调用之前 |
 | [FRONTEND.md](FRONTEND.md) | 前端结构、开发与部署、UI 约定 | 改前端组件或样式之前 |
 | [QUALITY_SCORE.md](QUALITY_SCORE.md) | 各领域质量评分与已知差距 | 规划改进、评估风险时 |
