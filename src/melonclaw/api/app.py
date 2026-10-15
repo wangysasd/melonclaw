@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import Depends, FastAPI
@@ -12,6 +13,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from melonclaw.api.auth import require_session
+from melonclaw.api.errors import error_response
 from melonclaw.api.lifespan import lifespan
 from melonclaw.api.routes.accounts import router as accounts_router
 from melonclaw.api.routes.approvals import router as approvals_router
@@ -25,8 +27,10 @@ from melonclaw.api.routes.projects import router as projects_router
 from melonclaw.api.routes.results import router as results_router
 from melonclaw.api.routes.skills import router as skills_router
 from melonclaw.api.routes.status import router as status_router
+from melonclaw.api.routes.tasks import router as tasks_router
 from melonclaw.api.routes.user_input import router as user_input_router
 from melonclaw.core.config import allowed_origins
+from melonclaw.core.task_errors import TaskError
 from melonclaw.repository.accounts import AccountConflict
 
 
@@ -50,11 +54,17 @@ def create_app() -> FastAPI:
     async def safe_validation(request, exc):
         if request.url.path.startswith(("/api/auth/", "/api/admin/")):
             return JSONResponse({"error": "字段格式无效；名称最多 64 字符，密码需要 5～128 字符。"}, status_code=422)
+        if request.url.path.startswith(("/api/tasks", "/api/task-runs")):
+            return JSONResponse({"error": "任务字段格式无效，请检查名称、要求、模型和版本。"}, status_code=422)
         if request.url.path.startswith("/api/mcp"):
             return JSONResponse({"error": "MCP 字段格式无效，请检查名称、标识和连接配置。"}, status_code=422)
         if request.url.path.endswith("/messages"):
             return JSONResponse({"error": "消息字段格式无效，正文最多 12000 字符；请检查请求。"}, status_code=422)
         return await request_validation_exception_handler(request, exc)
+
+    @application.exception_handler(TaskError)
+    async def task_error(request, exc):
+        return error_response(exc)
 
     @application.exception_handler(SQLAlchemyError)
     async def database_error(request, exc):
@@ -85,6 +95,7 @@ def create_app() -> FastAPI:
     application.include_router(models_router)
     application.include_router(skills_router)
     application.include_router(mcp_router)
+    application.include_router(tasks_router)
     application.include_router(projects_router)
     application.include_router(attachments_router)
     application.include_router(results_router)
@@ -104,6 +115,9 @@ def main() -> None:
 
     import uvicorn
 
+    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.getLogger("melonclaw.services.task_scheduler").setLevel(logging.INFO)
+    logging.getLogger("melonclaw.services.tasks").setLevel(logging.INFO)
     host = os.getenv("MELONCLAW_HOST", "127.0.0.1")
     try:
         port = int(os.getenv("MELONCLAW_PORT", "8000"))

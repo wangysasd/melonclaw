@@ -18,7 +18,6 @@ from melonclaw.core.model_catalog import (
     ResolvedModel,
     catalog_item,
     is_custom_model_id,
-    resolve_model_row,
 )
 from melonclaw.core.user_input import normalize_capabilities
 from melonclaw.database import (
@@ -35,6 +34,7 @@ from melonclaw.output.formatting import sanitize_text
 from melonclaw.repository import BusinessRepository
 from melonclaw.services.mcp import mcp_snapshot_revision, resolve_user_mcp_servers
 from melonclaw.services.mcp_discovery import McpDiscoveryCoordinator
+from melonclaw.services.model_resolution import ModelResolutionMixin
 from melonclaw.services.skill_snapshot import clear_stale_snapshots, skill_snapshot
 from melonclaw.services.skill_state import evaluate_skills
 from melonclaw.services.skills import (
@@ -55,7 +55,7 @@ class _AgentBuildLock:
 
 
 @dataclass
-class ChatRuntime:
+class ChatRuntime(ModelResolutionMixin):
     """应用运行时共享的数据库、Agent 和 Memory 资源。"""
 
     settings: Settings | None = None
@@ -69,6 +69,8 @@ class ChatRuntime:
     attachment_hydration_provider: Any | None = None
     skill_install_provider: Any | None = None
     mcp_install_provider: Any | None = None
+    task_history_provider: Any | None = None
+    task_configuration_provider: Any | None = None
     workspace_agents: dict[Any, Any] | None = None
     agent_build_locks: dict[Any, _AgentBuildLock] = field(default_factory=dict)
     mcp_discovery: McpDiscoveryCoordinator = field(default_factory=McpDiscoveryCoordinator)
@@ -248,18 +250,6 @@ class ChatRuntime:
             None,
         )
 
-    async def _model_api_key(
-        self, row: dict[str, Any], provider: dict[str, Any], user_id: str
-    ) -> str | None:
-        """个人模型只能使用本人的 Key；全局模型保留个人覆盖规则。"""
-        storage = self.require_ready()
-        if row["scope"] == "user":
-            personal = await storage.get_user_provider_key(
-                str(provider["provider_key"]), user_id
-            )
-            return str(personal["api_key"]) if personal else None
-        return await storage.effective_provider_api_key(provider, user_id)
-
     async def models(self, user_id: str) -> dict[str, Any]:
         """返回指定用户可见的完整模型目录，不包含任何凭据。
 
@@ -301,68 +291,6 @@ class ChatRuntime:
 
         items = await self.visible_skills(user_id)
         return {"items": [item.public_dict() for item in items]}
-
-    async def resolve_model(
-        self,
-        user_id: str,
-        model_id: str | None = None,
-    ) -> ResolvedModel:
-        """按用户解析模型：统一从 model_configs 表查询。
-
-        - ``model_id=None``：取默认行（is_default 的可见启用行），无则
-          第一条可见有 Key 的行，再无则提示先配置模型；
-        - ``custom:`` 前缀：行不存在、不可见或已停用时报错；
-        - 其他 ID：报错，模型目录只认数据库行。
-        """
-
-        if self.settings is None:
-            raise RuntimeError("运行配置尚未加载。")
-        if model_id and is_custom_model_id(model_id):
-            model_key = model_id.removeprefix("custom:")
-            storage = self.require_ready()
-            pair = await storage.get_model_with_provider(model_key)
-            if pair is None:
-                raise ValueError("所选模型不存在或当前不可用。")
-            row, provider_row = pair
-            if row["scope"] != "global" and row["created_by"] != user_id:
-                raise ValueError("所选模型不存在或当前不可用。")
-            effective = await self._model_api_key(row, provider_row, user_id)
-            return resolve_model_row(
-                row, {**provider_row, "api_key": effective}
-            )
-        elif model_id:
-            raise ValueError("所选模型不存在或当前不可用。")
-        return await self._resolve_default_model(user_id)
-
-    async def _resolve_default_model(self, user_id: str) -> ResolvedModel:
-        """解析当前默认模型：默认行 → 第一条可见有有效 Key 的行；没有则提示配置。"""
-
-        assert self.settings is not None
-        storage = self.require_ready()
-        rows = await storage.list_visible_model_rows(user_id)
-        candidates = []
-        for row in rows:
-            provider_row = await storage.get_provider_row(row["provider_key"])
-            if provider_row is None or (
-                row["scope"] == "global" and not provider_row["enabled"]
-            ):
-                continue
-            effective = await self._model_api_key(row, provider_row, user_id)
-            if effective:
-                candidates.append(
-                    (row, {**provider_row, "api_key": effective})
-                )
-        candidates.sort(key=lambda pair: (
-            not pair[0]["is_default"],
-            pair[0]["scope"] != "user" if pair[0]["is_default"] else pair[0]["scope"] != "global",
-        ))
-        default_pair = next(
-            (pair for pair in candidates if pair[0]["is_default"]), None
-        )
-        selected = default_pair or (candidates[0] if candidates else None)
-        if selected is not None:
-            return resolve_model_row(*selected)
-        raise ValueError("暂无可用模型，请先在技能|连接器 → 模型中配置供应商 Key 并添加模型。")
 
     async def model_for_message(
         self, user_id: str, message: dict[str, Any]
@@ -498,6 +426,8 @@ class ChatRuntime:
                     attachment_hydration_provider=self.attachment_hydration_provider,
                     skill_install_provider=self.skill_install_provider,
                     mcp_install_provider=self.mcp_install_provider,
+                    task_history_provider=self.task_history_provider,
+                    task_configuration_provider=self.task_configuration_provider,
                     client_capabilities=normalized_capabilities,
                     mcp_servers=mcp_servers,
                     mcp_tool_allowlists=mcp_allowlists,

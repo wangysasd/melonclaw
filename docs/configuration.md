@@ -23,6 +23,8 @@ createdb melonclaw
 | `TAVILY_API_KEY` | 内置联网搜索凭据；留空不影响启动，依赖该凭据的搜索能力不可用 |
 | `MELONCLAW_DATA_DIR` | Skill 等持久资源目录，默认 `~/.melonclaw/data` |
 | `MELONCLAW_WORKSPACE_DIR` | 会话与项目文件目录，默认 `~/.melonclaw/workspaces` |
+| `MELONCLAW_TASK_EXECUTION_TIMEOUT_SECONDS` | 后台完整运行时限（包含模型解析、历史摘要、Agent 构建和执行），默认 1800 秒，须为正整数 |
+| `MELONCLAW_TASK_RESULT_MAX_CHARS` | 任务文字结果上限，默认 200000 字符，超限明确失败并保留部分内容 |
 | `profile` | 仅 `dev` 开启免密登录和全员身份切换；直接启动后端时按此值生效 |
 
 持久数据目录和工作区必须位于项目代码目录之外。仓库里的内置 Skill 是分发模板，安装后使用外部数据目录中的运行时副本。
@@ -48,3 +50,21 @@ npm --prefix frontend run dev
 前端默认地址为 [http://127.0.0.1:8001](http://127.0.0.1:8001)，后端为 [http://127.0.0.1:8000](http://127.0.0.1:8000)。停止时在对应终端按 Ctrl+C。
 
 与手动启动不同，`scripts/start.sh` 默认显式使用 `dev`，读取 `.env` 并开启开发身份切换，仅用于本机开发。前端代理和构建配置见[前端开发文档](FRONTEND.md)，服务器目录、升级和备份见[部署文档](deployment.md)。
+
+### Web 内置任务调度
+
+以上执行限制与以下参数均须为正整数。APScheduler 的周期扫描任务只保存在内存，业务任务与计划以数据库为准。
+
+| 环境变量 | 含义 |
+|---|---|
+| `MELONCLAW_TASK_POLL_SECONDS` | 扫描计划/队列、进度变化保存与取消检查间隔（秒），默认 2；正文未变化不保存 |
+| `MELONCLAW_TASK_GLOBAL_CONCURRENCY` | 单执行器全局并发上限，默认 2 |
+| `MELONCLAW_TASK_USER_CONCURRENCY` | 每用户并发上限，默认 1 |
+| `MELONCLAW_TASK_QUEUE_TIMEOUT_SECONDS` | 排队超时（秒），默认 86400 |
+| `MELONCLAW_TASK_CHECKPOINT_RETENTION_DAYS` | 终态任务 Checkpoint 保留天数，默认 30；保留业务结果与聊天 |
+| `MELONCLAW_TASK_OPERATION_RETENTION_DAYS` | 完整操作回执保留天数，默认 30；过期拒绝重放，清理仅移除响应，永久保留请求键/摘要以防重复执行 |
+| `MELONCLAW_TASK_HISTORY_TIMEOUT_SECONDS` | 后台/追问的历史准备时限（秒），默认 60；追问包含来源读取，超时释放会话锁 |
+| `MELONCLAW_TASK_HISTORY_SUMMARY_MAX_CALLS` | 每轮历史摘要最多调用次数，默认 4，同时最多为模型调用预算减 1；超限提前失败，不截断历史 |
+| `MELONCLAW_TASK_CLEANUP_INTERVAL_SECONDS` | Checkpoint 与过期操作回执分批清理检查间隔（秒），默认 3600；每类每轮最多 100 条 |
+
+任务调度随 Web 自动启动，不需要额外服务。只支持单实例 Web，第二个执行器无法获得数据库会话锁时拒绝启动；连接池代理必须使用会话模式，不能用事务池模式。`/api/ready` 同时探测 Web 与执行器，登录后的 `/api/tasks/status` 提供 executor 状态。详见[定时任务运维](deployment.md#定时任务上线与运维)。

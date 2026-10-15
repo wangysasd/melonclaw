@@ -650,6 +650,7 @@ class AttachmentRepositoryMixin:
         max_attachment_count: int,
         max_total_bytes: int,
         user_display_metadata: dict[str, Any] | None = None,
+        task_context: dict[str, Any] | None = None,
     ) -> PreparedMessagePair:
         if len(attachment_ids) > max_attachment_count:
             raise AttachmentStateError("单条消息附件数量超过限制。", "attachment_count_exceeded")
@@ -660,6 +661,9 @@ class AttachmentRepositoryMixin:
         assistant_message_id = uuid4()
         sorted_ids = sorted(attachment_ids, key=str)
         async with self.engine.begin() as connection:
+            if task_context:
+                from melonclaw.repository.tasks import task_lock
+                await task_lock(connection)
             conversation = (
                 await connection.execute(
                     select(chat_conversations)
@@ -792,6 +796,9 @@ class AttachmentRepositoryMixin:
             message_rows = {
                 UUID(str(row["id"])): row for row in inserted.mappings().all()
             }
+            if task_context:
+                from melonclaw.repository.task_chat import bind_context
+                await bind_context(connection, user_id, task_context)
             if len(message_rows) != 2:
                 raise AttachmentError("消息创建失败。", "message_storage_error", 503)
             if attachment_ids:

@@ -66,6 +66,30 @@ describe("UserQuestionPanel", () => {
     });
   });
 
+  it("submits the complete model catalog id after choosing a task model", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <UserQuestionPanel
+        question={withSingleQuestion({
+          question: "选择每天 19:25 执行晚安任务的模型",
+          options: [
+            { id: "custom:deepseek-flash", label: "DeepSeek-V4.1-Flash" },
+            { id: "custom:minimax-m3", label: "MiniMax-M3" },
+          ],
+          allow_custom_answer: false,
+        })}
+        onSubmit={onSubmit}
+      />,
+    );
+    await user.click(screen.getByLabelText("MiniMax-M3"));
+    await user.click(screen.getByRole("button", { name: "提交回答并继续" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      type: "batch",
+      answers: { "question-1": { type: "option", option_id: "custom:minimax-m3" } },
+    });
+  });
+
   it("drops the previous answer when the question changes under the same interaction id", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);

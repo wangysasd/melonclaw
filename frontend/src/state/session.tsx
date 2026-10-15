@@ -98,6 +98,7 @@ export interface SessionState {
 }
 
 type SessionAction =
+  | { type: "taskConversationsUpdated"; items: ConversationSummary[] }
   | { type: "status"; status: ServiceStatus }
   | {
       type: "bootstrapUsers";
@@ -227,6 +228,15 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
           ? {}
           : { recents: items, recentsCursor: action.cursor }),
       };
+    }
+    case "taskConversationsUpdated": {
+      const merge = (existing: ConversationSummary[]) => {
+        const byId = new Map(existing.map(item => [item.id, item]));
+        for (const item of action.items) byId.set(item.id, item);
+        return [...byId.values()].sort((a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned))
+          || (b.updated_at ?? "").localeCompare(a.updated_at ?? "") || b.id.localeCompare(a.id));
+      };
+      return { ...state, recents: merge(state.recents), conversations: state.projectId ? state.conversations : merge(state.conversations) };
     }
     case "recentsLoaded": {
       const recents = action.append
@@ -446,6 +456,7 @@ export interface SessionContextValue extends SessionState {
   loadMoreConversations: () => Promise<void>;
   loadMoreRecents: () => Promise<void>;
   refreshConversations: () => Promise<void>;
+  refreshTaskConversations: (signal: AbortSignal) => Promise<void>;
   /** 重新加载 Skill 目录（上传/删除/发布后刷新 Picker）。 */
   refreshSkills: () => Promise<void>;
   /** 重新加载模型目录（自定义模型增删改后刷新选择器）。 */
@@ -942,6 +953,14 @@ export function SessionProvider({ children, initialUserId = "" }: { children: Re
     await loadRecentsInternal(true);
   }, [loadRecentsInternal]);
 
+  const refreshTaskConversations = useCallback(async (signal: AbortSignal) => {
+    const snapshot = stateRef.current;
+    const generation = generationRef.current;
+    const data = await listConversations({ userId: snapshot.userId, limit: 100 }, signal);
+    if (signal.aborted || !contextMatches(generation, { userId: snapshot.userId })) return;
+    dispatchSync({ type: "taskConversationsUpdated", items: data.items.filter(item => item.task_id) });
+  }, [contextMatches, dispatchSync]);
+
   const refreshConversations = useCallback(async () => {
     await loadConversationsInternal({ append: false, refreshOnly: true });
   }, [loadConversationsInternal]);
@@ -1197,6 +1216,7 @@ export function SessionProvider({ children, initialUserId = "" }: { children: Re
       loadMoreConversations,
       loadMoreRecents,
       refreshConversations,
+      refreshTaskConversations,
       refreshSkills: loadSkillsInternal,
       refreshModels: loadModelsInternal,
       refreshUsers: refreshUsersInternal,
@@ -1232,6 +1252,7 @@ export function SessionProvider({ children, initialUserId = "" }: { children: Re
       loadMoreConversations,
       loadMoreRecents,
       refreshConversations,
+      refreshTaskConversations,
       loadSkillsInternal,
       loadModelsInternal,
       refreshUsersInternal,

@@ -27,6 +27,7 @@ from melonclaw.core.model_catalog import (
     ResolvedModel,
 )
 from melonclaw.core.prompts import build_system_prompt
+from melonclaw.core.task_agent import TaskAgentOptions, build_unattended_agent
 from melonclaw.core.tool_catalog import FIND_TOOLS_NAME
 from melonclaw.core.user_input import UserInputMiddleware, supports_user_input
 from melonclaw.memory import MemoryScopeMiddleware, MemoryService
@@ -37,11 +38,14 @@ from melonclaw.middleware import (
     UserInputGuardMiddleware,
 )
 from melonclaw.middleware.skill_refresh import SkillRefreshMiddleware
+from melonclaw.middleware.task_context import TaskContextMiddleware
 from melonclaw.middleware.tool_name_guard import ToolNameGuardMiddleware
 from melonclaw.middleware.tool_selection import ToolPoolMiddleware
 from melonclaw.middleware.usage_observation import UsageObservationMiddleware
 from melonclaw.tool.mcp_install import McpInstallProvider, build_mcp_install_tools
 from melonclaw.tool.skill_install import SkillInstallProvider, build_skill_install_tools
+from melonclaw.tool.task_configuration import build_task_configuration_tool
+from melonclaw.tool.task_history import build_task_history_tool
 from melonclaw.tool.tool_discovery import build_tool_discovery
 from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
 
@@ -107,6 +111,7 @@ def _build_tool_selector_middleware(
             if _tool_name(tool) not in {
                 FIND_TOOLS_NAME, MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "prepare_skill_creation",
                 "confirm_skill_install", "prepare_mcp_install", "test_mcp_install", "confirm_mcp_install",
+                "configure_task",
             }
         ],
         pool_size=settings.tool_pool_size,
@@ -127,10 +132,13 @@ async def build_research_agent(
     attachment_hydration_provider: AttachmentHydrationProvider | None = None,
     skill_install_provider: SkillInstallProvider | None = None,
     mcp_install_provider: McpInstallProvider | None = None,
+    task_history_provider: Any | None = None,
+    task_configuration_provider: Any | None = None,
     client_capabilities: object = None,
     mcp_servers: dict[str, dict[str, Any]] | None = None,
     mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
     skill_dirs: tuple[tuple[str, Path], ...] = (),
+    unattended: TaskAgentOptions | None = None,
 ) -> CompiledStateGraph:
     """异步发现工具并构建绑定到指定工作区的通用助手。
 
@@ -147,6 +155,17 @@ async def build_research_agent(
             "必须传入 PostgreSQL Checkpointer；请先运行 melonclaw-db-init。"
         )
 
+    if unattended is not None:
+        if any((runtime_backend, memory_service, attachment_hydration_provider,
+                skill_install_provider, mcp_install_provider, task_history_provider,
+                task_configuration_provider, client_capabilities,
+                mcp_servers, mcp_tool_allowlists, skill_dirs)):
+            raise ValueError("无人值守执行不能混入普通聊天的能力或工作区挂载。")
+        return build_unattended_agent(
+            settings, model=model, checkpointer=checkpointer, options=unattended,
+            context_schema=AgentContext,
+        )
+
     workspace_dir.mkdir(parents=True, exist_ok=True)
     resolved_model = model
     settings.summary_trigger_tokens(resolved_model.context_window)
@@ -160,6 +179,10 @@ async def build_research_agent(
         tools.extend(build_skill_install_tools(skill_install_provider))
     if mcp_install_provider is not None:
         tools.extend(build_mcp_install_tools(mcp_install_provider))
+    if task_history_provider is not None:
+        tools.append(build_task_history_tool(task_history_provider))
+    if task_configuration_provider is not None:
+        tools.append(build_task_configuration_tool(task_configuration_provider))
     resolved_mcp_servers = mcp_servers or {}
     user_input_enabled = supports_user_input(client_capabilities)
     tools.append(build_tool_discovery(settings.tool_selection_max_requests))
@@ -220,6 +243,9 @@ async def build_research_agent(
     if attachment_hydration_provider is not None:
         middleware.insert(0, AttachmentHydrationMiddleware(attachment_hydration_provider))
 
+    if task_history_provider is not None:
+        middleware.insert(0, TaskContextMiddleware(task_history_provider))
+
     middleware = [*build_agent_controls(
         chat_model, backend, settings, context_window=resolved_model.context_window,
         tool_pool=tool_selector,
@@ -241,7 +267,7 @@ async def build_research_agent(
         middleware=middleware,
         subagents=[{
             **GENERAL_PURPOSE_SUBAGENT,
-            "tools": tools,
+            "tools": [tool for tool in tools if _tool_name(tool) != "configure_task"],
             "middleware": child_middleware,
             "skills": skill_sources or None,
             "system_prompt": GENERAL_PURPOSE_SUBAGENT["system_prompt"] + (

@@ -8,7 +8,7 @@
 
 ## 方案概览
 
-- `core/user_input.py` 注册主 Agent 专用的 `ask_user` 工具。工具只接受 `questions` 数组，一次 `interrupt()` 交出一张卡片；只问一个问题时就是长度为一的数组，协议里不再有单题专用的字段布局。
+- `core/user_input.py` 向主 Agent 注册 `tool/user_input.py` 的 `ask_user` 工具。调用可提供单题参数或 `questions` 数组，统一规范化为 `questions`，一次 `interrupt()` 交出一张卡片；只问一个问题时就是长度为一的数组，卡片协议里没有单题专用的字段布局。
 - `core/hitl.py` 读取 Checkpoint 的真实 interrupt ID，区分工具审批和用户问题，并只把安全字段序列化给浏览器。
 - `user_interactions` 记录问题 payload、Checkpoint interrupt ID、有效期、答案摘要和恢复状态；表只承载用户问题，因此不重复保存固定为 `user_question` 的类型列。`services/user_input_execution.py` 重新校验归属、当前问题和答案后构造 `Command(resume={interrupt_id: answer})`。
 - 账本的六个状态（waiting / accepted / resolved / expired / recovery_required / discarded）与允许的转换只在一处定义：`repository/user_interaction_lifecycle.py`。repository 写库时的 where 与 CAS 条件由转换表反向生成（`transition_sources`），services 只用常量与语义分组（`OPEN_STATUSES` 等），不再手写字面量；schema 的 CHECK 约束与常量的对齐由测试强制。
@@ -19,6 +19,8 @@
 ## 关键设计选择
 
 用户问题和工具审批共用 LangGraph Checkpoint 与会话锁，但使用不同的工具、事件和 API，避免把用户偏好误当成副作用授权。一张问题卡片可以包含多个独立问题，每个问题支持单选、多选或自定义文本；多选可在允许时附加自定义文本。用户必须一次回答卡片中的全部问题，服务端逐题重新校验，浏览器不能伪造选项标签。
+
+选项 ID 可直接承载模型目录的 `custom:{model_key}`：允许字母、数字、下划线、短横线和冒号，最长 200 字符，同题内必须唯一。问题 ID 仍使用原来的字符集（不含冒号）与 64 字符上限。选项 ID 在规范化、问题卡、回答及 Checkpoint 恢复中原样传递，不能移除命名空间或替换字符。回答仅接受当前问题中的 ID；允许冒号不扩大模型可见性、任务配置权限或工具审批范围。
 
 工具审批提交另外携带 `approval_batch_id` 和 `assistant_message_id`。批次 ID 由助手消息 ID 与当前 Checkpoint interrupt ID 集合稳定生成，因此刷新页面不会改变同一批审批；服务端恢复前会同时校验两个绑定，旧卡片或跨消息提交直接返回 409，避免误恢复另一轮审批。
 
@@ -75,4 +77,4 @@ Agent 调用 ask_user(questions=[...])
 uv run melonclaw-db-init
 ```
 
-验证记录：`tests/test_user_input.py`、`tests/test_architecture.py`、`frontend/tests/user-question.test.tsx`、`frontend/tests/chat-stream.test.tsx`、`frontend/tests/approval.test.tsx` 和 `frontend/tests/stream-capabilities.test.ts` 已覆盖规范化、答案防伪、取消与过期解锁、interrupt/resume 负载、批次护栏、能力协商与缓存键、待恢复账本封账、锁外不写库、422 错误码、回执流对账和组件交互；真实 PostgreSQL Checkpointer、模型 API、数据库初始化（`uv run melonclaw-db-init`）和生产部署仍需在目标环境做 smoke test。
+验证记录：`tests/test_user_input.py`、`tests/test_architecture.py`、`frontend/tests/user-question.test.tsx`、`frontend/tests/chat-stream.test.tsx`、`frontend/tests/approval.test.tsx` 和 `frontend/tests/stream-capabilities.test.ts` 已覆盖规范化、答案防伪、取消与过期解锁、interrupt/resume 负载、批次护栏、能力协商与缓存键、待恢复账本封账、锁外不写库、422 错误码、回执流对账和组件交互。2026-10-15 补充模型命名空间选项的单选/多选往返、最长模型键、非法/重复 ID 和伪造答案拒绝；`tests/test_task_configuration.py` 覆盖无系统默认模型时真实 Agent 等待选择，再在隔离 PostgreSQL 保存每天 19:25 任务。测试模型使用离线响应；真实 PostgreSQL Checkpointer、模型 API 和生产部署仍需在目标环境做 smoke test。本次修复无需数据库升级或重新初始化。

@@ -16,11 +16,11 @@
 docs/exec-plans/
 ├── README.md                # 本文件
 ├── active/                  # 进行中的计划
-├── completed/               # 已完成的计划（保留，用于追溯决策）
+├── completed/               # 已完成且仍有决策参考价值的计划
 └── tech-debt-tracker.md     # 已知技术债
 ```
 
-计划完成后从 `active/` 移到 `completed/`，不要删除。
+计划完成后从 `active/` 移到 `completed/`。被替代、重复且没有开发参考价值的计划可删除；先把仍有效的结论和验证依据集中到设计文档，并修正引用链接。
 
 ## 计划模板
 

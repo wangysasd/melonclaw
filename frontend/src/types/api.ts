@@ -1,3 +1,7 @@
+export interface TaskMessageContext {
+  task_run?: { run_id: string; task_id: string; name: string; status: "queued" | "running" | "succeeded" | "failed" | "cancelled"; trigger_type: string; queued_at: string; scheduled_for: string | null; error_message: string | null; result_is_partial: boolean; cancel_requested: boolean };
+}
+
 /**
  * MelonClaw Web API 类型契约。
  *
@@ -249,6 +253,7 @@ export interface Project {
 }
 
 export interface ConversationSummary {
+  task_id?: string | null;
   id: string;
   project_id: string | null;
   is_pinned?: boolean;
@@ -318,6 +323,7 @@ export interface DisplayEvent {
 }
 
 export interface Message {
+  seq?: number;
   id: string;
   role: string;
   status: MessageStatus;
@@ -329,7 +335,7 @@ export interface Message {
   created_at?: string;
   error_code?: string | null;
   model?: MessageModel | null;
-  display_metadata?: {
+  display_metadata?: TaskMessageContext & {
     timings?: RunTimings;
     events?: DisplayEvent[];
     skill?: { id: string; display_name: string };
@@ -537,6 +543,7 @@ export type StreamEvent =
   | { type: "run_phase"; phase: "selecting_tools" | "thinking" | "waiting_model" | "preparing_tools" | "preparing_file" | "responding" }
   | {
       type: "message_started";
+      task_context?: TaskMessageContext;
       conversation_id: string;
       request_id: string;
       user_message_id: string | null;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 BUSINESS_TABLES = (
+    "tasks", "task_runs", "task_operations",
     "tenants",
     "users",
     "auth_sessions",

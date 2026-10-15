@@ -307,7 +307,7 @@ const MessageBubble = memo(function MessageBubble({
               placement={message.role === "user" ? "end" : "start"}
               variant={message.role === "assistant" ? "borderless" : "filled"}
               content={message.role === "assistant"
-                ? <Markdown source={renderedContent} streaming={message.status === "streaming"} fileCardsAtEnd={message.status === "completed"} deliveredFiles={message.artifacts} />
+                ? <Markdown source={renderedContent} streaming={run?.status === "running"} fileCardsAtEnd={message.status === "completed"} deliveredFiles={message.artifacts} />
                 : message.content}
             />
           ) : null}
@@ -377,7 +377,7 @@ export function ChatView({
     [],
   );
 
-  const chat = useChatStream({ scroll });
+  const chat = useChatStream({ scroll, active });
   const chatContextKey = `${session.userId}:${session.projectId}:${session.conversationId ?? "new"}`;
   const unread = useUnreadChat(chat.state.messages, chatContextKey, awayFromBottom, chat.state.historyLoading);
   const userQuestionExpired = useUserQuestionExpired(

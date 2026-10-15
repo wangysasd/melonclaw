@@ -39,7 +39,7 @@ class UserRepositoryMixin:
         async with self.engine.connect() as connection:
             return (await connection.execute(query)).first() is not None
 
-    async def get_user_context(self, user_id: str) -> UserContext | None:
+    async def get_user_context(self, user_id: str, *, connection=None) -> UserContext | None:
         query = (
             select(
                 users.c.user_id,
@@ -53,8 +53,10 @@ class UserRepositoryMixin:
             .where(users.c.user_id == user_id)
             .where(users.c.tenant_status == "active", tenants.c.enabled.is_(True))
         )
-        async with self.engine.connect() as connection:
-            row = (await connection.execute(query)).mappings().first()
+        if connection is None:
+            async with self.engine.connect() as conn:
+                return await self.get_user_context(user_id, connection=conn)
+        row = (await connection.execute(query)).mappings().first()
         if row is None:
             return None
         return UserContext(

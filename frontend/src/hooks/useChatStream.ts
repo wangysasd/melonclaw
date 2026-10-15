@@ -1,3 +1,5 @@
+import { useVisibleRefresh } from "./useVisibleRefresh";
+import type { TaskMessageContext } from "../types/api";
 import { mergeDisplayEvent } from "../lib/modelUsage";
 import { mcpChatDisplay } from "../lib/mcpChat";
 import type { AssetRef } from "../lib/resultBlocks";
@@ -11,7 +13,7 @@ import {
 } from "react";
 import { App as AntdApp } from "antd";
 
-import { ApiError, getConversationHistory } from "../api/client";
+import { apiRequest, ApiError, getConversationHistory } from "../api/client";
 import {
   sendApprovalStream,
   sendMessageStream,
@@ -67,6 +69,8 @@ export interface ApprovalReceipt {
 
 /** 聊天视图内的消息模型（乐观消息与历史消息统一表示）。 */
 export interface ChatMessage {
+  taskContext?: TaskMessageContext;
+  seq?: number;
   id: string;
   role: "user" | "assistant";
   /** 流式期间为纯文本累加；completed 后整段替换。 */
@@ -101,6 +105,7 @@ export interface ChatMessage {
 interface ChatState {
   conversationId: string | null;
   conversationTitle: string | null;
+  conversationTaskId: string | null;
   /** 当前会话自身的项目归属（服务端为准）：附件 hydration 按它取作用域，
    * 不用侧栏当前项目代替，避免跨作用域新建过渡期图片 404。 */
   conversationProjectId: string | null;
@@ -118,11 +123,14 @@ type ChatAction =
   | { type: "batch"; actions: ChatAction[] }
   | { type: "reset"; conversationId: string | null }
   | { type: "historyLoading"; conversationId: string | null }
+  | { type: "taskHistorySynced"; conversationId: string; messages: ChatMessage[] }
+  | { type: "taskAssociated"; conversationId: string; taskId: string }
   | { type: "historyPrepended"; conversationId: string; messages: ChatMessage[] }
   | {
       type: "historyLoaded";
       conversationId: string;
       title: string | null;
+      taskId?: string | null;
       projectId: string | null;
       messages: ChatMessage[];
       approval: PendingApproval | null;
@@ -132,6 +140,7 @@ type ChatAction =
   | { type: "removeOptimistic"; ids: string[] }
   | {
       type: "messageStarted";
+      taskContext?: TaskMessageContext;
       assistantMessageId: string;
       userMessageId: string | null;
       resuming?: boolean;
@@ -170,6 +179,7 @@ type ChatAction =
 export const INITIAL_CHAT_STATE: ChatState = {
   conversationId: null,
   conversationTitle: null,
+  conversationTaskId: null,
   conversationProjectId: null,
   messages: [],
   approval: null,
@@ -185,7 +195,7 @@ function upsertLastAssistant(
 ): ChatMessage[] {
   const messages = [...state.messages];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === "assistant") {
+    if (messages[index].role === "assistant" && !messages[index].taskContext?.task_run) {
       messages[index] = update(messages[index]);
       break;
     }
@@ -260,10 +270,11 @@ function fromIso(value: string | null | undefined): number | null {
 function historyMessage(item: Message, activeForSnapshot: boolean): ChatMessage {
   let content = item.content;
   if (item.role !== "user" && item.error_code === USER_INPUT_RECOVERY_REQUIRED && !content.trim()) content = RECOVERY_REQUIRED_NOTICE;
-  if (!activeForSnapshot && item.role !== "user" && item.status === "pending" && !content.trim()) content = STALE_PENDING_NOTICE;
+  if (!activeForSnapshot && item.role !== "user" && item.status === "pending" && !item.display_metadata?.task_run && !content.trim()) content = STALE_PENDING_NOTICE;
   return {
-    id: item.id, role: item.role === "user" ? "user" : "assistant", content,
+    id: item.id, seq: item.seq, role: item.role === "user" ? "user" : "assistant", content,
     status: item.status, errorCode: item.error_code, timestamp: item.created_at ?? null,
+    taskContext: item.display_metadata ?? undefined,
     markdown: item.role !== "user", events: item.display_metadata?.events ?? [],
     assistantSteps: item.assistant_steps, artifacts: item.artifacts, phases: [],
     model: item.model ?? null, executionDurationMs: item.execution_duration_ms,
@@ -300,11 +311,16 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         conversationId: action.conversationId,
         historyLoading: true,
       };
+    case "taskAssociated":
+      return state.conversationId === action.conversationId && state.conversationTaskId !== action.taskId
+        ? { ...state, conversationTaskId: action.taskId }
+        : state;
     case "historyLoaded":
       return {
         ...state,
         conversationId: action.conversationId,
         conversationTitle: action.title,
+        conversationTaskId: action.taskId ?? null,
         conversationProjectId: action.projectId,
         messages: action.messages,
         approval: action.approval,
@@ -313,6 +329,20 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
         restoreDraft: null,
         error: null,
       };
+    case "taskHistorySynced": {
+      if (state.conversationId !== action.conversationId) return state;
+      const byId = new Map(state.messages.map(item => [item.id, item]));
+      for (const fresh of action.messages) {
+        const live = byId.get(fresh.id);
+        if (live && live.content === fresh.content && live.status === fresh.status && live.seq === fresh.seq
+          && live.errorCode === fresh.errorCode && JSON.stringify(live.taskContext) === JSON.stringify(fresh.taskContext)
+          && JSON.stringify(live.assistantSteps) === JSON.stringify(fresh.assistantSteps)
+          && JSON.stringify(live.events) === JSON.stringify(fresh.events)) continue;
+        byId.set(fresh.id, live && !fresh.taskContext?.task_run && (live.status === "streaming" || live.optimistic)
+          ? { ...live, seq: fresh.seq } : fresh);
+      }
+      return { ...state, messages: [...byId.values()].sort((a, b) => (a.seq ?? Infinity) - (b.seq ?? Infinity)) };
+    }
     case "historyPrepended": {
       if (state.conversationId !== action.conversationId) return state;
       const existing = new Set(state.messages.map((item) => item.id));
@@ -365,7 +395,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
             message.optimistic &&
             action.userMessageId
           ) {
-            return { ...message, id: action.userMessageId, optimistic: false };
+            return { ...message, id: action.userMessageId, taskContext: action.taskContext, optimistic: false };
           }
           return message;
         }),
@@ -465,7 +495,7 @@ export function reducer(state: ChatState, action: ChatAction): ChatState {
       };
     case "runActivity":
       return { ...state, messages: state.messages.map((message) => {
-        if (message.role !== "assistant" || !["pending", "streaming"].includes(message.status ?? "")) return message;
+        if (message.role !== "assistant" || message.taskContext?.task_run || !["pending", "streaming"].includes(message.status ?? "")) return message;
         const activities = [...(message.timings?.activities ?? [])];
         const index = activities.findIndex((item) => item.id === action.activity.id);
         if (index >= 0) activities[index] = { ...activities[index], ...action.activity };
@@ -608,6 +638,7 @@ export interface ChatStreamHandle {
 }
 
 export interface UseChatStreamOptions {
+  active?: boolean;
   scroll: {
     isNearBottom: () => boolean;
     scrollToBottom: (smooth?: boolean) => void;
@@ -616,7 +647,7 @@ export interface UseChatStreamOptions {
 
 /** 消费 SSE 聊天流：乐观渲染、事件归约、失败回滚与审批恢复（对齐旧 consumeStream 语义）。 */
 export function useChatStream({
-  scroll,
+  scroll, active = true,
 }: UseChatStreamOptions): ChatStreamHandle {
   const session = useSession();
   const { message } = AntdApp.useApp();
@@ -666,6 +697,16 @@ export function useChatStream({
       dispatch({ type: "sync", state: next });
     }
   }, []);
+
+  const associatedTaskId = session.recents.find(item => item.id === session.conversationId)?.task_id
+    ?? session.conversations.find(item => item.id === session.conversationId)?.task_id;
+  useEffect(() => {
+    // 聊天中创建任务后，列表刷新带回绑定；保留当前消息和活流并开启任务结果同步。
+    if (session.conversationId && associatedTaskId && state.conversationId === session.conversationId
+      && state.conversationTaskId !== associatedTaskId) {
+      dispatchFor(session.conversationId, { type: "taskAssociated", conversationId: session.conversationId, taskId: associatedTaskId });
+    }
+  }, [associatedTaskId, session.conversationId, state.conversationId, state.conversationTaskId, dispatchFor]);
 
   const flushTextDeltas = useCallback((conversationId?: string): void => {
     const pending = pendingDeltasRef.current;
@@ -774,6 +815,7 @@ export function useChatStream({
           }
           dispatchFor(conversationId, {
             type: "messageStarted",
+            taskContext: event.task_context,
             assistantMessageId: event.message_id,
             userMessageId: event.user_message_id,
             resuming: event.resuming,
@@ -1281,6 +1323,7 @@ export function useChatStream({
             type: "historyLoaded",
             conversationId: targetId,
             title: cached.conversationTitle,
+            taskId: cached.conversationTaskId,
             projectId: cached.conversationProjectId,
             messages: cached.messages,
             approval: cached.approval,
@@ -1306,6 +1349,7 @@ export function useChatStream({
           type: "historyLoaded",
           conversationId: targetId,
           title: cached.conversationTitle,
+            taskId: cached.conversationTaskId,
           projectId: cached.conversationProjectId,
           messages: cached.messages,
           approval: cached.approval,
@@ -1351,6 +1395,7 @@ export function useChatStream({
                 ? chatStateRef.current.messages
                 : chatCacheRef.current.get(targetId)?.messages ?? [];
               const merged = messages.map((historyMessage) => {
+                if (historyMessage.taskContext?.task_run) return historyMessage;
                 const live = liveMessages.find((item) => item.id === historyMessage.id
                   || (item.role === "assistant" && item.optimistic && item.status === "streaming"));
                 if (!live || live.role !== "assistant" || isTerminalStatus(live.status)) return historyMessage;
@@ -1371,6 +1416,7 @@ export function useChatStream({
           type: "historyLoaded",
           conversationId: targetId,
           title: data.conversation?.title ?? null,
+          taskId: data.conversation?.task_id ?? null,
           projectId: data.conversation?.project_id ?? null,
           messages: visibleMessages,
           approval: data.pending_approval,
@@ -1410,6 +1456,21 @@ export function useChatStream({
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.conversationId, session.userId, session.projectId, session.epoch, historyRevision]);
+
+  const refreshTaskHistory = useCallback(async (signal: AbortSignal) => {
+    const snapshot = sessionRef.current;
+    const conversationId = snapshot.conversationId;
+    if (!conversationId) return;
+    const current = chatStateRef.current;
+    if (!current.conversationTaskId) return;
+    const query = new URLSearchParams({ after_seq: String(Math.max(0, ...current.messages.map(item => item.seq ?? 0))) });
+    for (const item of current.messages) if (item.taskContext?.task_run && item.role === "assistant" && item.status === "pending") query.append("pending_message_ids", item.id);
+    const data = await apiRequest<{ conversation_id: string; items: Message[] }>(`/api/tasks/${current.conversationTaskId}/messages?${query}`, { signal });
+    if (signal.aborted || sessionRef.current.epoch !== snapshot.epoch || sessionRef.current.conversationId !== conversationId) return;
+    dispatchFor(conversationId, { type: "taskHistorySynced", conversationId,
+      messages: data.items.map(item => historyMessage(item, Boolean(activeRunsRef.current.get(conversationId)))) });
+  }, [dispatchFor]);
+  useVisibleRefresh(refreshTaskHistory, 3000, active && Boolean(state.conversationTaskId));
 
   /**
    * 显式取消某会话的输出：abort 该会话的 SSE 流并乐观置 cancelled。

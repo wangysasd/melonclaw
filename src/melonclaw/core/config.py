@@ -122,14 +122,33 @@ class Settings:
     agent_todo_enabled: bool = True
     agent_cache_entries: int = 32
     user_input_ttl_seconds: int = 24 * 60 * 60
+    task_execution_timeout_seconds: int = 30 * 60
+    task_result_max_chars: int = 200_000
+    task_history_timeout_seconds: int = 60
+    task_history_summary_max_calls: int = 4
+
+    task_poll_seconds: int = 2
+    task_global_concurrency: int = 2
+    task_user_concurrency: int = 1
+    task_queue_timeout_seconds: int = 86400
+    task_checkpoint_retention_days: int = 30
+    task_operation_retention_days: int = 30
+    task_cleanup_interval_seconds: int = 3600
 
     def __post_init__(self) -> None:
+        if min(self.task_poll_seconds, self.task_global_concurrency, self.task_user_concurrency,
+               self.task_queue_timeout_seconds, self.task_checkpoint_retention_days,
+               self.task_cleanup_interval_seconds, self.task_operation_retention_days,
+               self.task_history_timeout_seconds, self.task_history_summary_max_calls) < 1:
+            raise ValueError("任务调度参数必须为正数。")
         if not 0 < self.agent_summary_trigger_ratio < 1:
             raise ValueError("摘要触发比例必须大于 0 且小于 1。")
         if self.agent_output_reserve <= 0 or self.agent_summary_keep_tokens <= 0:
             raise ValueError("输出预留和摘要保留 token 必须大于 0。")
         if self.agent_retry_max_delay < self.agent_retry_initial_delay:
             raise ValueError("最大重试间隔不能小于初始间隔。")
+        if min(self.task_execution_timeout_seconds, self.task_result_max_chars) < 1:
+            raise ValueError("任务时限和结果上限必须为正数。")
 
     def summary_trigger_tokens(self, context_window: int) -> int:
         """按数据库模型窗口计算阈值，并校验输出与近期保留预算。"""
@@ -171,6 +190,17 @@ def load_settings() -> Settings:
         agent_usage_enabled=_bool_setting("MELONCLAW_AGENT_USAGE_ENABLED", True),
         agent_todo_enabled=_bool_setting("MELONCLAW_AGENT_TODO_ENABLED", True),
         agent_cache_entries=_int_setting("MELONCLAW_AGENT_CACHE_ENTRIES", 32),
+        task_poll_seconds=_int_setting("MELONCLAW_TASK_POLL_SECONDS", 2),
+        task_global_concurrency=_int_setting("MELONCLAW_TASK_GLOBAL_CONCURRENCY", 2),
+        task_user_concurrency=_int_setting("MELONCLAW_TASK_USER_CONCURRENCY", 1),
+        task_checkpoint_retention_days=_int_setting("MELONCLAW_TASK_CHECKPOINT_RETENTION_DAYS", 30),
+        task_operation_retention_days=_int_setting("MELONCLAW_TASK_OPERATION_RETENTION_DAYS", 30),
+        task_history_timeout_seconds=_int_setting("MELONCLAW_TASK_HISTORY_TIMEOUT_SECONDS", 60),
+        task_history_summary_max_calls=_int_setting("MELONCLAW_TASK_HISTORY_SUMMARY_MAX_CALLS", 4),
+        task_cleanup_interval_seconds=_int_setting("MELONCLAW_TASK_CLEANUP_INTERVAL_SECONDS", 3600),
+        task_queue_timeout_seconds=_int_setting("MELONCLAW_TASK_QUEUE_TIMEOUT_SECONDS", 86400),
+        task_execution_timeout_seconds=_int_setting("MELONCLAW_TASK_EXECUTION_TIMEOUT_SECONDS", 1800),
+        task_result_max_chars=_int_setting("MELONCLAW_TASK_RESULT_MAX_CHARS", 200_000),
         attachment_max_file_bytes=_int_setting(
             "MELONCLAW_ATTACHMENT_MAX_FILE_MB", 20
         )

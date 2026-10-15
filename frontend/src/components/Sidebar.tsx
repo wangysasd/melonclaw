@@ -216,7 +216,7 @@ export function SidebarContent({
               <span className="conversation-item-time">{formatConversationTime(conversation.updated_at)}</span>
             </button>
             {!optimisticRows.some((item) => item.id === conversation.id) ? (
-              <MoreButton label={`对话「${title}」`} menu={actionMenu("conversation", conversation.id, title, Boolean(conversation.is_pinned), isRecent)} />
+              <MoreButton label={`对话「${title}」`} menu={actionMenu("conversation", conversation.id, title, Boolean(conversation.is_pinned), isRecent && !conversation.task_id)} />
             ) : null}
           </div>
         );

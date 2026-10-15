@@ -12,7 +12,7 @@
 | 配置文件 | `/etc/melonclaw/melonclaw.env` |
 | Skill 数据目录 | `/var/lib/melonclaw/data/` |
 | 工作区目录 | `/var/lib/melonclaw/workspaces/` |
-| 应用服务名称 | `melonclaw` |
+| 应用服务名称 | `melonclaw`（Web 内置任务调度） |
 | 网站地址 | `https://melonclaw.cn` |
 
 本手册由英文版翻译而来，沿用 [ASD-STE100](https://www.asd-ste100.org/STE_faq.html) 的简明写作原则。
@@ -34,10 +34,10 @@ bash ops/deploy.sh
 执行前确认版本无需数据库升级，并按部署维护流程准备所需备份。
 
 脚本先检查依赖命令、配置读取权限和代码目录状态，并阻止重复运行。
-预检查通过后依次停止后端、快进拉取代码、同步 Python 依赖、安装前端依赖、构建前端、启动后端。
-最后检查后端进程和就绪接口，确认返回 `ready=true`。
+预检查通过后依次停止 Web（含任务调度）、快进拉取代码、同步 Python 依赖、安装前端依赖、构建前端、启动 Web 服务。
+最后检查 Web 进程和包含任务执行器的 `ready=true`。改表版本先执行数据库更新；定时任务仅支持当前三表结构，首次接入及结构重建边界见[部署说明](../docs/deployment.md#定时任务上线与运维)。
 
-预检查失败不会停止服务。停服后发生错误，后端保持停止，不自动回滚代码或前端文件。
+预检查失败不会停止服务。停服后发生错误，Web（含任务调度） 保持停止，不自动回滚代码或前端文件。
 前端直接在现有 dist 目录构建，失败可能影响网页访问。
 脚本不执行数据库初始化或升级，不修改外部配置，不覆盖或重新加载 Nginx。
 后端使用非默认端口时，在执行前设置 `MELONCLAW_READY_URL` 为实际的本机就绪接口地址。
@@ -117,7 +117,7 @@ Nginx 从 `/opt/melonclaw/frontend/dist/` 读取新文件。
    sudo systemctl stop melonclaw
    ```
 
-   确认应用任务已停止。
+   确认 Web 已停止。
 
 6. 按数据库备份流程备份数据库。
 7. 备份外部数据和配置目录。
@@ -288,3 +288,14 @@ npm --prefix frontend ci
 npm --prefix frontend run build
 sudo systemctl start melonclaw
 sudo systemctl status melonclaw --no-pager
+
+
+## 定时任务验收补充
+
+完整部署规则见[部署说明](../docs/deployment.md#定时任务上线与运维)。完成 Web 就绪检查后，执行只读健康检查：
+
+```bash
+curl -f http://127.0.0.1:8000/api/ready
+```
+
+在页面创建测试任务并运行，确认结果、运行历史和未读通知；验证一次性计划到时自动执行，单独重启 Web 后结果仍可查看。Web 重启会中断正在执行的任务，先等待结束或接受此次运行失败。任务执行器未就绪时，常规发版脚本不会报告成功。只支持单实例 Web，不增加多进程 workers 或重叠启动。

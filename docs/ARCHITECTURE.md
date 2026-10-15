@@ -48,7 +48,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 但仍各自使用独立的消息序列和 Checkpoint。项目和普通会话的附件分别由
 `chat_attachments.project_id` 与 `owner_conversation_id` 表示，数据库 CHECK 保证恰有一个归属。
 项目与会话各自持久化 `is_pinned` 供侧栏排序；删除使用 `status=deleted` 逻辑删除，读取时过滤已删除项目及其会话，保留跨数据库、Checkpoint 和文件系统的原始数据以避免非原子清理。
-普通会话加入项目时保留会话 ID、消息和 Checkpoint；先把该会话独享工作区里的普通文件、artifacts 和已登记附件复制到目标项目工作区，再在事务中把 Conversation 与附件归属切为项目。移动成功后清理原目录，后续运行只走项目工作区。项目内会话不支持再次移动；目标同名文件、运行中的会话和未提交附件会阻止移动。无需新增表列或历史数据兼容读取分支。
+普通会话加入项目时保留会话 ID、消息和 Checkpoint；先把该会话独享工作区里的普通文件、artifacts 和已登记附件复制到目标项目工作区，再在事务中把 Conversation 与附件归属切为项目。移动成功后清理原目录，后续运行只走项目工作区。任务固定会话不支持移入项目；项目内会话不支持再次移动；目标同名文件、运行中的会话和未提交附件会阻止移动。无需新增表列或历史数据兼容读取分支。
 
 模型消息的原始 v3 content-block 事件由 `output/model_activity.py` 按顺序读取：文本及 reasoning 内容增量完整进入脱敏步骤投影，不再删除 `<think>` 块或按正文 JSON 形状判断内部消息。内部工具选择器调用通过公开 `TAG_NOSTREAM` 在 messages 投影源头隔离；阶段由中间件的 `runtime.stream_writer` 发出，`output/events.py` 注册 v3 `CustomTransformer`，仅转发根命名空间的选择工具/等待模型阶段。当前锁定的 LangGraph 1.2.10 不将调用 tags/metadata 挂到消息对象，不能通过消息私有字段识别选择器。工具参数只报告阶段，不把未完成参数当成已执行工具。
 
@@ -138,7 +138,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 Deep Agents 0.7 对带 `execute` 能力的 backend 不支持默认路径上的
 `FilesystemPermission`。因此 `/.attachments/` 和 `/.artifacts/` 被路由到不提供
 Shell 执行的 `FilesystemBackend`，附件原文、派生目录和运行时 artifacts 的工具权限
-可以继续生效；`execute` 始终只委托给默认工作区 backend，并继续由 HITL 审批。这个
+可以继续生效；`execute` 始终只委托给默认工作区 backend。当前 `core/hitl.py` 临时关闭了 Shell 审批，仅限本机受信任开发，这是尚未解决的开发期例外。这个
 路由不能把本机 Shell 变成沙箱，生产部署仍需替换默认 backend。
 
 ### 5.2 不要依赖上游框架按类型推断能力
@@ -233,3 +233,27 @@ MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空�
 平台资源默认位于 `~/.melonclaw/data/`（`MELONCLAW_DATA_DIR`），用户和共享 Skill 正文、导入草稿、快照都在此根下。仓库 `.data/skills/shared/` 仅是内置模板，首次安装复制到数据根；升级不覆盖已有内容。工作区默认位于 `~/.melonclaw/workspaces/`（`MELONCLAW_WORKSPACE_DIR`），包含生成文件、附件原文和派生文本及 `.artifacts`。Memory、Checkpoint、业务记录和文件索引在 PostgreSQL。代码部署与三类持久数据独立；迁移时停服完整复制文件目录并切换配置，保持相对路径和数据库，无旧路径读取兜底。运行时不会自动迁移旧目录或删除文件。详见 [持久文件边界](design-docs/persistent-user-files.md)。
 
 部署操作通过 `melonclaw-resources` 显式进入 `storage/deployment.py`，只在停服期间复制和校验目录，不覆盖不同内容、不删除源文件、不写数据库。模板先复制到临时目录再发布，已有同名 Skill 整体保留。配置入口拒绝把运行数据根和工作区放进当前代码目录。Linux 服务器布局、systemd/Nginx 与迁移步骤见 [部署说明](deployment.md)；`ops/` 仅包含可安装模板，不含运行数据和凭据。
+
+
+## 定时任务调度与执行分支
+
+`core/agent.py` 的 unattended 分支组装受限主/子 Agent，不调用普通聊天工具装配；`middleware/task_policy.py` 在工具目录、整批响应和调用入口校验权限，共享预算与停止标志。`backend/task_readonly.py` 不挂载文件或长期 Store，关闭自动落盘，上下文溢出明确失败。每轮提示词有北京时间和本次计划时间。
+
+`core/task_schedule.py` 仅处理北京时间四种计划，错过/重叠直接跳过；`core/task_snapshot.py` 只定义任务要求和历史标识，不保存权限或模型摘要。TaskService 负责表单/对话共用保存和当前配置运行，repository 的短事务负责入队、计划推进、领取、取消和原子终态。Web 生命周期内的 APScheduler 负责周期扫描和有界异步执行，复用数据库与 Checkpointer，由 repository/task_delivery.py 把执行状态和结果同事务交付到固定会话，不启用任务 Memory。创建/修改设置记录用户实际操作，每次触发仅追加助手消息。repository/task_history.py 固定已完成消息来源，core/task_history.py 统一历史投影和相邻文本合并，services/task_history.py 负责有界摘要与原文读取，后台和追问共享业务历史。模型统一通过 services/model_resolution.py 解析，管理事务显式复用同一连接，避免嵌套取连接造成池耗尽。
+
+任务只有 tasks、task_runs、task_operations 三张表。tasks.conversation_id 通过所有者复合外键绑定唯一普通会话；复用 chat_messages 保存用户实际设置与每轮单条助手交付消息，不增加任务表。普通聊天按 task_run 元数据排除后台占位的审批/遗留恢复；两种执行不共用 Checkpoint。启用状态只存在 tasks.status；独立通知接口、已读字段与索引已移除。主 Agent 正文形成有界部分结果，无独立过程事件存储；运行快照冻结入队定义用于执行与历史解释，重新运行使用当前定义与有效模型。数据库部分唯一索引、配额短事务保护单活动运行；单实例 advisory 会话锁阻止重复执行器，执行状态写入复用持锁连接，断线后不重连接管。账户变更仍检查活动任务，Project 不再关联任务。
+
+普通聊天通过 ChatRuntime.task_history_provider 注入 TaskChatService，middleware/task_context.py 在请求副本投影固定历史并校验归属/摘要；历史来源和早期摘要存入现有用户消息元数据，后台来源存入 config_snapshot，不增加表或关联字段。后台执行与追问的 Checkpoint 独立；同角色普通文本只在请求中合并，本轮工具链保持。历史过长时复用来源未变的摘要和近期正文，read_task_history 只读本轮绑定原文。完整成功结果才推进进度。主 Agent 的 complete_task 只记录内存完成意图，由持锁执行器在成功终态同事务暂停同版本任务；子 Agent 无此权限。会话追问统一使用累计历史，无单份报告引用 API 或参数。
+
+ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，由 tool/task_configuration.py 的 configure_task 先读取实际配置/模型目录，再保存用户明确要求的部分更新。TaskService.save_definition 是表单与聊天共用的保存入口；repository/task_configuration.py 在任务事务内复核真实用户消息、当前非项目会话与租户，TaskService 复用事务连接解析模型。expected_version 与任务幂等账本防止覆盖新配置和重复提交；新建绑定当前会话，聊天来源使用真实消息，表单继续插入设置摘要。该受控工具常驻主 Agent，子 Agent 工具列表移除、后台不装配、PTC 不桥接；不能指定任意目标、不立即运行、不改已入队快照，无新增表或兼容分支。
+
+任务新建省略模型时，通过 ModelResolutionMixin.resolve_system_default_model 读取 scope=global 且 is_default=true 的管理员默认，并使用当前用户的正常凭据链解析；保存明确 model_id。仓储默认查询与模型解析共用管理事务连接，无可用系统默认时明确报错，不使用普通聊天的个人默认、当前选中模型或第一条可用模型。表单默认选择采用同一全局默认条件；已有任务编辑不重新选择默认，默认切换不影响已提交操作的幂等重放。
+
+`20261010_task_center` 为已有应用一次创建当前完整三表，新库直接使用 schema.py。不维护未发布旧任务结构的迁移或历史回填；当前结构保留数据，结构不一致时停服并显式重建任务相关表，不动账户、模型和普通聊天。任务随 Web 停止，正常退出标 service_shutdown，启动时收敛旧 running 为 service_restarted，不自动重跑。只支持单实例 Web/会话池连接，`/api/ready` 包含内置执行器就绪。Checkpoint 清理精确限定 task-run:<UUID>。详见[定时任务设计](design-docs/task-center.md)与[验收](design-docs/task-center-acceptance.md)。
+
+任务报告复用前端 ChatView 的普通 MessageBubble，任务运行元数据仅用于后台同步和普通聊天流隔离。删除专用 TaskRunMessage、结果引用草稿/接口/请求参数及相应分支；普通消息的头像、正文、复制与失败反馈共用，排队/执行中的后台消息依据实际元数据呈现生成状态，避免误判为断线。定时任务仍保留配置与运行管理。全局通知铃铛、弹出列表、通知轮询及自定义事件导航已移除，定时任务的任务名称通过直接回调打开固定会话，TaskRunsDrawer 由最近一次运行打开，保留历史选择、快照、失败诊断和当次取消；TaskDetail 及独立详情布局已删除，列表/抽屉共享 presentation.tsx，关闭不重置列表筛选/页码；随后可靠性收尾移除后端通知 API、已读字段与索引，通过 20261015_task_reliability 保留数据升级。
+
+
+任务运行总时限从模型解析/历史准备开始计算；历史准备独立默认 60 秒/4 次摘要，后台摘要计入共享调用预算，追问摘要单独有界并传播取消。UTF-8 字节切块先验证总块数，超限不请求模型、不截断资料。进度只在正文变化时保存，终态与聊天消息同事务；状态只读事务保留执行连接互斥/PID 校验而不取任务全局排他锁。解析后模型展示名与消息原子同步，默认标题随任务名更新，自定义标题保留。
+
+操作完整回执默认保留 30 天，过期请求显式拒绝；保留数据升级允许 response 为空并增加清理索引。周期清理每轮至多 100 条回执，只清空响应，键/请求摘要永久保留以阻止旧请求重复执行；拒重标记行数仍增长，不宣称账本总行数有界。新库直接创建当前 schema，已有库停 Web 后显式 db-update。

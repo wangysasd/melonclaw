@@ -33,6 +33,7 @@ dependencies = [
     "python-pptx==1.0.2",
     "python-multipart==0.0.32",
     "markdown-it-py==4.2.0",
+    "apscheduler==3.11.3",
 ]
 
 [project.scripts]

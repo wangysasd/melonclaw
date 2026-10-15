@@ -156,6 +156,59 @@ def test_question_schema_rejects_invalid_options_and_answers():
         answer_for(payload, {"type": "text", "text": "自定义"})
 
 
+@pytest.mark.parametrize("multi_select", [False, True])
+def test_model_option_ids_survive_question_serialization_and_resume(multi_select):
+    model_id = "custom:deepseek-flash"
+    longest_model_id = "custom:" + "m" * 64
+    payload = normalize_user_question_batch([
+        {"question": "选择每天 19:25 执行的模型", "multi_select": multi_select,
+         "options": [{"id": model_id, "label": "DeepSeek"},
+                     {"id": longest_model_id, "label": "另一个模型"}]}
+    ])
+    request = {**payload, "id": "model-interrupt"}
+    serialized = serialize_pending_user_question(
+        request, interaction_id="model-choice", assistant_message_id="assistant-1",
+        expires_at="2030-01-01T00:00:00+00:00",
+    )
+    assert [option["id"] for option in serialized["questions"][0]["options"]] == [
+        model_id, longest_model_id,
+    ]
+    answer = ({"type": "options", "option_ids": [model_id, longest_model_id]}
+              if multi_select else {"type": "option", "option_id": model_id})
+    command, normalized = build_user_input_resume_command(
+        request, {"type": "batch", "answers": {"question-1": answer}},
+    )
+    selected = normalized["answers"]["question-1"]
+    assert selected == {**answer, "text": "DeepSeek、另一个模型" if multi_select else "DeepSeek"}
+    assert command.resume == {"model-interrupt": normalized}
+    forged = ({"type": "options", "option_ids": ["custom:missing"]}
+              if multi_select else {"type": "option", "option_id": "custom:missing"})
+    with pytest.raises(ValueError, match="不属于当前问题"):
+        answer_for(payload, forged)
+
+
+@pytest.mark.parametrize("option_id", ["custom:model/name", "custom:two words", "custom:model\nname",
+                                        "custom:<model>", "m" * 201])
+def test_namespaced_option_ids_keep_character_and_length_limits(option_id):
+    with pytest.raises(ValueError, match="选项的 id"):
+        normalize_user_question_batch([
+            {"question": "模型", "options": [{"id": option_id, "label": "一"},
+                                               {"id": "custom:other", "label": "二"}]}
+        ])
+
+
+def test_namespaced_option_ids_must_be_unique_and_question_ids_remain_restricted():
+    question = {"question": "模型", "options": [
+        {"id": "custom:one", "label": "一"}, {"id": "custom:one", "label": "二"},
+    ]}
+    with pytest.raises(ValueError, match="选项 id 不能重复"):
+        normalize_user_question_batch([question])
+    question["options"][1]["id"] = "custom:two"
+    for question_id in ["custom:question", "q" * 65]:
+        with pytest.raises(ValueError, match="问题的 id"):
+            normalize_user_question_batch([{**question, "id": question_id}])
+
+
 def test_multi_select_answer_is_normalized_and_validated():
     payload = normalize_user_question_batch(
         [
@@ -438,6 +491,8 @@ class _CancelHarness:
             "workdir_path": "p1",
         }
         self.conversation_id = uuid4()
+        self.user_message = {"id": str(uuid4()), "display_metadata": {
+            "task_history": {"task_id": str(uuid4()), "sources": [], "completed_runs": 0}}}
 
     async def pending(self, agent, config):
         self.calls.append("pending")
@@ -445,6 +500,8 @@ class _CancelHarness:
 
     def execution(self):
         async def stream_execution(prepared, agent_input=None):
+            assert str(prepared.user_message_id) == self.user_message["id"]
+            assert prepared.task_context == self.user_message["display_metadata"]
             self.calls.append("stream")
             self.streamed.append(agent_input)
             yield {"type": "done"}
@@ -508,7 +565,7 @@ class _CancelHarness:
         return self.assistant
 
     async def find_request(self, conversation_id, user_id, request_id):
-        return SimpleNamespace(user_message={}, attachments=[])
+        return SimpleNamespace(user_message=self.user_message, attachments=[])
 
     async def get_user_interaction(self, conversation_id, user_id, interaction_id):
         return self.ledgers.get(str(interaction_id))
