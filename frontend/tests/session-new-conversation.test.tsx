@@ -124,6 +124,56 @@ describe("project conversation navigation", () => {
   });
 });
 
+describe("task conversation refresh", () => {
+  it.each(["loadMoreConversations", "loadMoreRecents"] as const)(
+    "deduplicates refreshed tasks when %s reads an overlapping page",
+    async (loadMore) => {
+      const pinned = { ...conversation("pinned"), is_pinned: true, updated_at: "2026-10-15T00:00:00Z" };
+      const existing = { ...conversation("existing"), task_id: "task-1", updated_at: "2026-10-15T02:00:00Z" };
+      const refreshed = { ...existing, title: "更新后的任务", updated_at: "2026-10-15T04:00:00Z" };
+      const inserted = { ...conversation("inserted"), task_id: "task-2", updated_at: "2026-10-15T03:00:00Z" };
+      const older = { ...conversation("older"), updated_at: "2026-10-15T01:00:00Z" };
+      vi.mocked(client.listConversations).mockImplementation(async (input) => {
+        if (input.taskOnly) return { items: [refreshed, inserted], next_cursor: "task-page-2" };
+        if (input.cursor === "page-2") return { items: [inserted, older], next_cursor: "page-3" };
+        return { items: [pinned, existing], next_cursor: "page-2" };
+      });
+      const view = await renderBootstrapped();
+      const signal = new AbortController().signal;
+      await act(async () => { await session!.refreshTaskConversations(signal); });
+      expect(client.listConversations).toHaveBeenLastCalledWith({ userId: "u1", taskOnly: true, limit: 100 }, signal);
+      expect(session?.recents.map(item => item.id)).toEqual(["pinned", "existing", "inserted"]);
+      expect(session?.recents.find(item => item.id === "existing")?.title).toBe("更新后的任务");
+      expect(session?.recentsCursor).toBe("page-2");
+      expect(session?.conversationCursor).toBe("page-2");
+
+      await act(async () => { await session![loadMore](); });
+      expect(session?.recents.map(item => item.id)).toEqual(["pinned", "existing", "inserted", "older"]);
+      expect(session?.conversations).toEqual(session?.recents);
+      expect(session?.recentsCursor).toBe("page-3");
+      expect(session?.conversationCursor).toBe("page-3");
+      view.unmount();
+    },
+  );
+
+  it("updates recents without adding task conversations to the current project", async () => {
+    localStorage.setItem(projectStorageKey("u1"), "p1");
+    vi.mocked(client.listProjects).mockResolvedValue({ items: [{ id: "p1", name: "项目甲", is_pinned: false }] });
+    const projectChat = { ...conversation("project-chat"), project_id: "p1" };
+    const taskChat = { ...conversation("task-chat"), task_id: "task-1" };
+    vi.mocked(client.listConversations).mockImplementation(async input => ({
+      items: input.taskOnly ? [taskChat] : input.projectId ? [projectChat] : [],
+      next_cursor: null,
+    }));
+    const view = await renderBootstrapped();
+    await act(async () => { await session!.refreshTaskConversations(new AbortController().signal); });
+    expect(session?.recents).toEqual([taskChat]);
+    expect(session?.conversations).toEqual([projectChat]);
+    expect(session?.conversationId).toBe("project-chat");
+    view.unmount();
+  });
+});
+
 describe("new conversation draft", () => {
   it("does nothing when the right pane is already a new conversation", async () => {
     const view = await renderBootstrapped();

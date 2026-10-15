@@ -48,6 +48,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 但仍各自使用独立的消息序列和 Checkpoint。项目和普通会话的附件分别由
 `chat_attachments.project_id` 与 `owner_conversation_id` 表示，数据库 CHECK 保证恰有一个归属。
 项目与会话各自持久化 `is_pinned` 供侧栏排序；删除使用 `status=deleted` 逻辑删除，读取时过滤已删除项目及其会话，保留跨数据库、Checkpoint 和文件系统的原始数据以避免非原子清理。
+会话列表的 `task_only` 筛选沿 API → ChatService → ConversationService → Repository 传递；仓储在排序与分页前限制关联任务非空，继续复用用户、当前租户、会话与项目可见性条件。不按任务是否运行筛选，暂停和归档任务的有效会话仍可读取。
 普通会话加入项目时保留会话 ID、消息和 Checkpoint；先把该会话独享工作区里的普通文件、artifacts 和已登记附件复制到目标项目工作区，再在事务中把 Conversation 与附件归属切为项目。移动成功后清理原目录，后续运行只走项目工作区。任务固定会话不支持移入项目；项目内会话不支持再次移动；目标同名文件、运行中的会话和未提交附件会阻止移动。无需新增表列或历史数据兼容读取分支。
 
 模型消息的原始 v3 content-block 事件由 `output/model_activity.py` 按顺序读取：文本及 reasoning 内容增量完整进入脱敏步骤投影，不再删除 `<think>` 块或按正文 JSON 形状判断内部消息。内部工具选择器调用通过公开 `TAG_NOSTREAM` 在 messages 投影源头隔离；阶段由中间件的 `runtime.stream_writer` 发出，`output/events.py` 注册 v3 `CustomTransformer`，仅转发根命名空间的选择工具/等待模型阶段。当前锁定的 LangGraph 1.2.10 不将调用 tags/metadata 挂到消息对象，不能通过消息私有字段识别选择器。工具参数只报告阶段，不把未完成参数当成已执行工具。
@@ -203,9 +204,9 @@ MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空�
 
 ### 聊天安装 MCP
 
-消息准备阶段由 `services/mcp_chat_config.py` 提取 MCP JSON，数据库 `mcp_install_drafts` 保存受控配置，消息、Checkpoint 和模型只接收草稿引用。`ChatService` 注入 `ChatMcpInstallService` provider，`tool/mcp_install.py` 提供准备、审批测试和审批安装工具。身份从 ToolRuntime 注入并重新校验用户、会话和项目，不允许模型指定用户。聊天安装固定个人范围，`McpManagementService.prepare(personal=True)` 复用管理校验；资源页原有角色默认范围保持不变。
+消息准备阶段由 `services/mcp_chat_config.py` 提取 MCP JSON，数据库 `mcp_install_drafts` 保存受控配置，消息、Checkpoint 和模型只接收草稿引用。`ChatService` 注入 `ChatMcpInstallService` provider，`tool/mcp_install.py` 提供准备、审批测试和审批安装工具。身份从 ToolRuntime 注入并重新校验用户、会话和项目，不允许模型指定用户。聊天安装与资源页统一按当前角色决定范围：管理员/owner 为系统共享，普通用户为个人；`McpManagementService.prepare(personal=False)` 复用管理校验，测试和确认时重新核验角色与审批范围一致。
 
-正式安装由 `repository/mcp_install.py` 在同一事务写配置、个人偏好和草稿结果，行锁保护并发幂等；不自动覆盖同名个人项。测试和安装进入 HITL，均不进入 PTC，下一轮沿用现有 MCP 快照摘要生效。草稿有效期 24 小时，过期访问拒绝，暂存新配置时清理；审批草稿安装成功后清空 payload。详见 [聊天安装设计](design-docs/chat-mcp-install.md)。
+正式安装由 `repository/mcp_install.py` 在同一事务写配置、个人项的偏好和草稿结果，行锁保护并发幂等；不自动覆盖同范围同名项。测试和安装进入 HITL，均不进入 PTC，下一轮沿用现有 MCP 快照摘要生效。草稿有效期 24 小时，过期访问拒绝，暂存新配置时清理；审批草稿安装成功后清空 payload。详见 [聊天安装设计](design-docs/chat-mcp-install.md)。
 
 
 ### 聊天结果组件与成果读取

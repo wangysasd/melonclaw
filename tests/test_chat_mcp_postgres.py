@@ -49,15 +49,15 @@ def test_chat_mcp_install_transaction_and_race():
             assert all(result["status"] == "installed" for result in results)
             assert results[0]["id"] == results[1]["id"]
             rows = await storage.list_visible_mcp_rows("admin")
-            assert len(rows) == 1 and rows[0]["scope"] == "user" and rows[0]["owner_user_id"] == "admin"
-            assert rows[0]["enabled"] and rows[0]["user_enabled"] is True and rows[0]["tool_allowlist"] == []
+            assert len(rows) == 1 and rows[0]["scope"] == "global" and rows[0]["owner_user_id"] is None
+            assert rows[0]["enabled"] and rows[0]["user_enabled"] is None and rows[0]["tool_allowlist"] == []
             async with engine.connect() as connection:
                 draft = (await connection.execute(select(mcp_install_drafts).where(mcp_install_drafts.c.installed_id.is_not(None)))).mappings().one()
                 assert draft["payload"] == {}
                 assert len((await connection.execute(select(mcp_servers))).all()) == 1
             # 两份独立审批清单抢同一 slug：第二份失败，不能留下额外偏好或结果。
             assert (await provider.confirm(context, preview2["installation"]))["status"] == "error"
-            assert (await storage.list_visible_mcp_rows("admin"))[0]["user_enabled"] is True
+            assert (await storage.list_visible_mcp_rows("admin"))[0]["user_enabled"] is None
             pending = await storage.get_mcp_install_draft(preview2["installation"]["draft_id"], "admin", cid)
             assert pending["installed_id"] is None
         finally:

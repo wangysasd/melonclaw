@@ -529,9 +529,17 @@ body {
   line-height: var(--line-height-base);
 }
 
-.skill-delete-modal .ant-modal-confirm-title {
-  font-size: var(--text-lg);
-}
+.skill-delete-modal .ant-modal-container { border-radius: var(--radius-overlay); }
+.skill-delete-modal .ant-modal-confirm-title { font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.skill-delete-modal .ant-modal-confirm-content { margin-top: var(--space-4); font-size: var(--text-md); }
+.skill-delete-content { display: grid; gap: var(--space-4); }
+.skill-delete-resource { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line-light); border-radius: var(--radius-card); background: var(--canvas); }
+.skill-delete-resource > div { display: grid; gap: var(--space-1); min-width: 0; }
+.skill-delete-resource strong { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.skill-delete-resource span, .skill-delete-note { color: var(--muted); }
+.skill-delete-content p { margin: 0; line-height: var(--line-height-base); }
+.skill-delete-modal .ant-modal-confirm-btns { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--line-light); }
+.skill-delete-modal .ant-modal-confirm-btns .ant-btn { margin-inline-start: 0; min-height: 36px; padding-inline: var(--space-4); font-size: var(--text-md); }
 
 .skill-detail-modal-content {
   display: flex;

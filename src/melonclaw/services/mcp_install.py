@@ -42,7 +42,7 @@ class ChatMcpInstallService:
     async def _row(self, user_id, payload):
         fields = {**payload, "headers": {"set": payload["headers"], "remove": [], "clear": False},
                   "env": {"set": payload["env"], "remove": [], "clear": False}}
-        return await self.management.prepare(user_id, fields, personal=True)
+        return await self.management.prepare(user_id, fields, personal=False)
 
     async def prepare(self, context, draft_id, enable=True, tool_allowlist=None):
         try:
@@ -55,19 +55,19 @@ class ChatMcpInstallService:
             )):
                 raise McpConfigError("启用选项或工具白名单无效。")
             payload = {**draft["payload"], "tool_allowlist": tool_allowlist}
-            await self._row(user_id, payload)
+            row = await self._row(user_id, payload)
             visible = await storage.list_visible_mcp_rows(user_id)
-            if any(row["scope"] == "user" and row["slug"] == payload["slug"] for row in visible):
-                raise McpConfigError("已有同名个人 MCP，请在连接器页面编辑；聊天不会自动覆盖。")
+            if any(item["scope"] == row["scope"] and item["slug"] == payload["slug"] for item in visible):
+                raise McpConfigError("已有同名 MCP，请在连接器页面编辑；聊天不会自动覆盖。")
             installation = dict(
-                draft_id=str(uuid4()), name=payload["slug"], scope="user",
+                draft_id=str(uuid4()), name=payload["slug"], scope=row["scope"],
                 connection=connection_preview(payload), transport=payload["transport"],
                 headers_keys=sorted(payload["headers"]), enable=enable, tool_allowlist=tool_allowlist,
-                shadows_global=any(row["scope"] == "global" and row["slug"] == payload["slug"] for row in visible),
+                shadows_global=row["scope"] == "user" and any(row["scope"] == "global" and row["slug"] == payload["slug"] for row in visible),
             )
             await storage.prepare_mcp_install_draft(draft, installation, payload)
             return {"status": "prepared", "installation": installation,
-                    "notice": "仅准备清单；测试会发送凭据，须单独审批。安装仅影响自己，下一条消息生效。"}
+                    "notice": "仅准备清单；测试和安装须分别审批。安装范围见清单，共享服务影响所有用户，下一条消息生效。"}
         except (McpConfigError, McpConflictError) as exc:
             return {"status": "error", "message": str(exc)}
         except Exception:
@@ -79,6 +79,8 @@ class ChatMcpInstallService:
             if draft["installed_id"]:
                 raise McpConfigError("该清单已安装，请在连接器页面测试。")
             row = await self._row(user_id, draft["payload"])
+            if row["scope"] != installation["scope"]:
+                raise McpConfigError("当前角色与审批范围不一致，请重新准备。")
             return await self.management._discover_tools(row, refresh=True, cache=False)
         except (McpConfigError, McpConflictError) as exc:
             return {"status": "error", "message": str(exc)}
@@ -92,11 +94,14 @@ class ChatMcpInstallService:
                 identifier = str(draft["installed_id"])
             else:
                 row = await self._row(user_id, draft["payload"])
+                if row["scope"] != installation["scope"]:
+                    raise McpConfigError("当前角色与审批范围不一致，请重新准备。")
                 identifier = await storage.commit_mcp_install(
                     installation["draft_id"], user_id, conversation_id, installation, row,
                 )
-            return {"status": "installed", "id": identifier, "scope": "user", "enabled": installation["enable"],
-                    "message": "MCP 已安装到你名下，下一条消息可用。" if installation["enable"] else "MCP 已安装到你名下，尚未启用。"}
+            return {"status": "installed", "id": identifier, "scope": installation["scope"], "enabled": installation["enable"],
+                    "message": f"MCP 已安装到{'系统共享' if installation['scope'] == 'global' else '你名下'}，"
+                    + ("下一条消息可用。" if installation["enable"] else "尚未启用。")}
         except (McpConfigError, McpConflictError) as exc:
             return {"status": "error", "message": str(exc)}
         except Exception:

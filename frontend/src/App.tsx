@@ -41,7 +41,7 @@ function Workspace() {
     void refreshConversations();
     setInitialSkill(null); setView("chat");
   }, [startNewConversation, selectConversation, refreshConversations]);
-  useVisibleRefresh(session.refreshTaskConversations, 10000, session.contextReady && session.status?.status === "ready");
+  useVisibleRefresh(session.refreshTaskConversations, 30000, session.contextReady && session.status?.status === "ready");
   const openProjectDialog = (conversationId?: string) => {
     setMoveConversationId(conversationId ?? null);
     setProjectDialogOpen(true);

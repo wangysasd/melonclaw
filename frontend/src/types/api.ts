@@ -476,6 +476,7 @@ export interface ListConversationsInput {
   userId: string;
   projectId?: string | null;
   scope?: "unassigned";
+  taskOnly?: boolean;
   limit?: number;
   cursor?: string | null;
 }

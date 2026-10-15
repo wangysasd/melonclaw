@@ -95,8 +95,8 @@ def parse_chat_mcp(content: str, *, user_id: str, conversation_id: str, request_
             entries = list(decoded["mcpServers"].items())
         else:
             entries = [("chat-mcp", decoded)]
-        if not 1 <= len(entries) <= 8:
-            raise McpConfigError("每条消息支持 1–8 个 MCP 服务。")
+        if not 1 <= len(entries) <= 20:
+            raise McpConfigError("每条消息支持 1–20 个 MCP 服务。")
         drafts = []
         for name, config in entries:
             payload = normalize_chat_mcp(name, config)
@@ -104,7 +104,7 @@ def parse_chat_mcp(content: str, *, user_id: str, conversation_id: str, request_
             identifier = str(uuid5(NAMESPACE_URL, f"mcp:{user_id}:{conversation_id}:{request_id}:{name}:{digest}"))
             drafts.append({"id": identifier, "payload": payload})
         references = "\n".join(
-            f"MCP 配置草稿：{draft['id']}（{draft['payload']['slug']}，仅自己；凭据已隔离）"
+            f"MCP 配置草稿：{draft['id']}（{draft['payload']['slug']}，安装范围由当前角色确定；凭据已隔离）"
             for draft in drafts
         )
         # 原始 JSON 与非配置文本彻底分离；只保留用户明确写在块外的意图。

@@ -2,20 +2,24 @@
 
 import asyncio
 import os
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from langchain_core.messages import HumanMessage
-from sqlalchemy import update
+from sqlalchemy import insert, update
 from test_task_agent import resolved_model, settings_for
-from test_task_postgres import claim, database_fixture, enqueue, install_model
+from test_task_postgres import claim, database_fixture, definition, enqueue, install_model
 
+from melonclaw.api.app import create_app
 from melonclaw.core.agent import AgentContext
-from melonclaw.database.schema import users
+from melonclaw.database.schema import chat_conversations, chat_messages, users
 from melonclaw.middleware.task_context import TaskContextMiddleware
 from melonclaw.repository import ConversationBusyError
 from melonclaw.repository.errors import ConversationMoveError
+from melonclaw.services.chat import ChatService
 from melonclaw.services.conversations import ConversationService
 from melonclaw.services.execution import ExecutionService
 from melonclaw.services.task_chat import TaskChatService
@@ -90,6 +94,86 @@ def test_runs_share_one_chat_and_status_changes_are_delivered(monkeypatch, tmp_p
             conversations, _ = await storage.list_conversations("admin", limit=100, cursor=None)
             assert len(conversations) == 1 and conversations[0]["id"] == cid
             assert conversations[0]["task_id"] == str(tid)
+
+    asyncio.run(run())
+
+
+def test_task_conversation_filter_precedes_limit_and_preserves_pagination(monkeypatch, tmp_path):
+    install_model(monkeypatch)
+    monkeypatch.setenv("profile", "dev")
+
+    async def run():
+        async with database_fixture() as storage:
+            settings = settings_for(tmp_path)
+            service = TaskService(settings, storage)
+            timestamp = datetime.now(UTC)
+            task_conversations = []
+            for index in range(3):
+                saved = await service.save(
+                    "admin", definition=definition(name=f"任务 {index}"),
+                    enabled=index != 1, idempotency_key=str(uuid4()),
+                )
+                task = saved["task"]
+                if index == 2:
+                    await service.archive(
+                        "admin", UUID(task["id"]), expected_version=1,
+                        idempotency_key=str(uuid4()),
+                    )
+                task_conversations.append(task["conversation_id"])
+                async with storage.engine.begin() as conn:
+                    await conn.execute(update(chat_conversations).where(
+                        chat_conversations.c.id == UUID(task["conversation_id"])
+                    ).values(updated_at=timestamp - timedelta(days=3 - index)))
+
+            # 101 条较新的普通会话占满通用列表，但不能挤占任务筛选后的名额。
+            ordinary_ids = [uuid4() for _ in range(101)]
+            async with storage.engine.begin() as conn:
+                await conn.execute(insert(chat_conversations), [
+                    {"id": cid, "user_id": "admin", "created_at": timestamp, "updated_at": timestamp}
+                    for cid in ordinary_ids
+                ])
+                await conn.execute(insert(chat_messages), [
+                    {"id": uuid4(), "conversation_id": cid, "seq": 1, "request_id": str(uuid4()),
+                     "role": "user", "status": "completed", "created_at": timestamp, "updated_at": timestamp}
+                    for cid in ordinary_ids
+                ])
+
+            app = create_app()
+            app.state.chat = ChatService(SimpleNamespace(
+                storage=storage, settings=settings, ready=True, require_ready=lambda: storage,
+            ))
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+                assert (await client.get("/api/conversations?user_id=admin&task_only=true")).status_code == 401
+                assert (await client.post("/api/auth/passwordless", json={"user_id": "admin"})).status_code == 200
+                ordinary = await client.get("/api/conversations", params={"user_id": "admin", "limit": 100})
+                assert ordinary.status_code == 200
+                assert len(ordinary.json()["items"]) == 100
+                assert all(row["task_id"] is None for row in ordinary.json()["items"])
+
+                query = {"user_id": "admin", "task_only": "true", "limit": 2}
+                first = await client.get("/api/conversations", params=query)
+                assert first.status_code == 200
+                assert [row["id"] for row in first.json()["items"]] == task_conversations[:0:-1]
+                cursor = first.json()["next_cursor"]
+                assert cursor
+                second = await client.get("/api/conversations", params={**query, "cursor": cursor})
+                assert second.status_code == 200, second.text
+                assert [row["id"] for row in second.json()["items"]] == task_conversations[:1]
+                assert second.json()["next_cursor"] is None
+                assert (await client.get("/api/conversations", params={**query, "task_only": "invalid"})).status_code == 422
+
+                await storage.update_conversation(UUID(task_conversations[0]), "admin", is_pinned=True)
+                pinned = await client.get("/api/conversations", params={**query, "limit": 1})
+                assert [row["id"] for row in pinned.json()["items"]] == task_conversations[:1]
+                after_pinned = await client.get("/api/conversations", params={
+                    **query, "cursor": pinned.json()["next_cursor"],
+                })
+                assert after_pinned.status_code == 200, after_pinned.text
+                assert [row["id"] for row in after_pinned.json()["items"]] == task_conversations[:0:-1]
+
+                await storage.update_conversation(UUID(task_conversations[2]), "admin", delete=True)
+                visible = await client.get("/api/conversations", params=query)
+                assert [row["id"] for row in visible.json()["items"]] == task_conversations[:2]
 
     asyncio.run(run())
 
@@ -257,5 +341,7 @@ def test_task_chat_owner_tenant_delete_and_move_boundaries(monkeypatch, tmp_path
                 )
             assert await storage.get_conversation(other_cid, "admin") is None
             assert await storage.get_conversation(UUID(ordinary["id"]), "admin") is not None
+            assert await storage.list_conversations("admin", task_only=True, limit=100, cursor=None) == ([], None)
+            assert await storage.list_conversations("other", task_only=True, limit=100, cursor=None) == ([], None)
 
     asyncio.run(run())

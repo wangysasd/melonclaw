@@ -7,6 +7,7 @@ import type { ManageableSkill, SkillImportDraft, SkillOption, SkillContentPrevie
 import { AppLogo } from "./AppLogo";
 import { Icon } from "./Icon";
 import { SkillPreview } from "./SkillPreview";
+import { tokens } from "../theme/tokens";
 interface Notify { success: (text: string) => void; error: (text: string) => void; }
 
 /* ---------- Skills ---------- */
@@ -372,10 +373,22 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
                             }
                             if (key === "delete") {
                               modal.confirm({
-                                className: "skill-delete-modal",
+                                rootClassName: "skill-delete-modal",
+                                centered: true,
+                                width: 440,
+                                icon: null,
+                                styles: { container: { padding: tokens["space-6"] }, body: { padding: 0 } },
                                 title: "删除技能？",
-                                content: `删除「${skill.display_name}」及其文件后无法恢复。`,
-                                okText: "删除",
+                                content: <div className="skill-delete-content">
+                                  <div className="skill-delete-resource">
+                                    <AppLogo name={skill.display_name} />
+                                    <div><strong>{skill.display_name}</strong><span>{apiScope === "global" ? "系统共享" : "个人技能"}</span></div>
+                                  </div>
+                                  <p>{apiScope === "global" ? "此技能及其文件将被永久删除，所有用户将无法继续使用。" : "此技能及其文件将被永久删除。"}</p>
+                                  <p className="skill-delete-note">此操作无法撤销。</p>
+                                </div>,
+                                okText: "确认删除",
+                                focusable: { autoFocusButton: "cancel" },
                                 cancelText: "取消",
                                 okButtonProps: { danger: true },
                                 onOk: () =>

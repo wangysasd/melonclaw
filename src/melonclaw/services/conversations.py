@@ -274,6 +274,7 @@ class ConversationService:
         cursor: str | None,
         project_id: UUID | None = None,
         scope: str | None = None,
+        task_only: bool = False,
     ) -> tuple[list[dict[str, Any]], str | None]:
         storage = self.runtime.require_ready()
         context = await self.resolve_user(user_id)
@@ -288,6 +289,7 @@ class ConversationService:
             cursor=cursor,
             project_id=project_id,
             scope=scope,
+            task_only=task_only,
         )
 
     async def history(

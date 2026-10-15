@@ -559,6 +559,7 @@ export function listConversations(
       user_id: input.userId,
       project_id: input.projectId,
       scope: input.scope,
+      task_only: input.taskOnly ? "true" : undefined,
       limit: input.limit ?? 10,
       cursor: input.cursor,
     },

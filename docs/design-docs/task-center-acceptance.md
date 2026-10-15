@@ -19,6 +19,7 @@
 | 对话创建绑定当前会话、真实消息来源、部分修改、启停、模型可用性、版本/幂等、租户/项目边界、单连接解析、主/子实际工具调用 | [对话配置回归](../../tests/test_task_configuration.py) |
 | 新建省略模型仅选管理员系统默认、忽略聊天/个人默认、缺失/停用/无凭据明确报错、显式选择、编辑保留、默认切换后幂等重放 | 对话配置 `test_system_default_ignores_chat_and_personal_default_and_replay_survives_switch`、`test_unavailable_system_default_is_explicit_error_without_model_fallback`、[表单默认选择](../../frontend/tests/taskEditor.test.tsx) |
 | 后台消息增量同步、保留普通聊天流、可见性取消、固定会话导航 | [前端交付回归](../../frontend/tests/taskDelivery.test.tsx)、[任务列表](../../frontend/tests/taskCenter.test.tsx) |
+| 任务会话在数据库分页前筛选、暂停/归档可见性、置顶跨页、刷新后加载更多去重与项目隔离 | [数据库交付回归](../../tests/test_task_delivery.py)、[会话状态回归](../../frontend/tests/session-new-conversation.test.tsx) |
 | 聊天创建后的绑定同步、开启后台交付、保持历史与活流 | [聊天生命周期回归](../../frontend/tests/chat-stream.test.tsx)、[交付状态](../../frontend/tests/taskDelivery.test.tsx) |
 | 定时任务不展示报告正文，打开选定任务的固定会话；重新运行使用当前版本 | [页面回归](../../frontend/tests/taskCenter.test.tsx) |
 | 列表名称/模型/计划/状态/最近/下一次独立列、北京时间与每周星期、无后续计划原因、五个操作及归档禁用 | [列表回归](../../frontend/tests/taskCenter.test.tsx) |
@@ -52,3 +53,5 @@
 
 
 2026-10-15 可靠性收尾：新增 13 项可靠性与 2 项聊天准备回归，包含摘要总时限/取消/预算、UTF-8 无损切块、准备和执行阶段超时分类、只读锁/PID/连接失效、正文不变仅写一次且仍响应取消、自动模型名同步、默认/自定义标题、过期拒重、增量升级保留数据并可重复运行。新增 3 项前端回归验证两种保存动作及不同任务乱序完成的加载隔离。完整 scripts/check.sh（真实 PostgreSQL 随机隔离 schema）与前端生产构建通过，未调用付费 API。实际业务库未升级、Web 未重启；启用新版前须停服运行 db-update。见[实施与验证记录](../exec-plans/completed/2026-10-15-task-reliability.md)。
+
+2026-10-15 任务会话刷新：侧栏改为 30 秒查询单页最多 100 条任务摘要，数据库分页前筛选；刷新与加载更多统一去重排序，修复置顶游标的既有第二页错误。新增数据库端到端场景与 3 项前端回归，覆盖普通会话挤占、暂停/归档与删除、权限、两种加载更多及项目隔离。会话/交付专项 19 项及完整 scripts/check.sh（含真实 PostgreSQL 隔离测试）全部通过；无 schema、业务数据或服务重启。见[执行记录](../exec-plans/completed/2026-10-15-task-conversation-refresh.md)。

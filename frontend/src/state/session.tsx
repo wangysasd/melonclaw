@@ -185,6 +185,13 @@ const INITIAL_STATE: SessionState = {
   epoch: 0,
 };
 
+function mergeConversations(existing: ConversationSummary[], incoming: ConversationSummary[]): ConversationSummary[] {
+  const byId = new Map(existing.map(item => [item.id, item]));
+  for (const item of incoming) byId.set(item.id, item);
+  return [...byId.values()].sort((a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned))
+    || (b.updated_at ?? "").localeCompare(a.updated_at ?? "") || b.id.localeCompare(a.id));
+}
+
 function reducer(state: SessionState, action: SessionAction): SessionState {
   switch (action.type) {
     case "status":
@@ -214,7 +221,7 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       return { ...state, conversationsLoading: false, conversationsLoadFailed: true };
     case "conversationsLoaded": {
       const items = action.append
-        ? [...state.conversations, ...action.items]
+        ? mergeConversations(state.conversations, action.items)
         : action.items;
       const listedIds = new Set(action.items.map((item) => item.id));
       return {
@@ -230,17 +237,15 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
       };
     }
     case "taskConversationsUpdated": {
-      const merge = (existing: ConversationSummary[]) => {
-        const byId = new Map(existing.map(item => [item.id, item]));
-        for (const item of action.items) byId.set(item.id, item);
-        return [...byId.values()].sort((a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned))
-          || (b.updated_at ?? "").localeCompare(a.updated_at ?? "") || b.id.localeCompare(a.id));
+      return {
+        ...state,
+        recents: mergeConversations(state.recents, action.items),
+        conversations: state.projectId ? state.conversations : mergeConversations(state.conversations, action.items),
       };
-      return { ...state, recents: merge(state.recents), conversations: state.projectId ? state.conversations : merge(state.conversations) };
     }
     case "recentsLoaded": {
       const recents = action.append
-        ? [...state.recents, ...action.items]
+        ? mergeConversations(state.recents, action.items)
         : action.items;
       const listedIds = new Set(action.items.map((item) => item.id));
       return {
@@ -956,9 +961,9 @@ export function SessionProvider({ children, initialUserId = "" }: { children: Re
   const refreshTaskConversations = useCallback(async (signal: AbortSignal) => {
     const snapshot = stateRef.current;
     const generation = generationRef.current;
-    const data = await listConversations({ userId: snapshot.userId, limit: 100 }, signal);
+    const data = await listConversations({ userId: snapshot.userId, taskOnly: true, limit: 100 }, signal);
     if (signal.aborted || !contextMatches(generation, { userId: snapshot.userId })) return;
-    dispatchSync({ type: "taskConversationsUpdated", items: data.items.filter(item => item.task_id) });
+    dispatchSync({ type: "taskConversationsUpdated", items: data.items });
   }, [contextMatches, dispatchSync]);
 
   const refreshConversations = useCallback(async () => {

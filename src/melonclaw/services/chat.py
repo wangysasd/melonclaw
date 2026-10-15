@@ -451,6 +451,7 @@ class ChatService:
         cursor: str | None,
         project_id: UUID | None = None,
         scope: str,
+        task_only: bool = False,
     ) -> tuple[list[dict[str, Any]], str | None]:
         return await self.conversations.list_conversations(
             user_id,
@@ -458,6 +459,7 @@ class ChatService:
             cursor=cursor,
             project_id=project_id,
             scope=scope,
+            task_only=task_only,
         )
 
     async def history(

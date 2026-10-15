@@ -1,4 +1,4 @@
-"""MCP 聊天草稿与幂等个人安装；安装、偏好和结果在同一事务提交。"""
+"""MCP 聊天草稿与幂等角色范围安装；安装、偏好和结果在同一事务提交。"""
 
 from datetime import timedelta
 from uuid import UUID, uuid4
@@ -60,7 +60,9 @@ class McpInstallRepositoryMixin:
                 # 检查要提交的连接仍与审批草稿一致，防止其他入口替换连接。
                 expected = {key: row[key] for key in draft["payload"]}
                 expected.update(headers=decode_credentials(row["headers"]), env=decode_credentials(row["env"]))
-                if expected != draft["payload"] or row["scope"] != "user" or row["owner_user_id"] != user_id:
+                if expected != draft["payload"] or row["scope"] != installation["scope"] or row["owner_user_id"] != (
+                    user_id if installation["scope"] == "user" else None
+                ):
                     raise McpConflictError("安装配置与审批草稿不一致。")
                 identifier = uuid4()
                 now = _now()
@@ -68,12 +70,13 @@ class McpInstallRepositoryMixin:
                     **row, id=identifier, enabled=installation["enable"], version=1,
                     created_at=now, updated_at=now,
                 ))
-                await self._put_preference(connection, user_id, row["slug"], installation["enable"])
+                if row["scope"] == "user":
+                    await self._put_preference(connection, user_id, row["slug"], installation["enable"])
                 await connection.execute(update(drafts).where(drafts.c.id == draft["id"]).values(
                     installed_id=identifier, payload={},
                 ))
                 return str(identifier)
         except IntegrityError as exc:
             if getattr(exc.orig, "sqlstate", None) == "23505":
-                raise McpConflictError("已有同名个人 MCP，请到连接器页面编辑；聊天不会自动覆盖。") from None
+                raise McpConflictError("已有同名 MCP，请到连接器页面编辑；聊天不会自动覆盖。") from None
             raise

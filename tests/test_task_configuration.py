@@ -423,7 +423,7 @@ def test_chat_task_without_system_default_waits_for_model_choice_then_saves(monk
             assert task["definition"]["model_id"] == selected_id
             assert task["definition"]["schedule"]["kind"] == "daily"
             assert task["definition"]["schedule"]["local_time"] == "19:25"
-            assert task["status"] == "enabled" and task["conversation_id"] == context.conversation_id
+            assert task["status"] == "enabled" and task["conversation_id"] == UUID(context.conversation_id)
             assert task["latest_run"] is None
 
     asyncio.run(run())

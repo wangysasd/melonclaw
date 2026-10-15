@@ -87,7 +87,8 @@ class DraftStorage(Storage):
         result = await self.create_mcp_row(**row)
         result["enabled"] = installation["enable"]
         self.drafts[identifier].update(installed_id=str(result["id"]), payload={})
-        self.preferences[(user_id, row["slug"])] = installation["enable"]
+        if row["scope"] == "user":
+            self.preferences[(user_id, row["slug"])] = installation["enable"]
         return str(result["id"])
 
 
@@ -109,20 +110,21 @@ def setup():
     return ChatMcpInstallService(chat), storage, context, source["id"]
 
 
-def test_admin_install_is_personal_and_idempotent(setup):
+def test_admin_install_is_shared_and_idempotent(setup):
     provider, storage, context, source = setup
 
     async def run():
         preview = await provider.prepare(context, source, True, ["search"])
         assert preview["status"] == "prepared"
         installation = preview["installation"]
-        assert installation["scope"] == "user"
+        assert installation["scope"] == "global"
         assert "private-token" not in json.dumps(preview) and "query-secret" not in json.dumps(preview)
         assert not storage.rows
         result = await provider.confirm(context, installation)
         assert result["status"] == "installed"
         row = storage.rows[result["id"]]
-        assert row["owner_user_id"] == "admin" and row["scope"] == "user"
+        assert row["owner_user_id"] is None and row["scope"] == "global"
+        assert not storage.preferences
         assert row["tool_allowlist"] == ["search"] and row["enabled"]
         assert await provider.confirm(context, installation) == result
         assert storage.commits == 1
@@ -277,3 +279,39 @@ def test_plain_pasted_json_preserves_surrounding_intent_and_quoted_braces():
     assert len(drafts) == 1 and display.startswith("帮我安装") and display.endswith("暂不启用")
     assert "brace}inside" not in display and "test-secret" not in display
     assert parse("普通说明 {\"count\":2}") == ('普通说明 {"count":2}', [])
+
+
+@pytest.mark.parametrize("count", [1, 20])
+def test_chat_mcp_service_count_accepts_boundary(count):
+    config = {"mcpServers": {f"service-{i}": {"url": "https://example.com/mcp"} for i in range(count)}}
+    assert len(parse(json.dumps(config))[1]) == count
+
+
+@pytest.mark.parametrize("count", [0, 21])
+def test_chat_mcp_service_count_rejects_out_of_range(count):
+    config = {"mcpServers": {f"service-{i}": {"url": "https://example.com/mcp"} for i in range(count)}}
+    with pytest.raises(McpConfigError, match="1–20"):
+        parse(json.dumps(config))
+
+
+def test_member_install_remains_personal(setup):
+    provider, storage, context, source = setup
+    async def run():
+        storage.get_user_context = AsyncMock(return_value=SimpleNamespace(tenant_role="member"))
+        preview = await provider.prepare(context, source, True, None)
+        assert preview["installation"]["scope"] == "user"
+        result = await provider.confirm(context, preview["installation"])
+        assert result["scope"] == "user"
+        assert storage.rows[result["id"]]["owner_user_id"] == "admin"
+    asyncio.run(run())
+
+
+def test_role_change_rejects_shared_approval(setup):
+    provider, storage, context, source = setup
+    async def run():
+        preview = await provider.prepare(context, source, True, None)
+        storage.get_user_context = AsyncMock(return_value=SimpleNamespace(tenant_role="member"))
+        assert (await provider.test(context, preview["installation"]))["status"] == "error"
+        assert (await provider.confirm(context, preview["installation"]))["status"] == "error"
+        assert not storage.rows
+    asyncio.run(run())

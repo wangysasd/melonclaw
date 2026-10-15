@@ -91,6 +91,7 @@ async def list_conversations(
     cursor: str | None = None,
     project_id: UUID | None = None,
     scope: Literal["unassigned"] | None = None,
+    task_only: bool = False,
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
@@ -104,6 +105,7 @@ async def list_conversations(
             cursor=cursor,
             project_id=project_id,
             scope=scope,
+            task_only=task_only,
         )
         return JSONResponse({"items": items, "next_cursor": next_cursor})
     except Exception as exc:  # noqa: BLE001 - 统一返回安全错误

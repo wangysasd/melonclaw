@@ -111,6 +111,7 @@ class ConversationRepositoryMixin:
         cursor: str | None,
         project_id: UUID | None = None,
         scope: str | None = None,
+        task_only: bool = False,
     ) -> tuple[list[dict[str, Any]], str | None]:
         if not 1 <= limit <= 100:
             raise ValueError("limit 必须在 1 到 100 之间。")
@@ -129,11 +130,13 @@ class ConversationRepositoryMixin:
             conditions.append(chat_conversations.c.project_id.is_(None))
         if project_id is not None:
             conditions.append(chat_conversations.c.project_id == project_id)
+        if task_only:
+            conditions.append(tasks.c.id.is_not(None))
         if cursor:
             cursor_pinned, cursor_updated_at, cursor_id = decode_conversation_cursor(cursor)
             conditions.append(
                 or_(
-                    chat_conversations.c.is_pinned < cursor_pinned,
+                    and_(cursor_pinned, chat_conversations.c.is_pinned.is_(False)),
                     and_(chat_conversations.c.is_pinned == cursor_pinned,
                          chat_conversations.c.updated_at < cursor_updated_at),
                     and_(

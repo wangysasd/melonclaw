@@ -11,7 +11,7 @@ class McpInstallation(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
     draft_id: str
     name: str
-    scope: Literal["user"]
+    scope: Literal["user", "global"]
     connection: str
     transport: Literal["http", "sse"]
     headers_keys: list[str]
@@ -34,9 +34,9 @@ def build_mcp_install_tools(provider: McpInstallProvider) -> list[BaseTool]:
         tool_allowlist: list[str] | None = None,
         *, runtime: ToolRuntime[Any],
     ) -> dict:
-        """用户明确要求安装 MCP 时，使用消息中的配置草稿编号准备个人安装清单。
+        """用户明确要求安装 MCP 时，使用消息中的配置草稿编号准备安装清单。
 
-        不连接远端，不安装。管理员也仅安装到自己。仅 HTTP/SSE；无需读取或复述凭据。
+        不连接远端，不安装。管理员安装为系统共享，普通用户安装到自己；范围由服务端当前角色决定。仅 HTTP/SSE；无需读取或复述凭据。
         tool_allowlist 为 null 时允许全部工具，[] 不允许任何工具，列表仅允许所列名称。
         展示返回的 installation，再原样交给 test_mcp_install 或 confirm_mcp_install。
         修改启用或工具白名单需重新准备；仅贴配置不代表要求安装。禁止 Shell 绕过。
@@ -54,9 +54,9 @@ def build_mcp_install_tools(provider: McpInstallProvider) -> list[BaseTool]:
 
     @tool
     async def confirm_mcp_install(installation: McpInstallation, *, runtime: ToolRuntime[Any]) -> dict:
-        """原样提交 prepare 返回的 installation，审批通过后安装个人 MCP。
+        """原样提交 prepare 返回的 installation，审批通过后安装 MCP。
 
-        不修改清单、不编造编号；同名个人项不覆盖。安装并启用后下一条消息生效。
+        不修改清单、不编造编号；同范围同名项不覆盖。安装并启用后下一条消息生效。
         用户拒绝后停止；不能用 HTTP、数据库或 Shell 绕过审批。
         """
         return await provider.confirm(runtime.context, installation.model_dump())
