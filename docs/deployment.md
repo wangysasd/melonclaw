@@ -66,7 +66,7 @@ uv run melonclaw-resources --service-stopped migrate --source <旧工作区根> 
 
 ## 升级、回滚与备份
 
-升级前记录当前 Git 提交并停止 Web 服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。若版本包含数据库升级，使用外部配置以 `ubuntu` 执行 `melonclaw-db-update`，成功后重启 Web，检查包含任务执行器的 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
+升级前记录当前 Git 提交并停止 Web 服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。若版本包含数据库升级，标准部署可直接运行 `uv run melonclaw-db-update`：命令会自动读取 `/etc/melonclaw/melonclaw.env`，与 systemd 服务使用相同配置。若配置文件放在其他位置，先设置 `MELONCLAW_ENV_FILE=/实际配置文件路径` 再运行。成功后重启 Web，检查包含任务执行器的 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
 
 回滚代码前确认数据库结构与旧版本兼容；切回已记录的旧 Git 提交后，重新同步依赖和构建前端，再启动服务。代码回滚不会自动回滚数据库 schema。异机备份需要包含 PostgreSQL、整个 data/workspaces 和受控保存的配置，定期演练恢复；数据库与磁盘应在同一停写窗口或一致快照中备份。
 
@@ -103,7 +103,7 @@ cd /opt/melonclaw
 uv sync --locked
 npm --prefix frontend ci
 npm --prefix frontend run build
-env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env .venv/bin/melonclaw-db-update
+uv run melonclaw-db-update
 sudo systemctl start melonclaw
 systemctl is-active melonclaw
 curl -f http://127.0.0.1:8000/api/ready
@@ -120,4 +120,4 @@ curl -f http://127.0.0.1:8000/api/ready
 本地验收使用真实 PostgreSQL、FastAPI/Cookie 和 APScheduler，模型为离线替身，覆盖正常停止、强制退出恢复、单实例竞争和连接失效。未部署线上；Linux systemd 安装与日志轮转仍需服务器实机验证。
 
 
-已有任务中心在本版本需停 Web 后运行 `uv run melonclaw-db-update`，执行 `20261015_task_reliability`，保留任务、结果、聊天和幂等键，仅删除独立通知字段/索引并调整回执响应与清理索引。不要重建当前任务表；服务启动不自动升级。
+已有任务中心在本版本需停 Web 后运行 `uv run melonclaw-db-update`，执行 `20261015_task_reliability`，保留任务、结果、聊天和幂等键，仅删除独立通知字段/索引并调整回执响应与清理索引。Linux 标准部署会自动读取 `/etc/melonclaw/melonclaw.env`；非标准路径需设置 `MELONCLAW_ENV_FILE`。不要重建当前任务表；服务启动不自动升级。

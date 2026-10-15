@@ -73,7 +73,7 @@ scripts/shutdown.sh           # 停止一键脚本启动的前后端
 scripts/restart.sh            # 重启前后端
 ```
 
-更新代码后重新运行 `uv sync --locked` 和 `npm --prefix frontend ci`。已有数据库需要升级时，停服后执行 `uv run melonclaw-db-update`，再重启；该命令保留业务数据，首次建库才用 `melonclaw-db-init`。服务启动不会自动建表或升级。
+更新代码后重新运行 `uv sync --locked` 和 `npm --prefix frontend ci`。已有数据库需要升级时，停服后执行 `uv run melonclaw-db-update`，再重启；该命令保留业务数据，首次建库才用 `melonclaw-db-init`。Linux 标准部署会自动读取 `/etc/melonclaw/melonclaw.env`；其他外部配置路径先设置 `MELONCLAW_ENV_FILE=/配置文件路径`。服务启动不会自动建表或升级。
 
 ## 使用边界
 
@@ -91,7 +91,7 @@ scripts/restart.sh            # 重启前后端
 
 历史过长时会复用摘要并保留近期正文，历史准备默认最多 60 秒、摘要最多 4 次；超时或超预算明确报错，可重试或选择更大窗口模型。后台完整运行默认限时 30 分钟，包含历史准备；结果未变化时不重复保存。任务改名会同步默认会话标题，自定义标题保留；保存按钮分别反馈当前动作，不同任务可独立操作。完整操作回执默认保留 30 天，过期重试会要求先核实当前状态，旧请求不会再次执行。参数见[配置说明](docs/configuration.md)。
 
-已有任务中心升级本版本时，先等待活动运行结束并停止 Web，再执行 `uv run melonclaw-db-update`，随后启动服务；升级保留任务、运行结果和聊天。首次空库仍执行 `uv run melonclaw-db-init`，服务启动不会自动升级。
+已有任务中心升级本版本时，先等待活动运行结束并停止 Web，再执行 `uv run melonclaw-db-update`，随后启动服务；升级保留任务、运行结果和聊天。Linux 标准部署自动读取 `/etc/melonclaw/melonclaw.env`；使用其他路径时先设置 `MELONCLAW_ENV_FILE`。首次空库仍执行 `uv run melonclaw-db-init`，服务启动不会自动升级。
 
 状态颜色：启用/成功为绿色，暂停为橙色，排队/执行中为蓝色，失败为红色，归档/取消为灰色。
 
