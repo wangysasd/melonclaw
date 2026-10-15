@@ -1702,15 +1702,33 @@
   font-size: var(--text-xs);
 }
 
-.prompt-grid.ant-prompts { display: block; }
-.prompt-grid.ant-prompts .ant-prompts-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
-.prompt-grid.ant-prompts .ant-prompts-item { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-card); background: #fff; color: var(--ink); box-shadow: none; transition: border-color var(--duration-fast) var(--ease-apple), background var(--duration-fast) var(--ease-apple);
+.welcome-prompt {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-fast), background var(--duration-fast);
 }
-.prompt-grid.ant-prompts .ant-prompts-item:hover { border-color: rgba(0, 113, 227, 0.4); background: rgba(0, 113, 227, 0.04); }
-.prompt-grid.ant-prompts .ant-prompts-label,
-.prompt-grid.ant-prompts .ant-prompts-desc { font-size: var(--text-md); }
-.prompt-grid.ant-prompts .prompt-icon { color: var(--brand-primary); }
+.welcome-prompt-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); }
+.welcome-prompt-title { font-weight: var(--weight-semibold); }
+.welcome-prompt-description { color: var(--muted); line-height: 1.5; }
+.welcome-prompt--equity { background: #f5f9ff; border-color: #dce8f7; }
+.welcome-prompt--equity .welcome-prompt-heading { color: #32649b; }
+.welcome-prompt--fixed-income { background: #f2faf7; border-color: #d5eae2; }
+.welcome-prompt--fixed-income .welcome-prompt-heading { color: #26735f; }
+.welcome-prompt:hover { border-color: #969da5; background: #f8f9fa; }
+.welcome-prompt--equity:hover { border-color: #719ac6; background: #edf4ff; }
+.welcome-prompt--fixed-income:hover { border-color: #6eaa97; background: #e8f6ef; }
+.welcome-prompt:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 3px; }
 .send-button {
   width: 32px;
   height: 32px;
@@ -1755,12 +1773,10 @@
     margin-right: auto;
     margin-left: auto;
   }
-  .prompt-grid.ant-prompts .ant-prompts-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
   .prompt-grid { grid-template-columns: 1fr; }
-  .prompt-grid.ant-prompts .ant-prompts-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
