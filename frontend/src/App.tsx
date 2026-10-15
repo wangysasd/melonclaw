@@ -1,3 +1,4 @@
+import { useVisibleRefresh } from "./hooks/useVisibleRefresh";
 import { AccessNoticeGate } from "./components/ComplianceNotice";
 import { AuthGate } from "./components/AuthGate";
 import { AccountManagement } from "./components/AccountManagement";
@@ -5,7 +6,7 @@ import "./styles/accounts.css";
 import { App as AntdApp, ConfigProvider } from "antd";
 import XProvider from "@ant-design/x/es/x-provider";
 import zhCN from "antd/locale/zh_CN";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
 import { ChatView } from "./components/ChatView";
 import { ProjectDialog } from "./components/ProjectDialog";
@@ -22,14 +23,25 @@ import "./styles/chat.css";
 import "./styles/sidebar.css";
 import "./styles/artifacts.css";
 
+const TaskCenter = lazy(() => import("./components/tasks/TaskCenter"));
+
 function Workspace() {
   const session = useSession();
+  const { startNewConversation, selectConversation, refreshConversations } = session;
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [moveConversationId, setMoveConversationId] = useState<string | null>(null);
   const [view, setView] = useState<WorkspaceView>("chat");
+  const openTasks = () => setView("tasks");
   const [resourceTab, setResourceTab] = useState(() => { const tab = readStorage("melonclaw.resource_tab.v1"); return tab && ["skills", "mcp", "models"].includes(tab) ? tab : "skills"; });
   const [initialSkill, setInitialSkill] = useState<SkillOption | null>(null);
 
+  const openTaskConversation = useCallback((conversationId: string) => {
+    startNewConversation();
+    selectConversation(conversationId);
+    void refreshConversations();
+    setInitialSkill(null); setView("chat");
+  }, [startNewConversation, selectConversation, refreshConversations]);
+  useVisibleRefresh(session.refreshTaskConversations, 10000, session.contextReady && session.status?.status === "ready");
   const openProjectDialog = (conversationId?: string) => {
     setMoveConversationId(conversationId ?? null);
     setProjectDialogOpen(true);
@@ -63,7 +75,7 @@ function Workspace() {
 
   return (
     <div className="app-shell">
-      <GlobalNav view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} onAmp={() => setView("amp")} onMindera={() => setView("mindera")} onAdmin={() => setView("admin")} />
+      <GlobalNav onTasks={() => openTasks()} view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} onAmp={() => setView("amp")} onMindera={() => setView("mindera")} onAdmin={() => setView("admin")} />
       <div className="home-workspace" hidden={view !== "chat"}>
         <Sidebar key={`sidebar:${session.userId}`} onNewConversation={newConversation} onOpenProjectDialog={openProjectDialog} onNavigateChat={() => setView("chat")} />
         <ChatView
@@ -79,6 +91,7 @@ function Workspace() {
           onInitialSkillApplied={clearInitialSkill}
         />
       </div>
+      {view === "tasks" ? <Suspense fallback={<div>加载定时任务…</div>}><TaskCenter key={session.userId} onOpenConversation={openTaskConversation} /></Suspense> : null}
       {view === "resources" ? (
         <ResourceView
           key={session.userId}

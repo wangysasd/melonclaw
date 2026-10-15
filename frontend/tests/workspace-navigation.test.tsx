@@ -25,6 +25,8 @@ beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); session.userId = "u
 it("preserves mounted chat and collapse state across navigation and remembers the tab after reload", () => {
   const view = render(<App />);
   fireEvent.click(screen.getByRole("button", { name: "我已确认并进入" }));
+  expect(screen.queryByRole("button", { name: /^任务通知/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "定时任务" })).toBeTruthy();
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "draft" } });
   fireEvent.click(screen.getByRole("button", { name: "收起" }));
   fireEvent.click(screen.getByRole("button", { name: "拓展" }));

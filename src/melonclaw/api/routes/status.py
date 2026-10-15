@@ -31,5 +31,7 @@ async def dev_users(request: Request) -> JSONResponse:
 async def readiness(request: Request) -> JSONResponse:
     """公开探测只返回就绪状态，不暴露配置或初始化错误。"""
     ready = get_chat_service(request).ready
+    executor = getattr(request.app.state, "task_scheduler", None)
+    ready = ready and executor is not None and executor.status()["ready"]
     return JSONResponse({"ready": ready}, status_code=200 if ready else 503,
                         headers={"Cache-Control": "no-store"})

@@ -8,6 +8,8 @@ from typing import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from melonclaw.database.updates.account_management import upgrade as account_management
+from melonclaw.database.updates.task_center import upgrade as task_center
+from melonclaw.database.updates.task_reliability import upgrade as task_reliability
 
 
 @dataclass(frozen=True)
@@ -23,4 +25,6 @@ UPDATES = (
         description="账户管理与 Cookie 登录",
         upgrade=account_management,
     ),
+    SchemaUpdate("20261010_task_center", "任务中心三表与固定会话", task_center),
+    SchemaUpdate("20261015_task_reliability", "移除任务通知与操作回执保留策略", task_reliability),
 )

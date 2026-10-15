@@ -18,7 +18,9 @@ from melonclaw.database.update_runner import apply_schema_updates
     not os.getenv("MELONCLAW_TEST_DATABASE_URL"),
     reason="需要隔离 PostgreSQL 测试连接",
 )
-def test_account_update_preserves_existing_rows_and_is_repeatable():
+def test_account_update_preserves_existing_rows_and_is_repeatable(monkeypatch):
+    from melonclaw.database import update_runner
+    monkeypatch.setattr(update_runner, "UPDATES", tuple(u for u in update_runner.UPDATES if u.update_id == "20261006_account_management"))
     async def run():
         url = normalize_async_database_url(os.environ["MELONCLAW_TEST_DATABASE_URL"])
         schema = "test_db_update_" + uuid4().hex

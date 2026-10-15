@@ -342,7 +342,7 @@ class ResourceRepositoryMixin:
             )
 
     async def get_user_provider_key(
-        self, provider_key: str, user_id: str
+        self, provider_key: str, user_id: str, *, connection=None
     ) -> dict[str, Any] | None:
         """取某用户在某共享供应商上覆盖的 Key；无行返回 None。"""
 
@@ -352,8 +352,10 @@ class ResourceRepositoryMixin:
                 provider_user_keys.c.user_id == user_id,
             )
         )
-        async with self.engine.connect() as connection:
-            row = (await connection.execute(query)).mappings().first()
+        if connection is None:
+            async with self.engine.connect() as borrowed:
+                return await self.get_user_provider_key(provider_key, user_id, connection=borrowed)
+        row = (await connection.execute(query)).mappings().first()
         return dict(row) if row is not None else None
 
     async def list_user_provider_keys(
@@ -405,12 +407,12 @@ class ResourceRepositoryMixin:
             )
 
     async def effective_provider_api_key(
-        self, provider_row: dict[str, Any], user_id: str
+        self, provider_row: dict[str, Any], user_id: str, *, connection=None
     ) -> str | None:
         """用户覆盖 Key 优先，其次共享 Key；两者皆无返回 None。"""
 
         override = await self.get_user_provider_key(
-            str(provider_row["provider_key"]), user_id
+            str(provider_row["provider_key"]), user_id, connection=connection
         )
         if override and str(override.get("api_key") or "").strip():
             return str(override["api_key"])
@@ -452,7 +454,7 @@ class ResourceRepositoryMixin:
         return dict(row) if row is not None else None
 
     async def get_model_with_provider(
-        self, model_key: str
+        self, model_key: str, *, connection=None
     ) -> tuple[dict[str, Any], dict[str, Any]] | None:
         """取出模型行及其供应商行；解析运行时模型配置的专用读取。"""
 
@@ -464,8 +466,10 @@ class ResourceRepositoryMixin:
                 == model_providers.c.provider_key
             )
         )
-        async with self.engine.connect() as connection:
-            row = (await connection.execute(query)).mappings().first()
+        if connection is None:
+            async with self.engine.connect() as borrowed:
+                return await self.get_model_with_provider(model_key, connection=borrowed)
+        row = (await connection.execute(query)).mappings().first()
         if row is None:
             return None
         model_row = {
@@ -477,6 +481,16 @@ class ResourceRepositoryMixin:
             for column in model_providers.c
         }
         return model_row, provider_row
+
+    async def get_system_default_model_key(self, *, connection=None) -> str | None:
+        """只取管理员设置的全局默认；启用和凭据由统一模型解析验证。"""
+        query = select(model_configs.c.model_key).where(
+            model_configs.c.scope == "global", model_configs.c.is_default.is_(True)
+        )
+        if connection is None:
+            async with self.engine.connect() as borrowed:
+                return await self.get_system_default_model_key(connection=borrowed)
+        return await connection.scalar(query)
 
     async def create_model_row(
         self,

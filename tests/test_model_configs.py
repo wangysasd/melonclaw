@@ -291,7 +291,7 @@ class FakeStorage:
             if include_disabled or row["enabled"]
         ]
 
-    async def get_user_provider_key(self, provider_key, user_id):
+    async def get_user_provider_key(self, provider_key, user_id, *, connection=None):
         key = self.user_keys.get((provider_key, user_id))
         if key is None:
             return None
@@ -310,7 +310,7 @@ class FakeStorage:
     async def delete_user_provider_key(self, provider_key, user_id):
         self.user_keys.pop((provider_key, user_id), None)
 
-    async def effective_provider_api_key(self, provider_row, user_id):
+    async def effective_provider_api_key(self, provider_row, user_id, *, connection=None):
         override = self.user_keys.get(
             (str(provider_row["provider_key"]), user_id)
         )

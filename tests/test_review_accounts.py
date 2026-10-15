@@ -229,15 +229,16 @@ def test_account_guard_coordinates_distinct_repository_instances():
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("ready", [False, True])
-def test_public_readiness_matches_manager_without_exposing_errors(ready):
+@pytest.mark.parametrize("ready,executor_ready", [(False, False), (False, True), (True, False), (True, True)])
+def test_public_readiness_matches_manager_without_exposing_errors(ready, executor_ready):
     async def run():
         app = create_app()
         app.state.chat = SimpleNamespace(ready=ready, storage=None, startup_error="private error")
+        app.state.task_scheduler = SimpleNamespace(status=lambda: {"ready": executor_ready})
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/api/ready")
-            assert response.status_code == (200 if ready else 503)
-            assert response.json() == {"ready": ready}
+            assert response.status_code == (200 if ready and executor_ready else 503)
+            assert response.json() == {"ready": ready and executor_ready}
             assert response.headers["cache-control"] == "no-store"
             assert (await client.get("/api/auth/config")).status_code == 200
     asyncio.run(run())

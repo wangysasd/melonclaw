@@ -65,4 +65,13 @@ if name == "curl":
         assert result.returncode == 0, result.stderr
         assert pull < calls.index("npm --prefix frontend ci")
         assert calls.index("npm --prefix frontend run build") < calls.index("sudo systemctl start melonclaw")
+        assert "systemctl is-active --quiet melonclaw" in calls
+        assert not any("task-worker" in call for call in calls)
         assert "发版成功" in result.stdout
+
+
+def test_web_unit_hosts_scheduler_without_separate_worker():
+    value = (SCRIPT.parent / "systemd" / "melonclaw.service").read_text()
+    assert "Environment=MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env" in value
+    assert "db-init" not in value and "db-update" not in value
+    assert not (SCRIPT.parent / "systemd" / "melonclaw-task-worker.service").exists()

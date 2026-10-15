@@ -119,6 +119,46 @@ beforeEach(() => {
 });
 
 describe("chatview draft", () => {
+  it("renders task results with the ordinary assistant layout and no task actions or schedule labels", () => {
+    const common: ChatMessage = { id: "normal", role: "assistant", content: "普通回复", status: "completed",
+      markdown: true, events: [], assistantSteps: [], phases: [], artifacts: [] };
+    chatState.messages = [common, { ...common, id: "scheduled", content: "日报正文", taskContext: { task_run: {
+      run_id: "run", task_id: "task", name: "不应展示的任务名", status: "succeeded", trigger_type: "schedule",
+      queued_at: "2026-10-15T01:00:00Z", scheduled_for: "2026-10-15T01:00:00Z", error_message: null,
+      result_is_partial: false, cancel_requested: false,
+    } } }];
+    const { container } = render(<ChatView />);
+    expect(screen.getByText("日报正文")).toBeTruthy();
+    const normal = container.querySelector("#message-normal")!;
+    const scheduled = container.querySelector("#message-scheduled")!;
+    expect(scheduled.className).toBe(normal.className);
+    expect(scheduled.querySelector(".assistant-avatar img")?.getAttribute("src"))
+      .toBe(normal.querySelector(".assistant-avatar img")?.getAttribute("src"));
+    expect(scheduled.querySelector(".message-author")?.textContent).toBe(normal.querySelector(".message-author")?.textContent);
+    expect(scheduled.querySelector(".message-body")).toBeTruthy();
+    expect(scheduled.querySelector(".message-actions")).toBeTruthy();
+    expect(screen.queryByText("不应展示的任务名")).toBeNull();
+    expect(screen.queryByText("定时触发")).toBeNull();
+    expect(screen.queryByRole("button", { name: "任务配置" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "引用本次结果" })).toBeNull();
+  });
+
+  it.each(["running", "failed", "cancelled"] as const)("keeps task body visible with ordinary %s feedback", (status) => {
+    chatState.messages = [{ id: "scheduled", role: "assistant", content: "已生成的正文", status: status === "running" ? "pending" : status,
+      markdown: true, events: [], assistantSteps: [], phases: [], artifacts: [], taskContext: { task_run: {
+        run_id: "run", task_id: "task", name: "任务", status, trigger_type: "schedule",
+        queued_at: "2026-10-15T01:00:00Z", scheduled_for: null, error_message: null,
+        result_is_partial: true, cancel_requested: false,
+      } } }];
+    render(<ChatView />);
+    expect(screen.getByText("已生成的正文")).toBeTruthy();
+    expect(screen.queryByText("执行状态待确认")).toBeNull();
+    if (status === "running") expect(screen.getByText("生成中")).toBeTruthy();
+    if (status === "failed") expect(screen.getByText("本次回复未完成，当前显示已接收的内容。")).toBeTruthy();
+    if (status === "cancelled") expect(screen.getByText(/已停止生成/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "取消本次执行" })).toBeNull();
+  });
+
   it("shows the project name before a project conversation title", () => {
     session.projectId = "p1";
     session.projects = [{ id: "p1", name: "第一个项目" }];

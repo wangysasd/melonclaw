@@ -9,11 +9,12 @@ import { Icon } from "./Icon";
 import { UserPicker } from "./UserPicker";
 import { ToolCatalogDialog } from "./ToolCatalogDialog";
 
-export type WorkspaceView = "chat" | "resources" | "amp" | "mindera" | "admin";
+export type WorkspaceView = "chat" | "tasks" | "resources" | "amp" | "mindera" | "admin";
 
-export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin }: {
+export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin, onTasks }: {
   view: WorkspaceView;
   onHome: () => void;
+  onTasks?: () => void;
   onResources: () => void;
   onAmp: () => void;
   onMindera: () => void;
@@ -33,6 +34,11 @@ export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin
         <Tooltip title="Home" placement="right" trigger={["hover", "focus"]}>
           <button className={`global-nav-button${view === "chat" ? " is-active" : ""}`} aria-label="Home" aria-current={view === "chat" ? "page" : undefined} onClick={onHome}>
             <Icon name={view === "chat" ? "home-filled" : "home"} size={20} />
+          </button>
+        </Tooltip>
+        <Tooltip title="定时任务" placement="right">
+          <button className={`global-nav-button${view === "tasks" ? " is-active" : ""}`} aria-label="定时任务" aria-current={view === "tasks" ? "page" : undefined} onClick={onTasks}>
+            {view === "tasks" ? <img src="/assets/icons/alarm-clock-filled.svg" width={20} height={20} alt="" aria-hidden="true" /> : <Icon name="alarm-clock" size={20} />}
           </button>
         </Tooltip>
         <Tooltip title="拓展" placement="right" trigger={["hover", "focus"]}>

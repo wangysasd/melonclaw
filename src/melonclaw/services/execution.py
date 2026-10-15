@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
@@ -49,46 +48,11 @@ from melonclaw.services.execution_finalize import (
     mark_interaction_recovery_required,
     release_execution,
 )
+from melonclaw.services.execution_models import PreparedExecution
 from melonclaw.services.execution_trace import ExecutionTrace
 from melonclaw.services.mcp_chat_config import parse_chat_mcp
 from melonclaw.services.result_index import extract_result_refs, message_result_refs
 from melonclaw.services.runtime import ChatRuntime
-
-
-@dataclass
-class PreparedExecution:
-    """准备阶段完成后的执行句柄。锁连接会一直持有到流结束。"""
-
-    conversation_id: UUID
-    project_id: UUID | None
-    project_name: str | None
-    workdir_path: str
-    user_id: str
-    tenant_id: str
-    tenant_name: str
-    tenant_role: str
-    tenant_status: str
-    request_id: str
-    run_id: str
-    worker_id: str
-    config: dict[str, Any]
-    assistant_message_id: UUID
-    agent: Any | None
-    model: ResolvedModel
-    lock_connection: AsyncConnection | None = None
-    user_message_id: UUID | None = None
-    content: str = ""
-    skill_id: str | None = None
-    user_interaction_id: UUID | None = None
-    resuming: bool = False
-    replay_message: dict[str, Any] | None = None
-    assistant_steps: list[dict[str, Any]] = field(default_factory=list)
-    execution_duration_ms: int | None = None
-    preparation_duration_ms: int = 0
-    timings: dict[str, Any] | None = None
-    display_events: list[dict[str, Any]] = field(default_factory=list)
-    attachments: list[dict[str, Any]] = field(default_factory=list)
-    released: bool = False
 
 
 class ExecutionService:
@@ -196,6 +160,12 @@ class ExecutionService:
                     model=stored_model,
                 )
             model = await self.runtime.resolve_model(context.user_id, model_id)
+            from melonclaw.services.task_chat import TaskChatService
+            task_context = {}
+            if conversation.get("task_id"):
+                task_context.update(await TaskChatService(self.runtime).history_selection(
+                    context.user_id, conversation_id, model, clean_content,
+                ))
             agent = await self.runtime.agent_for_conversation(
                 conversation, project, model, normalized_capabilities
             )
@@ -233,6 +203,7 @@ class ExecutionService:
                 display_metadata = {"skill": pinned}
             display_metadata = display_metadata or {}
             display_metadata["skill_catalog"] = agent.melonclaw_skill_references
+            display_metadata.update(task_context)
             if normalized_capabilities:
                 # 能力随消息落库：恢复执行要沿用提问那一轮的同一份能力。
                 display_metadata = display_metadata or {}
@@ -256,6 +227,7 @@ class ExecutionService:
                 max_attachment_count=self.runtime.settings.attachment_max_per_message,
                 max_total_bytes=self.runtime.settings.attachment_max_total_bytes,
                 user_display_metadata=display_metadata,
+                task_context=task_context,
             )
             return self._execution_from_pair(
                 conversation_id,
@@ -456,6 +428,7 @@ class ExecutionService:
             agent=agent,
             model=model,
             user_message_id=UUID(pair.user_message["id"]),
+            task_context={k: v for k, v in pair.user_message.get("display_metadata", {}).items() if k in {"task_history"}},
             content=pair.user_message["content"],
             skill_id=skill_id,
             lock_connection=lock_connection,
@@ -545,6 +518,9 @@ class ExecutionService:
                 lock_connection=lock_connection,
                 content=assistant["content"],
                 resuming=True,
+                user_message_id=UUID(request_record.user_message["id"]) if request_record else None,
+                task_context={k: v for k, v in request_record.user_message.get("display_metadata", {}).items()
+                              if k in {"task_history"}} if request_record else {},
                 attachments=(
                     list(request_record.attachments)
                     if request_record is not None
@@ -596,6 +572,7 @@ class ExecutionService:
                 "resuming": execution.resuming,
                 "model": execution.model.public_dict(),
                 "attachments": execution.attachments,
+                "task_context": execution.task_context,
                 "preparation_duration_ms": execution.preparation_duration_ms,
             }
             if execution.replay_message is not None:

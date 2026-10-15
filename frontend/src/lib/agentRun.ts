@@ -178,6 +178,9 @@ export function isRunTimerActive(status: AgentRunStatus): boolean {
 }
 
 function runStatusFromMessage(message: ChatMessage): AgentRunStatus {
+  if (message.status === "pending" && ["queued", "running"].includes(message.taskContext?.task_run?.status ?? "")) {
+    return "running";
+  }
   switch (message.status) {
     case "completed":
       return "completed";
@@ -264,7 +267,7 @@ export function buildAgentRun(
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("") || null
-    : null;
+    : status === "running" && message.taskContext?.task_run ? message.content || null : null;
 
   const steps: AgentStep[] = [];
   for (const step of ordered) {
@@ -304,7 +307,7 @@ export function buildAgentRun(
     id: message.id,
     conversationId,
     status,
-    phase: message.phases.at(-1) ?? null,
+    phase: message.phases.at(-1) ?? (message.taskContext?.task_run?.status === "queued" ? "waiting_model" : null),
     timings: message.timings,
     startedAt,
     completedAt,

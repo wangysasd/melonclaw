@@ -181,6 +181,8 @@ class ConversationService:
             conversation = await storage.get_conversation(conversation_id, context.user_id)
             if conversation is None:
                 raise ConversationNotFoundError
+            if conversation.get("task_id"):
+                raise ConversationMoveError("任务会话保持独立，不能移入项目。", "task_conversation_move")
             if conversation["project_id"] is not None:
                 raise ConversationMoveError("只支持将普通会话移动到项目。", "conversation_already_in_project")
             project = await storage.get_project(project_id, context.user_id)

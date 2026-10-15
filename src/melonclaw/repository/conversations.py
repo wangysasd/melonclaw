@@ -15,6 +15,8 @@ from melonclaw.database.schema import (
     chat_conversations,
     chat_messages,
     projects,
+    task_runs,
+    tasks,
     user_interactions,
 )
 from melonclaw.repository.artifacts import artifact_rows, upsert_artifacts
@@ -34,6 +36,8 @@ from melonclaw.repository.mappers import (
     encode_conversation_cursor,
 )
 from melonclaw.repository.models import RequestRecord
+from melonclaw.repository.tasks import scope as task_scope
+from melonclaw.repository.tasks import task_lock
 
 
 class ConversationRepositoryMixin:
@@ -72,6 +76,7 @@ class ConversationRepositoryMixin:
                 chat_conversations,
                 projects.c.name.label("project_name"),
                 projects.c.workdir_path,
+                tasks.c.id.label("task_id"),
             )
             .select_from(
                 chat_conversations.outerjoin(
@@ -83,11 +88,13 @@ class ConversationRepositoryMixin:
                     ),
                 )
             )
+            .outerjoin(tasks, tasks.c.conversation_id == chat_conversations.c.id)
             .where(
                 and_(
                     chat_conversations.c.id == conversation_id,
                     chat_conversations.c.user_id == user_id,
                     chat_conversations.c.status == "active",
+                    or_(tasks.c.id.is_(None), and_(*task_scope(tasks, user_id))),
                     or_(chat_conversations.c.project_id.is_(None), projects.c.id.is_not(None)),
                 )
             )
@@ -110,6 +117,7 @@ class ConversationRepositoryMixin:
         conditions = [
             chat_conversations.c.user_id == user_id,
             chat_conversations.c.status == "active",
+            or_(tasks.c.id.is_(None), and_(*task_scope(tasks, user_id))),
             # 空白会话可为附件暂存而提前建表，但首条消息落库前不进入侧栏。
             select(chat_messages.c.id)
             .where(chat_messages.c.conversation_id == chat_conversations.c.id)
@@ -140,6 +148,7 @@ class ConversationRepositoryMixin:
                 chat_conversations,
                 projects.c.name.label("project_name"),
                 projects.c.workdir_path,
+                tasks.c.id.label("task_id"),
             )
             .select_from(
                 chat_conversations.outerjoin(
@@ -151,6 +160,7 @@ class ConversationRepositoryMixin:
                     ),
                 )
             )
+            .outerjoin(tasks, tasks.c.conversation_id == chat_conversations.c.id)
             .where(and_(*conditions, or_(chat_conversations.c.project_id.is_(None), projects.c.id.is_not(None))))
             .order_by(
                 chat_conversations.c.is_pinned.desc(),
@@ -184,6 +194,16 @@ class ConversationRepositoryMixin:
         if delete:
             values["status"] = "deleted"
         async with self.engine.begin() as connection:
+            if delete:
+                await task_lock(connection)
+                task = (await connection.execute(select(tasks).where(
+                    tasks.c.conversation_id == conversation_id
+                ))).mappings().first()
+                if task and (task["status"] != "archived" or await connection.scalar(
+                    select(task_runs.c.id).where(task_runs.c.task_id == task["id"],
+                        task_runs.c.status.in_(["queued", "running"])).limit(1)
+                )):
+                    raise ConversationBusyError("该会话关联任务，请先归档任务并结束运行，再删除会话。")
             result = await connection.execute(
                 update(chat_conversations)
                 .where(and_(chat_conversations.c.id == conversation_id,
@@ -223,6 +243,8 @@ class ConversationRepositoryMixin:
         """在一个事务中切换会话和附件归属，拒绝复制期间发生的变化。"""
 
         async with self.engine.begin() as connection:
+            if await connection.scalar(select(tasks.c.id).where(tasks.c.conversation_id == conversation_id)):
+                raise ConversationMoveError("任务会话保持独立，不能移入项目。", "task_conversation_move")
             conversation = (
                 await connection.execute(
                     select(chat_conversations)
@@ -394,6 +416,8 @@ class ConversationRepositoryMixin:
                 and_(
                     chat_messages.c.conversation_id == conversation_id,
                     chat_messages.c.request_id == request_id,
+                    ~chat_messages.c.display_metadata.has_key("task_run"),
+                    ~chat_messages.c.display_metadata.has_key("task_setup"),
                 )
             )
             .order_by(chat_messages.c.seq.asc())
@@ -470,6 +494,7 @@ class ConversationRepositoryMixin:
                     and_(
                         chat_messages.c.role == "assistant",
                         chat_messages.c.status == "pending",
+                        ~chat_messages.c.display_metadata.has_key("task_run"),
                     )
                 )
                 .values(status="failed", error_code="stale_pending", updated_at=_now())
@@ -492,6 +517,7 @@ class ConversationRepositoryMixin:
                 and_(
                     chat_messages.c.conversation_id == conversation_id,
                     chat_messages.c.role == "assistant",
+                    ~chat_messages.c.display_metadata.has_key("task_run"),
                     chat_messages.c.status.in_(["pending", "interrupted"]),
                 )
             )
@@ -517,6 +543,7 @@ class ConversationRepositoryMixin:
                 and_(
                     chat_messages.c.conversation_id == conversation_id,
                     chat_messages.c.role == "assistant",
+                    ~chat_messages.c.display_metadata.has_key("task_run"),
                 )
             )
             .order_by(chat_messages.c.seq.desc())

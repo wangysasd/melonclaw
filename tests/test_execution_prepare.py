@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+from melonclaw.api.schemas import MessageRequest
 from melonclaw.repository import ConversationBusyError, RequestRecord
 from melonclaw.services.execution import ExecutionService
 
@@ -157,3 +158,93 @@ def test_cancellation_during_agent_build_releases_conversation_lock():
 
     asyncio.run(run())
     assert storage.calls[-1] == "unlock"
+
+
+def test_message_api_rejects_removed_report_reference():
+    with pytest.raises(ValueError):
+        MessageRequest.model_validate({"user_id": "admin", "request_id": str(uuid4()),
+                                       "content": "追问", "task_run_id": str(uuid4())})
+
+
+def test_approval_resume_preserves_original_user_message_and_task_context(monkeypatch):
+    from uuid import UUID
+
+    from melonclaw.core.hitl import approval_batch_id_for
+
+    user_message_id, assistant_id = uuid4(), uuid4()
+    selection = {"task_history": {"task_id": str(uuid4()), "sources": [], "completed_runs": 0}}
+    assistant = {"id": str(assistant_id), "request_id": "request", "content": "",
+                 "assistant_steps": [], "execution_duration_ms": 0, "display_metadata": {}}
+    record = RequestRecord(request_id="request", content="修改任务",
+        user_message={"id": str(user_message_id), "display_metadata": selection}, assistant_message=assistant)
+    storage = _Storage(record)
+    async def incomplete(*args):
+        return assistant
+    storage.get_incomplete_assistant = incomplete
+    service, _ = _service(storage)
+    service.runtime.capabilities_for_message = lambda message: []
+    pending = [{"id": "interrupt-task"}]
+    async def get_pending(*args):
+        return pending
+    monkeypatch.setattr("melonclaw.services.execution.aget_pending_approval", get_pending)
+    monkeypatch.setattr("melonclaw.services.execution.build_resume_command", lambda *args: "resume")
+    prepared, command = asyncio.run(service.prepare_approval(uuid4(), "user", [],
+        approval_batch_id=UUID(approval_batch_id_for(pending, assistant_message_id=str(assistant_id))),
+        assistant_message_id=assistant_id))
+    assert command == "resume" and prepared.resuming
+    assert prepared.user_message_id == user_message_id
+    assert prepared.task_context == selection
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_task_history_timeout_or_cancel_releases_conversation_lock(monkeypatch, tmp_path, cancel):
+    from contextlib import asynccontextmanager
+
+    from test_task_agent import settings_for
+    from test_task_reliability import SummaryModel, history_rows, snapshot
+
+    from melonclaw.core.task_errors import TaskError
+
+    storage = _Storage()
+    service, calls = _service(storage)
+    model = SummaryModel(hang=True)
+
+    async def conversation(conversation_id, user_id):
+        return {"id": str(conversation_id), "user_id": user_id, "project_id": None, "task_id": str(uuid4())}
+
+    @asynccontextmanager
+    async def connect():
+        yield None
+
+    async def capture(*args):
+        return snapshot()
+
+    async def load(*args):
+        return history_rows()
+
+    async def resolve(*args):
+        return SimpleNamespace(context_window=8192)
+
+    storage.get_conversation = conversation
+    storage.engine = SimpleNamespace(connect=connect)
+    service.runtime.resolve_model = resolve
+    service.runtime.settings = settings_for(tmp_path, task_history_timeout_seconds=1, agent_output_reserve=512, agent_summary_keep_tokens=512)
+    monkeypatch.setattr("melonclaw.services.task_chat.capture_history", capture)
+    monkeypatch.setattr("melonclaw.services.task_chat.load_history", load)
+    monkeypatch.setattr("melonclaw.services.task_history.build_chat_model", lambda *a, **k: model)
+
+    async def run():
+        job = asyncio.create_task(service.prepare_message(uuid4(), "user", "request", "追问"))
+        await asyncio.wait_for(model.started.wait(), 2)
+        if cancel:
+            job.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await job
+        else:
+            with pytest.raises(TaskError) as caught:
+                await job
+            assert caught.value.error_code == "history_summary_timeout"
+
+    asyncio.run(run())
+    assert storage.calls[-1] == "unlock" and calls == []
+    assert model.stopped

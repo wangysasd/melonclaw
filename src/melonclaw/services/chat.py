@@ -49,6 +49,8 @@ from melonclaw.services.skill_remote import (
     pin_remote_source,
     resolve_remote_skill_source,
 )
+from melonclaw.services.task_chat import TaskChatService
+from melonclaw.services.task_configuration import TaskConfigurationService
 from melonclaw.services.user_input_execution import UserInputExecutionService
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,8 @@ class ChatService:
         self._skill_imports: SkillImportService | None = None
         self.runtime.skill_install_provider = ChatSkillInstallService(self)
         self.runtime.mcp_install_provider = ChatMcpInstallService(self)
+        self.runtime.task_history_provider = TaskChatService(self.runtime)
+        self.runtime.task_configuration_provider = TaskConfigurationService(self.runtime)
 
     @property
     def resources(self) -> ResourceService:

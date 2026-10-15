@@ -273,6 +273,9 @@ class UserInputExecutionService:
                     content=assistant["content"],
                     user_interaction_id=interaction_id,
                     resuming=True,
+                    user_message_id=UUID(request_record.user_message["id"]) if request_record else None,
+                    task_context={k: v for k, v in request_record.user_message.get("display_metadata", {}).items()
+                                  if k in {"task_history"}} if request_record else {},
                     attachments=(
                         list(request_record.attachments)
                         if request_record is not None

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键启动 MelonClaw 本地开发环境：后端 FastAPI + 前端 Vite。
+# 一键启动 MelonClaw 本地开发环境：后端 FastAPI（含任务调度）+ 前端 Vite。
 # 用法: scripts/start.sh [frontend] [--profile dev|prod]
 # 可用环境变量: MELONCLAW_HOST / MELONCLAW_PORT / MELONCLAW_FRONTEND_HOST /
 # MELONCLAW_FRONTEND_PORT / UV_CACHE_DIR
@@ -184,6 +184,7 @@ if [ "$backend_ok" -eq 1 ] && [ "$frontend_ok" -eq 1 ]; then
   else
     echo "MelonClaw 开发环境已就绪："
     echo "  前端: http://$FRONTEND_HOST:$FRONTEND_PORT"
+    echo "  任务调度: 随后端自动启动，状态见任务中心"
     echo "  后端 API: http://$BACKEND_HOST:$BACKEND_PORT"
   fi
 else

@@ -10,9 +10,9 @@
 | `/var/lib/melonclaw/data` | 共享／个人 Skill、导入草稿、操作恢复记录 | 保留、备份，不覆盖 |
 | `/var/lib/melonclaw/workspaces` | 项目和会话文件，含 `.attachments`、`.artifacts` | 完整保留、备份 |
 | `/etc/melonclaw/melonclaw.env` | 凭据、数据库连接、外部路径、运行配置 | 独立维护，服务账号可读，权限 0600 |
-| `/var/log/melonclaw` | 后端日志 | 独立保留、轮转 |
+| `/var/log/melonclaw` | Web（含任务执行）日志 | 独立保留、轮转 |
 | `/run/melonclaw` | 临时运行状态 | systemd 创建，重启可重建 |
-| PostgreSQL 独立存储 | Memory、Checkpoint、聊天、配置、文件索引 | 保留、备份、增量更新 |
+| PostgreSQL 独立存储 | Memory、Checkpoint、聊天、配置、文件索引、任务与运行结果 | 保留、备份、增量更新 |
 
 统一使用现有 `ubuntu` 账号拉取代码、安装依赖、构建前端和运行服务，不额外创建系统账号。代码、数据、配置和日志由 `ubuntu:ubuntu` 持有；配置文件权限 0600，持久数据目录权限 0700。应用 Shell 与部署账号权限相同，可以修改该账号有权访问的代码和文件；当前方案用于可信用户运行。Nginx 需能读取 `frontend/dist`。单机先使用 POSIX 本地持久磁盘；容器重建必须保留挂载卷。多副本部署还需要共享存储、并发与锁方案，不能给每个实例一份独立磁盘并共用数据库。
 
@@ -37,7 +37,7 @@ env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/mel
 env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/melonclaw-db-init
 ```
 
-安装 [systemd 服务](../ops/systemd/melonclaw.service)、[Nginx 示例](../ops/nginx/melonclaw.conf) 和 [日志轮转配置](../ops/melonclaw.logrotate)。Nginx 配置中的域名、请求体上限与实际附件限制同步；示例只包含 HTTP，实际远程站点需配置 HTTPS 或在上游终止 TLS，并让 `MELONCLAW_ALLOWED_ORIGINS` 与浏览器访问地址一致。
+安装 [Web systemd 服务](../ops/systemd/melonclaw.service)、[Nginx 示例](../ops/nginx/melonclaw.conf) 和 [日志轮转配置](../ops/melonclaw.logrotate)。Nginx 配置中的域名、请求体上限与实际附件限制同步；示例只包含 HTTP，实际远程站点需配置 HTTPS 或在上游终止 TLS，并让 `MELONCLAW_ALLOWED_ORIGINS` 与浏览器访问地址一致。
 
 ```bash
 sudo install -m 0644 ops/systemd/melonclaw.service /etc/systemd/system/melonclaw.service
@@ -66,7 +66,7 @@ uv run melonclaw-resources --service-stopped migrate --source <旧工作区根> 
 
 ## 升级、回滚与备份
 
-升级前记录当前 Git 提交并停止服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。若版本包含数据库升级，使用外部配置以 `ubuntu` 执行 `melonclaw-db-update`，成功后重启服务并检查 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
+升级前记录当前 Git 提交并停止 Web 服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。若版本包含数据库升级，使用外部配置以 `ubuntu` 执行 `melonclaw-db-update`，成功后重启 Web，检查包含任务执行器的 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
 
 回滚代码前确认数据库结构与旧版本兼容；切回已记录的旧 Git 提交后，重新同步依赖和构建前端，再启动服务。代码回滚不会自动回滚数据库 schema。异机备份需要包含 PostgreSQL、整个 data/workspaces 和受控保存的配置，定期演练恢复；数据库与磁盘应在同一停写窗口或一致快照中备份。
 
@@ -86,3 +86,38 @@ sudo chmod 0600 /etc/melonclaw/melonclaw.env
 ```
 
 重新安装本仓库 systemd 和 logrotate 模板，运行 `sudo systemctl daemon-reload` 后启动。`/run/melonclaw` 由 systemd 按新 User/Group 重建，不手动创建 PID 文件；Nginx 保持其自身系统账号运行。
+
+
+## 定时任务上线与运维
+
+任务执行内置于 Web 的 APScheduler，只启动 melonclaw 服务即可。支持单实例 Web；不要增加 Uvicorn/Gunicorn workers 或同时运行新旧应用。数据库会话锁拒绝第二个任务执行器，PostgreSQL 代理必须用会话池模式。后台任务和聊天共享进程资源，Web 停止会中断正在执行的任务。
+
+已有应用首次接入定时任务时，在停写窗口备份数据库、data/workspaces 与配置，停止 Web 后更新依赖和数据库。日常发版不重复初始化：
+
+```bash
+sudo systemctl stop melonclaw
+```
+
+```bash
+cd /opt/melonclaw
+uv sync --locked
+npm --prefix frontend ci
+npm --prefix frontend run build
+env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env .venv/bin/melonclaw-db-update
+sudo systemctl start melonclaw
+systemctl is-active melonclaw
+curl -f http://127.0.0.1:8000/api/ready
+```
+
+`20261010_task_center` 一次创建当前完整三表与固定会话约束；重复更新无变化，服务启动不自动建表或升级。未发布的旧任务结构不提供迁移，须在备份、停服后显式重建任务相关表，保留账户、模型和普通聊天；不要用清空记录代替结构重建，db-init 不负责清库。
+
+`/api/ready` 包含 Web 与任务执行器就绪，登录后 `/api/tasks/status` 返回 executor.ready/running/last_scan_at/error。第二个执行器启动失败或扫描连接失效时就绪探测失败；检查 backend.log 并重启单个 Web。默认每 2 秒扫描，全局并发 2、每用户 1；最长排队 24 小时。检查一直排队的任务时同时查看执行器状态、用户并发和模型配置。
+
+正常停服将执行中的任务标 service_shutdown；异常退出留下的 running 在下次启动获取单实例锁后标 service_restarted；保留部分结果、不自动重跑。queued 保持排队并在启动后领取。上线前尽量等运行完成，停机错过的计划直接跳过、不创建记录或补跑。已发出的远端请求不能保证撤销。
+
+常规发版用 [ops/deploy.sh](../ops/deploy.sh)，只停止/启动 Web，失败保持服务停止；它不执行 schema 更新，改表按本节手动步骤执行。日志统一在 `/var/log/melonclaw/backend.log`，包含 task_id/run_id 和状态，不记录凭据、原始异常或完整报告。三张任务表、消息引用元数据及升级账本均需备份；Checkpoint 按保留期定向清理，报告和聊天保留；完整操作回执按保留期清空响应，拒重键不删除。
+
+本地验收使用真实 PostgreSQL、FastAPI/Cookie 和 APScheduler，模型为离线替身，覆盖正常停止、强制退出恢复、单实例竞争和连接失效。未部署线上；Linux systemd 安装与日志轮转仍需服务器实机验证。
+
+
+已有任务中心在本版本需停 Web 后运行 `uv run melonclaw-db-update`，执行 `20261015_task_reliability`，保留任务、结果、聊天和幂等键，仅删除独立通知字段/索引并调整回执响应与清理索引。不要重建当前任务表；服务启动不自动升级。

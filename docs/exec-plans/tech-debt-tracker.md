@@ -17,7 +17,7 @@
 | D9 | CI 未在真实 PR 上验证过 | 流水线可能因环境差异失败，分支保护也未配置 | 下一次提交时观察两个 job，通过后再考虑设为必需检查 | `.github/workflows/check.yml` |
 | D10 | `execute` 审批被注释（过渡期免审批） | Shell 无确认执行；`LocalShellBackend` 不是沙箱，误操作/提示注入可直达宿主机 | 沙箱落地后解开 `src/melonclaw/core/hitl.py` 的 `TODO(sandbox)` 注释并恢复 README 文案 | 本次改动 |
 | D11 | 长会话流持续占用业务数据库连接 | 同时执行数接近连接池上限时，普通业务查询会等待 | 记录连接池等待和锁持有时长；确认负载后优先评估独立限额锁池，再设计可保护 Checkpoint 的租约方案 | `repository/locks.py`、`database/database.py` |
-| D12 | 前端主入口仍较大 | 2026-09-25 构建主入口约 1.03 MB（gzip 337 KB） | 用浏览器网络记录和构建分析确定首屏依赖，再懒加载非首屏弹窗；仅配置 `manualChunks` 不减少总下载量 | `npm run build` |
+| D12 | 前端主入口仍较大 | 2026-10-11 构建仍有超过 500 KB 的入口/图表分块，最大 index 块约 1.56 MB（gzip 524 KB） | 用浏览器网络记录和构建分析确定首屏依赖，再懒加载非首屏弹窗；仅配置 `manualChunks` 不减少总下载量 | `npm run build` |
 
 ## 已偿还
 

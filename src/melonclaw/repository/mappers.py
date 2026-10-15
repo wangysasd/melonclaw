@@ -25,6 +25,7 @@ def _as_iso(value: datetime) -> str:
 def _conversation_dict(row: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
+        "task_id": str(row["task_id"]) if row.get("task_id") else None,
         "user_id": str(row["user_id"]),
         "project_id": str(row["project_id"]) if row["project_id"] is not None else None,
         "project_name": row["project_name"],

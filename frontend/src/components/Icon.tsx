@@ -7,6 +7,7 @@ import { tokenNumber } from "../theme/tokens";
  * 资源中没有 chevron-left.svg，折叠箭头用 rotate 翻转。
  */
 export const ICON_NAMES = [
+  "alarm-clock",
   "home",
   "home-filled",
   "arrow-up",

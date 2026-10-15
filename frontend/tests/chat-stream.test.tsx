@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionContextValue } from "../src/state/session";
 import type { ConversationHistory, StreamEvent } from "../src/types/api";
 import { INITIAL_CHAT_STATE, reducer, useChatStream } from "../src/hooks/useChatStream";
-import { ApiError, getConversationHistory } from "../src/api/client";
+import { ApiError, apiRequest, getConversationHistory } from "../src/api/client";
 import { sendApprovalStream, sendMessageStream } from "../src/api/stream";
 
 const mocks = vi.hoisted(() => ({ session: {} as SessionContextValue, message: { error: vi.fn() } }));
 vi.mock("../src/state/session", () => ({ useSession: () => mocks.session }));
 vi.mock("antd", () => ({ App: { useApp: () => ({ message: mocks.message }) } }));
-vi.mock("../src/api/client", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/api/client")>(), getConversationHistory: vi.fn() }));
+vi.mock("../src/api/client", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/api/client")>(), getConversationHistory: vi.fn(), apiRequest: vi.fn() }));
 vi.mock("../src/api/stream", () => ({ sendMessageStream: vi.fn(), sendApprovalStream: vi.fn(), sendUserInputStream: vi.fn() }));
 const scroll = { isNearBottom: () => true, scrollToBottom: vi.fn() };
 const emptyHistory: ConversationHistory = { conversation: { id: "c1", title: "Test" }, items: [], pending_approval: null };
@@ -23,6 +23,7 @@ beforeEach(() => {
     modelOptions: [{ id: "custom:deepseek-flash", display_name: "DeepSeek Flash", source: "system", provider: "deepseek", provider_key: "deepseek", model: "deepseek-v4-flash", available: true, is_default: true }],
     contextReady: true, busy: false, conversationCreating: false, projects: [{ id: "p", name: "p" }], status: { status: "ready" },
     runningConversationIds: [],
+    recents: [], conversations: [],
     setBusy: vi.fn((value) => { mocks.session.busy = value; }),
     setRunStatus: vi.fn((value) => { mocks.session.runStatus = value; }),
     markConversationRunning: vi.fn((id: string) => {
@@ -41,6 +42,25 @@ beforeEach(() => {
 });
 
 describe("chat run lifecycle", () => {
+  it("starts syncing a task created during chat without reloading history", async () => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    const { result, rerender, unmount } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    const historyCalls = vi.mocked(getConversationHistory).mock.calls.length;
+    mocks.session.recents = [{ id: "c1", title: "新任务", task_id: "task" }];
+    rerender();
+    await waitFor(() => expect(result.current.state.conversationTaskId).toBe("task"));
+    vi.mocked(apiRequest).mockResolvedValueOnce({ conversation_id: "c1", items: [
+      { id: "report", seq: 3, role: "assistant", content: "后台报告", status: "completed", assistant_steps: [], artifacts: [],
+        display_metadata: { task_run: { run_id: "run", task_id: "task", name: "任务", status: "succeeded", trigger_type: "schedule", queued_at: "2026-10-15T01:00:00Z" } } },
+    ] });
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    await waitFor(() => expect(result.current.state.messages.at(-1)?.content).toBe("后台报告"));
+    expect(apiRequest).toHaveBeenCalledWith("/api/tasks/task/messages?after_seq=0", { signal: expect.any(AbortSignal) });
+    expect(getConversationHistory).toHaveBeenCalledTimes(historyCalls);
+    unmount();
+  });
+
   it("loads a delivered reply from older pages while preserving the active stream", async () => {
     const ref = { path: "/outputs/report.html" };
     const latest = { id: "latest", role: "assistant", content: "最新回复", status: "completed", assistant_steps: [], artifacts: [] };

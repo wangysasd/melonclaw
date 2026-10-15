@@ -14,7 +14,9 @@ USER_INPUT_KIND = "user_question"
 # 问题卡片只有一种形状：一张卡片就是一组问题，单题是长度为一的那一组。
 # 早期还有过顶层单字段的 v1 卡片，已经没有代码会再生成它。
 USER_INPUT_SCHEMA_VERSION = 2
-OPTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+QUESTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# 选项可以直接使用数据库模型目录的 custom:{model_key}，不可改写业务 ID。
+OPTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_:-]+$")
 # 用户主动跳过，或问题过期后由服务端代答；Agent 收到后自行收尾，不再追问。
 USER_INPUT_ANSWER_CANCELLED = "cancelled"
 USER_INPUT_CANCELLED_TEXT = "用户跳过了这个问题，请自行决定后续步骤。"
@@ -24,7 +26,8 @@ _MAX_QUESTION_COUNT = 6
 _MAX_OPTION_COUNT = 6
 _MAX_OPTION_LABEL_LENGTH = 120
 _MAX_OPTION_DESCRIPTION_LENGTH = 500
-_MAX_OPTION_ID_LENGTH = 64
+_MAX_OPTION_ID_LENGTH = 200
+_MAX_QUESTION_ID_LENGTH = 64
 _MAX_CUSTOM_ANSWER_LENGTH = 4_000
 
 
@@ -98,7 +101,7 @@ def _normalize_question(
         )
         if OPTION_ID_PATTERN.fullmatch(option_id) is None:
             raise ValueError(
-                f"第 {option_index} 个选项的 id 只能包含字母、数字、下划线和短横线。"
+                f"第 {option_index} 个选项的 id 只能包含字母、数字、下划线、短横线和冒号。"
             )
         if option_id in option_ids:
             raise ValueError("选项 id 不能重复。")
@@ -122,9 +125,9 @@ def _normalize_question(
     question_id = _clean_text(
         question_id,
         field_name=f"第 {index} 个问题的 id",
-        maximum=_MAX_OPTION_ID_LENGTH,
+        maximum=_MAX_QUESTION_ID_LENGTH,
     )
-    if OPTION_ID_PATTERN.fullmatch(question_id) is None:
+    if QUESTION_ID_PATTERN.fullmatch(question_id) is None:
         raise ValueError(
             f"第 {index} 个问题的 id 只能包含字母、数字、下划线和短横线。"
         )
@@ -320,6 +323,9 @@ def ask_user(
     用户选择时使用。信息充分时自行决策，不要把普通流程确认变成提问。
     需要多个相互独立的信息时，一次传入 questions，不要连续调用多次 ask_user。
     questions 示例：[{"question": "部署环境？", "options": [{"id": "staging", "label": "测试"}, {"id": "prod", "label": "生产"}]}]。
+    选项 id 必须唯一，最多 200 字符，可用字母、数字、下划线、短横线和冒号；
+    选择模型时原样使用模型目录 ID（例如 custom:deepseek-flash），不要删除前缀。
+    问题 id 可省略；提供时最多 64 字符，只能包含字母、数字、下划线和短横线。
     单问题模式下，options 为空时必须设置 allow_custom_answer=true；
     multi_select=true 时用户可以选择多个选项，并可在允许时附加自定义文本。
     """

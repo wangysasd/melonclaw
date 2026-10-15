@@ -45,6 +45,13 @@ SENSITIVE_TOOL_INTERRUPTS["confirm_mcp_install"] = InterruptOnConfig(
     allowed_decisions=["approve", "reject"],
     description="确认 MCP 名称、个人归属、地址、工具白名单及启用选项。仅安装到当前用户，下一条消息生效。",
 )
+# complete_task 仅设置当前无人值守运行的内存完成标志；最终正文成功提交且任务版本
+# 未改变时，执行器在同一事务暂停本任务，无外部写权限，不进入 HITL/PTC。
+# read_task_history 仅查询当前身份、本任务、本轮已绑定的历史，最多返回 8000 字符；
+# 无外部写入，不进入审批清单或 PTC，工具不能指定用户/租户/会话。
+# configure_task 在用户明确要求时配置其当前普通会话绑定的任务；仅主 Agent 开放。
+# 服务端重新校验用户/租户/真实消息/会话、版本与幂等键，不接受任意目标编号，不立即运行，
+# 不扩大后台权限。以当前会话范围的受控写入边界执行，不增加 HITL；不进入子 Agent/PTC。
 # prepare_mcp_install 仅暂存受控草稿、不访问远端或发布资源，无需逐次审批。
 # MCP 安装、测试与准备均不进入 PTC；测试会发送凭据，安装会写入数据库。
 # prepare_skill_creation 不进审批：仅在受控 tmp 暂存至多 32 文件/64000 字节，

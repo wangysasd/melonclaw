@@ -11,6 +11,8 @@ from melonclaw.database.schema import (
     auth_sessions,
     chat_conversations,
     chat_messages,
+    task_runs,
+    tasks,
     tenants,
     users,
 )
@@ -59,6 +61,10 @@ class AccountRepositoryMixin:
             ))).scalar_one_or_none()
 
     async def _account_idle(self, conn, user_ids):
+        if (await conn.execute(select(task_runs.c.id).where(
+            task_runs.c.owner_user_id.in_(user_ids), task_runs.c.status.in_(["queued", "running"]),
+        ).limit(1))).first():
+            raise AccountConflict("用户还有排队或运行中的后台任务，请先等待任务结束。")
         active = select(chat_messages.c.id).join(chat_conversations).where(
             chat_conversations.c.user_id.in_(user_ids),
             chat_messages.c.role == "assistant",
@@ -66,6 +72,12 @@ class AccountRepositoryMixin:
         ).limit(1)
         if (await conn.execute(active)).first():
             raise AccountConflict("用户还有运行中或等待审批／回答的任务，请先结束任务。")
+
+    async def _pause_account_tasks(self, conn, user_ids, reason):
+        await conn.execute(update(tasks).where(
+            tasks.c.owner_user_id.in_(user_ids), tasks.c.status != "archived",
+        ).values(status="paused", pause_reason=reason, next_run_at=None,
+                 version=tasks.c.version + 1, updated_at=_now()))
 
     async def save_account_user(self, user_id, values, *, create=False):
         values = {**values, "updated_at": _now()}
@@ -88,6 +100,7 @@ class AccountRepositoryMixin:
                         raise ValueError("用户不存在。")
                     if old["tenant_id"] != values["tenant_id"]:
                         await self._account_idle(conn, [user_id])
+                        await self._pause_account_tasks(conn, [user_id], "tenant_changed")
                     await conn.execute(update(users).where(users.c.user_id == user_id).values(**values))
         except IntegrityError as exc:
             raise ValueError("用户 ID 已存在，不能重复使用。") from exc
@@ -95,6 +108,7 @@ class AccountRepositoryMixin:
     async def delete_account_user(self, user_id):
         async with self.account_guard(exclusive=True) as conn:
             await self._account_idle(conn, [user_id])
+            await self._pause_account_tasks(conn, [user_id], "user_deleted")
             result = await conn.execute(update(users).where(
                 users.c.user_id == user_id, users.c.tenant_status == "active",
             ).values(tenant_status="deleted", updated_at=_now()))
@@ -130,6 +144,7 @@ class AccountRepositoryMixin:
                             users.c.tenant_id == tenant_id,
                         ))).scalars().all()
                         await self._account_idle(conn, ids)
+                        await self._pause_account_tasks(conn, ids, "tenant_disabled")
                         for user_id in ids:
                             await self._revoke_user_sessions(conn, user_id)
                     result = await conn.execute(update(tenants).where(

@@ -45,11 +45,11 @@ class FakeModelStorage:
     async def get_provider_row(self, provider_key):
         return self.providers.get(provider_key)
 
-    async def get_user_provider_key(self, provider_key, user_id):
+    async def get_user_provider_key(self, provider_key, user_id, *, connection=None):
         key = self.user_keys.get((provider_key, user_id))
         return {"api_key": key} if key else None
 
-    async def effective_provider_api_key(self, provider_row, user_id):
+    async def effective_provider_api_key(self, provider_row, user_id, *, connection=None):
         override = self.user_keys.get(
             (str(provider_row["provider_key"]), user_id)
         )
@@ -57,7 +57,7 @@ class FakeModelStorage:
             return override
         return provider_row.get("api_key")
 
-    async def get_model_with_provider(self, model_key):
+    async def get_model_with_provider(self, model_key, *, connection=None):
         row = self.rows.get(model_key)
         if row is None:
             return None
