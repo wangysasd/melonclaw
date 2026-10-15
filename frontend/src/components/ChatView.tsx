@@ -206,7 +206,91 @@ const WELCOME_PROMPTS = [
     description: "查看境外债条款、行情与主体风险",
     prompt: "请使用 DM 境外债券与公司工具，查询【发行人/ISIN】的境外债信息，整理可用条款、市场定价与发行人风险，注明币种、数据时点及覆盖限制。",
   },
+  {
+    category: "fixed-income",
+    key: "yield-curve",
+    icon: <Icon name="scan-search" size={18} className="prompt-icon" />,
+    label: "分析收益率曲线",
+    description: "比较期限利差、曲线形态与历史变化",
+    prompt: "请使用可用的 DM 数据，分析【日期范围】国债与政策性金融债收益率曲线，比较关键期限、期限利差和曲线形态变化，梳理可能的驱动因素；注明数据日期、来源、单位与缺失项，不混用不同估值口径。",
+  },
+  {
+    category: "fixed-income",
+    key: "credit-spread",
+    icon: <Icon name="calculator" size={18} className="prompt-icon" />,
+    label: "比较信用利差",
+    description: "对比评级、行业与期限的定价差异",
+    prompt: "请使用可用的 DM 数据，比较【行业/评级/期限】债券的信用利差及近期变化，说明基准曲线和匹配方式，区分信用风险与流动性影响；注明数据日期、来源与覆盖范围，缺少可比数据时明确说明。",
+  },
+  {
+    category: "fixed-income",
+    key: "bond-maturity",
+    icon: <Icon name="calendar-days" size={18} className="prompt-icon" />,
+    label: "梳理债券到期",
+    description: "观察到期分布、回售安排与偿债压力",
+    prompt: "请使用可用的 DM 数据，梳理【发行人/行业】未来【时间范围】的债券到期分布、到期规模与可用回售安排，结合发行情况观察再融资压力；区分到期与回售口径，注明数据日期、来源及缺失项，不把到期规模直接等同于违约风险。",
+  },
 ];
+
+function WelcomePrompts({ onSelect }: { onSelect: (prompt: string) => void }) {
+  const [tab, setTab] = useState("equity");
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [visible, setVisible] = useState(() => !document.hidden);
+
+  useEffect(() => {
+    const update = () => setVisible(!document.hidden);
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  useEffect(() => {
+    if (hovered || focused || !visible) return;
+    const timer = window.setTimeout(() => {
+      setTab((current) => current === "equity" ? "fixed-income" : "equity");
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [tab, hovered, focused, visible]);
+
+  return (
+    <div className="welcome-services"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+      }}
+    >
+      <div className="welcome-tabs" role="tablist" aria-label="研究服务类别">
+        {[{ key: "equity", label: "权益" }, { key: "fixed-income", label: "固收" }].map(({ key, label }) => (
+          <button key={key} type="button" role="tab" id={`welcome-tab-${key}`}
+            aria-selected={tab === key} aria-controls="welcome-prompt-panel"
+            tabIndex={tab === key ? 0 : -1}
+            className={`welcome-tab${tab === key ? " is-active" : ""}`}
+            onClick={() => setTab(key)}
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === "Home" ? "equity" : event.key === "End" ? "fixed-income" : tab === "equity" ? "fixed-income" : "equity";
+              setTab(next);
+              document.getElementById(`welcome-tab-${next}`)?.focus();
+            }}
+          >{label}</button>
+        ))}
+      </div>
+      <div className="prompt-grid" id="welcome-prompt-panel" role="tabpanel" aria-labelledby={`welcome-tab-${tab}`}>
+        {WELCOME_PROMPTS.filter(({ category }) => category === "neutral" || category === tab).map(({ key, icon, label, description, prompt }) => (
+          <button type="button" key={key} className={`welcome-prompt welcome-prompt--${tab}`} onClick={() => onSelect(prompt)}>
+            <span className="welcome-prompt-heading">{icon}</span>
+            <span className="welcome-prompt-title">{label}</span>
+            <span className="welcome-prompt-description">{description}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 
 function MessageAttachments({
   attachments,
@@ -579,22 +663,7 @@ export function ChatView({
               />
             </div>
             <h1>请选择您需要的研究服务</h1>
-            <div className="prompt-grid" aria-label="研究服务引导">
-              {WELCOME_PROMPTS.map(({ key, category, icon, label, description, prompt }) => (
-                <button
-                  type="button"
-                  key={key}
-                  className={`welcome-prompt welcome-prompt--${category}`}
-                  onClick={() => setDraft(prompt)}
-                >
-                  <span className="welcome-prompt-heading">
-                    {icon}
-                  </span>
-                  <span className="welcome-prompt-title">{label}</span>
-                  <span className="welcome-prompt-description">{description}</span>
-                </button>
-              ))}
-            </div>
+            <WelcomePrompts onSelect={setDraft} />
           </div>
         ) : (
             <div className="message-list">

@@ -18,7 +18,7 @@
 
 ## 首次部署
 
-使用服务器现有 `ubuntu` 账号，安装 Python、uv、Node.js、PostgreSQL 客户端、Nginx；数据库服务需已配置。`ubuntu` 在 `/opt` 下执行 `git clone <仓库地址> melonclaw`，代码固定放在 `/opt/melonclaw/`，不使用软链接，以 `uv sync --locked` 安装，`npm --prefix frontend ci` 和 `npm --prefix frontend run build` 构建前端。公开品牌变量可在构建时显式传入 `MELONCLAW_NAME` 和 `brand`；不把数据库或模型凭据传入浏览器。
+使用服务器现有 `ubuntu` 账号，安装 Python、uv、Node.js、PostgreSQL 客户端、Nginx；数据库服务需已配置。`ubuntu` 在 `/opt` 下执行 `git clone <仓库地址> melonclaw`，代码固定放在 `/opt/melonclaw/`，不使用软链接，以 `uv sync --locked --default-index https://pypi.org/simple` 按仓库锁文件安装，`npm --prefix frontend ci` 和 `npm --prefix frontend run build` 构建前端。显式指定与锁文件一致的官方索引，避免服务器级 uv 镜像设置改写或导致锁文件校验失败。公开品牌变量可在构建时显式传入 `MELONCLAW_NAME` 和 `brand`；不把数据库或模型凭据传入浏览器。
 
 以 `ubuntu` 登录后准备目录和配置（需要管理员权限的命令使用 sudo，以下命令在代码根目录执行；已有配置保留）：
 
@@ -66,7 +66,7 @@ uv run melonclaw-resources --service-stopped migrate --source <旧工作区根> 
 
 ## 升级、回滚与备份
 
-升级前记录当前 Git 提交并停止 Web 服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。若版本包含数据库升级，标准部署可直接运行 `uv run melonclaw-db-update`：命令会自动读取 `/etc/melonclaw/melonclaw.env`，与 systemd 服务使用相同配置。若配置文件放在其他位置，先设置 `MELONCLAW_ENV_FILE=/实际配置文件路径` 再运行。成功后重启 Web，检查包含任务执行器的 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
+升级前记录当前 Git 提交并停止 Web 服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked --default-index https://pypi.org/simple`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。若版本包含数据库升级，标准部署可直接运行 `uv run melonclaw-db-update`：命令会自动读取 `/etc/melonclaw/melonclaw.env`，与 systemd 服务使用相同配置。若配置文件放在其他位置，先设置 `MELONCLAW_ENV_FILE=/实际配置文件路径` 再运行。成功后重启 Web，检查包含任务执行器的 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
 
 回滚代码前确认数据库结构与旧版本兼容；切回已记录的旧 Git 提交后，重新同步依赖和构建前端，再启动服务。代码回滚不会自动回滚数据库 schema。异机备份需要包含 PostgreSQL、整个 data/workspaces 和受控保存的配置，定期演练恢复；数据库与磁盘应在同一停写窗口或一致快照中备份。
 
@@ -100,7 +100,7 @@ sudo systemctl stop melonclaw
 
 ```bash
 cd /opt/melonclaw
-uv sync --locked
+uv sync --locked --default-index https://pypi.org/simple
 npm --prefix frontend ci
 npm --prefix frontend run build
 uv run melonclaw-db-update

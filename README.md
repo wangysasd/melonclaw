@@ -73,7 +73,7 @@ scripts/shutdown.sh           # 停止一键脚本启动的前后端
 scripts/restart.sh            # 重启前后端
 ```
 
-更新代码后重新运行 `uv sync --locked` 和 `npm --prefix frontend ci`。已有数据库需要升级时，停服后执行 `uv run melonclaw-db-update`，再重启；该命令保留业务数据，首次建库才用 `melonclaw-db-init`。Linux 标准部署会自动读取 `/etc/melonclaw/melonclaw.env`；其他外部配置路径先设置 `MELONCLAW_ENV_FILE=/配置文件路径`。服务启动不会自动建表或升级。
+生产服务器更新代码后运行 `uv sync --locked --default-index https://pypi.org/simple` 和 `npm --prefix frontend ci`。已有数据库需要升级时，停服后执行 `uv run melonclaw-db-update`，再重启；该命令保留业务数据，首次建库才用 `melonclaw-db-init`。Linux 标准部署会自动读取 `/etc/melonclaw/melonclaw.env`；其他外部配置路径先设置 `MELONCLAW_ENV_FILE=/配置文件路径`。服务启动不会自动建表或升级。本地开发直接运行 `uv sync --locked`。
 
 ## 使用边界
 
@@ -143,4 +143,4 @@ scripts/start.sh
 
 ### 首页研究引导
 
-首页提供 20 个研究引导入口：「了解助手能力」为中性卡片，CICC/HTSC 权益研究为浅蓝卡片，DM 固收研究为浅青绿卡片。固收入口覆盖债市日报、资金面、主体信用、机构行为、债券行情与发行、国债期货和境外债券。点击后提示词填入输入框，可补充公司、债券代码或日期再发送。数据与产物依赖当前启用的 MCP、Skill、订阅权限及运行依赖；缺失数据应明确说明。
+首页研究引导分为「权益 / 固收」两个 TAB，每次只展示一组，默认权益，每 8 秒自动交替激活；鼠标悬停、键盘焦点位于引导区或页面隐藏时暂停，离开后重新计时。两个 TAB 首张均为「了解助手能力」，各展示 12 张卡片，宽屏为 3 行 4 列：「了解助手能力」随当前 TAB 使用相同配色，CICC/HTSC 权益研究为浅蓝卡片，DM 固收研究为浅青绿卡片。固收入口覆盖债市日报、资金面、主体信用、机构行为、债券行情与发行、国债期货、境外债券、收益率曲线、信用利差和债券到期。点击后提示词填入输入框，可补充公司、债券代码或日期再发送。数据与产物依赖当前启用的 MCP、Skill、订阅权限及运行依赖；缺失数据应明确说明。
