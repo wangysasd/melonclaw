@@ -110,7 +110,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 模型实例 | `core/chat_model.py` 的 `build_chat_model()` | 所有 provider（含 custom）统一经此构造 |
 | MCP 服务定义 | `services/mcp.py` 的运行时装配（数据来自 `mcp_servers` 表）；根目录 `mcp.json` 只是 db-init 的内置种子 | 无 MCP 时必须能正常启动；user scope 仅 http/sse 且禁止 `${VAR}`，global scope 允许 stdio 与 `${VAR}`（管理员发布） |
 | 长期记忆 | `memory/` 的 `MemoryService` | 写入必须经过它的固定工具与审计，不直接写 Store |
-| HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission`；用户问题由 `core/user_input.py` 的 `interrupt()` 进入同一 Checkpoint | 写文件、删文件、Shell 等有副作用的操作必须走审批或权限边界；缺少关键用户决策时 Agent 可暂停等待回答；审批恢复必须绑定当前 `approval_batch_id` 与 `assistant_message_id`；用户问题的唯一出口是一次真正的 `Command(resume=...)`，答案可以是选项/文本，也可以是 `{"type": "cancelled"}`（用户跳过或 TTL 过期后由 `services/user_input_execution.py` 代答），只改 `user_interactions` 状态不会解除 Checkpoint 挂起；答案已收但本轮没跑完时账本会被标成 `recovery_required` 并且**禁止自动重放**（不知道副作用执行到哪一步），此时历史表现为失败，唯一的解锁入口是用户发新消息——那时服务层会先代答取消、把 Checkpoint 叫醒收尾 |
+| HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission`；用户问题由 `core/user_input.py` 的 `interrupt()` 进入同一 Checkpoint | write_file、edit_file、delete 免逐次审批，仍受 FilesystemPermission 路径规则限制；固定工具审批仅保留 Skill 安装、MCP 测试和安装；Shell 沿用受信任本地开发免审批例外；缺少关键用户决策时 Agent 可暂停等待回答；审批恢复必须绑定当前 `approval_batch_id` 与 `assistant_message_id`；用户问题的唯一出口是一次真正的 `Command(resume=...)`，答案可以是选项/文本，也可以是 `{"type": "cancelled"}`（用户跳过或 TTL 过期后由 `services/user_input_execution.py` 代答），只改 `user_interactions` 状态不会解除 Checkpoint 挂起；答案已收但本轮没跑完时账本会被标成 `recovery_required` 并且**禁止自动重放**（不知道副作用执行到哪一步），此时历史表现为失败，唯一的解锁入口是用户发新消息——那时服务层会先代答取消、把 Checkpoint 叫醒收尾 |
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
 | Skill 资源 | `services/skills.py` 解析正文；`skill_state.py` 统一有效状态；`skill_import.py` 导入更新；`skill_operations.py` 文件日志恢复；`skill_index.py` 索引重建 | 正文在文件系统，DB 保存归属、启停、版本和来源。持久草稿与内容提交受同数据根文件锁保护；更新保留 ID/偏好，删除先隔离目录。管理、Picker 和 Agent 共用有效状态；`skill_snapshot.py` 固定有效目录内容与摘要，`middleware/skill_refresh.py` 每轮刷新 Checkpoint 摘要。详见 [Skill 生命周期](design-docs/skill-lifecycle.md)。 |
 | Skill/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
@@ -139,7 +139,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 Deep Agents 0.7 对带 `execute` 能力的 backend 不支持默认路径上的
 `FilesystemPermission`。因此 `/.attachments/` 和 `/.artifacts/` 被路由到不提供
 Shell 执行的 `FilesystemBackend`，附件原文、派生目录和运行时 artifacts 的工具权限
-可以继续生效；`execute` 始终只委托给默认工作区 backend。当前 `core/hitl.py` 临时关闭了 Shell 审批，仅限本机受信任开发，这是尚未解决的开发期例外。这个
+可以继续生效；`execute` 始终只委托给默认工作区 backend。当前 `core/hitl.py` 的 write_file、edit_file、delete 免逐次审批，Shell 沿用免审批开发例外；文件工具仍受上述路径规则限制，Skill 安装、MCP 测试和安装继续审批。主/子 Agent 共用文件工具指引，不通过 ask_user 请求文件调用批准，缺少关键任务信息仍可提问。仅限受信任开发环境。这个
 路由不能把本机 Shell 变成沙箱，生产部署仍需替换默认 backend。
 
 ### 5.2 不要依赖上游框架按类型推断能力
@@ -214,7 +214,7 @@ headers/env 字面值由 `core/mcp_credentials.py` 按明文存入数据库；�
 
 结构化结果使用原有 assistant 正文中的 `melon-result` JSON 围栏，不另开 SSE 或持久化旁路。提示词走 `core/prompts.py`；前端只接收固定类型、有限大小的数据，使用固定组件。结果格式校验在浏览器完成，文件元信息和读取权限由服务端核验，不能把格式校验等同于数据事实核验。
 
-`services/results.py` 通过 `ConversationService` 和 `repository/` 解析有效身份、会话及项目归属，通过 `ChatRuntime.workspace_dir` 定位现有工作区；`storage/results.py` 只读 `/outputs/` 交付文件，目录 fd 与 NOFOLLOW 避免符号链接替换。HTTP 内容默认下载、禁止嗅探、sandbox CSP；预览类型由实际内容检查决定。没有新增 Agent 工具，生成文件继续经过原有 HITL；LocalShellBackend 的非沙箱边界仍有效。详见 [聊天结果组件](design-docs/chat-result-components.md)。
+`services/results.py` 通过 `ConversationService` 和 `repository/` 解析有效身份、会话及项目归属，通过 `ChatRuntime.workspace_dir` 定位现有工作区；`storage/results.py` 只读 `/outputs/` 交付文件，目录 fd 与 NOFOLLOW 避免符号链接替换。HTTP 内容默认下载、禁止嗅探、sandbox CSP；预览类型由实际内容检查决定。没有新增 Agent 工具，文件生成在原有路径与权限范围内免逐次审批；LocalShellBackend 的非沙箱边界仍有效。详见 [聊天结果组件](design-docs/chat-result-components.md)。
 
 `services/result_index.py` 从已完成最终回复的 Markdown 语法提取明确文件／图片交付，history 和 completed（含幂等回放）使用同一派生 `artifacts` 字段；文件卡片、正文链接与会话产物列表共用引用。`ResultFileService.index` 经 repository 直接读取 `conversation_artifacts` 交付投影，按路径／附件 ID 合并最近来源，不加载消息正文或扫描工作区。最终正文的引用由 services 解析，repository 在完成回复的 CAS 事务中同步写入投影；以消息 seq 阻止迟到旧交付覆盖新来源。`melonclaw-db-init` 从已完成正文流式、原子重建投影，读取路径不做历史回退。文件仍读取当前内容，不保存版本快照。HTML 使用独立只读预览响应，UTF-8／2 MB 核验、HTTP 与 Blob 文档 meta CSP、无同源权限 sandbox；普通 content 的 HTML 下载边界保持严格。具体流与限制见 [对话产物](design-docs/conversation-artifacts.md)。
 

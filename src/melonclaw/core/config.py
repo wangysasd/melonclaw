@@ -113,8 +113,8 @@ class Settings:
     agent_output_reserve: int = 4096
     agent_summary_trigger_ratio: float = 0.8
     agent_summary_keep_tokens: int = 4096
-    agent_model_call_limit: int = 200
-    agent_tool_call_limit: int = 500
+    agent_model_call_limit: int = 1000
+    agent_tool_call_limit: int = 5000
     agent_retry_max_retries: int = 2
     agent_retry_initial_delay: int = 1
     agent_retry_max_delay: int = 10
@@ -182,8 +182,8 @@ def load_settings() -> Settings:
         agent_output_reserve=_int_setting("MELONCLAW_AGENT_OUTPUT_RESERVE", 4096),
         agent_summary_trigger_ratio=_ratio_setting("MELONCLAW_AGENT_SUMMARY_TRIGGER_RATIO", 0.8),
         agent_summary_keep_tokens=_int_setting("MELONCLAW_AGENT_SUMMARY_KEEP_TOKENS", 4096),
-        agent_model_call_limit=_int_setting("MELONCLAW_AGENT_MODEL_CALL_LIMIT", 200),
-        agent_tool_call_limit=_int_setting("MELONCLAW_AGENT_TOOL_CALL_LIMIT", 500),
+        agent_model_call_limit=_int_setting("MELONCLAW_AGENT_MODEL_CALL_LIMIT", 1000),
+        agent_tool_call_limit=_int_setting("MELONCLAW_AGENT_TOOL_CALL_LIMIT", 5000),
         agent_retry_max_retries=_int_setting("MELONCLAW_AGENT_RETRY_MAX_RETRIES", 2, minimum=0),
         agent_retry_initial_delay=_int_setting("MELONCLAW_AGENT_RETRY_INITIAL_DELAY", 1, minimum=0),
         agent_retry_max_delay=_int_setting("MELONCLAW_AGENT_RETRY_MAX_DELAY", 10, minimum=0),

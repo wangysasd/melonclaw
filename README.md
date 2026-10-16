@@ -68,7 +68,7 @@ scripts/start.sh
 
 未配置模型时可以管理配置，但不能聊天。之后可以尝试上传一份资料，请助手总结内容并生成 Markdown 文件。
 
-每条用户消息、每个 Agent 默认最多调用模型 200 次、工具 500 次，可在环境配置中通过 `MELONCLAW_AGENT_MODEL_CALL_LIMIT`、`MELONCLAW_AGENT_TOOL_CALL_LIMIT` 调整，重启 Web 后生效。已有环境文件中的显式值优先于默认值。取数指引要求同一数据项、同一目标范围最多尝试两次，仍失败或为空则注明日期、来源与缺失原因并继续完成可交付部分；该规则由提示词引导，硬上限仍会终止超额执行。详见[Agent 运行控制](docs/design-docs/agent-runtime-controls.md)。
+每条用户消息、每个 Agent 默认最多调用模型 1000 次、工具 5000 次，可在环境配置中通过 `MELONCLAW_AGENT_MODEL_CALL_LIMIT`、`MELONCLAW_AGENT_TOOL_CALL_LIMIT` 调整，重启 Web 后生效。已有环境文件中的显式值优先于默认值。取数指引要求同一数据项、同一目标范围最多尝试两次，仍失败或为空则注明日期、来源与缺失原因并继续完成可交付部分；该规则由提示词引导，硬上限仍会终止超额执行。详见[Agent 运行控制](docs/design-docs/agent-runtime-controls.md)。
 
 ## 停止与更新
 
@@ -81,7 +81,7 @@ scripts/restart.sh            # 重启前后端
 
 ## 使用边界
 
-当前适合本机开发与个人使用。`LocalShellBackend` 不是安全沙箱，人工审批不能替代系统隔离；不要向不可信用户开放宿主机执行能力。
+当前适合本机开发与个人使用。普通聊天主/子 Agent 的写入、编辑、删除文件工具免逐次人工审批，仍遵守文件路径与权限规则；Skill 安装、MCP 测试和安装继续审批，`ask_user` 仍用于补充任务信息。修改代码后重启 Web 重建 Agent 生效。`LocalShellBackend` 不是安全沙箱，人工审批不能替代系统隔离；不要向不可信用户开放宿主机执行能力。
 
 ## 定时任务
 

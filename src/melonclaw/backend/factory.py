@@ -56,7 +56,8 @@ def build_agent_backend(
     ``CompositeBackend`` 做路径路由。
 
     ``LocalShellBackend`` 的 Shell 能力没有沙箱隔离，Web 入口因此只适合本机
-    开发，并默认只监听 127.0.0.1。文件写入和 Shell 执行仍由 HITL 保护。
+    开发，并默认只监听 127.0.0.1。文件工具与 Shell 免逐次审批，文件工具仍受
+    下方的路径与权限规则约束；这些规则不能把 Shell 变成安全沙箱。
     Shell 子进程环境由 ``_build_shell_env()`` 按代码默认层构造，Skill 脚本
     可读取 ``core/defaults.py`` 默认集合中声明的凭据变量（值来自 ``.env``），
     模型与数据库凭据不透传。

@@ -19,7 +19,7 @@ from melonclaw.core.agent_controls import TODO_GUIDANCE
 from melonclaw.core.chat_model import ProviderChatOpenAI
 from melonclaw.core.config import Settings
 from melonclaw.core.model_catalog import ResolvedModel
-from melonclaw.core.prompts import MCP_EXECUTION_GUIDANCE
+from melonclaw.core.prompts import FILE_EXECUTION_GUIDANCE, MCP_EXECUTION_GUIDANCE
 from melonclaw.core.tool_catalog import catalog_fingerprint
 from melonclaw.tool import search as search_module
 from melonclaw.tool import tools as tools_module
@@ -101,7 +101,7 @@ def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatc
 
 
 @pytest.mark.parametrize("delegate", [False, True])
-def test_mcp_executes_without_approval_but_file_write_still_interrupts(monkeypatch, tmp_path, delegate):
+def test_mcp_and_file_tools_execute_without_approval_but_protected_paths_are_denied(monkeypatch, tmp_path, delegate):
     executions = []
 
     async def external_write(value: str) -> str:
@@ -125,16 +125,25 @@ def test_mcp_executes_without_approval_but_file_write_still_interrupts(monkeypat
 
         async def _agenerate(self, messages, *, visible_names, **kwargs):
             assert MCP_EXECUTION_GUIDANCE in messages[0].text
+            assert FILE_EXECUTION_GUIDANCE in messages[0].text
             user = next(m for m in reversed(messages) if isinstance(m, HumanMessage))
             results = [m for m in messages[messages.index(user) + 1:] if isinstance(m, ToolMessage)]
             main = "你是 MelonClaw" in messages[0].text
-            if results and results[-1].name in {external_name, "task"}:
+            file_actions = {
+                "写文件": ("write_file", {"file_path": "/result.txt", "content": "原始内容"}),
+                "改文件": ("edit_file", {"file_path": "/result.txt", "old_string": "原始内容", "new_string": "修改内容"}),
+                "删文件": ("delete", {"file_path": "/result.txt"}),
+                "写受保护文件": ("write_file", {"file_path": "/.artifacts/blocked.txt", "content": "拒绝写入"}),
+                "改受保护文件": ("edit_file", {"file_path": "/.artifacts/kept.txt", "old_string": "保留内容", "new_string": "拒绝修改"}),
+                "删受保护目录": ("delete", {"file_path": "/.artifacts/"}),
+            }
+            if results and results[-1].name in {external_name, "task", "write_file", "edit_file", "delete"}:
                 message = AIMessage(content="完成")
             else:
                 if main and delegate:
                     name, args = "task", {"description": user.content, "subagent_type": "general-purpose"}
-                elif user.content == "写文件":
-                    name, args = "write_file", {"file_path": "/protected.txt", "content": "需审批"}
+                elif user.content in file_actions:
+                    name, args = file_actions[user.content]
                 elif external_name in visible_names:
                     name, args = external_name, {"value": "调用外部工具"}
                 else:
@@ -156,9 +165,9 @@ def test_mcp_executes_without_approval_but_file_write_still_interrupts(monkeypat
         resolved = ResolvedModel(profile_id="offline", display_name="offline", source="custom",
             adapter_type="openai", provider="offline", model_name="offline", base_url=None,
             api_key="offline-placeholder")
-        backend = StateBackend()
-        agent = await build_research_agent(settings, workspace_dir=tmp_path / "workspace", model=resolved,
-            checkpointer=InMemorySaver(), runtime_backend=backend,
+        workspace = tmp_path / "workspace"
+        agent = await build_research_agent(settings, workspace_dir=workspace, model=resolved,
+            checkpointer=InMemorySaver(),
             client_capabilities=["user_input_v1"], mcp_servers=servers)
         config = {"configurable": {"thread_id": "mcp-approval-boundary"}}
         result = await agent.ainvoke({"messages": [HumanMessage(id="mcp", content="调用外部工具")]}, config)
@@ -166,11 +175,27 @@ def test_mcp_executes_without_approval_but_file_write_still_interrupts(monkeypat
         assert executions == ["调用外部工具"]
         assert not (await agent.aget_state(config)).interrupts
 
-        await agent.ainvoke({"messages": [HumanMessage(id="file", content="写文件")]}, config)
-        snapshot = await agent.aget_state(config)
-        assert len(snapshot.interrupts) == 1
-        assert snapshot.interrupts[0].value["action_requests"][0]["name"] == "write_file"
-        assert "/protected.txt" not in snapshot.values.get("files", {})
+        target = workspace / "result.txt"
+        for index, (action, expected) in enumerate([
+            ("写文件", "原始内容"), ("改文件", "修改内容"), ("删文件", None),
+        ]):
+            result = await agent.ainvoke({"messages": [HumanMessage(id=f"file-{index}", content=action)]}, config)
+            assert result["messages"][-1].content == "完成"
+            assert not (await agent.aget_state(config)).interrupts
+            assert (target.read_text() if target.exists() else None) == expected
+            if not delegate:
+                assert next(m for m in reversed(result["messages"]) if isinstance(m, ToolMessage)).status == "success"
+
+        kept = workspace / ".artifacts" / "kept.txt"
+        kept.write_text("保留内容")
+        for index, action in enumerate(["写受保护文件", "改受保护文件", "删受保护目录"]):
+            result = await agent.ainvoke({"messages": [HumanMessage(id=f"protected-{index}", content=action)]}, config)
+            assert result["messages"][-1].content == "完成"
+            assert not (await agent.aget_state(config)).interrupts
+            assert kept.read_text() == "保留内容"
+            assert not (workspace / ".artifacts" / "blocked.txt").exists()
+            if not delegate:
+                assert next(m for m in reversed(result["messages"]) if isinstance(m, ToolMessage)).status == "error"
 
     asyncio.run(run())
 

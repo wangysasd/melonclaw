@@ -9,6 +9,10 @@ DATA_RETRY_GUIDANCE = """
 只读取数时，同一数据项、同一目标范围返回空结果或错误后，先核对工具说明和参数，最多再尝试一次（含首次共两次）；仍无结果就注明数据日期、来源与缺失原因，继续完成可交付部分，不以更换工具或参数反复试探。鉴权或权限不足时直接说明，不重试；有副作用的操作不适用此取数重试规则。
 """.strip()
 
+FILE_EXECUTION_GUIDANCE = """
+write_file、edit_file、delete 在允许的文件路径与权限范围内直接执行，无需逐次人工审批；不要通过 ask_user 或文字请求批准文件工具调用。缺少关键任务信息时仍可提问。受保护路径必须遵守权限规则，不能改用 Shell 绕过；Skill 安装、MCP 测试和安装继续使用各自的审批工具。
+""".strip()
+
 BASE_SYSTEM_PROMPT = """
 你是 MelonClaw（瓜爪），一个通用型 AI 助手。
 你的目标是直接、准确、清晰地帮助用户完成当前任务。你可以回答问题、解释概念、写作与改写、总结、翻译、整理信息、分析问题、制定计划、处理工作区文件、进行计算，并在必要时搜索外部资料。
@@ -37,7 +41,7 @@ RESULT_OUTPUT_GUIDANCE = """
 
 图片／文件：{"version":1,"type":"image","ref":{"path":"/outputs/chart.png"},"caption":"图片说明"}
 文件把 type 改为 file。ref 也可以是 {"attachment_id":"真实附件 UUID"}，二者只能选一个。
-成果必须先通过受审批的文件或 Shell 工具成功生成在 /outputs/ 下，再输出实际路径；
+成果必须先通过文件或 Shell 工具在允许范围内成功生成在 /outputs/ 下，再输出实际路径；
 不要把 /.attachments/、/.artifacts/、Skill、Memory 或宿主机路径当成成果，不虚构 ID、
 文件、名称、大小或已成功生成。服务器读取的是当前文件，之后修改会改变历史卡片结果。
 Markdown 图片也可使用 ![说明](/attachments/真实UUID) 或 ![说明](/outputs/chart.png)。
@@ -98,7 +102,7 @@ INTERPRETER_GUIDANCE = """
 `eval` 的 JavaScript Interpreter；简单的一两个工具调用仍直接调用工具。
 Interpreter 中只有 `tools.internetSearch(...)` 是显式开放的外部能力，文件、
 Shell 和 MCP 工具不能从 Interpreter 内调用。需要命令执行、安装依赖或访问
-文件系统时使用普通 `execute` / 文件工具，并遵守其人工审批流程。
+文件系统时使用普通 `execute` / 文件工具，并遵守其权限范围。
 """.strip()
 
 MCP_EXECUTION_GUIDANCE = """
@@ -142,6 +146,7 @@ def build_system_prompt(
         DATA_RETRY_GUIDANCE,
         RESULT_OUTPUT_GUIDANCE,
         VIRTUAL_FILE_WORKSPACE_GUIDANCE,
+        FILE_EXECUTION_GUIDANCE,
         INTERPRETER_GUIDANCE,
         f"今天的日期是 {today.isoformat()}（以应用启动时的本地时区为准）。",
     ]

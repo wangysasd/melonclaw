@@ -26,7 +26,12 @@ from melonclaw.core.interpreter import (
 from melonclaw.core.model_catalog import (
     ResolvedModel,
 )
-from melonclaw.core.prompts import DATA_RETRY_GUIDANCE, MCP_EXECUTION_GUIDANCE, build_system_prompt
+from melonclaw.core.prompts import (
+    DATA_RETRY_GUIDANCE,
+    FILE_EXECUTION_GUIDANCE,
+    MCP_EXECUTION_GUIDANCE,
+    build_system_prompt,
+)
 from melonclaw.core.task_agent import TaskAgentOptions, build_unattended_agent
 from melonclaw.core.tool_catalog import FIND_TOOLS_NAME
 from melonclaw.core.user_input import UserInputMiddleware, supports_user_input
@@ -273,6 +278,7 @@ async def build_research_agent(
             "system_prompt": GENERAL_PURPOSE_SUBAGENT["system_prompt"] + (
                 "\n优先使用当前工具；缺少能力时调用 find_tools 描述具体需求，下一轮使用新增工具。"
                 f"\n{MCP_EXECUTION_GUIDANCE}"
+                f"\n{FILE_EXECUTION_GUIDANCE}"
                 f"\n{DATA_RETRY_GUIDANCE}"
             ),
         }],

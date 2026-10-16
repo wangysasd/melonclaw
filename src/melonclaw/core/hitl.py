@@ -19,16 +19,9 @@ from melonclaw.tool.user_input import (
     normalize_user_question_batch,
 )
 
-_SENSITIVE_DECISIONS = ["approve", "edit", "reject"]
-
-
-SENSITIVE_TOOL_INTERRUPTS: dict[str, InterruptOnConfig] = {
-    tool_name: InterruptOnConfig(
-        allowed_decisions=_SENSITIVE_DECISIONS,
-        description="文件操作需要人工确认后才会执行。",
-    )
-    for tool_name in ("write_file", "edit_file", "delete")
-}
+# write_file / edit_file / delete 免逐次审批，仍受文件路径与权限规则约束。
+# 此清单由主 Agent 与通用子 Agent 共用，不扩大 Interpreter/PTC 能力。
+SENSITIVE_TOOL_INTERRUPTS: dict[str, InterruptOnConfig] = {}
 SENSITIVE_TOOL_INTERRUPTS["confirm_skill_install"] = InterruptOnConfig(
     allowed_decisions=["approve", "reject"],
     description=(
@@ -60,12 +53,6 @@ SENSITIVE_TOOL_INTERRUPTS["confirm_mcp_install"] = InterruptOnConfig(
 # 不发布有效资源、不执行代码。正式保存仍由 confirm_skill_install 审批，两者不进 PTC。
 # TODO(sandbox): 沙箱落地后恢复 execute 审批。过渡期 execute 免审批，
 # 仅限本机单用户 127.0.0.1 开发使用；LocalShellBackend 不是安全沙箱。
-# | {
-#     "execute": InterruptOnConfig(
-#         allowed_decisions=_SENSITIVE_DECISIONS,
-#         description="Shell 命令需要人工确认后才会执行。",
-#     ),
-# }
 
 
 async def aget_pending_approval(

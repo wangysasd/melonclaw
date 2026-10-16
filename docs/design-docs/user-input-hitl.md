@@ -62,7 +62,7 @@ Agent 调用 ask_user(questions=[...])
 
 - 当前用户的唯一有效租户归属、Project、Conversation 和助手消息归属都由服务层重新校验；请求体中的 ID 不是授权依据。
 - 问题和答案只接受 JSON 可表达的有限字段；问题、选项、描述和自定义答案有长度限制，选项 ID 必须来自当前 Checkpoint。
-- `ask_user` 不加入 Interpreter PTC，也不替代文件、Shell、删除等副作用工具的审批。
+- `ask_user` 不加入 Interpreter PTC，仅用于补充任务信息；write_file、edit_file、delete 免逐次审批，不通过 ask_user 请求文件调用批准，路径权限继续生效。Skill 安装、MCP 测试和安装使用各自审批工具。
 - 过期答案返回 410；答案冲突返回 409（并发提交、抢不到会话锁时是 409 会话忙）；答案本身不合法（选项不存在、不允许自定义）返回 422 且带 `error_code = user_answer_invalid`，和“这一轮已经变了”区分开。服务端不会接受客户端附带的模型问题文本或选项标签作为可信来源。
 - 过期问题不会永久阻塞会话：收到新消息前，服务端会以取消答案代答一次来解锁 Checkpoint；代答失败只记日志，原错误照旧返回，不会比不代答更糟。
 - 幂等重试命中同键已接受账本时返回回执流（`done` 事件 `terminal_reason = already_accepted`），浏览器据此重新拉取一次历史对账，而不是把卡片清掉就什么都不做。

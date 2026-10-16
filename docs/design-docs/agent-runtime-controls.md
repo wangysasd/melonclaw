@@ -16,8 +16,8 @@
 | OUTPUT_RESERVE | 4096 | 输入预算之外预留的输出 tokens，同时限制请求输出 |
 | SUMMARY_TRIGGER_RATIO | 0.8 | 触发阈值比例：`model.context_window*ratio` |
 | SUMMARY_KEEP_TOKENS | 4096 | 摘要时保留的近期消息 token 预算 |
-| MODEL_CALL_LIMIT | 200 | 每任务、每个 Agent 的成功模型步骤上限 |
-| TOOL_CALL_LIMIT | 500 | 每任务、每个 Agent 的工具调用预算 |
+| MODEL_CALL_LIMIT | 1000 | 每任务、每个 Agent 的成功模型步骤上限 |
+| TOOL_CALL_LIMIT | 5000 | 每任务、每个 Agent 的工具调用预算 |
 | RETRY_MAX_RETRIES | 2 | 初次请求以外的重试次数 |
 | RETRY_INITIAL_DELAY | 1 | 初始退避秒数 |
 | RETRY_MAX_DELAY | 10 | 最大退避秒数 |
@@ -28,7 +28,7 @@
 
 ## 组装与数据流
 
-2026-10-16 将默认模型/工具预算从 30/100 提高到 200/500；已有环境文件需同步显式配置并重启 Web。`core/prompts.py` 的共用取数指引进入普通聊天主/子 Agent 和后台主/子 Agent：同一数据项、同一目标范围首次失败或为空后，核对工具说明与参数最多再尝试一次，仍缺失则说明日期、来源与原因并继续可交付部分；不以更换工具或参数继续试探，鉴权/权限不足直接说明。该指引由模型遵循，不增加程序强制的取数计数器，不改变有副作用工具或模型瞬时错误的重试边界；调用硬上限保持 error 行为。
+2026-10-16 将默认模型/工具预算从 30/100 提高到 1000/5000；已有环境文件需同步显式配置并重启 Web。`core/prompts.py` 的共用取数指引进入普通聊天主/子 Agent 和后台主/子 Agent：同一数据项、同一目标范围首次失败或为空后，核对工具说明与参数最多再尝试一次，仍缺失则说明日期、来源与原因并继续可交付部分；不以更换工具或参数继续试探，鉴权/权限不足直接说明。该指引由模型遵循，不增加程序强制的取数计数器，不改变有副作用工具或模型瞬时错误的重试边界；调用硬上限保持 error 行为。
 
 `core/agent_controls.py` 对主 Agent 和明确配置的通用子 Agent 分别创建官方摘要、调用限额、重试和 Todo 实例。`middleware/summarization.py` 在官方摘要算法前复用 `ToolPoolMiddleware.filter_request`，按 Checkpoint 中的工具池过滤目录；计数只包含当前可见工具，隐藏大目录不会提前触发摘要。该扩展沿用官方名称，原位替换框架默认摘要实例；不叠加第二套，也不靠调整传入列表顺序改变官方插槽位置。可见大工具和长历史仍按阈值压缩。摘要模型打 `nostream` 标签隐藏正文，执行 callback 仍记录用量。
 
@@ -46,7 +46,7 @@ Todo 开启时使用官方 TodoListMiddleware；关闭时以 `middleware/todo.py
 
 ## 失败与安全边界
 
-不新增工具副作用；write_todos 只更新图状态，不进入逐次审批，也不加入 PTC。文件写入、Shell、外部写操作继续走现有权限/HITL。官方摘要历史 offload 是受控框架操作，沿既有 backend 记录历史，并不把用户工具写权限扩大。
+不新增工具副作用；write_todos 只更新图状态，不进入逐次审批，也不加入 PTC。write_file、edit_file、delete 在原路径与权限范围内免逐次审批；Skill 安装、MCP 测试和安装继续 HITL，Shell 与已授权外部 MCP 沿用免逐次审批边界。官方摘要历史 offload 是受控框架操作，沿既有 backend 记录历史，并不把用户工具写权限扩大。
 
 输入很大、单条消息不可裁剪或估算低于服务端计数时，摘要仍可能无法满足窗口；最终错误会结束执行，不无限重试。摘要失败/历史 offload 失败沿官方行为处理，不能保证恢复所有媒体。当前 LocalShellBackend 仍不是安全沙箱。
 
