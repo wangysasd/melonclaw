@@ -32,6 +32,7 @@
 .task-status-pill.is-processing { border-color: #b8d4fa; background: #edf4ff; color: #245fba; }
 .task-status-pill.is-error { border-color: #f0b8be; background: #fff0f1; color: #b42335; }
 
+.task-list { width: 97%; }
 .task-list .ant-table { border: 1px solid var(--line-light); border-radius: 12px; overflow: hidden; }
 .task-list .ant-table-thead > tr > th { padding: 14px 12px; background: #fafafb; color: var(--muted); font-size: 14px; font-weight: 500; }
 .task-list .ant-table-tbody > tr > td { padding: 18px 12px; vertical-align: middle; font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }

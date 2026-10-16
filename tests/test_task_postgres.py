@@ -237,7 +237,7 @@ def test_cookie_api_permissions_versions_and_identity_changes(monkeypatch, tmp_p
                         json={"idempotency_key": str(uuid4()), "expected_version": 1},
                     )
                 ).status_code == 404
-                assert (await client.get("/api/tasks")).json()["total"] == 0
+                assert (await client.get("/api/tasks")).json()["total"] == 1
                 assert (await client.get(f"/api/tasks/{tid}/runs")).status_code == 404
                 assert (
                     await client.patch(f"/api/tasks/{tid}", json={**body, "expected_version": 1})
@@ -448,5 +448,40 @@ def test_task_list_status_priority_before_pagination(monkeypatch, tmp_path):
             filtered = await repository.list_tasks("admin", status="paused")
             assert filtered["total"] == 1
             assert filtered["items"][0]["id"] == ids["paused"]
+
+    asyncio.run(run())
+
+
+def test_task_list_owner_scope_and_admin_overview(monkeypatch, tmp_path):
+    install_model(monkeypatch)
+
+    async def run():
+        async with database_fixture() as storage:
+            accounts = AccountService(storage)
+            await accounts.save_tenant("team", "测试租户", True, create=True)
+            await accounts.save_user("alice", "用户甲", "team", password="alice-pass")
+            await accounts.save_user("bob", "用户乙", "team", password="bob-pass")
+            service = TaskService(settings_for(tmp_path), storage)
+            for owner, enabled in (("admin", True), ("alice", True), ("bob", False)):
+                await service.save(owner, definition=definition(name=owner + "任务"),
+                                   enabled=enabled, idempotency_key=str(uuid4()))
+            repository = service.repository
+            for owner in ("alice", "bob"):
+                result = await repository.list_tasks(owner)
+                assert result["total"] == 1
+                assert {item["owner_user_id"] for item in result["items"]} == {owner}
+            result = await repository.list_tasks("admin")
+            assert result["total"] == 3
+            assert {item["owner_user_id"] for item in result["items"]} == {"admin", "alice", "bob"}
+            assert (await repository.list_tasks("admin", name="alice"))["total"] == 1
+            assert (await repository.list_tasks("admin", status="paused"))["total"] == 1
+            pages = [await repository.list_tasks("admin", page=i, page_size=1)
+                     for i in (1, 2, 3)]
+            assert all(page["total"] == 3 for page in pages)
+            assert len({page["items"][0]["id"] for page in pages}) == 3
+            assert (await repository.list_tasks("missing"))["total"] == 0
+            await accounts.save_tenant("team", "测试租户", False)
+            assert (await repository.list_tasks("alice"))["total"] == 0
+            assert (await repository.list_tasks("admin"))["total"] == 3
 
     asyncio.run(run())

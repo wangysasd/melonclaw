@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import case, func, insert, null, select, text, tuple_, update
+from sqlalchemy import and_, case, func, insert, null, or_, select, text, tuple_, update
 
 from melonclaw.core.task_errors import TaskError, task_not_found
 from melonclaw.core.task_messages import task_conversation, task_setup_message
@@ -351,7 +351,19 @@ class TaskRepository:
         return dict(value)
 
     async def list_tasks(self, user_id, *, name="", status=None, page=1, page_size=20):
-        conditions = [*scope(tasks, user_id)]
+        system_admin = (
+            select(users.c.user_id)
+            .join(tenants)
+            .where(
+                users.c.user_id == user_id,
+                users.c.user_id == "admin",
+                users.c.tenant_id == "system",
+                users.c.tenant_status == "active",
+                tenants.c.enabled.is_(True),
+            )
+            .exists()
+        )
+        conditions = [or_(system_admin, and_(*scope(tasks, user_id)))]
         if name:
             conditions.append(tasks.c.name.icontains(name, autoescape=True))
         if status:
