@@ -144,7 +144,7 @@ async def _load_mcp_tools_with_catalog(
 
 
 def wrap_mcp_tool(server_name, original, config):
-    """隔离工具命名并封装执行错误；所有外部 MCP 工具由 HITL 审批。"""
+    """隔离工具命名并封装执行错误；已授权的外部 MCP 工具免逐次审批。"""
     # Names bind pending checkpoint calls to the exact connection configuration. A
     # resumed graph with changed credentials/address cannot execute the old name.
     fingerprint = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:12]

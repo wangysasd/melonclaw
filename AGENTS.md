@@ -55,7 +55,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 
 ## Agent 能力与安全边界
 
-- 文件写入、删除、Shell 执行、外部写操作和其他有副作用的工具必须明确经过 HITL 或受控权限边界。
+- 文件写入、删除、Shell 执行、外部写操作和其他有副作用的工具必须明确经过 HITL 或受控权限边界。已启用且白名单允许的外部 MCP 工具免逐次审批，不通过 ask_user 请求调用批准；权限由配置作用域、启用状态、白名单和远端凭据限制，不进入 PTC。聊天安装与测试 MCP 配置仍走 HITL。
 - PTC/Interpreter 只允许加入已经确认无需逐次审批且副作用明确受限的工具；不能因为主 Agent 配置了 HITL 就把写文件、Shell、数据库写入、发消息、交易或部署工具放入 PTC。
 - 任何新增工具都要说明输入校验、权限范围、错误处理、敏感信息脱敏和是否进入审批清单；进入审批清单的工具在 `core/hitl.py` 中登记，不进清单的要写明理由。
 - Web 使用 Cookie 会话，`user_id` 是与当前会话一致的页面身份断言；仅 profile=dev 开放全员显式切换（含 admin），仍是开发能力，不是生产权限隔离；服务层必须从用户记录解析唯一且有效的租户归属，并重新校验 Project、Conversation 和附件归属。Conversation 只归属 `user_id + project_id`，`tenant_id` 由服务端解析后用于 Agent 和 Memory 运行上下文。开发模拟用户不能被描述成生产认证系统。初次上线只有 `system` 租户下的 `admin`（种子写入）；其他用户由当前 system/admin 通过 `POST /api/admin/users` 创建并选择启用租户（member）；管理权限按当前身份校验，不按原登录身份保留。

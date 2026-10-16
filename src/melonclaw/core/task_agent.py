@@ -13,6 +13,7 @@ from melonclaw.core.agent_controls import build_agent_controls
 from melonclaw.core.chat_model import build_chat_model
 from melonclaw.core.config import Settings
 from melonclaw.core.model_catalog import ResolvedModel
+from melonclaw.core.prompts import DATA_RETRY_GUIDANCE
 from melonclaw.core.task_policy import (
     TaskRunControl,
     task_allowed_tools,
@@ -65,6 +66,7 @@ def build_unattended_agent(
     execution_at = options.execution_at or datetime.now(BEIJING)
     prompt = (
         TASK_SYSTEM_PROMPT
+        + f"\n{DATA_RETRY_GUIDANCE}"
         + f"\n本轮实际执行时间（北京时间）：{execution_at.astimezone(BEIJING).isoformat()}。"
     )
     if options.scheduled_for:

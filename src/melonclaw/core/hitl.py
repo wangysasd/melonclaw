@@ -54,6 +54,8 @@ SENSITIVE_TOOL_INTERRUPTS["confirm_mcp_install"] = InterruptOnConfig(
 # 不扩大后台权限。以当前会话范围的受控写入边界执行，不增加 HITL；不进入子 Agent/PTC。
 # prepare_mcp_install 仅暂存受控草稿、不访问远端或发布资源，无需逐次审批。
 # MCP 安装、测试与准备均不进入 PTC；测试会发送凭据，安装会写入数据库。
+# 已启用且白名单允许的外部 MCP 工具免逐次审批，不动态加入本清单，也不进入 PTC。
+# 调用权限由 MCP 配置作用域、启用状态、工具白名单及远端凭据限制；ask_user 不用于批准调用。
 # prepare_skill_creation 不进审批：仅在受控 tmp 暂存至多 32 文件/64000 字节，
 # 不发布有效资源、不执行代码。正式保存仍由 confirm_skill_install 审批，两者不进 PTC。
 # TODO(sandbox): 沙箱落地后恢复 execute 审批。过渡期 execute 免审批，
@@ -357,12 +359,3 @@ def build_user_input_resume_command(
     if not interrupt_id:
         raise ValueError("用户问题缺少 interrupt ID。")
     return Command(resume={interrupt_id: normalized_answer}), normalized_answer
-
-
-def mcp_interrupts(tools):
-    """动态 MCP 工具均进入审批；不相信远端 readOnlyHint，不加入 PTC。"""
-    return {
-        tool.name: InterruptOnConfig(allowed_decisions=_SENSITIVE_DECISIONS,
-                                     description="外部 MCP 工具调用需要确认。")
-        for tool in tools if getattr(tool, "metadata", None) and tool.metadata.get("mcp")
-    }

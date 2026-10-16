@@ -195,12 +195,13 @@ MCP 管理从 `services/mcp_management.py` 进入，持久化由 `repository/mcp
 headers/env 字面值由 `core/mcp_credentials.py` 按明文存入数据库；管理 API 不回传凭据值。
 数据库查询、转储与备份可读到这些凭据，应限制其读取范围。
 缓存摘要来自同一配置/偏好快照，涵盖删除；失败工具发现不永久缓存。
-MCP 工具通过 `core/hitl.py` 动态注册审批，不进入 PTC；命名空间中的连接指纹防止旧审批
-调用新连接。JSON 原文只在前端导入，不进入数据库或模型。
+已启用且白名单允许的外部 MCP 工具免逐次审批，不进入 PTC；`core/hitl.py` 仅保留固定敏感工具
+清单，聊天安装/测试 MCP 仍审批。主/子 Agent 提示词禁止用 `ask_user` 或文字请求批准 MCP 调用。
+命名空间中的连接指纹防止旧调用使用新连接。JSON 原文只在前端导入，不进入数据库或模型。
 工具白名单选择统一使用 `core/mcp_config.py` 的 `select_mcp_tool_names`，按目录交集提供工具，
 缺失项警告不扩大授权。管理发现由 `ChatRuntime.mcp_discovery`（`services/mcp_discovery.py`）
-调度，权限/版本校验先于共享任务与脱敏目录缓存；草稿和 stdio 不缓存，Agent 独立发现并保持审批。
-完整权限、API、审批恢复边界与验证见 [MCP 两层设计](design-docs/mcp-two-layer.md)。
+调度，权限/版本校验先于共享任务与脱敏目录缓存；草稿和 stdio 不缓存，Agent 独立发现并按启用状态与白名单提供工具。
+完整权限、API、连接恢复边界与验证见 [MCP 两层设计](design-docs/mcp-two-layer.md)。
 
 ### 聊天安装 MCP
 

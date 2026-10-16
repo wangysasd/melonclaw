@@ -19,8 +19,10 @@ from melonclaw.core.agent_controls import TODO_GUIDANCE
 from melonclaw.core.chat_model import ProviderChatOpenAI
 from melonclaw.core.config import Settings
 from melonclaw.core.model_catalog import ResolvedModel
+from melonclaw.core.prompts import MCP_EXECUTION_GUIDANCE
 from melonclaw.core.tool_catalog import catalog_fingerprint
 from melonclaw.tool import search as search_module
+from melonclaw.tool import tools as tools_module
 
 
 def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatch, tmp_path):
@@ -94,6 +96,81 @@ def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatc
         assert "internet_search" not in child_bindings[0]
         assert "internet_search" in child_bindings[-1]
         assert (await agent.aget_state(config)).values["tool_pool"]["names"] == ["internet_search"]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("delegate", [False, True])
+def test_mcp_executes_without_approval_but_file_write_still_interrupts(monkeypatch, tmp_path, delegate):
+    executions = []
+
+    async def external_write(value: str) -> str:
+        """模拟会产生副作用的外部 MCP 工具。"""
+        executions.append(value)
+        return "MCP 已完成"
+
+    class Client:
+        def __init__(self, servers):
+            pass
+
+        async def get_tools(self, *, server_name):
+            return [StructuredTool.from_function(coroutine=external_write)]
+
+    class Model(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self.bind(visible_names={item.name for item in tools})
+
+        def with_structured_output(self, schema, **kwargs):
+            return RunnableLambda(lambda messages: {"tools": [external_name]})
+
+        async def _agenerate(self, messages, *, visible_names, **kwargs):
+            assert MCP_EXECUTION_GUIDANCE in messages[0].text
+            user = next(m for m in reversed(messages) if isinstance(m, HumanMessage))
+            results = [m for m in messages[messages.index(user) + 1:] if isinstance(m, ToolMessage)]
+            main = "你是 MelonClaw" in messages[0].text
+            if results and results[-1].name in {external_name, "task"}:
+                message = AIMessage(content="完成")
+            else:
+                if main and delegate:
+                    name, args = "task", {"description": user.content, "subagent_type": "general-purpose"}
+                elif user.content == "写文件":
+                    name, args = "write_file", {"file_path": "/protected.txt", "content": "需审批"}
+                elif external_name in visible_names:
+                    name, args = external_name, {"value": "调用外部工具"}
+                else:
+                    name, args = "find_tools", {"query": "调用外部 MCP 写入工具"}
+                message = AIMessage(content="", tool_calls=[{
+                    "name": name, "id": f"{user.id}-{name}", "args": args,
+                }])
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+    servers = {"offline": {"transport": "http", "url": "https://offline.invalid/mcp"}}
+    external_name = tools_module.wrap_mcp_tool(
+        "offline", StructuredTool.from_function(coroutine=external_write), servers["offline"],
+    ).name
+    monkeypatch.setattr(tools_module, "MultiServerMCPClient", Client)
+    monkeypatch.setattr(agent_module, "build_chat_model", lambda *args, **kwargs: Model(responses=[]))
+
+    async def run():
+        settings = Settings(workspace_root=tmp_path, data_root=tmp_path / "data", agent_usage_enabled=False)
+        resolved = ResolvedModel(profile_id="offline", display_name="offline", source="custom",
+            adapter_type="openai", provider="offline", model_name="offline", base_url=None,
+            api_key="offline-placeholder")
+        backend = StateBackend()
+        agent = await build_research_agent(settings, workspace_dir=tmp_path / "workspace", model=resolved,
+            checkpointer=InMemorySaver(), runtime_backend=backend,
+            client_capabilities=["user_input_v1"], mcp_servers=servers)
+        config = {"configurable": {"thread_id": "mcp-approval-boundary"}}
+        result = await agent.ainvoke({"messages": [HumanMessage(id="mcp", content="调用外部工具")]}, config)
+        assert result["messages"][-1].content == "完成"
+        assert executions == ["调用外部工具"]
+        assert not (await agent.aget_state(config)).interrupts
+
+        await agent.ainvoke({"messages": [HumanMessage(id="file", content="写文件")]}, config)
+        snapshot = await agent.aget_state(config)
+        assert len(snapshot.interrupts) == 1
+        assert snapshot.interrupts[0].value["action_requests"][0]["name"] == "write_file"
+        assert "/protected.txt" not in snapshot.values.get("files", {})
 
     asyncio.run(run())
 

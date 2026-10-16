@@ -16,8 +16,8 @@
 | OUTPUT_RESERVE | 4096 | 输入预算之外预留的输出 tokens，同时限制请求输出 |
 | SUMMARY_TRIGGER_RATIO | 0.8 | 触发阈值比例：`model.context_window*ratio` |
 | SUMMARY_KEEP_TOKENS | 4096 | 摘要时保留的近期消息 token 预算 |
-| MODEL_CALL_LIMIT | 30 | 每任务、每个 Agent 的成功模型步骤上限 |
-| TOOL_CALL_LIMIT | 100 | 每任务、每个 Agent 的工具调用预算 |
+| MODEL_CALL_LIMIT | 200 | 每任务、每个 Agent 的成功模型步骤上限 |
+| TOOL_CALL_LIMIT | 500 | 每任务、每个 Agent 的工具调用预算 |
 | RETRY_MAX_RETRIES | 2 | 初次请求以外的重试次数 |
 | RETRY_INITIAL_DELAY | 1 | 初始退避秒数 |
 | RETRY_MAX_DELAY | 10 | 最大退避秒数 |
@@ -27,6 +27,8 @@
 默认窗口 1,000,000 对应 800,000 tokens 摘要阈值；128,000 对应 102,400。数据库列非空且有正值约束，API/服务校验正整数及 Integer 范围。保留预算必须小于当前模型阈值，阈值加输出预留不能超过窗口；Agent 组装前校验，错误配置在工具加载前拒绝。窗口进入 ResolvedModel、公开模型信息和请求 profile，模型编辑按现有版本递增规则使 Agent 缓存失效。
 
 ## 组装与数据流
+
+2026-10-16 将默认模型/工具预算从 30/100 提高到 200/500；已有环境文件需同步显式配置并重启 Web。`core/prompts.py` 的共用取数指引进入普通聊天主/子 Agent 和后台主/子 Agent：同一数据项、同一目标范围首次失败或为空后，核对工具说明与参数最多再尝试一次，仍缺失则说明日期、来源与原因并继续可交付部分；不以更换工具或参数继续试探，鉴权/权限不足直接说明。该指引由模型遵循，不增加程序强制的取数计数器，不改变有副作用工具或模型瞬时错误的重试边界；调用硬上限保持 error 行为。
 
 `core/agent_controls.py` 对主 Agent 和明确配置的通用子 Agent 分别创建官方摘要、调用限额、重试和 Todo 实例。`middleware/summarization.py` 在官方摘要算法前复用 `ToolPoolMiddleware.filter_request`，按 Checkpoint 中的工具池过滤目录；计数只包含当前可见工具，隐藏大目录不会提前触发摘要。该扩展沿用官方名称，原位替换框架默认摘要实例；不叠加第二套，也不靠调整传入列表顺序改变官方插槽位置。可见大工具和长历史仍按阈值压缩。摘要模型打 `nostream` 标签隐藏正文，执行 callback 仍记录用量。
 

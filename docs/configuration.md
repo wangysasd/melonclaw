@@ -31,6 +31,19 @@ createdb melonclaw
 
 模型名称、服务地址和 API Key 在「拓展 → 模型」配置。初始化只写入未启用、无凭据的供应商模板，不创建默认模型，也不从环境变量自动生成模型。无需 MCP 时可不创建 `mcp.json`。
 
+### DM Skill 的 Shell 配置
+
+已安装的 DM 脚本需要读取 `DM_APP_KEY`、`DM_APP_SECRET`，依赖共享客户端的脚本还需要 `DM_FIXED_INCOME_API_SKILL_DIR`。仅在 `.env` 填写变量不会自动透传到 Agent Shell；通过现有 `MELONCLAW_SHELL_ENV_ALLOWLIST` 按精确变量名放行：
+
+```dotenv
+MELONCLAW_SHELL_ENV_ALLOWLIST=DM_APP_KEY,DM_APP_SECRET,DM_FIXED_INCOME_API_SKILL_DIR
+DM_FIXED_INCOME_API_SKILL_DIR=${HOME}/.melonclaw/data/skills/shared/daily-bond-report
+```
+
+上例复用已安装 `daily-bond-report/scripts/dm_quant_client.py`；自定义数据根需调整路径。`.env` 的用户目录插值使用 `${HOME}`，裸 `$HOME` 不会展开；不要在代码或示例写入个人机器的绝对路径。凭据仍只在本地环境配置中填写，不放到 Shell 命令参数、输出或额外 JSON 文件。更新后重启 Web，新的 Agent Shell 才会获得配置。
+
+该白名单授权的是部署者共享凭据，所有普通聊天 Agent Shell 均可使用，不提供个人凭据隔离；数据库、应用模型和内置搜索凭据仍受既有黑名单保护。此配置只解决客户端导入和凭据注入，不安装独立的 `dm-fixed-income-api`（`query_api.py`）或 `credit-sensitivity-recovery`；需要这些独立步骤时仍须安装相应 Skill。
+
 ## 手动启动
 
 完成首次初始化后，可以在项目根目录的两个终端分别启动前后端，方便直接查看输出。

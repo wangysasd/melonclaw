@@ -188,10 +188,9 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_connection_identity_changes_tool_name_and_requires_approval():
+def test_connection_identity_changes_tool_name_and_stays_outside_ptc():
     from langchain_core.tools import StructuredTool
 
-    from melonclaw.core.hitl import mcp_interrupts
     from melonclaw.core.interpreter import INTERPRETER_PTC_TOOLS
     from melonclaw.tool.tools import wrap_mcp_tool
 
@@ -203,7 +202,6 @@ def test_connection_identity_changes_tool_name_and_requires_approval():
     first = wrap_mcp_tool("demo", original, {"transport": "http", "url": "https://first.test"})
     changed = wrap_mcp_tool("demo", original, {"transport": "http", "url": "https://second.test"})
     assert first.name != changed.name
-    assert first.name in mcp_interrupts([first])
     assert first.name not in INTERPRETER_PTC_TOOLS
 
 
