@@ -72,18 +72,3 @@ def _decode_tool_args(value: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return value
-
-
-def _call_key(
-    call: dict[str, Any],
-    index: int,
-    index_keys: dict[int, str],
-) -> str:
-    """把后续只有 index 的参数分片关联回首次出现的调用 ID。"""
-
-    call_index = call.get("index", index)
-    if call.get("id"):
-        key = f"id:{call['id']}"
-        index_keys[call_index] = key
-        return key
-    return index_keys.get(call_index, f"index:{call_index}")

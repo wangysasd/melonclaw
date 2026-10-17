@@ -59,7 +59,7 @@ scripts/check.sh
 npm --prefix frontend run build
 ```
 
-新增直接依赖 markdown-it-py，锁文件和 pip 清单同步。新增 `conversation_artifacts` 表，现有表列不变，无需清空数据库。暂停聊天写入后执行 `uv run melonclaw-db-init`，命令通过 `metadata.create_all` 建表，并从已完成正文流式、分批、原子重建投影；然后重启后端。重建失败会回滚整个投影替换，日常查询不回退到历史扫描。
+当前依赖与锁文件包含 markdown-it-py，`conversation_artifacts` 表保存可重建投影。首次 db-init 创建当前 schema，并从已完成正文流式、分批、原子重建投影；已有库按已登记 db-update 升级，不能用重复 init 替代升级。投影重建失败回滚整个替换，日常查询不回退到历史扫描。
 
 预期：让 Agent 生成自包含 HTML 并给出 /outputs/ 链接，回复末尾出现一张文件卡片。链接、卡片和产物列表打开同一预览。修改同路径文件后旧入口读取当前内容，已打开页面仅在明确刷新后更新。
 

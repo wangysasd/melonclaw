@@ -78,7 +78,8 @@ FORBIDDEN_IMPORTS: dict[str, frozenset[str]] = {
 # 允许在任意位置被依赖的包（基础件与 Web 层）。
 UNRESTRICTED_PACKAGES = frozenset({"core", "api"})
 
-ENTRY_FILES = frozenset({"main_web.py", "main_db_init.py"})
+# 可导入 API 的 Web 入口；不是 pyproject.toml 中所有 CLI 的清单。
+API_ENTRY_FILES = frozenset({"main_web.py"})
 
 # 品味不变式：单个源文件超过该行数应先拆分职责，而不是继续堆叠。
 MAX_SOURCE_LINES = 900
@@ -140,7 +141,9 @@ class DependencyDirectionTests(unittest.TestCase):
     def test_api_only_imported_by_entry_points(self):
         violations: list[str] = []
         for path in _iter_source_files():
-            if _package_name(path) == "api" or path.name in ENTRY_FILES:
+            if _package_name(path) == "api" or (
+                path.parent == PACKAGE_ROOT and path.name in API_ENTRY_FILES
+            ):
                 continue
             for imported, lineno in _imported_packages(path):
                 if imported == "api":
@@ -149,7 +152,7 @@ class DependencyDirectionTests(unittest.TestCase):
                     )
         if violations:
             self.fail(
-                "api/ 只允许被入口文件导入（main_web.py / main_db_init.py）。"
+                "api/ 只允许被 Web 入口文件导入（main_web.py）。"
                 "业务代码需要复用的逻辑应下沉到 services/：\n  " + "\n  ".join(violations)
             )
 

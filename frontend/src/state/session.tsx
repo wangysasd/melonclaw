@@ -433,15 +433,6 @@ function reducer(state: SessionState, action: SessionAction): SessionState {
   }
 }
 
-/** 顶栏运行 pill 的推导规则（与旧 setRunStatus/setStatus 联动语义一致）。 */
-export function deriveRunStatus(state: SessionState): RunStatus {
-  if (state.status?.status === "error") return "failed";
-  if (state.runStatus) return state.runStatus;
-  if (state.busy || state.conversationCreating) return "processing";
-  if (!state.status || state.status.status === "starting") return "starting";
-  return "ready";
-}
-
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export interface SessionContextValue extends SessionState {

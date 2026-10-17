@@ -208,9 +208,6 @@ class ResourceService:
         if role not in ADMIN_ROLES:
             raise ResourcePermissionError("该操作需要管理员权限。")
 
-    def _skill_dir(self, row: dict[str, Any]) -> Path:
-        return self.data_root / "skills" / str(row["storage_path"])
-
     def _checked_skill_dir(self, row: dict[str, Any]) -> Path:
         """Resolve a DB storage path without allowing traversal or symlink escape."""
 

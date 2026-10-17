@@ -77,7 +77,7 @@ main() {
        curl -fsS --connect-timeout 2 --max-time 3 "$ready_url" 2>/dev/null |
          python3 -c 'import json, sys; sys.exit(0 if json.load(sys.stdin).get("ready") is True else 1)' 2>/dev/null; then
       trap - ERR
-      echo "发版成功：Web 和内置任务调度已就绪。请刷新网页验证聊天、任务和通知。"
+      echo "发版成功：Web 和内置任务调度已就绪。请刷新网页验证聊天、定时任务固定会话和运行记录。"
       return 0
     fi
     sleep 1

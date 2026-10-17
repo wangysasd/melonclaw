@@ -509,7 +509,6 @@ def main():
     # 已由主解析器写入 namespace，子解析器不再用默认值覆盖（argparse parents 经典坑）。
     def common_parser(suppress: bool) -> argparse.ArgumentParser:
         p = argparse.ArgumentParser(add_help=False)
-        d = argparse.SUPPRESS if suppress else None
         p.add_argument("--insecure", action="store_true",
                        default=argparse.SUPPRESS if suppress else False,
                        help="跳过 TLS 证书校验")

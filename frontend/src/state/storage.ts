@@ -1,5 +1,4 @@
 /** 开发页面的用户和会话选择。 */
-export const USER_STORAGE_KEY = "melonclaw.user_id.v3";
 export const SIDEBAR_STORAGE_KEY = "melonclaw.sidebar_collapsed.v1";
 
 export const conversationStorageKey = (userId: string): string =>

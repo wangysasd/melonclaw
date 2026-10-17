@@ -44,6 +44,12 @@ Agent 通过受控虚拟路径按需读取。出站图片经 `services/attachmen
 - 解析失败可由 `POST /api/attachments/{attachment_id}/parse` 重置重试；已在解析中时
   接口幂等返回当前状态。
 
+## 模型能力与请求副本
+
+core/model_catalog.py 明确声明 input_modalities，core/chat_model.py 按声明向模型注入普通 dict profile；不能依赖框架按模型名称推导兼容端点能力。附件服务在发送前检查能力，AttachmentHydrationMiddleware 在模型请求副本中添加标准图片块，不把 base64 写入业务消息或图历史。Office/PDF 先由本仓库解析成派生文本，不借原生二进制 read_file 绕过能力校验。
+
+当前控制点见 core/chat_model.py、services/attachment_images.py、middleware/attachment_hydration.py 与 backend/factory.py；tests/test_attachments.py、tests/test_result_hydration.py、tests/test_model_configs.py 覆盖相应边界。框架版本升级时仍须复核这些行为，旧依赖源码行号不能作为当前保证。
+
 ## 数据与事件流
 
 `Composer` 左下角「+」展开二级目录（1 图片和文件 / 2 技能，悬停展开技能列表）；
@@ -72,9 +78,7 @@ Composer 按附件 ID 轮询 `parse_status`（指数退避，超过上限标记�
   default-src 'none'; sandbox`，不允许浏览器按内容嗅探类型。
 - 历史消息引用到已删除/过期附件时，hydration 只输出“附件不可用”提示块，不让单条坏
   附件让整轮执行失败；真正的 `attachment_unavailable` 只在发送前绑定阶段抛出。
-- 身份来源统一走 `api/identity.py`：默认仍是页面提交的开发模拟用户，部署方可配置
-  `MELONCLAW_IDENTITY_HEADER` 改为读取受信任网关注入的请求头；该模块不校验请求头，
-  用户的唯一有效租户归属与资源所有权仍由服务层重新校验。
+- 全局 require_session 验证 Cookie 会话，api/identity.py 读取已验证身份；请求中的 user_id 或 X-Melonclaw-User 只作身份断言，不能覆盖会话身份。服务层仍重新校验唯一有效租户归属与资源所有权。
 
 ## 运行步骤与预期结果
 

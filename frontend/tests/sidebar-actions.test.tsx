@@ -40,7 +40,6 @@ const session = {
 
 vi.mock("../src/state/session", () => ({ useSession: () => session as unknown as SessionContextValue }));
 vi.mock("../src/components/UserPicker", () => ({ UserPicker: () => null }));
-vi.mock("../src/hooks/useServiceStatus", () => ({ useServiceStatus: () => ({ status: null }) }));
 
 function setup() {
   return render(

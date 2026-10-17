@@ -37,9 +37,9 @@ Project 或普通 Conversation 的受控 `.attachments/` 目录，`services/atta
 - `database/` + `repository/`：业务数据（用户、Project、Conversation、消息、审批、用户问题交互、Memory 事件）；首次建库由 `melonclaw-db-init` 创建，保留数据的结构升级由 `melonclaw-db-update` 执行。
 - LangGraph Checkpointer：Agent 图状态，与业务表分离。
 
-`tenants` 与 `users` 是一对多关系：`users.tenant_id` 是非空外键，租户角色和状态也直接保存在用户行中，不设成员关联表。请求只提供开发模拟 `user_id`；服务层读取该用户唯一且有效的租户归属，生成 Agent 和 Memory 的运行上下文。Tenant Memory 按这个租户 ID 分区并按用户租户角色授权；Memory 操作会再次核对运行上下文与数据库归属。用户租户归属没有运行时变更入口，调整开发数据时重建数据库。
+`tenants` 与 `users` 是一对多关系：`users.tenant_id` 是非空外键，租户角色和状态也直接保存在用户行中，不设成员关联表。服务层从已验证的 Cookie 会话身份读取用户唯一且有效的租户归属，生成 Agent 和 Memory 的运行上下文。Tenant Memory 按这个租户 ID 分区并按用户租户角色授权；Memory 操作会再次核对运行上下文与数据库归属。当前 system/admin 可通过用户管理接口编辑目标用户的租户归属；后续业务请求会重新解析有效归属，不从客户端指定运行租户。
 
-**身份决定租户隔离的实际强度。** 当前浏览器可提交任意 `user_id`，它只是开发模拟身份，不能抵御冒用其他用户。`api/identity.py` 的受信任身份头目前仅接入附件路由；面向共享环境时，必须先让所有受保护路由统一使用可信认证，并隔离 Agent 的文件与 Shell 能力。普通业务请求不得用 `tenant_id` 指定运行上下文；管理用户资料的创建／编辑接口可以提交目标 tenant_id，后端验证租户有效性。运行租户始终从服务端用户记录解析。
+**身份决定租户隔离的实际强度。** `api/app.py` 通过全局 `require_session` 依赖统一保护 JSON、上传、下载和 SSE；请求中的 `user_id` 与 `X-Melonclaw-User` 仅作 Cookie 身份断言，不得覆盖服务端身份，附件的 `api/identity.py` 同样读取已验证会话。仅 profile=dev 开放全员显式切换任意有效用户（含 admin），仍不能作为生产用户间权限隔离；共享环境还须隔离 Agent 的文件与 Shell 能力，`LocalShellBackend` 不是安全沙箱。普通业务请求不得用 `tenant_id` 指定运行上下文；管理用户资料的创建／编辑接口可以提交目标 tenant_id，后端验证租户有效性。运行租户始终从服务端用户记录解析。账户与会话流程见下文「用户管理与开发登录」及[登录设计](design-docs/user-management-login.md)。
 
 Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conversation_id` 列；
 消息、审批、用户问题和附件关系表使用 `conversation_id` 外键引用它。Conversation 归属由
@@ -88,9 +88,20 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | `services/` | `core/`、`database/`、`repository/`、`output/`、`memory/`、`backend/`、`middleware/`、`tool/`、`parsers/`、`storage/` | `api/` |
 | `storage/` | 无业务包 | `core/`、`database/`、`repository/`、`services/`、`api/`、`output/`、`memory/`、`tool/`、`middleware/`、`backend/`、`parsers/` |
 | `api/` | 以上全部 | 无 |
-| `main_web.py`、`main_db_init.py`（入口） | 任意包 | 无 |
+| `main_web.py`（Web 入口） | 任意包 | 无 |
+| `main_db_init.py`、`main_db_update.py`、`main_password.py`、`main_resources.py`（管理入口） | 按职责依赖 API 以外的包 | `api/` |
 
 补充规则（同样由测试强制）：**`api/` 只能被入口文件 `main_web.py` 导入**，业务包不得反向引用 Web 层。
+
+命令注册与 API 导入许可是两个独立集合。`pyproject.toml` 注册以下五个命令；架构测试的 `API_ENTRY_FILES` 仅允许包根目录的 `main_web.py`，其他目录中的同名文件也不获得例外。
+
+| 命令 | 入口模块 | 职责 |
+|---|---|---|
+| `melonclaw-web` | `main_web.py` | Web 服务组装与启动 |
+| `melonclaw-db-init` | `main_db_init.py` | 首次建库、种子和持久化组件初始化 |
+| `melonclaw-db-update` | `main_db_update.py` | 执行已登记的保留数据升级 |
+| `melonclaw-admin-password` | `main_password.py` | 交互设置管理员密码 |
+| `melonclaw-resources` | `main_resources.py` | 内置资源安装与持久目录迁移 |
 
 ### 为什么 `core/` 不是“最底层”
 
@@ -146,7 +157,7 @@ Shell 执行的 `FilesystemBackend`，附件原文、派生目录和运行时 ar
 
 DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpenAI` 这一类**按类名**判定为“能接受非 PDF 文件块”，从而绕过按模型能力（`ModelProfile`）做的门控；而 `ChatOpenAI` 的能力表只收录 `gpt-*` 系列，我们的模型名拿不到能力声明，所有门控默认放行。
 
-结论：**涉及模型能力的判断，必须由本仓库显式声明，不能依赖框架自动推导。** 这条经验来自聊天附件功能的调研，详细证据见 `note/上传附件技术设计.md` 的 §3.2、§3.3。
+结论：**涉及模型能力的判断，必须由本仓库显式声明，不能依赖框架自动推导。** 当前实现与验证依据见[附件模型能力边界](design-docs/chat-attachments.md#模型能力与请求副本)。
 
 ### 5.3 内容块转换是框架职责，路由是应用职责
 

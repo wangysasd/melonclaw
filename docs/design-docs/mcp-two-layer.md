@@ -108,7 +108,7 @@ MCP 工具名称保留服务命名空间与连接指纹，防止同名覆盖及�
 且配置已变化，不承诺恢复旧连接：旧指纹工具无法调用，需要按新工具名重新发起。没有保存旧凭据
 版本来绕过管理员变更。此处是实现明确的恢复边界，不能描述成跨重启的旧配置持久化快照。
 
-开发 user_id 仍是模拟身份，LocalShellBackend 不是安全沙箱；本功能不构成生产多用户密钥隔离。
+业务 user_id 仅作 Cookie 身份断言；profile=dev 允许全员显式切换，LocalShellBackend 不是安全沙箱，本功能不构成生产多用户密钥隔离。
 
 ## 数据与事件流
 
@@ -128,7 +128,7 @@ MultiServerMCPClient 工具发现 → 白名单交集、命名空间和错误脱
 删除种子对应行后再次初始化会补录并默认全员启用；日常撤下使用全员停用，永久移除需同时移除文件条目。
 运行时只读数据库。种子使用环境变量引用，不写明文凭据。
 
-表结构由 schema.py 定义，没有迁移。旧开发库需要显式清空后初始化，启动不会自动建表或修补。
+表结构由 schema.py 定义；首次建库用 db-init，保留数据升级走已登记的 db-update，启动不会自动建表或修补。具体见[数据库变更流程](../ARCHITECTURE.md#6-数据库变更流程)。
 
 ## API
 
@@ -151,7 +151,7 @@ MultiServerMCPClient 工具发现 → 白名单交集、命名空间和错误脱
 
 ```bash
 uv sync
-uv run melonclaw-db-init  # 仅对已清空或首次创建的开发库运行
+uv run melonclaw-db-init  # 仅首次建库；已有库按已登记步骤执行 db-update
 scripts/check.sh
 ```
 
@@ -184,7 +184,7 @@ scripts/check.sh
 
 更新代码后重启 Web 服务加载新 Agent，无需运行数据库初始化或升级。
 `tests/test_agent_tool_assembly.py` 用真实应用装配、离线模型及 MCP 替身验证主/子 Agent
-直接完成外部写入工具调用且 Checkpoint 无 interrupt；同会话后续 write_file 仍暂停，未产生文件。
+直接完成外部写入工具调用且 Checkpoint 无 interrupt；当前普通聊天文件工具同样免逐次审批，仍受路径和归属规则约束。
 MCP 与 Agent 装配专项 18 项通过；未调用真实远端 MCP 或付费模型。
 
 `scripts/check.sh` 全部通过，覆盖后端编译、测试、lint、锁文件、前端 lint、类型检查、测试与文档链接。

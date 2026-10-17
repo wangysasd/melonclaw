@@ -9,7 +9,6 @@ import {
   useMemo,
   useReducer,
   useRef,
-  type Dispatch,
 } from "react";
 import { App as AntdApp } from "antd";
 
@@ -1473,9 +1472,9 @@ export function useChatStream({
   useVisibleRefresh(refreshTaskHistory, 3000, active && Boolean(state.conversationTaskId));
 
   /**
-   * 显式取消某会话的输出：abort 该会话的 SSE 流并乐观置 cancelled。
-   * 后端断开后按现有 CancelledError 路径写 cancelled/request_cancelled。
-   * 只动该会话，不影响其他并发会话。
+   * 停止某会话的本地输出：abort 该会话的 SSE 订阅并乐观置 cancelled。
+   * 服务端 persistent_stream 会继续执行并落库；这里不取消后端业务执行。
+   * 只动该会话的本地状态，不影响其他并发会话；任务取消使用独立接口。
    */
   const stopConversation = useCallback((conversationId: string): boolean => {
     if (!conversationId) return false;
@@ -1547,5 +1546,3 @@ const TERMINAL_HINT = new Set([
   "user_input_accepted",
   "message_status",
 ]);
-
-export type ChatDispatch = Dispatch<ChatAction>;

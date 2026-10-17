@@ -1,6 +1,6 @@
 # Skill 生命周期与一致性
 
-状态：已实现（2026-09-29）。本设计替代 [原资源管理设计](user-skills-and-mcp.md) 中的 Skill 状态、内存草稿和缓存策略；MCP 范围与凭据规则保持不变。
+状态：已实现。Skill 的当前状态、草稿和恢复规则以本文为准；资源入口见[资源管理](user-skills-and-mcp.md)，MCP 规则见[MCP 设计](mcp-two-layer.md)。
 
 ## 背景与目标
 
@@ -23,7 +23,7 @@
 
 ## 操作与数据模型
 
-`skills` 增加 `status`、`content_hash`、`source_url`、`source_ref`；继续使用 version 与 skill_user_states。没有历史字段回退或迁移；开发期表结构变化时按 README 清空并重建整个数据库。
+`skills` 增加 `status`、`content_hash`、`source_url`、`source_ref`；继续使用 version 与 skill_user_states。不在业务读取中增加历史字段回退；初始化与保留数据升级遵守架构中的数据库变更流程。
 
 - 安装范围由数据库角色决定：admin/owner 安装共享，member 安装私有；新安装默认停用。
 - 「添加到我的技能 / 我不使用」始终是个人操作，管理员也一样。
@@ -87,12 +87,12 @@ melonclaw_requirements:
 - ZIP prepare 表单与远程 prepare JSON 可传 `target_id` UUID；确认/取消按 draft_id。
 - `POST /api/skills/recover?user_id=...`：管理员恢复日志并重建索引，返回摘要及异常清单。
 
-按 [README](../../README.md) 停服重建 Skill 两表，再执行 `uv run melonclaw-db-init`。上传 → 预览 → 确认 → 启用 → 使用；内容更新通过目标卡片菜单进入，预期 ID 与个人偏好保持不变。损坏或缺失 Skill 仍可删除，缺失正文也可通过更新修复。
+首次安装按 [README](../../README.md) 初始化，已有数据库按已登记升级处理。上传 → 预览 → 确认 → 启用 → 使用；内容更新通过目标卡片菜单进入，预期 ID 与个人偏好保持不变。损坏或缺失 Skill 仍可删除，缺失正文也可通过更新修复。
 
 ## 失败与安全边界
 
 - 本次没有新增 Agent 工具，未扩大 PTC、Shell 或 HITL 审批清单。内容导入/更新/删除是用户主动触发的 Web 管理操作，由服务层范围权限、ZIP 校验、文件锁与日志约束。
-- 身份仍是开发模拟 user_id，不能描述成生产认证；LocalShellBackend 仍非安全沙箱。文件快照不是 Shell 隔离手段。
+- 身份来自 Cookie 会话；profile=dev 的全员显式切换仍是开发能力，不能描述成生产用户间隔离；LocalShellBackend 仍非安全沙箱。文件快照不是 Shell 隔离手段。
 - 文件锁与同盘 rename 要求 POSIX 文件系统语义；不能让多个部署各有一份数据根却共享同一数据库。
 - 保障进程中断恢复，不承诺断电、文件系统损坏或部署者手工修改操作日志后的自动恢复。
 - 快照目前不自动回收，避免删除运行中 Agent 的文件；停服且无待恢复执行后可清理派生缓存。审批/用户问题恢复仍沿用现有 Agent 重建链路，不承诺跨重启固定整个 Agent 工具与模型环境。

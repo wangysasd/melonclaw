@@ -2,21 +2,23 @@
 
 按领域记录当前状态和已知差距。**数据以实测为准，改动后请更新对应行的数值和日期**，不要凭印象写“基本完善”。
 
-最后核实日期：2026-09-25
+最后核实日期：2026-10-17（仓库代码与本机检查；CI、生产及服务器状态未核实）。下表区分当前实现与有日期的验证记录，不把跳过或预期失败计为通过。
 
 ## 评分
 
 | 领域 | 评分 | 现状（实测） | 主要差距 |
 |---|---|---|---|
-| 架构约束 | 中 | 包职责边界清晰；`tests/test_architecture.py` 强制 8 组禁止依赖、入口独占、规则表完整性、源文件长度上限 | 只覆盖包级 import，未覆盖同一包内的模块粒度，也未约束横切入口的单一性 |
-| 后端测试 | 低 | `tests/` 95 个用例通过；覆盖幂等终态回放、忙会话、构建取消释放锁、历史懒加载、构建锁和共享步骤投影；消息对在当前 PostgreSQL 以回滚事务手动核对 | 真实 PostgreSQL/Agent/SSE 组合仍缺可重复运行的集成测试 |
-| 前端测试 | 中 | `frontend/tests/` 21 个用例文件、156 个用例通过；覆盖流文本批量冲刷、按 ID 归约和终态快照 | 无持续运行的 E2E 测试，SSE 契约仍靠单元测试手工维护 |
-| 静态检查 | 中 | 后端 ruff 已显式配置（`pyproject.toml` 的 `[tool.ruff]`，规则集钉死为 `E4/E7/E9/F/I`），`uv run ruff check src tests` 通过；前端 eslint + tsc 通过 | TRY（7 处）与 BLE（1 处）规则尚未启用（见 D3） |
+| 架构约束 | 中 | 包职责边界清晰；`tests/test_architecture.py` 强制 10 组禁止依赖、入口独占、规则表完整性、源文件长度上限 | 只覆盖包级 import，未覆盖同一包内的模块粒度，也未约束横切入口的单一性 |
+| 后端测试 | 低 | 2026-10-17 首批清理后复测：664 passed、59 skipped、2 xfailed、27 subtests passed；账户、任务与产物已有使用随机隔离 schema 的 PostgreSQL 集成测试，未配置专用测试连接时跳过 | 本轮未运行 59 项数据库测试；完整 Agent/Checkpoint/SSE 组合仍缺可重复运行的集成验证 |
+| 前端测试 | 中 | 2026-10-17 首批清理后 eslint、tsc、全量 vitest 通过，另有 7 文件 77 项相关专项通过；未单独提取全量用例总数；2026-10-15 历史记录有 354 项回归通过（见下文） | 无持续运行的 E2E 测试，SSE 契约仍靠单元测试维护 |
+| 静态检查 | 中 | 后端 ruff 已显式配置（`pyproject.toml` 的 `[tool.ruff]`，规则集钉死为 `E4/E7/E9/F/I`）；2026-10-17 审计基线常规后端 ruff、前端 eslint + tsc 通过 | 同日额外检查 TRY/BLE 有 435 条告警，这些规则尚未启用，需按上下文审查（见 D3） |
 | 依赖环境 | 良 | `pyproject.toml` + `uv.lock` 固定版本，`uv lock --check` 通过；`pytest`、`ruff` 已在 `[dependency-groups] dev` 中声明 | `npm ci` 依赖前端锁文件；无其它缺口 |
-| CI | 中 | `.github/workflows/check.yml` 分后端 / 前端两个 job，覆盖编译、测试、lint、类型检查、锁文件 | 尚未在真实 PR 上验证过；无缓存之外的优化，无分支保护配置 |
+| CI | 中 | `.github/workflows/check.yml` 分后端 / 前端两个 job，覆盖编译、测试、lint、类型检查、锁文件 | 本轮未核实真实 PR 运行历史与分支保护；本机通过不代替 CI 验证 |
 | 文档 | 中 | `docs/` 为事实来源，`AGENTS.md` 提供地图；相对链接与地图条目由 `tests/test_docs_links.py` 校验 | `note/` 未版本化（本地草稿）；无文档新鲜度倒计时机制 |
 | 可观测性 | 中 | 后端有结构化运行提示与脱敏日志；前端有可展开的执行摘要 | 无本地 metrics/trace 栈，agent 无法自行查询运行指标 |
-| 安全边界 | 中 | HITL 审批、凭据硬黑名单、归属校验都在服务层 | `LocalShellBackend` 无隔离；无病毒扫描；用户身份仍为开发模拟 |
+| 安全边界 | 中 | Cookie 会话统一覆盖受保护 API；服务层保留 HITL 审批、凭据硬黑名单与归属校验 | `LocalShellBackend` 无隔离；无病毒扫描；profile=dev 可全员切换身份，仍不是生产用户间权限隔离 |
+
+首次审计与首批实施验证分别见[清理计划](exec-plans/completed/2026-10-17-code-cleanup-audit.md)的「验证基线」和「首批实施记录」。59 项跳过均需要 `MELONCLAW_TEST_DATABASE_URL`；2 项 strict xfail 是后台流 producer 异常未取回与首次迭代前关闭清理的既有缺口。下文各日期的完整检查、数据库与浏览器记录保留为历史证据，未在本轮复测。
 
 ## 已修复
 
@@ -40,9 +42,9 @@
 
 ## 改进优先级
 
-1. 在真实 PR 上跑通 CI，确认两个 job 都能稳定通过。
-2. 使用真实 PostgreSQL 补消息对事务与会话锁并发测试，并覆盖 Agent 到 SSE 的完整事件顺序。
-3. 整理剩余 8 处 lint 告警（`uv run ruff check --select TRY,BLE src tests` 可复现），然后扩大 `select`。
+1. 核实真实 PR 的 CI 记录与分支保护，确认两个 job 都能稳定通过。
+2. 持续运行已有 PostgreSQL 隔离测试，并补齐完整 Agent/Checkpoint/SSE 的事件顺序验证。
+3. 审查 TRY/BLE 扩展规则告警（2026-10-17 审计基线为 435 条，`uv run ruff check --select TRY,BLE src tests --statistics` 可复现），按异常与取消语义评估是否扩大 `select`，不机械修改。
 4. 提升可观测性，让 agent 能自行验证“启动耗时”“事件延迟”这类可测目标。
 
 

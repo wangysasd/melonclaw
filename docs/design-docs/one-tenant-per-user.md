@@ -28,6 +28,6 @@ Cookie 会话 → 当前有效用户 → users.tenant_id → 启用中的租户
 
 表结构由 schema.py 定义，db-init 使用 create_all，不迁移旧库。重复初始化只补录缺失种子，不覆盖密码、资料、归属或状态。seed_data.py 中保留 system、dep-a、dep-b 租户模板，唯一种子用户为 system 下的 admin。
 
-数据库结构变化时，先停止服务并保留所需数据，再清空重建目标开发库并执行 `uv run melonclaw-db-init`；首次初始化后使用 `admin/admin` 登录；`uv run melonclaw-admin-password` 作为可选改密命令。单纯通过管理页面修改用户租户，不需要清库或清理工作区。
+首次建库执行 `uv run melonclaw-db-init`，保留数据升级执行已登记的 `uv run melonclaw-db-update`；首次初始化后使用 `admin/admin` 登录；`uv run melonclaw-admin-password` 作为可选改密命令。单纯通过管理页面修改用户租户，不需要清库或清理工作区。
 
 测试见 tests/test_schema.py、tests/test_tenant_contract.py、tests/test_accounts_postgres.py。完整界面、API、运行及并发边界见[用户管理与开发登录](user-management-login.md)。

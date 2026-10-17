@@ -142,19 +142,6 @@ wait_for() { # url 名称 超时秒数
   return 0
 }
 
-wait_for_backend() { # 公开就绪探测 URL 名称 超时秒数
-  local url="$1" name="$2" timeout="${3:-30}" i=0
-  until curl -sf -o /dev/null "$url"; do
-    i=$((i + 1))
-    if [ "$i" -ge "$timeout" ]; then
-      echo "等待 $name 就绪超时（${timeout}s）。"
-      return 1
-    fi
-    sleep 1
-  done
-  return 0
-}
-
 show_backend_status() {
   local url="http://$BACKEND_HOST:$BACKEND_PORT/api/ready"
   echo "后端公开探测："
@@ -172,7 +159,7 @@ backend_ok=1
 frontend_ok=0
 if [ "$FRONTEND_ONLY" -eq 0 ]; then
   backend_ok=0
-  wait_for_backend "http://$BACKEND_HOST:$BACKEND_PORT/api/ready" "后端" 30 && backend_ok=1
+  wait_for "http://$BACKEND_HOST:$BACKEND_PORT/api/ready" "后端" 30 && backend_ok=1
 fi
 wait_for "http://$FRONTEND_HOST:$FRONTEND_PORT" "前端" 30 && frontend_ok=1
 

@@ -560,8 +560,8 @@ def _cmd_call(cli: TushareClient, args) -> int:
     print(f"[tsfetch] {args.api}: {len(rows)} 行, {len(cols)} 列 {cols}", file=sys.stderr)
 
     if not rows:
-        print(f"[tsfetch] 0 行数据：先核对参数（日期格式 YYYYMMDD、代码后缀、必选参数）"
-              f"与接口权限；未写任何文件。", file=sys.stderr)
+        print("[tsfetch] 0 行数据：先核对参数（日期格式 YYYYMMDD、代码后缀、必选参数）"
+              "与接口权限；未写任何文件。", file=sys.stderr)
         return 5
 
     if args.out:

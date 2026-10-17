@@ -15,12 +15,10 @@ FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
 SAFE_DIRECTORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$")
 MAX_SKILL_FILE_SIZE = 10 * 1024 * 1024
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-MAX_SKILL_NAME_LENGTH = 64
 MAX_SKILL_DESCRIPTION_LENGTH = 1024
 MAX_SKILL_DISPLAY_NAME_LENGTH = 160
 GLOBAL_SKILLS_ROUTE = "/skills/"
 USER_SKILLS_ROUTE = "/skills-user/"
-SKILL_SCOPES = ("global", "user")
 
 
 @dataclass(frozen=True)

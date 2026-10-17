@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
@@ -54,8 +53,6 @@ from melonclaw.services.task_configuration import TaskConfigurationService
 from melonclaw.services.user_input_execution import UserInputExecutionService
 
 logger = logging.getLogger(__name__)
-
-USER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
 class ChatService:
@@ -386,16 +383,6 @@ class ChatService:
         """返回附件支持类型与限制清单，供前端做上传前预校验。"""
 
         return self.attachments.capabilities()
-
-    def _require_ready(self) -> BusinessRepository:
-        return self.runtime.require_ready()
-
-    def _project_workspace_dir(self, project: dict[str, Any]):
-        return self.runtime.project_workspace_dir(project)
-
-    @staticmethod
-    def _conversation_config(conversation_id: UUID) -> dict[str, Any]:
-        return ChatRuntime.conversation_config(conversation_id)
 
     async def create_project(
         self,

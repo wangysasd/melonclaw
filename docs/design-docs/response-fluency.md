@@ -8,13 +8,9 @@
 
 ## 方案与关键选择
 
-### 工具选择与扩展
+### 按需工具池
 
-目录超过 16 项时，每个逻辑用户轮次只初选一次。轮次优先取业务 `user_message_id`，恢复时继续使用原 Checkpoint 的用户消息；审批和补充回答不另起轮次。选择状态写入图状态，不放在共享 Agent 实例。摘要包含当前允许工具的名称、描述和输入 schema，目录改变会失效。空选择是有效缓存结果。
-
-选择仍使用当前模型，`TAG_NOSTREAM` 阻止内部 JSON 进入回复。超时预算由 `MELONCLAW_TOOL_SELECTION_TIMEOUT_SECONDS` 配置，默认 10 秒；错误、无效响应或超时降级为必要工具与检索入口，本轮不反复选择。主动取消和主模型失败正常传播。模型支持推理开关的差异较大，本次不自动关闭选择器推理。
-
-`find_tools(query)` 检索组装时的已授权目录，无网络请求、数据库写入或权限修改。输入 1–512 字符，一次最多返回 8 项（描述最多 500 字符），每轮最多 4 次、额外 16 项工具；图状态 reducer 对并行 Command 共同限制预算。并行发现超过预算时以下一次实际可见 schema 为准。匹配采用名称和描述关键词，无匹配会明确返回空结果。工具无外部副作用，无需 HITL，不加入 PTC。原工具的白名单、校验、HITL 与副作用边界不变。
+ToolPoolMiddleware 只处理 find_tools 提交的请求，委托官方 LLMToolSelectorMiddleware 选名；没有请求时主模型直接使用当前可见 schema。工具池跨消息复用，请求预算按业务用户消息重置，目录变化会清池且不重放旧请求。选择失败/超时不扩大授权，取消继续传播。内部调用以 TAG_NOSTREAM 隔离，阶段与耗时经 custom 事件公开。容量、预算、父子隔离和授权边界以[按需工具池](on-demand-tool-pool.md)为准。
 
 ### 推理协议与有序内容
 
@@ -54,9 +50,11 @@ sequenceDiagram
     W->>S: 用户消息
     S->>S: 准备并计时
     S->>G: 业务用户消息 ID / 会话上下文
-    G->>M: 本轮首次工具选择（按需）
+    G->>M: 使用当前工具池请求主模型
+    M-->>G: 能力不足时调用 find_tools
+    G->>M: 委托官方选择器（仅有请求时）
     G-->>W: 选择阶段 / 耗时
-    G->>M: 主模型请求
+    G->>M: 使用更新后的工具池请求
     M-->>W: 按顺序输出思考和正文
     G->>G: 工具并行执行 / 按完成顺序投影
     G-->>W: 每项工具结果与耗时
@@ -83,9 +81,9 @@ scripts/restart.sh
 
 ## 验证
 
-- `test_tool_call_content_stream.py`：实际 OpenAI 适配器 + 离线 HTTP SSE + 图 v3；工具调用前/同片文字在完成前可见，调用顺序为 selector → answer → answer。
+- `test_tool_call_content_stream.py`：实际 OpenAI 适配器 + 离线 HTTP SSE + 图 v3；工具调用前/同片文字在完成前可见；普通循环不触发额外工具预选。
 - `test_reasoning_protocol.py`：三种非标准格式即时输出、交错顺序、完整消息、Checkpoint、工具请求回传，签名/加密字段不进入展示；标签每个分片边界与未闭合输出。
-- `test_tool_selection_lifecycle.py`：同轮复用、目录扩展、新轮次、并发会话、暂停恢复、目录摘要失效、超时降级、输入和共享预算。
+- `test_tool_selection_lifecycle.py`：按需请求、跨消息复用、目录变化、并发会话、暂停恢复、超时与输入/请求预算。
 - `test_parallel_tool_stream.py`：快工具结果在慢工具释放前到达；queued 不带开始时间。
 - `test_stream_redaction.py`、`test_execution_trace.py`：跨片脱敏、计时恢复、取消归约、失败推理保留且不使用旧轮次答复。
 - 前端执行过程与聊天流测试：有序块、最终思考保留、完成计时快照及动画帧内类别切换。
@@ -94,7 +92,7 @@ scripts/restart.sh
 
 2026-10-04 验证：`scripts/check.sh` 全部通过；浏览器确认下拉框位于高级配置的扩展 JSON 上方，四个简短选项正常显示，字号为 14px，弹窗无横向溢出。
 
-最终完整检查与运行结果记录在 [执行计划](../exec-plans/completed/2026-10-03-response-fluency.md)。离线 HTTP 服务不代表真实供应商的耗时改善；本次不声称节省了固定秒数或外部模型任务成功率。
+当前验证入口见[工具池设计](on-demand-tool-pool.md)及上列协议/流测试。离线 HTTP 服务不代表真实供应商的耗时改善；本次不声称节省了固定秒数或外部模型任务成功率。
 
 协议依据：[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)、[MiniMax OpenAI 兼容接口](https://platform.minimax.io/docs/api-reference/text-openai-api)、[OpenRouter 推理字段](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)。
 
@@ -106,12 +104,3 @@ scripts/restart.sh
 真实 DeepSeek 接口验证确认独立思考字段为 `reasoning_content`。标准 OpenAI 格式不能提取该非标准字段，配置必须显式匹配。当前主 Agent 请求还需在扩展请求体设置 `thinking.type=enabled` 才观测到思考返回；设置方式依据 [DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)，不在模型工厂按供应商名自动开启。通过现有管理员配置接口保存后，供应商版本推进，后续请求使用新配置。
 
 先前验证：真实 API → Agent → SSE → PostgreSQL 历史收到 777 个思考字符，保存两个 reasoning 块、一个 text 块和一个完成的只读 ls 调用；已有无推理记录的会话继续请求也成功返回思考。该次浏览器历史回放验证的是当时的单个思考区域，不能替代本次分框视觉验收。旧消息缺失的推理不从 Checkpoint 回填。
-
-
-## 2026-10-04：工具选择方案更新
-
-本文中的每用户轮次初选方案已由[按需官方工具选择与会话池](on-demand-tool-pool.md)替代。现在只有 find_tools 请求触发官方选择，工具池跨消息复用；其余流式与协议设计仍适用。
-
-## 2026-10-04：思考过程按生成顺序分段
-
-前端不再把同一条助手消息里的全部可读思考集中到工具列表上方。每段连续思考在执行时间线中独立成条目，工具调用保持在前后两段之间。运行中显示当前段，完成后各段独立折叠；最终正文仍独立显示。条目沿用外部背景、无边框，保留原有灰色文字。后端已有步骤与内容块顺序足够表达此行为，无需改动协议或数据库。前端归约与聊天视图测试覆盖流式、完成快照、相邻同类块合并和最终步骤思考；`scripts/check.sh` 全部通过。真实供应商的浏览器视觉验收仍待下次联机检查。

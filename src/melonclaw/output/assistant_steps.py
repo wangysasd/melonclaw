@@ -14,7 +14,6 @@ from typing import Any
 from melonclaw.output.content import answer_text, content_to_text, display_blocks
 from melonclaw.output.formatting import _decode_tool_args, _preview, sanitize_text
 
-STEP_STATUSES = frozenset({"streaming", "running", "completed", "failed", "waiting", "unknown"})
 TOOL_STATUSES = frozenset({"queued", "running", "completed", "failed", "waiting", "unknown"})
 MAX_STEP_TEXT = 120 * 1024
 MAX_STEPS_BYTES = 512 * 1024

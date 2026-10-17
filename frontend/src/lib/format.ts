@@ -12,10 +12,6 @@ function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-export function safeDate(value: string | number | null | undefined): Date | null {
-  return toDate(value);
-}
-
 /** 会话列表时间：今天显示 HH:MM，今年显示 MM-DD，更早显示 YYYY-MM-DD。 */
 export function formatConversationTime(
   value: string | number | null | undefined,
