@@ -116,7 +116,7 @@ async def produce(mode, output_path):
     assert roots[0]["userId"] == "validation:validation" and roots[0]["sessionId"] == f"validation:{run_id}"
     if mode == "content-off":
         assert synthetic not in json.dumps(observations)
-    for secret in [settings.langfuse_secret_key, settings.database_url, settings.tavily_api_key]:
+    for secret in [settings.langfuse_secret_key, settings.database_url, settings.deepseek_api_key]:
         assert not secret or secret not in json.dumps(observations)
     url = f"{settings.langfuse_base_url}/project/{roots[0]['projectId']}/traces/{trace_id}"
     output_path.write_text(json.dumps({"verified": True, "mode": mode, "url": url, "observations": len(observations)}))

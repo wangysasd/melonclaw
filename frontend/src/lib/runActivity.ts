@@ -52,6 +52,7 @@ function observedTools(run: AgentRun, events: DisplayEvent[]): ObservedTool[] {
 
 const TOOL_STAGES: Record<string, string> = {
   internet_search: "正在检索资料",
+  web_fetch: "正在读取网页",
   read_file: "正在读取文件",
   ls: "正在查看目录",
   glob: "正在查找文件",

@@ -20,7 +20,7 @@ createdb melonclaw
 
 | 变量 | 用途与默认值 |
 |---|---|
-| `TAVILY_API_KEY` | 内置联网搜索凭据；留空不影响启动，依赖该凭据的搜索能力不可用 |
+| `DEEPSEEK_API_KEY` | 内置 DeepSeek 联网搜索与网页读取工具凭据；留空不影响启动，依赖该凭据的搜索与读取能力不可用 |
 | `MELONCLAW_DATA_DIR` | Skill 等持久资源目录，默认 `~/.melonclaw/data` |
 | `MELONCLAW_WORKSPACE_DIR` | 会话与项目文件目录，默认 `~/.melonclaw/workspaces` |
 | `MELONCLAW_TASK_EXECUTION_TIMEOUT_SECONDS` | 后台完整运行时限（包含模型解析、历史摘要、Agent 构建和执行），默认 1800 秒，须为正整数 |

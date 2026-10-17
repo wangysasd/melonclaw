@@ -59,7 +59,7 @@ def build_unattended_agent(
 
     options.control.check()
     allowed = task_allowed_tools(
-        search_authorized=options.search_authorized and bool(settings.tavily_api_key.strip()),
+        search_authorized=options.search_authorized and bool(settings.deepseek_api_key.strip()),
         todo_enabled=settings.agent_todo_enabled,
         history_available=options.history_provider is not None,
     )
@@ -76,7 +76,7 @@ def build_unattended_agent(
     backend = TaskReadOnlyBackend()
     model_instance = build_chat_model(model, output_reserve=settings.agent_output_reserve)
     tools = (
-        [build_task_search_tool(settings.tavily_api_key)] if "internet_search" in allowed else []
+        [build_task_search_tool(settings.deepseek_api_key)] if "internet_search" in allowed else []
     )
 
     if options.history_provider is not None:

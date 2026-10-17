@@ -179,7 +179,7 @@ class TaskScheduler:
                 checkpointer=self.checkpointer,
                 unattended=TaskAgentOptions(
                     control,
-                    search_authorized=bool(settings.tavily_api_key.strip()),
+                    search_authorized=bool(settings.deepseek_api_key.strip()),
                     execution_at=run["started_at"],
                     scheduled_for=run["scheduled_for"],
                     history_provider=history,

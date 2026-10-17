@@ -37,7 +37,9 @@ DATABASE_URL=postgresql+asyncpg://<用户>:<密码>@<主机>:<端口>/<数据库
 
 替换为自己的 PostgreSQL 连接信息，数据库须提前创建。其他变量可保持默认；连接串格式、持久目录和可选配置见[配置与手动启动](docs/configuration.md)。不要提交 `.env` 或公开实际凭据。
 
-模型在启动后的页面配置；首次启动无需配置 Tavily 或 MCP。
+模型在启动后的页面配置；首次启动无需配置联网搜索或 MCP。
+
+需要联网时，在 `.env` 配置 `DEEPSEEK_API_KEY` 后重新启动服务。聊天可搜索公开网页并读取单页正文，定时任务只开放搜索。搜索最多返回聊天 20 条、后台 10 条；截断内容会明确标记。临时故障最多尝试三次，重试期间可能需要更长等待；鉴权或余额错误请检查配置或账户。工具不会从聊天模型配置中自动取 Key。详见[联网工具与故障边界](docs/design-docs/deepseek-web-tools.md)。
 
 运行已安装的 DM Skill 脚本时，还需配置 DM 凭据、共享客户端目录及 Shell 变量白名单；路径插值使用 `${HOME}`。见 [DM Skill 的 Shell 配置](docs/configuration.md#dm-skill-的-shell-配置)。
 

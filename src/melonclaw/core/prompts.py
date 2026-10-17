@@ -100,7 +100,7 @@ VIRTUAL_FILE_WORKSPACE_GUIDANCE = """
 INTERPRETER_GUIDANCE = """
 需要在内存中循环、分支、并行搜索或确定性整理结构化数据时，优先使用
 `eval` 的 JavaScript Interpreter；简单的一两个工具调用仍直接调用工具。
-Interpreter 中只有 `tools.internetSearch(...)` 是显式开放的外部能力，文件、
+Interpreter 中只有 `tools.internetSearch(...)` 和 `tools.webFetch(...)` 是显式开放的外部能力，文件、
 Shell 和 MCP 工具不能从 Interpreter 内调用。需要命令执行、安装依赖或访问
 文件系统时使用普通 `execute` / 文件工具，并遵守其权限范围。
 """.strip()

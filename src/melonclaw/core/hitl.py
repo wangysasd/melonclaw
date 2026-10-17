@@ -38,6 +38,9 @@ SENSITIVE_TOOL_INTERRUPTS["confirm_mcp_install"] = InterruptOnConfig(
     allowed_decisions=["approve", "reject"],
     description="确认 MCP 名称、个人归属、地址、工具白名单及启用选项。仅安装到当前用户，下一条消息生效。",
 )
+# internet_search 与 web_fetch 基于 DeepSeek Search & Fetch API，仅执行无写入副作用的
+# 公开网页搜索与单页 Markdown 读取；web_fetch 校验公网 HTTP(S) URL 并拒绝凭据、本地与内网地址，
+# 服务端统一注入 DEEPSEEK_API_KEY 且脱敏错误，因此免逐次审批并允许进入 Interpreter PTC。
 # complete_task 仅设置当前无人值守运行的内存完成标志；最终正文成功提交且任务版本
 # 未改变时，执行器在同一事务暂停本任务，无外部写权限，不进入 HITL/PTC。
 # read_task_history 仅查询当前身份、本任务、本轮已绑定的历史，最多返回 8000 字符；

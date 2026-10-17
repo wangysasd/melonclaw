@@ -8,14 +8,14 @@ INTERPRETER_MEMORY_LIMIT = 64 * 1024 * 1024
 INTERPRETER_TIMEOUT_SECONDS = 15.0
 INTERPRETER_MAX_RESULT_CHARS = 4_000
 INTERPRETER_MAX_PTC_CALLS = 8
-INTERPRETER_PTC_TOOLS = ("internet_search",)
+INTERPRETER_PTC_TOOLS = ("internet_search", "web_fetch")
 
 
 def build_interpreter_middleware() -> CodeInterpreterMiddleware:
     """创建能力收敛的线程级 JavaScript Interpreter。
 
     PTC 调用不会逐次经过父 Agent 的 ``interrupt_on``，因此这里只桥接
-    无写入副作用的搜索工具。文件、Shell 和 MCP 工具仍走普通工具调用路径。
+    无写入副作用的公开网页搜索与读取工具。文件、Shell 和 MCP 工具仍走普通工具调用路径。
     """
 
     return CodeInterpreterMiddleware(

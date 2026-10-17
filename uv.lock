@@ -1581,7 +1581,6 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "sqlalchemy" },
-    { name = "tavily-python" },
     { name = "uvicorn" },
 ]
 
@@ -1625,7 +1624,6 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "sqlalchemy", specifier = "==2.0.52" },
-    { name = "tavily-python", specifier = "==0.7.27" },
     { name = "uvicorn", specifier = "==0.52.1" },
 ]
 
@@ -3274,20 +3272,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8add0c38aa924c4f9fb7330834ff11e5444db964ec3f9/starlette-1.6.0.tar.gz", hash = "sha256:d4e3ac5e546444960c710297a3c9fc3f7ebae1b7e963f3d36173b49da535be9b", size = 2716969, upload-time = "2026-08-08T18:27:57.512Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/cb/6a6a47d5b464bd08695d254f3da6e7986cc70c9fa5d778eda57538edfe56/starlette-1.6.0-py3-none-any.whl", hash = "sha256:a86dd39d14bb45f85a3d18525215a9ef0cfd1f192ac793220e72598c90335f0c", size = 75969, upload-time = "2026-08-08T18:27:56.196Z" },
-]
-
-[[package]]
-name = "tavily-python"
-version = "0.7.27"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpx" },
-    { name = "requests" },
-    { name = "tiktoken" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/92/53/e97950453a215a7b8c2c44d70b216f64c0e1d9844d8b91f025104e96d233/tavily_python-0.7.27.tar.gz", hash = "sha256:3fbbee7fc7e252479b264835e6f943b4a81395429c1bd419e8024d11bf2c1831", size = 30750, upload-time = "2026-07-30T13:44:15.245Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/dd/cf4b6668ef06670a27ed4012f2bd3663602ad5f0e1ac9b0c23e8d45d01eb/tavily_python-0.7.27-py3-none-any.whl", hash = "sha256:e5cb40cc852d108ced8a313379b7098108642eedfbd97f821296a5e1a483e9b9", size = 21988, upload-time = "2026-07-30T13:44:14.404Z" },
 ]
 
 [[package]]

@@ -26,15 +26,16 @@ from melonclaw.tool import tools as tools_module
 
 
 def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatch, tmp_path):
-    bindings, selections, searches = [], [], []
+    bindings, selections, searches, fetches = [], [], [], []
 
-    class Tavily:
-        def __init__(self, *, api_key):
-            pass
+    def fake_search(query: str, count: int = 5, ori_question: str | None = None,
+                    need_content: bool = False, *, api_key: str | None = None):
+        searches.append({"query": query, "count": count, "api_key": api_key})
+        return {"results": [{"title": "离线资料", "url": "https://example.com/a", "summary": query}]}
 
-        def search(self, **kwargs):
-            searches.append(kwargs)
-            return {"results": [{"title": "离线资料", "content": kwargs["query"]}]}
+    def fake_fetch(url: str, *, api_key: str | None = None):
+        fetches.append({"url": url, "api_key": api_key})
+        return {"url": url, "title": "离线页面", "content": "# 离线正文", "content_truncated": False}
 
     class Model(FakeMessagesListChatModel):
         def bind_tools(self, tools, **kwargs):
@@ -43,7 +44,7 @@ def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatc
         def with_structured_output(self, schema, **kwargs):
             async def select(messages):
                 selections.append(messages[-1].content)
-                return {"tools": ["internet_search"]}
+                return {"tools": ["internet_search", "web_fetch"]}
 
             return RunnableLambda(select)
 
@@ -51,8 +52,13 @@ def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatc
             user = next(m for m in reversed(messages) if isinstance(m, HumanMessage))
             bindings.append((user.content, set(visible_names)))
             results = [m for m in messages[messages.index(user) + 1:] if isinstance(m, ToolMessage)]
-            if user.content == "普通问答" or results and results[-1].name in {"internet_search", "task"}:
+            if user.content == "普通问答" or results and results[-1].name in {"web_fetch", "task"}:
                 message = AIMessage(content="完成")
+            elif results and results[-1].name == "internet_search":
+                message = AIMessage(content="", tool_calls=[{
+                    "name": "web_fetch", "id": f"fetch-{len(fetches)}",
+                    "args": {"url": "https://example.com/a"},
+                }])
             elif user.content == "委派搜索":
                 message = AIMessage(content="", tool_calls=[{
                     "name": "task", "id": "delegate", "args": {
@@ -73,10 +79,12 @@ def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatc
 
     model = Model(responses=[])
     monkeypatch.setattr(agent_module, "build_chat_model", lambda *args, **kwargs: model)
-    monkeypatch.setattr(search_module, "TavilyClient", Tavily)
+    monkeypatch.setattr(search_module, "internet_search", fake_search)
+    monkeypatch.setattr(search_module, "web_fetch", fake_fetch)
 
     async def run():
-        settings = Settings(workspace_root=tmp_path, data_root=tmp_path / "data", agent_usage_enabled=False)
+        settings = Settings(workspace_root=tmp_path, data_root=tmp_path / "data",
+                            deepseek_api_key="offline-deepseek-key", agent_usage_enabled=False)
         resolved = ResolvedModel(profile_id="offline", display_name="离线模型", source="custom",
             adapter_type="openai", provider="offline", model_name="offline", base_url=None,
             api_key="offline-placeholder")
@@ -87,15 +95,17 @@ def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatc
             result = await agent.ainvoke({"messages": [HumanMessage(id=f"u{index}", content=content)]}, config)
             assert result["messages"][-1].content == "完成"
             if index == 0:
-                assert not selections and not searches
+                assert not selections and not searches and not fetches
                 assert "internet_search" not in bindings[0][1]
+                assert "web_fetch" not in bindings[0][1]
         assert [item["query"] for item in searches] == ["查找资料", "查找子任务资料"]
+        assert [item["url"] for item in fetches] == ["https://example.com/a", "https://example.com/a"]
         assert len(selections) == 2
         assert "查找资料" in selections[0] and "查找子任务资料" in selections[1]
         child_bindings = [names for content, names in bindings if content == "查找子任务资料"]
         assert "internet_search" not in child_bindings[0]
-        assert "internet_search" in child_bindings[-1]
-        assert (await agent.aget_state(config)).values["tool_pool"]["names"] == ["internet_search"]
+        assert {"internet_search", "web_fetch"} <= child_bindings[-1]
+        assert (await agent.aget_state(config)).values["tool_pool"]["names"] == ["internet_search", "web_fetch"]
 
     asyncio.run(run())
 

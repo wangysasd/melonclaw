@@ -147,8 +147,8 @@ async def build_research_agent(
 ) -> CompiledStateGraph:
     """异步发现工具并构建绑定到指定工作区的通用助手。
 
-    Deep Agents 自带文件系统和 task/subagent 能力；这里注入模型、provider
-    Tavily 搜索、自定义工具、可选 MCP 工具、通用助手提示词和统一的本地文件后端。
+    Deep Agents 自带文件系统和 task/subagent 能力；这里注入模型、DeepSeek
+    搜索与网页读取、自定义工具、可选 MCP 工具、通用助手提示词和统一的本地文件后端。
 
     ``client_capabilities`` 是浏览器声明的能力清单。只有声明 ``user_input_v1``
     的客户端才会拿到 ``ask_user``：旧客户端渲染不出问题卡片，注入只会让它收到

@@ -188,6 +188,15 @@ export const TOOL_CATALOG: readonly ToolDefinition[] = [
     availabilityLabel: "项目工具",
   },
   {
+    name: "web_fetch",
+    label: "读取网页",
+    description: "抓取指定公开网页并提取 Markdown 正文。",
+    category: "web",
+    icon: "globe-2",
+    availability: "core",
+    availabilityLabel: "项目工具",
+  },
+  {
     name: "search_memory",
     label: "检索记忆",
     description: "搜索当前运行有权访问的记忆。",

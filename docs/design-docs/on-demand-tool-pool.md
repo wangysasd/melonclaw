@@ -8,7 +8,7 @@
 ## 方案与关键取舍
 官方 LLMToolSelectorMiddleware 负责结构化 schema、选名校验及数量限制。项目 ToolPoolMiddleware 负责生命周期，不维护第二套 JSON 选择解析器。find_tools 只提交需求；下一次 before_model 以需求为 HumanMessage 委托官方公开 awrap_model_call，handler 只收集工具名。选择器不会每轮包住主模型。
 
-应用工具在 `tool/tools.py` 装配时统一返回 LangChain `BaseTool`；普通搜索函数通过 `StructuredTool.from_function` 生成名称、描述和参数 schema，工具池与主/子 Agent 共用这些定义。选择器先于 Agent 图构建，必须在装配入口完成包装。直接传入普通函数会在读取 `.name` 时失败，连普通问答也无法开始；重新同步只读取会话状态，修复后需重启 Web 服务加载新代码。
+应用工具在 `tool/tools.py` 装配时统一返回 LangChain `BaseTool`；内置 DeepSeek 联网搜索（`internet_search`）与网页读取（`web_fetch`）由 `tool/search.py` 的 `build_web_tools` 统一构造名称、描述和参数 schema，工具池与主/子 Agent 共用这些定义。选择器先于 Agent 图构建，必须在装配入口完成包装。直接传入普通函数会在读取 `.name` 时失败，连普通问答也无法开始；重新同步只读取会话状态，修复后需重启 Web 服务加载新代码。
 
 池默认 16 个业务工具，每次最多选 8 个，每用户消息最多处理 4 个请求；同一模型轮次的并行请求合成一次选择。满时淘汰最早选择或使用的工具。基础/管理工具始终可见，不占池容量。参数从 core/config.py 进入，见 README；代码和 .env.example 提供默认值。
 
@@ -29,6 +29,6 @@ find_tools 是内部状态请求，不执行外部工具、不改变授权，不
 
 自动验证覆盖无请求、官方真实 OpenAI-compatible JSON schema 请求、需求转交、跨消息/会话、审批恢复、目录变更、容量淘汰、并行预算、输入校验、超时、取消、v3 文本隔离和主/子图装配。实际供应商结构化输出、真实 PostgreSQL 与外部 MCP 需部署环境验证。
 
-`tests/test_agent_tool_assembly.py` 通过实际 `build_research_agent` 入口装配应用工具，离线替换模型和 Tavily 传输，验证普通问答零选择、按需选择后执行内置搜索、子 Agent 独立发现搜索且父池不被覆盖，防止只测试已包装工具而漏检实际装配路径。
+`tests/test_agent_tool_assembly.py` 通过实际 `build_research_agent` 入口装配应用工具，离线替换模型和 DeepSeek 搜索/读取传输，验证普通问答零选择、按需选择后执行内置搜索与网页读取、子 Agent 独立发现工具且父池不被覆盖，防止只测试已包装工具而漏检实际装配路径。
 
 验证结果：`scripts/check.sh` 全部通过，覆盖后端编译、pytest、ruff、锁文件一致性、前端 lint/类型/测试与文档链接。真实 Deep Agents 父子调用已验证子池不继承或覆盖主池。

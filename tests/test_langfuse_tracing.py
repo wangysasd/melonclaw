@@ -223,7 +223,7 @@ def test_actual_background_graph_traces_subagent_and_tool(telemetry, monkeypatch
 
     async def execute():
         control = TaskRunControl(20, 20)
-        settings = replace(tracing.settings, tavily_api_key="fixture-key")
+        settings = replace(tracing.settings, deepseek_api_key="fixture-key")
         agent, _, _ = await build(monkeypatch, tmp_path, model, settings=settings, control=control, search_authorized=True)
         with tracing.run(**{**run_args(), "feature": "task-run"}) as trace:
             outcome = await execute_task_agent(agent, run_id=uuid4(), instruction="Delegate research",

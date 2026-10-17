@@ -132,7 +132,6 @@ httpx==0.28.1
     #   mcp
     #   melonclaw
     #   openai
-    #   tavily-python
 httpx-sse==0.4.3
     # via mcp
 idna==3.18
@@ -418,7 +417,6 @@ requests==2.34.2
     #   opentelemetry-exporter-http-transport
     #   opentelemetry-exporter-otlp-proto-http
     #   requests-toolbelt
-    #   tavily-python
     #   tiktoken
 requests-toolbelt==1.0.0
     # via langsmith
@@ -453,16 +451,12 @@ starlette==1.6.0
     #   fastmcp-slim
     #   mcp
     #   sse-starlette
-tavily-python==0.7.27
-    # via melonclaw
 tenacity==9.1.4
     # via
     #   google-genai
     #   langchain-core
 tiktoken==0.13.0
-    # via
-    #   langchain-openai
-    #   tavily-python
+    # via langchain-openai
 tqdm==4.70.0
     # via openai
 typing-extensions==4.16.0

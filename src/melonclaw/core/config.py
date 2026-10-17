@@ -85,7 +85,7 @@ class Settings:
     profile: str = ""
     data_root: Path = field(default_factory=_create_data_root)
     database_url: str = field(default="", repr=False)
-    tavily_api_key: str = field(default="", repr=False)
+    deepseek_api_key: str = field(default="", repr=False)
     attachment_max_file_bytes: int = 20 * 1024 * 1024
     attachment_max_per_message: int = 10
     attachment_max_total_bytes: int = 50 * 1024 * 1024
@@ -181,7 +181,7 @@ def load_settings() -> Settings:
         workspace_root=_create_workspace_root(),
         profile=os.getenv("profile", ""),
         database_url=os.getenv("DATABASE_URL", ""),
-        tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
+        deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         langfuse_enabled=_bool_setting("LANGFUSE_TRACING_ENABLED", False),
         langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY", "").strip(),
         langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY", "").strip(),

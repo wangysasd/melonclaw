@@ -68,7 +68,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | `memory/` | Global / Tenant / User 三级长期记忆的中间件、工具与服务 | `service.py`、`middleware.py`、`tools.py` |
 | `middleware/` | Agent 中间件：文件操作顺序、工具动态选择、用户提问批次护栏、任务预算与运行控制 | `file_ordering.py`、`tool_selection.py`、`user_input_guard.py`、`task_budget.py`、`summarization.py`、`todo.py` |
 | `backend/` | Deep Agents Backend 的构造与路径路由 | `factory.py` |
-| `tool/` | 注入 Agent 的工具（联网搜索、MCP 目录、受控 Skill 安装） | `tools.py`、`search.py` |
+| `tool/` | 注入 Agent 的工具（DeepSeek 联网搜索与网页读取、MCP 目录、受控 Skill 安装） | `tools.py`、`search.py` |
 
 ## 3. 依赖方向
 
@@ -127,7 +127,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | Skill/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
 | HTTP 身份 | `api/auth.py` 的 `require_session()` | 统一验证 Cookie 会话、来源和页面身份断言；附件由 `api/identity.py` 读取已验证身份。管理授权按当前 system/admin，业务归属仍由服务层校验 |
 
-凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`TAVILY_API_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；给 Agent 的变量名集中在 `core/defaults.py` 声明，值只来自 `.env`。
+凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`LANGFUSE_SECRET_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；给 Agent 的变量名集中在 `core/defaults.py` 声明，值只来自 `.env`。
 
 ### 聊天安装 Skill 与教程
 
@@ -279,3 +279,7 @@ ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，
 `services/tracing.py` 包裹真实聊天执行（回放不新建 trace），设置有意义的根输入/最终输出及中断状态；执行服务仅在调用图时合并监控回调，原 config、Agent 缓存、Checkpoint 与 SSE 协议不承载监控对象。后台从有效身份/数据库模型解析后包裹历史准备和执行；历史摘要使用同一运行回调。每次运行新建 handler，以 run_id 派生 trace ID，以租户和固定会话构造 session，审批恢复产生新 trace 并归入同一 session。
 
 仅 Langfuse SDK 的 spans 发往 Langfuse，独立 provider 避免影响其他观测集成；创建阶段去除运行对象与常见秘密，导出阶段脱敏最终属性并执行内容开关。SDK 自动媒体上传强制关闭，Langfuse 凭据加入 Agent Shell 禁传清单。监控没有新增工具、HITL、API 或业务表，不改变 LocalShellBackend 的非沙箱限制。完整流程、限制和验证见[Langfuse 设计](design-docs/langfuse-tracing.md)。
+
+## DeepSeek 联网工具
+
+`tool/deepseek.py` 统一搜索/抓取的严格响应协议、同步异步传输、进程内按接口节流与有限重试；`search.py` 和 `task_search.py` 分别负责聊天和后台输出与权限边界。凭据只经 `core/config.py` 注入，工具不读取环境变量；异常结构不当作无结果，截断显式标记。后台不开放 Fetch。设计与并发/取消限制见[联网工具](design-docs/deepseek-web-tools.md)。

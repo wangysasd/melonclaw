@@ -19,7 +19,7 @@ from melonclaw.core.mcp_config import (
     redact_mcp_sensitive_text,
     select_mcp_tool_names,
 )
-from melonclaw.tool.search import internet_search
+from melonclaw.tool.search import build_web_tools
 
 MCP_CATALOG_TOOL_NAME = "list_mcp_tools"
 
@@ -59,7 +59,7 @@ def _safe_mcp_exception(exc: BaseException) -> str:
 def build_custom_tools(settings: Settings) -> list[BaseTool]:
     """在装配入口生成完整工具定义，供选择器与 Agent 共用。"""
 
-    return [StructuredTool.from_function(internet_search)]
+    return build_web_tools(getattr(settings, "deepseek_api_key", None))
 
 
 def build_mcp_catalog_tool(

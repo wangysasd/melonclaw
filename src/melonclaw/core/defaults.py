@@ -46,7 +46,6 @@ DEFAULT_AGENT_ENV_VARS: tuple[str, ...] = (
 SHELL_ENV_DENYLIST: frozenset[str] = frozenset(
     {
         "DEEPSEEK_API_KEY",
-        "TAVILY_API_KEY",
         "DATABASE_URL",
         "LANGFUSE_SECRET_KEY",
         "LANGFUSE_PUBLIC_KEY",

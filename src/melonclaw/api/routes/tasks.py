@@ -49,7 +49,7 @@ async def status(request: Request):
             },
             "schedule_kinds": ["manual", "once", "daily", "weekly"],
             "timezone": "Asia/Shanghai",
-            "search_available": bool(current.settings.tavily_api_key.strip()),
+            "search_available": bool(current.settings.deepseek_api_key.strip()),
         }
     )
 

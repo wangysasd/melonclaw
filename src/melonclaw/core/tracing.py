@@ -104,7 +104,7 @@ class Tracing:
             _protect_sdk_logs()
             self.provider = TracerProvider(resource=TRACE_RESOURCE)
             secrets = (settings.langfuse_public_key, settings.langfuse_secret_key,
-                       settings.database_url, settings.tavily_api_key)
+                       settings.database_url, settings.deepseek_api_key)
             self.client = Langfuse(
                 public_key=settings.langfuse_public_key,
                 secret_key=settings.langfuse_secret_key,

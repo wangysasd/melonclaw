@@ -16,7 +16,7 @@ test("groups management tools and counts only enabled directories", async () => 
   expect(within(skills).getByText("安装 Skill")).toBeTruthy();
   expect(within(screen.getByRole("region", { name: "工具" })).queryByText("安装 Skill")).toBeNull();
   const summary = screen.getByLabelText("系统状态摘要");
-  expect(summary.textContent).toContain("18 个固定工具");
+  expect(summary.textContent).toContain("19 个固定工具");
   expect(summary.textContent).toContain("1 个启用技能");
   expect(summary.textContent).toContain("1 个启用 MCP");
   expect(screen.getByText("停用服务")).toBeTruthy();

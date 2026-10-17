@@ -82,6 +82,7 @@ async def build(monkeypatch, tmp_path, model, *, settings=None, control=None, **
         "memory_search",
         "create_task",
         "configure_task",
+        "web_fetch",
         "unknown_future_tool",
         "query_tasks",
         "prepare_task_change",
@@ -164,7 +165,7 @@ def test_allowed_search_and_child_use_same_restricted_catalog(monkeypatch, tmp_p
             return ChatResult(generations=[ChatGeneration(message=reply)])
 
     async def run():
-        settings = settings_for(tmp_path, tavily_api_key="offline-placeholder")
+        settings = settings_for(tmp_path, deepseek_api_key="offline-placeholder")
         agent, control, _ = await build(
             monkeypatch,
             tmp_path,
@@ -256,7 +257,7 @@ def test_batch_with_forbidden_call_executes_no_search(monkeypatch, tmp_path):
                     )
                 ]
             ),
-            settings=settings_for(tmp_path, tavily_api_key="offline"),
+            settings=settings_for(tmp_path, deepseek_api_key="offline"),
             search_authorized=True,
         )
         with pytest.raises(TaskExecutionError, match="不支持"):
@@ -343,7 +344,7 @@ def test_search_requires_current_authorization_and_configured_key(monkeypatch, t
                         ),
                     ]
                 ),
-                settings=settings_for(tmp_path, tavily_api_key=key),
+                settings=settings_for(tmp_path, deepseek_api_key=key),
                 search_authorized=authorized,
             )
             outcome = await execute_task_agent(
