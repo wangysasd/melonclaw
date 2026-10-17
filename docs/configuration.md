@@ -31,6 +31,20 @@ createdb melonclaw
 
 模型名称、服务地址和 API Key 在「拓展 → 模型」配置。初始化只写入未启用、无凭据的供应商模板，不创建默认模型，也不从环境变量自动生成模型。无需 MCP 时可不创建 `mcp.json`。
 
+### Langfuse 追踪
+
+| 环境变量 | 用途与默认值 |
+|---|---|
+| `LANGFUSE_TRACING_ENABLED` | 默认 false；true 开启，重启 Web 生效 |
+| `LANGFUSE_BASE_URL` | 项目所在区域地址；启用时须明确填写，不默认发送到其他区域 |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | 项目凭据；仅写环境配置，不提交、不打印、不透传 Agent Shell |
+| `LANGFUSE_TRACING_ENVIRONMENT` | 默认 development；生产部署显式设置 production |
+| `MELONCLAW_LANGFUSE_CAPTURE_CONTENT` | 默认 true，上传脱敏文本；false 隐藏输入/输出、模型参数与非白名单元数据，保留业务标识和用量 |
+
+地址示例为 `https://jp.cloud.langfuse.com`。从该区域项目设置取得凭据。安装依赖执行 `uv sync --locked`，启动执行 `uv run melonclaw-web`，已有服务重启即可，无 schema 变化。开关开启但凭据缺失或地址无效时记录安全警告并停用监控；布尔变量格式错误仍按应用配置错误处理。
+
+SDK 异步批量上报，不在每条消息结束时同步 flush。网络故障会丢失监控数据，不能把 trace 当业务账本；业务记录和权限继续以本地数据库为准。SDK 媒体上传被强制关闭，普通文本可能含附件派生内容；最终 exporter 同时处理 OTel 错误状态、异常事件和 links。邮箱、常见大陆手机号、常见凭据与带密码 URL 自动脱敏，但不构成完整的 PII/DLP 检测。需要严格不外发正文时关闭内容采集。详见[监控设计](design-docs/langfuse-tracing.md)。
+
 ### DM Skill 的 Shell 配置
 
 若已在外部数据根安装 DM 脚本，其运行需要读取 `DM_APP_KEY`、`DM_APP_SECRET`，依赖共享客户端的脚本还需要 `DM_FIXED_INCOME_API_SKILL_DIR`。仅在 `.env` 填写变量不会自动透传到 Agent Shell；通过现有 `MELONCLAW_SHELL_ENV_ALLOWLIST` 按精确变量名放行：

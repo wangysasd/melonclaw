@@ -32,6 +32,8 @@ attrs==26.1.0
     #   referencing
 authlib==1.7.2
     # via fastmcp-slim
+backoff==2.2.1
+    # via langfuse
 backports-tarfile==1.2.0 ; python_full_version < '3.12'
     # via jaraco-context
 beartype==0.22.9
@@ -104,6 +106,8 @@ google-auth==2.56.3
     # via google-genai
 google-genai==2.17.0
     # via langchain-google-genai
+googleapis-common-protos==1.75.5
+    # via opentelemetry-exporter-otlp-proto-http
 greenlet==3.2.4
     # via
     #   melonclaw
@@ -122,6 +126,7 @@ httpx==0.28.1
     #   anthropic
     #   fastmcp-slim
     #   google-genai
+    #   langfuse
     #   langgraph-sdk
     #   langsmith
     #   mcp
@@ -205,6 +210,8 @@ langchain-protocol==0.0.18
     #   langgraph-sdk
 langchain-quickjs==0.3.5
     # via melonclaw
+langfuse==5.0.2
+    # via melonclaw
 langgraph==1.2.10
     # via
     #   langchain
@@ -253,8 +260,33 @@ openapi-pydantic==0.5.1
     # via fastmcp-slim
 openpyxl==3.1.5
     # via melonclaw
-opentelemetry-api==1.44.0
-    # via fastmcp-slim
+opentelemetry-api==1.45.1
+    # via
+    #   fastmcp-slim
+    #   langfuse
+    #   opentelemetry-exporter-http-transport
+    #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+opentelemetry-exporter-http-transport==0.66b1
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-common==0.66b1
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-common==1.45.1
+    # via opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-http==1.45.1
+    # via langfuse
+opentelemetry-proto==1.45.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-http
+opentelemetry-sdk==1.45.1
+    # via
+    #   langfuse
+    #   opentelemetry-exporter-otlp-common
+    #   opentelemetry-exporter-otlp-proto-http
+opentelemetry-semantic-conventions==0.66b1
+    # via opentelemetry-sdk
 orjson==3.11.9
     # via
     #   langgraph-checkpoint-postgres
@@ -267,6 +299,7 @@ packaging==26.3
     #   deepagents
     #   fastmcp-slim
     #   langchain-core
+    #   langfuse
     #   langsmith
 pandas==3.0.6
     # via melonclaw
@@ -280,6 +313,10 @@ platformdirs==4.11.1
     # via fastmcp-slim
 playwright==1.64.0
     # via melonclaw
+protobuf==7.36.2
+    # via
+    #   googleapis-common-protos
+    #   opentelemetry-proto
 psycopg==3.3.5
     # via
     #   langgraph-checkpoint-postgres
@@ -310,6 +347,7 @@ pydantic==2.13.4
     #   langchain-anthropic
     #   langchain-core
     #   langchain-google-genai
+    #   langfuse
     #   langgraph
     #   langsmith
     #   mcp
@@ -377,6 +415,8 @@ requests==2.34.2
     #   google-genai
     #   langsmith
     #   melonclaw
+    #   opentelemetry-exporter-http-transport
+    #   opentelemetry-exporter-otlp-proto-http
     #   requests-toolbelt
     #   tavily-python
     #   tiktoken
@@ -436,10 +476,14 @@ typing-extensions==4.16.0
     #   langchain-core
     #   langchain-mcp-adapters
     #   langchain-protocol
+    #   langfuse
     #   langsmith
     #   mcp
     #   openai
     #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
     #   psycopg
     #   psycopg-pool
     #   py-key-value-aio
@@ -490,6 +534,8 @@ websockets==15.0.1
     #   google-genai
     #   langgraph-sdk
     #   langsmith
+wrapt==2.5.1
+    # via langfuse
 xlsxwriter==3.2.9
     # via python-pptx
 xxhash==3.8.1

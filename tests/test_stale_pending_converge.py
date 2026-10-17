@@ -97,7 +97,7 @@ def test_runtime_initialize_converges_stale_pending_after_schema_check(monkeypat
         runtime_module,
         "load_settings",
         lambda: SimpleNamespace(
-            database_url="postgresql://unused", data_root=tmp_path
+            database_url="postgresql://unused", data_root=tmp_path, langfuse_enabled=False
         ),
     )
     monkeypatch.setattr(runtime_module, "Database", _FakeDatabase)

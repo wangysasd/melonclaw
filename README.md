@@ -70,6 +70,14 @@ scripts/start.sh
 
 每条用户消息、每个 Agent 默认最多调用模型 1000 次、工具 5000 次，可在环境配置中通过 `MELONCLAW_AGENT_MODEL_CALL_LIMIT`、`MELONCLAW_AGENT_TOOL_CALL_LIMIT` 调整，重启 Web 后生效。已有环境文件中的显式值优先于默认值。取数指引要求同一数据项、同一目标范围最多尝试两次，仍失败或为空则注明日期、来源与缺失原因并继续完成可交付部分；该规则由提示词引导，硬上限仍会终止超额执行。详见[Agent 运行控制](docs/design-docs/agent-runtime-controls.md)。
 
+## Langfuse 监控（可选）
+
+在 Langfuse 的所选区域创建项目，将项目地址、Public Key 和 Secret Key 分别写入本地环境配置中的 `LANGFUSE_BASE_URL`、`LANGFUSE_PUBLIC_KEY`、`LANGFUSE_SECRET_KEY`，再设置 `LANGFUSE_TRACING_ENABLED=true`。更新代码后执行 `uv sync --locked`，重启 Web；无需安装 MCP，也无需数据库升级。
+
+普通聊天、审批/问答恢复和后台任务会自动记录调用链、模型、Token、耗时和异常。每次执行一条 trace，同一会话按 session 关联；后台任务包含历史摘要。默认上传脱敏后的对话、提示词和工具文本，可能包含附件派生文本与业务内容；图片、音频、文件媒体不自动上传。若只需要结构和用量，设置 `MELONCLAW_LANGFUSE_CAPTURE_CONTENT=false`；完全关闭则设置 `LANGFUSE_TRACING_ENABLED=false`，重启生效。脱敏不能识别所有商业秘密，启用内容采集前应确认数据允许发送到所选区域。
+
+在 Langfuse 的 Traces/Sessions 查看记录，通过 `chat-turn` / `task-run` 标签和 tenant_id、run_id 定位请求。项目 Key 必须与区域一致；没有记录时先检查开关、地址和凭据，以及服务日志中的监控诊断。上报后台批量执行，故障不阻断聊天；停服先结束执行再排空队列。详见[配置说明](docs/configuration.md#langfuse-追踪)及[设计与验证](docs/design-docs/langfuse-tracing.md)。 可重复执行的专项、隔离数据库和显式云端验证命令见[全面测试记录](docs/exec-plans/completed/langfuse-comprehensive-validation.md)。
+
 ## 停止与更新
 
 ```bash

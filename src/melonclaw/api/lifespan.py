@@ -29,7 +29,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         await manager.initialize()
         if not manager.ready:
             return
-        executor = TaskScheduler(manager.settings, manager.storage, manager.checkpointer)
+        executor = TaskScheduler(manager.settings, manager.storage, manager.checkpointer, tracing=manager.runtime.tracing)
         application.state.task_scheduler = executor
         try:
             await executor.start()

@@ -49,7 +49,7 @@ class SummaryModel:
     def with_config(self, **kwargs):
         return self
 
-    async def ainvoke(self, messages):
+    async def ainvoke(self, messages, config=None):
         self.calls += 1
         self.started.set()
         try:

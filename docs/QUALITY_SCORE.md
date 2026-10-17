@@ -9,16 +9,16 @@
 | 领域 | 评分 | 现状（实测） | 主要差距 |
 |---|---|---|---|
 | 架构约束 | 中 | 包职责边界清晰；`tests/test_architecture.py` 强制 10 组禁止依赖、入口独占、规则表完整性、源文件长度上限 | 只覆盖包级 import，未覆盖同一包内的模块粒度，也未约束横切入口的单一性 |
-| 后端测试 | 低 | 2026-10-17 首批清理后复测：664 passed、59 skipped、2 xfailed、27 subtests passed；账户、任务与产物已有使用随机隔离 schema 的 PostgreSQL 集成测试，未配置专用测试连接时跳过 | 本轮未运行 59 项数据库测试；完整 Agent/Checkpoint/SSE 组合仍缺可重复运行的集成验证 |
+| 后端测试 | 低 | 2026-10-17 Langfuse 全面复测：773 passed、3 skipped（显式云端验证，已另行 3 passed）、2 xfailed、27 subtests passed；本轮配置随机 schema 连接运行账户、任务、产物与真实 Checkpointer/Memory 集成测试 | 既有 2 项后台 SSE 生命周期缺口仍为 strict xfail；无持续运行的浏览器 E2E |
 | 前端测试 | 中 | 2026-10-17 首批清理后 eslint、tsc、全量 vitest 通过，另有 7 文件 77 项相关专项通过；未单独提取全量用例总数；2026-10-15 历史记录有 354 项回归通过（见下文） | 无持续运行的 E2E 测试，SSE 契约仍靠单元测试维护 |
 | 静态检查 | 中 | 后端 ruff 已显式配置（`pyproject.toml` 的 `[tool.ruff]`，规则集钉死为 `E4/E7/E9/F/I`）；2026-10-17 审计基线常规后端 ruff、前端 eslint + tsc 通过 | 同日额外检查 TRY/BLE 有 435 条告警，这些规则尚未启用，需按上下文审查（见 D3） |
 | 依赖环境 | 良 | `pyproject.toml` + `uv.lock` 固定版本，`uv lock --check` 通过；`pytest`、`ruff` 已在 `[dependency-groups] dev` 中声明 | `npm ci` 依赖前端锁文件；无其它缺口 |
 | CI | 中 | `.github/workflows/check.yml` 分后端 / 前端两个 job，覆盖编译、测试、lint、类型检查、锁文件 | 本轮未核实真实 PR 运行历史与分支保护；本机通过不代替 CI 验证 |
 | 文档 | 中 | `docs/` 为事实来源，`AGENTS.md` 提供地图；相对链接与地图条目由 `tests/test_docs_links.py` 校验 | `note/` 未版本化（本地草稿）；无文档新鲜度倒计时机制 |
-| 可观测性 | 中 | 后端有结构化运行提示与脱敏日志；前端有可展开的执行摘要 | 无本地 metrics/trace 栈，agent 无法自行查询运行指标 |
+| 可观测性 | 中 | 可选 Langfuse 追踪覆盖聊天/恢复/任务，50 项专项及 3 项云端策略验证通过，SDK 状态/事件/链接与传播日志脱敏，监控开关可独立关闭 | 未部署本地 metrics 栈；未验收生产环境长期吞吐/强杀排空与完整 DLP |
 | 安全边界 | 中 | Cookie 会话统一覆盖受保护 API；服务层保留 HITL 审批、凭据硬黑名单与归属校验 | `LocalShellBackend` 无隔离；无病毒扫描；profile=dev 可全员切换身份，仍不是生产用户间权限隔离 |
 
-首次审计与首批实施验证分别见[清理计划](exec-plans/completed/2026-10-17-code-cleanup-audit.md)的「验证基线」和「首批实施记录」。59 项跳过均需要 `MELONCLAW_TEST_DATABASE_URL`；2 项 strict xfail 是后台流 producer 异常未取回与首次迭代前关闭清理的既有缺口。下文各日期的完整检查、数据库与浏览器记录保留为历史证据，未在本轮复测。
+首次审计与首批实施验证分别见[清理计划](exec-plans/completed/2026-10-17-code-cleanup-audit.md)的「验证基线」和「首批实施记录」。首次审计的 59 项数据库跳过在本轮注入 `MELONCLAW_TEST_DATABASE_URL` 后已运行；新增 3 项云端用例正常全量检查默认跳过，但已显式执行通过。2 项 strict xfail 是后台流 producer 异常未取回与首次迭代前关闭清理的既有缺口。下文各日期的完整检查、数据库与浏览器记录保留为历史证据，未在本轮复测。
 
 ## 已修复
 
@@ -97,3 +97,8 @@
 ## 2026-10-15 任务会话摘要刷新
 
 侧栏每 30 秒直接请求数据库筛选后的任务会话摘要，保留单页最多 100 条；刷新与加载更多按 ID 去重，并修复既有置顶布尔游标导致第二页报错的问题。新增 1 项数据库端到端场景和 3 项前端回归，补充当前租户/用户边界查询；会话与交付专项 19 项通过。完整 scripts/check.sh（含真实 PostgreSQL 随机隔离 schema）全部通过。原有任务配置回归的 UUID/字符串断言同步修正；无需数据库升级，未改业务历史或重启服务。详见[执行记录](exec-plans/completed/2026-10-15-task-conversation-refresh.md)。
+
+
+## 2026-10-17 Langfuse 全面测试
+
+开关、隐私、故障、并发、审批恢复、真实 PostgreSQL 聊天落库/回放、任务摘要、超时/取消/停服和真实 APScheduler 触发已验证。修复模型参数/底层事件脱敏、日志传播、任意对象字典键、业务 data 过度屏蔽和后台终态误分类。完整矩阵与精确验证边界见[全面验收记录](exec-plans/completed/langfuse-comprehensive-validation.md)。

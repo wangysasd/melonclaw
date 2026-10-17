@@ -37,6 +37,7 @@ async def run():
         await engine.dispose()
 
     manager = SimpleNamespace(
+        runtime=SimpleNamespace(tracing=None),
         storage=storage,
         settings=settings,
         ready=True,

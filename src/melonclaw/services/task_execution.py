@@ -13,6 +13,7 @@ from melonclaw.core.agent import AgentContext
 from melonclaw.core.config import Settings
 from melonclaw.core.task_policy import TaskExecutionError, TaskRunControl
 from melonclaw.core.task_snapshot import task_thread_id
+from melonclaw.core.tracing import trace_config
 from melonclaw.output.content import answer_text
 from melonclaw.output.formatting import sanitize_text
 
@@ -86,7 +87,7 @@ async def execute_task_agent(
             settings.task_result_max_chars,
         )
     )
-    config = {"configurable": {"thread_id": task_thread_id(run_id)}}
+    config = trace_config({"configurable": {"thread_id": task_thread_id(run_id)}})
     status, code, error = "succeeded", None, None
     try:
         control.check()

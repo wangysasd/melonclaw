@@ -270,3 +270,12 @@ ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，
 任务运行总时限从模型解析/历史准备开始计算；历史准备独立默认 60 秒/4 次摘要，后台摘要计入共享调用预算，追问摘要单独有界并传播取消。UTF-8 字节切块先验证总块数，超限不请求模型、不截断资料。进度只在正文变化时保存，终态与聊天消息同事务；状态只读事务保留执行连接互斥/PID 校验而不取任务全局排他锁。解析后模型展示名与消息原子同步，默认标题随任务名更新，自定义标题保留。
 
 操作完整回执默认保留 30 天，过期请求显式拒绝；保留数据升级允许 response 为空并增加清理索引。周期清理每轮至多 100 条回执，只清空响应，键/请求摘要永久保留以阻止旧请求重复执行；拒重标记行数仍增长，不宣称账本总行数有界。新库直接创建当前 schema，已有库停 Web 后显式 db-update。
+
+
+## 可选 Langfuse 追踪
+
+配置统一经 `core/config.py`，客户端、运行 ContextVar 和回调配置经 `core/tracing.py`；隐私策略经 `core/trace_privacy.py`，OTel 状态/事件/链接经 `core/trace_exporter.py` 最终处理，`core/trace_callbacks.py` 只调整已知子 Agent 的观测名与安全错误，不重写官方层级/Token 解析。`ChatRuntime` 拥有单一客户端，Web 生命周期把它注入内置 TaskScheduler；停服先结束任务和聊天，再在线程中 shutdown 客户端及独立 OTel provider。
+
+`services/tracing.py` 包裹真实聊天执行（回放不新建 trace），设置有意义的根输入/最终输出及中断状态；执行服务仅在调用图时合并监控回调，原 config、Agent 缓存、Checkpoint 与 SSE 协议不承载监控对象。后台从有效身份/数据库模型解析后包裹历史准备和执行；历史摘要使用同一运行回调。每次运行新建 handler，以 run_id 派生 trace ID，以租户和固定会话构造 session，审批恢复产生新 trace 并归入同一 session。
+
+仅 Langfuse SDK 的 spans 发往 Langfuse，独立 provider 避免影响其他观测集成；创建阶段去除运行对象与常见秘密，导出阶段脱敏最终属性并执行内容开关。SDK 自动媒体上传强制关闭，Langfuse 凭据加入 Agent Shell 禁传清单。监控没有新增工具、HITL、API 或业务表，不改变 LocalShellBackend 的非沙箱限制。完整流程、限制和验证见[Langfuse 设计](design-docs/langfuse-tracing.md)。

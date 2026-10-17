@@ -31,8 +31,12 @@ DEFAULT_AGENT_ENV_VARS: tuple[str, ...] = (
     # cicc-research-* 系列
     "APP_ID",
     "APP_SECRET",
-    # mcp.json 的 ${...} 占位符同名凭据
-    "YUJIAN_MCP_TOKEN",
+    # daily-bond-report / DM 固收系列
+    "DM_APP_KEY",
+    "DM_APP_SECRET",
+    "DM_FIXED_INCOME_API_SKILL_DIR",
+    # htsc-* 系列
+    "HTSC_APP_KEY",
 )
 
 # 应用自身运行凭据与连接串：无论出现在哪一层（默认集合、部署者白名单、
@@ -44,6 +48,8 @@ SHELL_ENV_DENYLIST: frozenset[str] = frozenset(
         "DEEPSEEK_API_KEY",
         "TAVILY_API_KEY",
         "DATABASE_URL",
+        "LANGFUSE_SECRET_KEY",
+        "LANGFUSE_PUBLIC_KEY",
         "MELONCLAW_SHELL_ENV_ALLOWLIST",
     }
 )

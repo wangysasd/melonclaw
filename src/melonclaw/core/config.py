@@ -127,6 +127,13 @@ class Settings:
     task_history_timeout_seconds: int = 60
     task_history_summary_max_calls: int = 4
 
+    langfuse_enabled: bool = False
+    langfuse_public_key: str = field(default="", repr=False)
+    langfuse_secret_key: str = field(default="", repr=False)
+    langfuse_base_url: str = field(default="", repr=False)
+    langfuse_environment: str = "development"
+    langfuse_capture_content: bool = True
+
     task_poll_seconds: int = 2
     task_global_concurrency: int = 2
     task_user_concurrency: int = 1
@@ -175,6 +182,12 @@ def load_settings() -> Settings:
         profile=os.getenv("profile", ""),
         database_url=os.getenv("DATABASE_URL", ""),
         tavily_api_key=os.getenv("TAVILY_API_KEY", ""),
+        langfuse_enabled=_bool_setting("LANGFUSE_TRACING_ENABLED", False),
+        langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY", "").strip(),
+        langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY", "").strip(),
+        langfuse_base_url=os.getenv("LANGFUSE_BASE_URL", "").strip(),
+        langfuse_environment=os.getenv("LANGFUSE_TRACING_ENVIRONMENT", "development").strip(),
+        langfuse_capture_content=_bool_setting("MELONCLAW_LANGFUSE_CAPTURE_CONTENT", True),
         tool_selection_timeout_seconds=_int_setting("MELONCLAW_TOOL_SELECTION_TIMEOUT_SECONDS", 10),
         tool_pool_size=_int_setting("MELONCLAW_TOOL_POOL_SIZE", 16),
         tool_selection_size=_int_setting("MELONCLAW_TOOL_SELECTION_SIZE", 8),
@@ -293,3 +306,8 @@ def allowed_origins() -> list[str]:
     if "*" in origins:
         raise ValueError("Cookie 来源配置必须使用明确的 Origin，不能使用通配符。")
     return origins or ["http://localhost:8001", "http://127.0.0.1:8001"]
+
+
+def configure_langfuse_environment() -> None:
+    """应用禁止 SDK 自动上传媒体；环境变量写入仍由配置入口统一处理。"""
+    os.environ["LANGFUSE_MEDIA_UPLOAD_ENABLED"] = "false"

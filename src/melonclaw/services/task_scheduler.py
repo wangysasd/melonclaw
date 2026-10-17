@@ -10,6 +10,7 @@ from melonclaw.core.agent import AgentContext, build_research_agent
 from melonclaw.core.task_agent import TaskAgentOptions
 from melonclaw.core.task_errors import TaskError
 from melonclaw.core.task_policy import TaskExecutionError, TaskRunControl
+from melonclaw.core.tracing import Tracing
 from melonclaw.repository.task_history import load_history
 from melonclaw.repository.task_queue import TaskQueueRepository
 from melonclaw.services.task_execution import TaskOutcome, TaskProgress, execute_task_agent
@@ -20,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 class TaskScheduler:
-    def __init__(self, settings, storage, checkpointer):
+    def __init__(self, settings, storage, checkpointer, *, tracing: Tracing | None = None):
+        self.tracing = tracing
         self.settings = settings
         self.service = TaskService(settings, storage)
         self.queue = TaskQueueRepository(storage.engine)
@@ -135,8 +137,35 @@ class TaskScheduler:
         limits = dict(max_chars=settings.task_result_max_chars)
         last_saved_text = progress.text
 
-        async def invoke():
+        async def invoke(deadline):
             user, definition, model = await self.service.execution_input(run)
+            if self.tracing is None:
+                return await invoke_agent(user, definition, model)
+            with self.tracing.run(
+                feature="task-run", user_id=user.user_id, tenant_id=user.tenant_id,
+                conversation_id=str(run["config_snapshot"]["history"]["conversation_id"]), run_id=str(run["id"]),
+                input=definition.instruction,
+                metadata={"task_id": str(run["task_id"]), "model_id": definition.model_id},
+            ) as trace:
+                try:
+                    outcome = await invoke_agent(user, definition, model)
+                except asyncio.CancelledError:
+                    trace.finish(
+                        output=progress.text,
+                        status="cancelled" if user_cancelled else "failed",
+                        error_code="execution_timeout" if deadline.expired()
+                        else "cancelled" if user_cancelled else "service_shutdown",
+                    )
+                    raise
+                if deadline.expired() or outcome.status == "cancelled" and not user_cancelled:
+                    trace.finish(output=outcome.result_markdown, status="failed",
+                                 error_code="execution_timeout" if deadline.expired() else "service_shutdown")
+                else:
+                    trace.finish(output=outcome.result_markdown, status=outcome.status,
+                                 error_code=outcome.error_code)
+                return outcome
+
+        async def invoke_agent(user, definition, model):
             await self.queue.save_model_display_name(run, model.display_name)
             async with self.queue.transaction() as conn:
                 rows = await load_history(conn, user.user_id, run["config_snapshot"]["history"])
@@ -174,7 +203,7 @@ class TaskScheduler:
 
         async def invoke_with_timeout():
             async with asyncio.timeout(settings.task_execution_timeout_seconds) as deadline:
-                outcome = await invoke()
+                outcome = await invoke(deadline)
                 # 执行核心会把取消转成终态；总时限触发的取消仍须归类为超时失败。
                 if deadline.expired():
                     raise TimeoutError

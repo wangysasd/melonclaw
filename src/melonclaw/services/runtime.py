@@ -19,6 +19,7 @@ from melonclaw.core.model_catalog import (
     catalog_item,
     is_custom_model_id,
 )
+from melonclaw.core.tracing import Tracing
 from melonclaw.core.user_input import normalize_capabilities
 from melonclaw.database import (
     Database,
@@ -74,6 +75,7 @@ class ChatRuntime(ModelResolutionMixin):
     workspace_agents: dict[Any, Any] | None = None
     agent_build_locks: dict[Any, _AgentBuildLock] = field(default_factory=dict)
     mcp_discovery: McpDiscoveryCoordinator = field(default_factory=McpDiscoveryCoordinator)
+    tracing: Tracing | None = None
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
 
@@ -82,6 +84,7 @@ class ChatRuntime(ModelResolutionMixin):
 
         try:
             self.settings = load_settings()
+            self.tracing = Tracing(self.settings)
             removed = clear_stale_snapshots(self.settings.data_root)
             if removed:
                 logger.info("cleared %d stale skill snapshot(s) from previous process", removed)
@@ -126,6 +129,9 @@ class ChatRuntime(ModelResolutionMixin):
     async def close(self) -> None:
         """按依赖顺序释放 Agent 使用的 Checkpointer 池和业务池。"""
 
+        if self.tracing is not None:
+            await self.tracing.close()
+            self.tracing = None
         await self.mcp_discovery.close()
 
         if self.memory_store_context is not None:

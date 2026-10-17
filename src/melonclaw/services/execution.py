@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
@@ -21,6 +22,7 @@ from melonclaw.core.hitl import (
     serialize_pending_user_question,
 )
 from melonclaw.core.model_catalog import ResolvedModel
+from melonclaw.core.tracing import trace_config
 from melonclaw.core.user_input import normalize_capabilities
 from melonclaw.output.assistant_steps import AssistantStepAccumulator, events_from_snapshot
 from melonclaw.output.content import answer_text
@@ -53,6 +55,7 @@ from melonclaw.services.execution_trace import ExecutionTrace
 from melonclaw.services.mcp_chat_config import parse_chat_mcp
 from melonclaw.services.result_index import extract_result_refs, message_result_refs
 from melonclaw.services.runtime import ChatRuntime
+from melonclaw.services.tracing import trace_chat_execution
 
 
 class ExecutionService:
@@ -540,6 +543,13 @@ class ExecutionService:
         *,
         agent_input: Any | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
+        async with aclosing(trace_chat_execution(
+            self.runtime, execution, self._stream_execution(execution, agent_input=agent_input),
+        )) as events:
+            async for event in events:
+                yield event
+
+    async def _stream_execution(self, execution, *, agent_input=None):
         """发送业务事件；数据库最终状态先提交，再发送 completed。"""
 
         storage = self.runtime.require_ready()
@@ -645,7 +655,7 @@ class ExecutionService:
             async for event in iter_research_events(
                 agent,
                 agent_input,
-                execution.config,
+                trace_config(execution.config),
                 context=AgentContext(
                     user_id=execution.user_id,
                     user_message_id=str(execution.user_message_id or ""),

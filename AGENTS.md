@@ -35,7 +35,7 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 - 新增能力优先扩展既有模块或提炼可复用组件；只有职责足够独立时才在包内增加子包。目录和模块命名应描述领域职责。
 - 不要把所有实现集中到单一文件；保持 Web、Agent、工具和持久化层的边界。
 - **依赖方向由 `tests/test_architecture.py` 强制**，各包允许依赖谁见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 第 3 节。新增包时先在该测试的 `FORBIDDEN_IMPORTS` 里声明规则，再写实现。
-- 横切关注点只从固定入口进入：配置走 `core/config.py`，模型目录走 `core/model_catalog.py`，模型实例走 `core/chat_model.py`，MCP 走 `core/mcp_config.py`，长期记忆走 `memory/MemoryService`，业务数据读写走 `repository/`。不要另开旁路。
+- 横切关注点只从固定入口进入：配置走 `core/config.py`，模型目录走 `core/model_catalog.py`，模型实例走 `core/chat_model.py`，MCP 走 `core/mcp_config.py`，长期记忆走 `memory/MemoryService`，监控走 `core/tracing.py`（只用运行副本，不写业务表或缓存 Agent），业务数据读写走 `repository/`。不要另开旁路。
 - 依赖以 `pyproject.toml` 和 `uv.lock` 为准，使用 `uv sync` 管理环境；`requirements.txt` 仅作为 pip 兼容清单维护。
 - **数据库初始化与增量更新分开。** `uv run melonclaw-db-init` 只用于第一次系统上线，或重大变更明确决定放弃历史数据并重建数据库之后；该命令创建当前完整 schema、Checkpoint/Memory Store 并写入初始种子，不负责清库。新增功能若需要改表且应保留历史数据，必须新增按序、可审计的升级步骤，并通过 `uv run melonclaw-db-update` 执行；更新记录与每个升级步骤在同一事务提交，重复运行不重复执行已完成步骤，不删除用户业务数据。升级脚本集中在 `database/updates/`，包含必要的数据填充和约束检查；新数据库直接按 `database/schema.py` 创建，不在业务读取路径加入旧字段兜底。完成升级后校验 schema，并同步 README、架构文档、测试和本文件。本地开发允许在重大变更时清空历史数据，但须明确告知影响，且不得让 init 自动删除数据。
 
