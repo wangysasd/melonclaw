@@ -20,15 +20,9 @@ from melonclaw.core.defaults import resolve_agent_env
 from melonclaw.memory.service import namespace_for_context
 
 
-def _build_shell_env() -> dict[str, str]:
-    """构造 Shell 子进程环境：PATH 加代码默认层解析出的变量。
-
-    变量名与合并逻辑见 ``core/defaults.py``：代码默认凭据名取值于
-    部署者 ``.env``，平台自身凭据被硬黑名单剔除。未来支持用户级配置时在
-    ``resolve_agent_env`` 的 ``overrides`` 参数接入用户级配置。
-    """
-
-    env = resolve_agent_env()
+def _build_shell_env(environment: dict[str, str] | None = None) -> dict[str, str]:
+    """只合并系统基础环境与服务层已解析的业务变量。"""
+    env = resolve_agent_env(overrides=environment)
     env["PATH"] = os.pathsep.join(
         [
             str(Path(sys.executable).parent),
@@ -46,6 +40,7 @@ def build_agent_backend(
     installation_id: str = "local",
     agent_id: str = "quickstart-research-agent",
     skill_dirs: tuple[tuple[str, Path], ...] = (),
+    environment: dict[str, str] | None = None,
 ) -> tuple[BackendProtocol, list[str], list[FilesystemPermission]]:
     """构造指定工作区，并把虚拟 Skill 路由挂到调用方给出的目录。
 
@@ -58,16 +53,14 @@ def build_agent_backend(
     ``LocalShellBackend`` 的 Shell 能力没有沙箱隔离，Web 入口因此只适合本机
     开发，并默认只监听 127.0.0.1。文件工具与 Shell 免逐次审批，文件工具仍受
     下方的路径与权限规则约束；这些规则不能把 Shell 变成安全沙箱。
-    Shell 子进程环境由 ``_build_shell_env()`` 按代码默认层构造，Skill 脚本
-    可读取 ``core/defaults.py`` 默认集合中声明的凭据变量（值来自 ``.env``），
-    模型与数据库凭据不透传。
+    Shell 环境由基础变量和服务层解析的数据库变量显式注入，不继承业务进程环境。
     """
 
     workspace_dir.mkdir(parents=True, exist_ok=True)
     runtime_backend: BackendProtocol = default_backend or LocalShellBackend(
         root_dir=workspace_dir,
         virtual_mode=True,
-        env=_build_shell_env(),
+        env=_build_shell_env(environment),
     )
 
     routes: dict[str, BackendProtocol] = {}

@@ -142,6 +142,19 @@ describe("chat run lifecycle", () => {
     expect(result.current.state.restoreDraft).not.toContain("secret-fixture");
   });
 
+  it("sends the real environment instruction while keeping optimistic and failed drafts redacted", async () => {
+    vi.mocked(sendMessageStream).mockRejectedValue(new Error("提交失败"));
+    const raw = "设置环境变量 SERVICE_TOKEN=synthetic-environment-secret";
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    await act(() => result.current.sendMessage(raw));
+
+    expect(vi.mocked(sendMessageStream).mock.calls[0][1].content).toBe(raw);
+    expect(JSON.stringify(result.current.state.messages)).not.toContain("synthetic-environment-secret");
+    expect(result.current.state.restoreDraft).not.toContain("synthetic-environment-secret");
+    expect(result.current.state.restoreDraft).toContain("值不显示在聊天中");
+  });
+
   it("does not put an old conversation's history error on a new blank page", () => {
     const blank = reducer({ ...INITIAL_CHAT_STATE, conversationId: null }, { type: "historyFailed", conversationId: "c1", error: "旧会话加载失败" });
     expect(blank.error).toBeNull();

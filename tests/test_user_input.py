@@ -28,6 +28,7 @@ from melonclaw.core.user_input import (
 from melonclaw.database.schema import user_interactions as user_interactions_table
 from melonclaw.middleware.user_input_guard import UserInputGuardMiddleware
 from melonclaw.repository import ConversationBusyError, UserInteractionAnswerError
+from melonclaw.repository.resource_versions import ResourceVersions
 from melonclaw.repository.user_interaction_lifecycle import (
     ALL_STATUSES,
     ANSWERED_STATUSES,
@@ -527,10 +528,10 @@ class _CancelHarness:
         )
 
     async def _agent_for_conversation(
-        self, conversation, project, model, capabilities=None
+        self, conversation, project, model, capabilities=None, **kwargs
     ):
         self.calls.append("agent_for_conversation")
-        return SimpleNamespace(capabilities=capabilities or ())
+        return SimpleNamespace(capabilities=capabilities or (), melonclaw_resolved_model=SimpleNamespace())
 
     async def _resolve_user(self, user_id):
         return SimpleNamespace(
@@ -546,7 +547,8 @@ class _CancelHarness:
 
     async def get_conversation(self, conversation_id, user_id):
         self.calls.append("get_conversation")
-        return {"id": str(conversation_id), "user_id": user_id}
+        return {"id": str(conversation_id), "user_id": user_id, "project_id": self.project["id"],
+                "project_name": self.project["name"], "workdir_path": self.project["workdir_path"]}
 
     async def get_user_interaction_cancellation_candidate(self, conversation_id, user_id):
         self.calls.append("candidate")
@@ -851,7 +853,7 @@ def test_busy_conversation_is_rejected_before_any_write():
 
     class _Storage:
         async def get_conversation(self, conversation_id, user_id):
-            return {"id": str(conversation_id), "user_id": user_id}
+            return {"id": str(conversation_id), "user_id": user_id, "project_id": None}
 
         async def get_user_interaction(self, conversation_id, user_id, interaction_id):
             return None
@@ -885,8 +887,8 @@ def test_busy_conversation_is_rejected_before_any_write():
         capabilities_for_message=lambda message: (),
     )
 
-    async def _agent_for_conversation(conversation, project, model, capabilities=None):
-        return SimpleNamespace()
+    async def _agent_for_conversation(conversation, project, model, capabilities=None, **kwargs):
+        return SimpleNamespace(melonclaw_resolved_model=SimpleNamespace())
 
     runtime.agent_for_conversation = _agent_for_conversation
 
@@ -1012,6 +1014,12 @@ def test_agent_cache_key_includes_client_capabilities(monkeypatch, tmp_path):
     monkeypatch.setattr(ChatRuntime, "project_workspace_dir", lambda self, project: tmp_path)
 
     class FakeStorage:
+        def __init__(self):
+            self.resource_versions = ResourceVersions()
+
+        async def effective_environment(self, user_id):
+            return {}
+
         async def list_visible_skill_rows(self, user_id, **kwargs):
             return []
 
@@ -1022,7 +1030,7 @@ def test_agent_cache_key_includes_client_capabilities(monkeypatch, tmp_path):
             return "rev"
 
         async def get_user_context(self, user_id):
-            return SimpleNamespace(tenant_id="system")
+            return SimpleNamespace(tenant_id="system", user_id=user_id)
 
         async def models_revision(self):
             return "rev"
@@ -1077,6 +1085,12 @@ def test_ordinary_conversation_uses_its_own_workspace(monkeypatch, tmp_path):
     )
 
     class FakeStorage:
+        def __init__(self):
+            self.resource_versions = ResourceVersions()
+
+        async def effective_environment(self, user_id):
+            return {}
+
         async def list_visible_skill_rows(self, user_id, **kwargs):
             return []
 
@@ -1087,7 +1101,7 @@ def test_ordinary_conversation_uses_its_own_workspace(monkeypatch, tmp_path):
             return "rev"
 
         async def get_user_context(self, user_id):
-            return SimpleNamespace(tenant_id="system")
+            return SimpleNamespace(tenant_id="system", user_id=user_id)
 
         async def models_revision(self):
             return "rev"

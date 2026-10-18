@@ -12,6 +12,7 @@ from melonclaw.database.schema import mcp_install_drafts as drafts
 from melonclaw.database.schema import mcp_servers as servers
 from melonclaw.repository.mappers import _now
 from melonclaw.repository.mcp import McpConflictError
+from melonclaw.repository.resource_versions import resource_change
 
 
 class McpInstallRepositoryMixin:
@@ -45,6 +46,7 @@ class McpInstallRepositoryMixin:
                 installation=installation, created_at=now, expires_at=source["expires_at"],
             ))
 
+    @resource_change(payload="row")
     async def commit_mcp_install(self, identifier, user_id, conversation_id, installation, row):
         try:
             async with self.engine.begin() as connection:

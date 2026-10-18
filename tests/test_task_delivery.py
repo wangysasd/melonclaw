@@ -244,8 +244,10 @@ def test_followup_binds_accumulated_history_and_retry_keeps_original(monkeypatch
             async def skill(*args):
                 return None
 
-            async def agent(*args):
-                return Agent()
+            async def agent(*args, **kwargs):
+                instance = Agent()
+                instance.melonclaw_resolved_model = await resolve()
+                return instance
 
             runtime = SimpleNamespace(
                 require_ready=lambda: storage,

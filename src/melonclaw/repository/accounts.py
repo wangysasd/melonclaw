@@ -17,6 +17,7 @@ from melonclaw.database.schema import (
     users,
 )
 from melonclaw.repository.mappers import _now
+from melonclaw.repository.models import UserContext
 
 
 class AccountConflict(ValueError):
@@ -162,6 +163,26 @@ class AccountRepositoryMixin:
                 token_hash=token_hash, user_id=user_id, login_user_id=user_id,
                 created_at=_now(), expires_at=_now() + timedelta(days=7),
             ))
+
+    async def authenticated_user(self, token_hash):
+        """一次联查校验当前与原登录账户，始终读取当前数据库状态。"""
+        origin = users.alias("login_user")
+        origin_tenant = tenants.alias("login_tenant")
+        query = select(
+            users.c.user_id, users.c.user_name_zh, users.c.tenant_id,
+            tenants.c.tenant_name_zh, users.c.tenant_role, users.c.tenant_status,
+        ).select_from(auth_sessions.join(users, auth_sessions.c.user_id == users.c.user_id)
+            .join(tenants, users.c.tenant_id == tenants.c.tenant_id)
+            .join(origin, auth_sessions.c.login_user_id == origin.c.user_id)
+            .join(origin_tenant, origin.c.tenant_id == origin_tenant.c.tenant_id)
+        ).where(
+            auth_sessions.c.token_hash == token_hash, auth_sessions.c.expires_at > _now(),
+            users.c.tenant_status == "active", tenants.c.enabled.is_(True),
+            origin.c.tenant_status == "active", origin_tenant.c.enabled.is_(True),
+        )
+        async with self.engine.connect() as conn:
+            row = (await conn.execute(query)).mappings().first()
+        return UserContext(**dict(row)) if row else None
 
     async def get_auth_session(self, token_hash):
         async with self.engine.connect() as conn:

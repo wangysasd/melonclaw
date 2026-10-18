@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from melonclaw.database.schema import mcp_servers as servers
 from melonclaw.database.schema import mcp_user_preferences as preferences
 from melonclaw.repository.mappers import _now
+from melonclaw.repository.resource_versions import resource_change
 
 
 class McpConflictError(ValueError):
@@ -41,6 +42,7 @@ class McpRepositoryMixin:
             )
             return dict(row) if row else None
 
+    @resource_change(scope="scope", owner="owner_user_id")
     async def create_mcp_row(self, **fields) -> dict:
         row = dict(
             fields, id=uuid4(), enabled=False, version=1, created_at=_now(), updated_at=_now()
@@ -54,6 +56,7 @@ class McpRepositoryMixin:
             raise
         return row
 
+    @resource_change(row="get_mcp_row", key="identifier")
     async def update_mcp_row(self, identifier: str, version: int, **fields) -> None:
         async with self.engine.begin() as connection:
             result = await connection.execute(
@@ -64,6 +67,7 @@ class McpRepositoryMixin:
             if not result.rowcount:
                 raise McpConflictError("配置已变化，请刷新后重试。")
 
+    @resource_change(row="get_mcp_row", key="identifier")
     async def delete_mcp_row(self, identifier: str, version: int) -> None:
         async with self.engine.begin() as connection:
             result = await connection.execute(
@@ -86,6 +90,7 @@ class McpRepositoryMixin:
             )
         )
 
+    @resource_change(user="user_id")
     async def set_mcp_preference(self, user_id: str, slug: str, enabled: bool) -> None:
         async with self.engine.begin() as connection:
             # Lock the visible source while checking visibility and writing preference.
@@ -110,6 +115,7 @@ class McpRepositoryMixin:
                 raise McpConflictError("服务已不可用，请刷新。")
             await self._put_preference(connection, user_id, slug, enabled)
 
+    @resource_change(user="user_id")
     async def add_mcp_row(self, user_id: str, identifier: str, version: int) -> None:
         async with self.engine.begin() as connection:
             row = (

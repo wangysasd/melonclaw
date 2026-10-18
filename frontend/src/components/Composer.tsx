@@ -18,6 +18,7 @@ import { PlusMenu } from "./PlusMenu";
 import { ProjectPicker } from "./ProjectPicker";
 import { SkillPicker } from "./SkillPicker";
 import { SkillLogo } from "./SkillLogo";
+import { environmentChatDisplay } from "../lib/environmentChat";
 import { findSkillTrigger, type SkillTrigger } from "../lib/skillTrigger";
 import { attachmentBadge, formatBytes } from "../lib/attachmentFiles";
 import { useAttachmentCapabilities } from "../hooks/useAttachmentCapabilities";
@@ -402,6 +403,7 @@ export function Composer({
         onSend(value, null, ids, () => setAttachments([]));
       }
     } finally {
+      if (environmentChatDisplay(value) !== value) onChange("");
       setSelectedSkill(null);
       queueMicrotask(() => { submittingRef.current = false; });
     }

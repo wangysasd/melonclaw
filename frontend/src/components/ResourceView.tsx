@@ -2,6 +2,7 @@ import { useState } from "react";
 import { App as AntdApp, Button, Tabs } from "antd";
 
 import type { SkillOption } from "../types/api";
+import { EnvironmentManager } from "./EnvironmentManager";
 import { McpManager } from "./McpManager";
 import { useSession } from "../state/session";
 import { Icon } from "./Icon";
@@ -91,6 +92,15 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills", onTab
                 notify={message}
               />
             ),
+          },
+          {
+            key: "environment",
+            label: (
+              <span className="resource-tab-label">
+                <Icon name="terminal" size={18} /> 环境变量
+              </span>
+            ),
+            children: <EnvironmentManager key={userId} userId={userId} isAdmin={isAdmin} />,
           },
         ]}
       />

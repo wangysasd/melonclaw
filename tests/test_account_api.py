@@ -30,8 +30,12 @@ class MemoryAccounts:
     async def create_auth_session(self, token, user_id):
         self.sessions[token] = {"user_id": user_id, "login_user_id": user_id}
 
-    async def get_auth_session(self, token):
-        return self.sessions.get(token)
+    async def authenticated_user(self, token):
+        session = self.sessions.get(token)
+        if not session or session["login_user_id"] not in self.users:
+            return None
+        return self.users.get(session["user_id"])
+
 
     async def delete_auth_session(self, token):
         self.sessions.pop(token, None)

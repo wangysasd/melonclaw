@@ -30,7 +30,7 @@ async def send_message(
     if not manager.ready:
         return JSONResponse(await manager.status(), status_code=503)
     try:
-        preparation_started = perf_counter()
+        preparation_started = getattr(request.state, "preparation_started_at", perf_counter())
         execution = await manager.prepare_message(
             conversation_id,
             payload.user_id,
@@ -40,6 +40,7 @@ async def send_message(
             skill_id=payload.skill_id,
             attachment_ids=payload.attachment_ids,
             capabilities=payload.capabilities,
+            user_context=request.state.user,
         )
         execution.preparation_duration_ms = int((perf_counter() - preparation_started) * 1000)
     except Exception as exc:  # noqa: BLE001 - 准备阶段需要真实 HTTP 状态码

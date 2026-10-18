@@ -24,6 +24,7 @@ import "./styles/sidebar.css";
 import "./styles/artifacts.css";
 
 const TaskCenter = lazy(() => import("./components/tasks/TaskCenter"));
+const RESOURCE_TABS = new Set(["skills", "mcp", "models", "environment"]);
 
 function Workspace() {
   const session = useSession();
@@ -32,7 +33,10 @@ function Workspace() {
   const [moveConversationId, setMoveConversationId] = useState<string | null>(null);
   const [view, setView] = useState<WorkspaceView>("chat");
   const openTasks = () => setView("tasks");
-  const [resourceTab, setResourceTab] = useState(() => { const tab = readStorage("melonclaw.resource_tab.v1"); return tab && ["skills", "mcp", "models"].includes(tab) ? tab : "skills"; });
+  const [resourceTab, setResourceTab] = useState(() => {
+    const tab = readStorage("melonclaw.resource_tab.v1");
+    return tab && RESOURCE_TABS.has(tab) ? tab : "skills";
+  });
   const [initialSkill, setInitialSkill] = useState<SkillOption | null>(null);
 
   const openTaskConversation = useCallback((conversationId: string) => {

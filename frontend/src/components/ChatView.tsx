@@ -19,6 +19,7 @@ import { AgentExecution, ExecutionActivityTiming } from "./AgentExecution";
 import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
 import { buildAgentRun, isTerminalRun } from "../lib/agentRun";
 import { attachmentBadge } from "../lib/attachmentFiles";
+import { environmentChatDisplay } from "../lib/environmentChat";
 import { copyText } from "../lib/clipboard";
 import { avatarStyle, formatMessageTime, userInitials } from "../lib/format";
 import { useUserQuestionExpired } from "../lib/userQuestionExpiry";
@@ -354,7 +355,7 @@ function CopyButton({ message }: { message: ChatMessage }) {
 
   const handleCopy = async () => {
     try {
-      await copyText(message.content);
+      await copyText(message.role === "user" ? environmentChatDisplay(message.content) : message.content);
       setFeedback("ok");
     } catch {
       setFeedback("fail");
@@ -467,7 +468,7 @@ const MessageBubble = memo(function MessageBubble({
               variant={message.role === "assistant" ? "borderless" : "filled"}
               content={message.role === "assistant"
                 ? <Markdown source={renderedContent} streaming={run?.status === "running"} fileCardsAtEnd={message.status === "completed"} deliveredFiles={message.artifacts} />
-                : message.content}
+                : environmentChatDisplay(message.content)}
             />
           ) : null}
         </div>

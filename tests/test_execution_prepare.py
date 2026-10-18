@@ -39,9 +39,9 @@ def _service(storage: _Storage):
     calls: list[str] = []
     model = SimpleNamespace(public_dict=lambda: {"id": "model"})
 
-    async def agent_for_conversation(*args):
+    async def agent_for_conversation(*args, **kwargs):
         calls.append("agent")
-        return SimpleNamespace(melonclaw_skill_references=[])
+        return SimpleNamespace(melonclaw_skill_references=[], melonclaw_resolved_model=await runtime.resolve_model("user"))
 
     async def async_model(*args, **kwargs):
         return model
@@ -91,23 +91,13 @@ def test_busy_message_does_not_build_agent():
 
 
 def test_unavailable_skill_is_rejected_before_any_write():
-    """技能选项可能在选中之后被删除（索引行还在、目录没了）。
-
-    此时既不该构建 Agent，也不该落库或抢锁——准备阶段就拦住。
-    """
-
+    """技能从缓存同版本引用验证，错误时不创建消息。"""
     storage = _Storage()
     service, calls = _service(storage)
-
-    with pytest.raises(ValueError, match="选择的技能不存在或已被移除"):
-        asyncio.run(
-            service.prepare_message(
-                uuid4(), "user", "request", "hello", skill_id="ghost-skill"
-            )
-        )
-
-    assert storage.calls == []
-    assert calls == []
+    with pytest.raises(ValueError, match="选择的技能已不可用"):
+        asyncio.run(service.prepare_message(uuid4(), "user", "request", "hello", skill_id="ghost-skill"))
+    assert storage.calls[-1] == "unlock"
+    assert calls == ["agent"]
 
 
 def test_completed_retry_replays_without_lock_or_agent():
@@ -136,12 +126,63 @@ def test_completed_retry_replays_without_lock_or_agent():
     assert calls == []
 
 
+def test_preparation_reuses_authenticated_user_once_but_reloads_conversation_each_time():
+    from melonclaw.services.preparation import prepare_context
+
+    calls = {"user": 0, "conversation": 0}
+
+    class Storage:
+        async def get_conversation(self, conversation_id, user_id):
+            calls["conversation"] += 1
+            return {"id": str(conversation_id), "user_id": user_id, "project_id": None}
+
+    class Conversations:
+        runtime = SimpleNamespace(require_ready=lambda: Storage())
+
+        async def resolve_user(self, user_id):
+            calls["user"] += 1
+            return SimpleNamespace(user_id=user_id, tenant_id="tenant", tenant_status="active")
+
+    conversations = Conversations()
+    conversation_id = uuid4()
+
+    async def run():
+        first = await prepare_context(conversations, conversation_id, "alice")
+        assert first.user.user_id == "alice"
+        assert await prepare_context(conversations, conversation_id, "alice", first.user)
+        assert calls == {"user": 1, "conversation": 2}
+
+        # A restored request starts a new preparation and resolves its identity again.
+        await prepare_context(conversations, conversation_id, "alice")
+        assert calls == {"user": 2, "conversation": 3}
+
+    asyncio.run(run())
+
+
+def test_preparation_rejects_conversation_whose_owner_changed():
+    from melonclaw.repository import ConversationNotFoundError
+    from melonclaw.services.preparation import prepare_context
+
+    class Storage:
+        async def get_conversation(self, conversation_id, user_id):
+            return {"id": str(conversation_id), "user_id": "bob", "project_id": None}
+
+    class Conversations:
+        runtime = SimpleNamespace(require_ready=lambda: Storage())
+
+        async def resolve_user(self, user_id):
+            return SimpleNamespace(user_id=user_id, tenant_id="tenant")
+
+    with pytest.raises(ConversationNotFoundError):
+        asyncio.run(prepare_context(Conversations(), uuid4(), "alice"))
+
+
 def test_cancellation_during_agent_build_releases_conversation_lock():
     storage = _Storage()
     service, _ = _service(storage)
     started = asyncio.Event()
 
-    async def slow_build(*args):
+    async def slow_build(*args, **kwargs):
         started.set()
         await asyncio.Future()
 
@@ -183,7 +224,7 @@ def test_approval_resume_preserves_original_user_message_and_task_context(monkey
     storage.get_incomplete_assistant = incomplete
     service, _ = _service(storage)
     service.runtime.capabilities_for_message = lambda message: []
-    pending = [{"id": "interrupt-task"}]
+    pending = [{"id": "interrupt-task", "action_requests": []}]
     async def get_pending(*args):
         return pending
     monkeypatch.setattr("melonclaw.services.execution.aget_pending_approval", get_pending)
@@ -246,5 +287,5 @@ def test_task_history_timeout_or_cancel_releases_conversation_lock(monkeypatch, 
             assert caught.value.error_code == "history_summary_timeout"
 
     asyncio.run(run())
-    assert storage.calls[-1] == "unlock" and calls == []
+    assert storage.calls[-1] == "unlock" and calls == ["agent"]
     assert model.stopped

@@ -42,6 +42,7 @@
 | [用户自定义模型](custom-models.md) | 已实现 | 供应商固定 global、模型 global/user（数据库与 API 约束）：23 家纯 chat 内置供应商，供应商双列表单及高级配置（显式环境变量凭据兜底、请求头和扩展请求体）、未保存配置的只读连接测试，admin 配全局共享默认给全员，用户可配私有；各人启用集合不一样；`custom:` 模型 ID 解析到 `model_configs` 表，api_key 只写不回读 |
 | [空工具名快速失败](tool-name-guard.md) | 已实现 | 出站前验证工具名，避免供应商报错后才定位 |
 | [聊天错误恢复与发送前反馈](chat-error-recovery.md) | 已实现 | 错误来源、只读同步和附件发送前门槛 |
+| [环境变量与聊天准备缓存](environment-and-preparation.md) | 已实现 | 管理员共享／普通用户个人、停用回退、只写值、聊天 HITL；六因子内存缓存、提交发布及请求准备身份归属复用，MCP 业务规则不变；[补充测试矩阵](../exec-plans/completed/2026-10-18-environment-validation.md) |
 | [账户 review 修复](account-review-fixes.md) | 已实现 | 同站来源白名单、刷新乱序、散列校验与公开就绪探测 |
 
 ## 维护约定
