@@ -17,7 +17,7 @@
 | [按需官方工具选择与会话池](on-demand-tool-pool.md) | 已实现 | 官方选择、find_tools 按需触发、跨消息复用、目录失效、父子隔离与并行预算；内置 DeepSeek 搜索（`internet_search`）与网页读取（`web_fetch`）在装配入口统一包装，真实构建路径已覆盖回归验证 |
 | [MelonClaw 登录页](melonclaw-login-page.md) | 已实现 | 非 RMS 与空品牌的浅蓝玻璃 AI 登录页、响应式表单与原认证链路 |
 | [RMS 登录页](rms-login-page.md) | 已实现 | RMS 品牌左右分栏式登录、玻璃环本地配图、精简文案与原认证链路 |
-| [前端视觉一致性](ui-consistency.md) | 已实现 | 共享 Token、Ant Design 主题、资源网格、聊天与浮层、响应式规范 |
+| [前端视觉一致性](ui-consistency.md) | 已实现（2026-10-18 精修） | 共享 Token、Ant Design 主题、统一 WorkspaceHeader 顶栏、资源卡片分区底栏、聊天与浮层、响应式规范 |
 | [聊天结果组件](chat-result-components.md) | 已实现 | 固定结果协议、图片／文件、表格、差异、来源与基础数据图表、图表字段错误提示、JSON 语法错误诊断 |
 | [对话产物与 HTML 预览](conversation-artifacts.md) | 已实现 | 正文链接与末尾卡片、事务保存的可重建交付索引、完整会话产物抽屉、当前文件语义、自包含 HTML 隔离预览和源码 |
 | [会话／项目文件浏览器](workspace-file-browser.md) | 已实现 | 附件与输出第一层统一根视图、来源胶囊、真实目录原位展开、独立分页／失败重试、只读预览／下载、保留本对话产物来源，无快照 |

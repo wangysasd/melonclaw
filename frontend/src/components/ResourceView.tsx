@@ -7,6 +7,7 @@ import { McpManager } from "./McpManager";
 import { useSession } from "../state/session";
 import { Icon } from "./Icon";
 import { SkillManager } from "./SkillManager";
+import { WorkspaceHeader } from "./WorkspaceHeader";
 import { ModelSection } from "./ModelProviders";
 
 const ADMIN_ROLES = new Set(["admin", "owner"]);
@@ -34,15 +35,11 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills", onTab
 
   return (
     <main className="resource-view" data-active-tab={activeTab} aria-label="拓展">
-      <header className="resource-view-header">
-        <div className="resource-view-title">
-          <Icon name="blocks" size={16} />
-          <h1>拓展</h1>
-        </div>
+      <WorkspaceHeader title="拓展" icon="blocks" actions={
         <Button icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>
           返回聊天
         </Button>
-      </header>
+      } />
       <Tabs
         className="resource-view-tabs"
         activeKey={activeTab}

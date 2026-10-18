@@ -112,9 +112,9 @@ export function McpManager({ userId, isAdmin, notify }: {
     okButtonProps: { danger: true }, onOk: () => action(() => deleteMcp(item, userId)),
   });
   return <div className="resource-section mcp-manager">
-    <div className="resource-actions"><Input aria-label="搜索 MCP 服务" placeholder="搜索 MCP 服务" value={query} onChange={e => setQuery(e.target.value)} />
-      <Button type="primary" icon={<Icon name="plus" size={14} />} onClick={() => { detailRequest.current?.abort(); setEditor({}); }}>创建连接器</Button>
-      <Button icon={<Icon name="refresh-cw" size={14} />} loading={refreshing} disabled={busy} aria-label="刷新 MCP 服务列表" onClick={() => void refresh()} />
+    <div className="resource-actions skill-resource-actions"><Input className="skill-search" allowClear prefix={<Icon name="search" size={14} />} aria-label="搜索 MCP 服务" placeholder="搜索 MCP 服务" value={query} onChange={e => setQuery(e.target.value)} />
+      <div className="skill-actions-trailing"><Button type="primary" icon={<Icon name="plus" size={14} />} onClick={() => { detailRequest.current?.abort(); setEditor({}); }}>创建连接器</Button>
+      <Button icon={<Icon name="refresh-cw" size={14} />} loading={refreshing} disabled={busy} aria-label="刷新 MCP 服务列表" onClick={() => void refresh()} /></div>
     </div>
     <p className="resource-hint">配置从下一条消息生效，当前运行不受影响。</p>
     <Spin spinning={busy}>
@@ -126,7 +126,8 @@ export function McpManager({ userId, isAdmin, notify }: {
             const disabled = item.shadowed || (item.scope === "global" && !item.enabled);
             const showPrimaryAction = !item.effective_enabled;
             const canRestorePersonalUse = !item.personally_enabled && item.enabled && !item.shadowed;
-            const description = item.description || "暂无用途说明";
+            const description = item.description.trim();
+            const isInstallationNote = description === "聊天安装";
             const menus = [
               ...(canRestorePersonalUse ? [{ key: "add", label: isAdmin ? "对我启用" : "启用" }] : []),
               ...(item.effective_enabled ? [{ key: "stop", label: isAdmin ? "对我关闭" : "关闭" }] : []),
@@ -136,15 +137,31 @@ export function McpManager({ userId, isAdmin, notify }: {
               ...(item.can_delete ? [{ key: "delete", label: item.shadows_global ? "删除个人配置并恢复全局" : "删除", danger: true }] : []),
             ];
             return <article className={`skill-card mcp-card${showPrimaryAction ? " has-primary-action" : ""}`} key={item.id}>
-              <div className="skill-card-top-actions">
-                {showPrimaryAction && <Button
-                  className="skill-card-primary-action is-add"
-                  icon={item.shadowed ? undefined : <Icon name="plus" size={12} />}
-                  disabled={busy || (disabled && !(isAdmin && item.scope === "global" && !item.shadowed))}
-                  onClick={() => void action(() => item.scope === "global" && !item.enabled ? globalMcpState(item, userId) : addMcp(item, userId))}
-                >
-                  {item.shadowed ? "已遮蔽" : disabled ? isAdmin ? "全员启用" : "全员已停用" : isAdmin ? "对我启用" : "启用"}
-                </Button>}
+              <div
+                className="mcp-card-content"
+                role="button"
+                tabIndex={0}
+                aria-haspopup="dialog"
+                aria-label={`查看 MCP 工具：${item.display_name}`}
+                onClick={() => openTools(item)}
+                onKeyDown={event => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openTools(item);
+                  }
+                }}
+              >
+                <header className="skill-card-head">
+                  <AppLogo name={item.display_name} />
+                  <span className="skill-card-name" title={item.display_name}>{item.display_name}</span>
+                </header>
+                {description && !isInstallationNote && <p className="skill-card-desc" title={description}>{description}</p>}
+                <div className="mcp-card-meta-row">
+                  <span className="mcp-card-capsule is-transport">{item.transport.toUpperCase()}</span>
+                  <span className="mcp-card-scope">{item.scope === "global" ? "系统共享" : "个人配置"}</span>
+                </div>
+              </div>
+              <div className="resource-card-menu">
                 <Dropdown
                   classNames={{ root: "skill-card-menu" }}
                   trigger={["click"]}
@@ -168,32 +185,22 @@ export function McpManager({ userId, isAdmin, notify }: {
                   </Button>
                 </Dropdown>
               </div>
-              <div
-                className="mcp-card-content"
-                role="button"
-                tabIndex={0}
-                aria-haspopup="dialog"
-                aria-label={`查看 MCP 工具：${item.display_name}`}
-                onClick={() => openTools(item)}
-                onKeyDown={event => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    openTools(item);
-                  }
-                }}
-              >
-                <header className="skill-card-head">
-                  <AppLogo name={item.display_name} />
-                  <span className="skill-card-name" title={item.display_name}>{item.display_name}</span>
-                </header>
-                <p className="skill-card-desc" title={description}>{description}</p>
-                <div className="mcp-card-meta-row">
-                  <span className="mcp-card-capsule is-transport">{item.transport.toUpperCase()}</span>
-                  <span className={`mcp-card-capsule ${item.effective_enabled ? "is-active" : "is-inactive"}`}>
-                    {item.effective_enabled ? "正在使用" : item.unavailable_reason || "未使用"}
-                  </span>
+              <footer className="resource-card-footer">
+                <span className={`mcp-card-status ${item.effective_enabled ? "is-active" : "is-inactive"}`}>
+                  {item.effective_enabled ? "正在使用" : item.unavailable_reason || "未使用"}
+                </span>
+                <div className="resource-card-footer-actions">
+                  {isInstallationNote && <span className="resource-card-note">{description}</span>}
+                  {showPrimaryAction && <Button
+                    className="skill-card-primary-action is-add"
+                    icon={item.shadowed ? undefined : <Icon name="plus" size={12} />}
+                    disabled={busy || (disabled && !(isAdmin && item.scope === "global" && !item.shadowed))}
+                    onClick={() => void action(() => item.scope === "global" && !item.enabled ? globalMcpState(item, userId) : addMcp(item, userId))}
+                  >
+                    {item.shadowed ? "已遮蔽" : disabled ? isAdmin ? "全员启用" : "全员已停用" : isAdmin ? "对我启用" : "启用"}
+                  </Button>}
                 </div>
-              </div>
+              </footer>
             </article>;
           })}</div>
         </section>;

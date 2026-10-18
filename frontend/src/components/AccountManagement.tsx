@@ -1,4 +1,6 @@
 import { PasswordFields } from "./PasswordFields";
+import { Icon } from "./Icon";
+import { WorkspaceHeader } from "./WorkspaceHeader";
 import { App, Button, Form, Input, Modal, Select, Space, Switch, Table, Tabs, Tag } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
@@ -10,7 +12,7 @@ type User = { user_id: string; user_name_zh: string; tenant_id: string; tenant_n
 type Editor = { kind: "user"; row?: User } | { kind: "tenant"; row?: Tenant } | { kind: "password"; row: User };
 type Values = { user_id: string; user_name_zh: string; tenant_id: string; tenant_name_zh: string; enabled: boolean; password: string; confirm_password: string };
 
-export function AccountManagement() {
+export function AccountManagement({ onClose }: { onClose: () => void }) {
   const session = useSession();
   const { message, modal } = App.useApp();
   const [users, setUsers] = useState<User[]>([]);
@@ -87,13 +89,14 @@ export function AccountManagement() {
   const matches = (...values: string[]) => values.some((value) => value.toLowerCase().includes(keyword));
   const idRules = [{ required: true, pattern: /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/, message: "以字母或数字开头，1～64 位字母、数字、下划线或连字符" }];
   return <section className="account-page">
-    <h1>系统管理</h1>
+    <WorkspaceHeader title="系统管理" icon="users" actions={<Button icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>返回聊天</Button>} />
+    <div className="account-page-content">
     <Tabs activeKey={tab} onChange={(value) => { setTab(value); setSearch(""); }} items={[{ key: "users", label: "用户管理" }, { key: "tenants", label: "租户管理" }]} />
-    <div className="account-toolbar">
-      <Input allowClear aria-label="搜索 ID 或名称" placeholder="搜索 ID 或名称" value={search} onChange={(event) => setSearch(event.target.value)} />
-      {tab === "users" ? <Select allowClear placeholder="全部租户" aria-label="筛选租户" value={tenant} onChange={setTenant} options={tenants.map((t) => ({ value: t.tenant_id, label: `${t.tenant_name_zh}（${t.tenant_id}）` }))} /> : null}
-      <Button type="primary" onClick={() => open({ kind: tab === "users" ? "user" : "tenant" })}>{tab === "users" ? "创建用户" : "创建租户"}</Button>
-      <Button onClick={() => void refresh()} loading={loading}>刷新</Button>
+    <div className="account-toolbar resource-actions skill-resource-actions">
+      <Input className="skill-search" prefix={<Icon name="search" size={14} />} allowClear aria-label="搜索 ID 或名称" placeholder="搜索 ID 或名称" value={search} onChange={(event) => setSearch(event.target.value)} />
+      {tab === "users" ? <Select style={{ width: 140 }} allowClear placeholder="全部租户" aria-label="筛选租户" value={tenant} onChange={setTenant} options={tenants.map((t) => ({ value: t.tenant_id, label: `${t.tenant_name_zh}（${t.tenant_id}）` }))} /> : null}
+      <div className="skill-actions-trailing"><Button type="primary" icon={<Icon name="plus" size={14} />} onClick={() => open({ kind: tab === "users" ? "user" : "tenant" })}>{tab === "users" ? "创建用户" : "创建租户"}</Button>
+      <Button icon={<Icon name="refresh-cw" size={14} />} aria-label={tab === "users" ? "刷新用户列表" : "刷新租户列表"} onClick={() => void refresh()} loading={loading} /></div>
     </div>
     {tab === "users" ? <Table<User> rowKey="user_id" loading={loading} scroll={{ x: 800 }} pagination={{ pageSize: 10, showSizeChanger: false }}
       dataSource={users.filter((u) => matches(u.user_id, u.user_name_zh) && (!tenant || tenant === u.tenant_id))}
@@ -110,7 +113,8 @@ export function AccountManagement() {
         { title: "创建时间", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString() },
         { title: "操作", render: (_, t) => <Button size="small" onClick={() => open({ kind: "tenant", row: t })}>编辑</Button> },
       ]} />}
-    {editor ? <Modal title={editor?.kind === "password" ? `修改密码 · ${editor.row.user_name_zh}` : `${editor?.row ? "编辑" : "创建"}${editor?.kind === "user" ? "用户" : "租户"}`} open={editor !== null} onCancel={() => { if (!saving) { setEditor(null); form.resetFields(); } }} onOk={() => form.submit()} confirmLoading={saving} okText="保存" cancelText="取消">
+    </div>
+    <Modal destroyOnHidden title={editor?.kind === "password" ? `修改密码 · ${editor.row.user_name_zh}` : `${editor?.row ? "编辑" : "创建"}${editor?.kind === "user" ? "用户" : "租户"}`} open={editor !== null} onCancel={() => { if (!saving) { setEditor(null); form.resetFields(); } }} onOk={() => form.submit()} confirmLoading={saving} okText="保存" cancelText="取消">
       <Form form={form} layout="vertical" onFinish={(values) => void save(values)} requiredMark={false}>
         {editor?.kind === "user" ? <>
           <Form.Item name="user_id" label="用户 ID" rules={idRules}><Input disabled={!!editor.row} maxLength={64} /></Form.Item>
@@ -124,6 +128,6 @@ export function AccountManagement() {
           <Form.Item name="enabled" label="启用" valuePropName="checked" extra="停用后，租户成员不能登录或发起业务操作，历史数据保留。"><Switch disabled={editor.row?.tenant_id === "system"} /></Form.Item>
         </> : null}
       </Form>
-    </Modal> : null}
+    </Modal>
   </section>;
 }

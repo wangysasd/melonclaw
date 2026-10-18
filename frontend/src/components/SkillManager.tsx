@@ -305,48 +305,43 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
                     key={skill.id}
                     className={unavailable ? "skill-card skill-resource-card is-broken" : "skill-card skill-resource-card"}
                   >
-                    <div className="skill-card-top-actions">
-                      <Button
-                        className={`skill-card-primary-action ${isAdded ? "is-use" : "is-add"}`}
-                        icon={
-                          <Icon
-                            name={isAdded ? "message-circle-plus" : "plus"}
-                            size={12}
-                          />
+                    <div
+                      className="skill-card-content"
+                      role="button"
+                      tabIndex={0}
+                      aria-haspopup="dialog"
+                      aria-label={`查看技能详情：${skill.display_name}`}
+                      onClick={() => setDetailSkill(skill)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setDetailSkill(skill);
                         }
-                        aria-label={
-                          isAdded
-                            ? `使用技能：${skill.display_name}`
-                            : `添加技能：${skill.display_name}`
-                        }
-                        title={
-                          cannotAdd
-                            ? "该技能已由管理员停用"
-                            : isShadowed
-                              ? "已被我的同名私有技能遮蔽，Agent 使用的是我的私有版本"
-                              : undefined
-                        }
-                        disabled={
-                          unavailable !== null ||
-                          cannotAdd ||
-                          isShadowed ||
-                          (isAdded && !onTrySkill)
-                        }
-                        onClick={() => {
-                          if (isAdded) {
-                            onTrySkill?.({
-                              id: skill.selection_id,
-                              display_name: skill.display_name,
-                              description: skill.description,
-                              scope: skill.scope,
-                            });
-                            return;
-                          }
-                          void runAction(() => updateSkill(skill.name, { userId, enabled: true, scope: apiScope }), "已对我启用", true);
-                        }}
-                      >
-                        {globallyDisabled ? "全员已关闭" : isShadowed ? "已遮蔽" : isUsable ? "去试试" : (isAdmin ? "对我启用" : "启用")}
-                      </Button>
+                      }}
+                    >
+                      <header className="skill-card-head">
+                        <AppLogo name={skill.display_name} />
+                        <span className="skill-card-name" title={skill.display_name}>
+                          {skill.display_name}
+                        </span>
+                        {unavailable ? (
+                          <span className="resource-badge is-broken">
+                            {SKILL_AVAILABILITY_LABELS[unavailable]}
+                          </span>
+                        ) : null}
+                        {isShadowed ? (
+                          <span className="resource-badge">
+                            已被同名私有技能遮蔽
+                          </span>
+                        ) : null}
+                      </header>
+                      <p className="skill-card-desc">
+                        {unavailable
+                          ? skill.diagnostic || SKILL_AVAILABILITY_HINTS[unavailable]
+                          : skill.description || skill.name}
+                      </p>
+                    </div>
+                    <div className="resource-card-menu">
                       <Dropdown
                         classNames={{ root: "skill-card-menu" }}
                         trigger={["click"]}
@@ -411,45 +406,52 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
                         </Button>
                       </Dropdown>
                     </div>
-                    <div
-                      className="skill-card-content"
-                      role="button"
-                      tabIndex={0}
-                      aria-haspopup="dialog"
-                      aria-label={`查看技能详情：${skill.display_name}`}
-                      onClick={() => setDetailSkill(skill)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setDetailSkill(skill);
-                        }
-                      }}
-                    >
-                      <header className="skill-card-head">
-                        <AppLogo name={skill.display_name} />
-                        <span className="skill-card-name" title={skill.display_name}>
-                          {skill.display_name}
-                        </span>
-                        {unavailable ? (
-                          <span className="resource-badge is-broken">
-                            {SKILL_AVAILABILITY_LABELS[unavailable]}
-                          </span>
-                        ) : null}
-                        {isShadowed ? (
-                          <span className="resource-badge">
-                            已被同名私有技能遮蔽
-                          </span>
-                        ) : null}
-                      </header>
-                      <p className="skill-card-desc">
-                        {unavailable
-                          ? skill.diagnostic || SKILL_AVAILABILITY_HINTS[unavailable]
-                          : skill.description || skill.name}
-                      </p>
+                    <footer className="resource-card-footer">
                       <span className="skill-card-meta">
                         {sourceLabel(skill.source_type)} · v{skill.version}
                       </span>
-                    </div>
+                      <Button
+                        className={`skill-card-primary-action ${isAdded ? "is-use" : "is-add"}`}
+                        icon={
+                          <Icon
+                            name={isAdded ? "message-circle-plus" : "plus"}
+                            size={12}
+                          />
+                        }
+                        aria-label={
+                          isAdded
+                            ? `使用技能：${skill.display_name}`
+                            : `添加技能：${skill.display_name}`
+                        }
+                        title={
+                          cannotAdd
+                            ? "该技能已由管理员停用"
+                            : isShadowed
+                              ? "已被我的同名私有技能遮蔽，Agent 使用的是我的私有版本"
+                              : undefined
+                        }
+                        disabled={
+                          unavailable !== null ||
+                          cannotAdd ||
+                          isShadowed ||
+                          (isAdded && !onTrySkill)
+                        }
+                        onClick={() => {
+                          if (isAdded) {
+                            onTrySkill?.({
+                              id: skill.selection_id,
+                              display_name: skill.display_name,
+                              description: skill.description,
+                              scope: skill.scope,
+                            });
+                            return;
+                          }
+                          void runAction(() => updateSkill(skill.name, { userId, enabled: true, scope: apiScope }), "已对我启用", true);
+                        }}
+                      >
+                        {globallyDisabled ? "全员已关闭" : isShadowed ? "已遮蔽" : isUsable ? "去试试" : (isAdmin ? "对我启用" : "启用")}
+                      </Button>
+                    </footer>
                   </article>
                 );
               })}

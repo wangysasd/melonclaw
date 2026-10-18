@@ -309,7 +309,13 @@ export function Composer({
       setSkillPrefixWidth(0);
       return;
     }
-    setSkillPrefixWidth(skillPrefixRef.current?.offsetWidth ?? 0);
+    const prefix = skillPrefixRef.current;
+    if (!prefix) return;
+    const measure = () => setSkillPrefixWidth(prefix.offsetWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(prefix);
+    return () => observer.disconnect();
   }, [selectedSkill]);
 
   useEffect(() => {
@@ -639,7 +645,7 @@ export function Composer({
                 className="selected-skill"
                 aria-label={`已选择技能 ${selectedSkill.display_name}`}
                 aria-keyshortcuts="Backspace"
-                title="按 Backspace 移除技能"
+                title={`${selectedSkill.display_name} · 按 Backspace 移除技能`}
               >
                 <SkillLogo />
                 <span>{selectedSkill.display_name}</span>

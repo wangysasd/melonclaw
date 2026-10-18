@@ -191,7 +191,7 @@ it("blocks invalid account creation and submits the validated form fields", asyn
     throw new Error(`Unexpected request: ${path}`);
   }));
 
-  render(<App><AccountManagement /></App>);
+  render(<App><AccountManagement onClose={vi.fn()} /></App>);
   await screen.findByRole("button", { name: "创建用户" });
   fireEvent.click(screen.getByRole("button", { name: "创建用户" }));
   fireEvent.change(screen.getByLabelText("用户 ID"), { target: { value: "alice!" } });
@@ -237,7 +237,7 @@ it.each([[200, false], [500, false], [200, true], [500, true]] as const)("ignore
     throw new Error(`Unexpected request: ${path}`);
   }));
 
-  render(<App><AccountManagement /></App>);
+  render(<App><AccountManagement onClose={vi.fn()} /></App>);
   await waitFor(() => expect(listRequests).toBe(1));
   fireEvent.click(screen.getByRole("tab", { name: "租户管理" }));
   fireEvent.click(screen.getByRole("button", { name: "创建租户" }));

@@ -44,7 +44,7 @@ export function TaskEditor({ task, onClose, onSaved }: { task?: Task; onClose: (
     } finally { submitting.current = false; setBusy(null); }
   };
   return <Drawer open title={task ? "编辑任务" : "新建任务"} size={540} onClose={() => { if (!busy) onClose(); }} maskClosable={!busy}
-    footer={<Space><Button disabled={Boolean(busy)} loading={busy === "save"} onClick={() => void submit(false)}>保存</Button><Button type="primary" disabled={Boolean(busy)} loading={busy === "run"} onClick={() => void submit(true)}>保存并运行</Button></Space>}>
+    footer={<Space className="task-drawer-footer"><Button disabled={Boolean(busy)} loading={busy === "save"} onClick={() => void submit(false)}>保存</Button><Button type="primary" disabled={Boolean(busy)} loading={busy === "run"} onClick={() => void submit(true)}>保存并运行</Button></Space>}>
     <Alert type="info" showIcon title="任务结果自动进入固定会话" description="可使用已授权的联网搜索；不读取聊天、项目文件或长期记忆。所有计划按北京时间执行；错过不补跑，上一轮未结束则跳过本次，后台可用能力少于普通聊天。" />
     {error && <Alert className="task-alert" type="error" showIcon title={error} />}
     <Form form={form} layout="vertical" disabled={Boolean(busy)} className="task-form" initialValues={task ? { ...task.definition, enabled: task.status === "enabled", once_local: task.definition.schedule.run_at ? zonedLocal(task.definition.schedule.run_at) : undefined } : { name: "", instruction: "", model_id: defaultModel?.id, enabled: true, schedule: { kind: "manual", local_time: "09:00", weekday: 0 } }}>
