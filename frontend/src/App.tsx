@@ -95,7 +95,7 @@ function Workspace() {
           onInitialSkillApplied={clearInitialSkill}
         />
       </div>
-      {view === "tasks" ? <Suspense fallback={<div>加载定时任务…</div>}><TaskCenter key={session.userId} onOpenConversation={openTaskConversation} /></Suspense> : null}
+      {view === "tasks" ? <Suspense fallback={<div>加载定时任务…</div>}><TaskCenter key={session.userId} onClose={() => setView("chat")} onOpenConversation={openTaskConversation} /></Suspense> : null}
       {view === "resources" ? (
         <ResourceView
           key={session.userId}
@@ -109,7 +109,7 @@ function Workspace() {
           }}
         />
       ) : null}
-      {view === "admin" && session.userId === "admin" ? <AccountManagement /> : null}
+      {view === "admin" && session.userId === "admin" ? <AccountManagement onClose={() => setView("chat")} /> : null}
       {view === "amp" ? <PlaceholderView title="AMP" /> : null}
       {view === "mindera" ? <PlaceholderView title="Mindera" /> : null}
       <ProjectDialog

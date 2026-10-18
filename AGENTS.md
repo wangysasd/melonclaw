@@ -67,6 +67,8 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 
 ## 文档与验证
 
+- 前端 UI 改动前须阅读 `docs/FRONTEND.md` 和 `docs/design-docs/ui-consistency.md`。工作台页面顶栏统一复用 `frontend/src/components/WorkspaceHeader.tsx`（16px 标题、49px 顶栏），不得在单页 CSS 重新定义近似字号、高度或留白；基础参数继续来自 `tokens.ts` 与 `antd.ts`。拓展与定时任务顶栏右侧统一为“返回聊天”，安装、新增等业务操作放在正文工具栏右侧。
+
 - 用户说明书 Skill `melonclaw-tutorial` 仅在用户显式要求根据新增或变化的项目功能更新时才修改；不要因功能变化主动更新该 Skill。此约定不影响 README.md 和 docs/ 的同步维护要求。`.data/skills/shared/melonclaw-tutorial/` 及其内容纳入 Git 版本管理，不得被 `.gitignore` 忽略。
 - 新功能的设计分析先写入 `note/note.md`，可长期复用的结论搬进 `docs/design-docs/` 并更新索引；至少包含背景与目标、方案概览、关键设计选择、数据/事件流、失败与安全边界、运行步骤、预期结果和验证记录。
 - 新增命令、环境变量、API、MCP 服务或用户可见行为时，同步更新 README.md；架构、依赖边界或横切入口变化时，同步更新 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。

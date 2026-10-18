@@ -38,7 +38,7 @@ it("shows separate list columns, Beijing schedule and run times, and the five or
     next_run_at: "2026-10-19T01:00:00Z",
     latest_run: { id: "last", status: "succeeded", created_at: "2026-10-12T00:59:00Z", started_at: "2026-10-12T01:00:00Z" } as TaskRun,
   } as Task], total: 1 });
-  render(<App><TaskCenter onOpenConversation={open} /></App>);
+  render(<App><TaskCenter onClose={vi.fn()} onOpenConversation={open} /></App>);
   const row = (await screen.findByRole("button", { name: "每周行业报告" })).closest("tr")!;
   expect(screen.getAllByRole("columnheader").map(cell => cell.textContent)).toEqual([
     "任务名称", "任务模型", "执行计划", "状态", "最近一次运行", "下一次运行", "操作",
@@ -63,7 +63,7 @@ it("shows why no future run is scheduled and preserves archived action restricti
     definition: { name: task.name, instruction: "整理报告", model_id: "custom:test", schedule },
   } as Task));
   vi.mocked(taskApi.list).mockResolvedValue({ items: tasks, total: tasks.length });
-  render(<App><TaskCenter /></App>);
+  render(<App><TaskCenter onClose={vi.fn()} /></App>);
   await screen.findByText("暂停日报");
   for (const [index, next] of ["已暂停", "已归档", "计划已结束", "手动运行"].entries()) {
     const row = screen.getByText(tasks[index].name).closest("tr")!;
@@ -80,7 +80,7 @@ it("shows why no future run is scheduled and preserves archived action restricti
 
 it("opens task names directly in their fixed conversations and runs the current configuration from the list", async () => {
   const open = vi.fn();
-  render(<App><TaskCenter onOpenConversation={open} /></App>);
+  render(<App><TaskCenter onClose={vi.fn()} onOpenConversation={open} /></App>);
   fireEvent.click(await screen.findByRole("button", { name: "A" }));
   expect(open).toHaveBeenCalledWith("chat-A");
   expect(taskApi.get).not.toHaveBeenCalled();
@@ -96,7 +96,7 @@ it("opens task names directly in their fixed conversations and runs the current 
 });
 
 it("focuses cancel in the archive dialog and archives the selected task only after explicit confirmation", async () => {
-  render(<App><TaskCenter /></App>);
+  render(<App><TaskCenter onClose={vi.fn()} /></App>);
   const row = (await screen.findByText("A")).closest("tr")!;
   fireEvent.click(within(row).getByRole("button", { name: /^归\s*档$/ }));
   let dialog = await screen.findByRole("dialog");
@@ -118,11 +118,11 @@ it("focuses cancel in the archive dialog and archives the selected task only aft
 it("opens the latest run in a drawer and preserves list search and page when it closes", async () => {
   vi.mocked(taskApi.list).mockResolvedValue({ items: [(await taskApi.get("A", new AbortController().signal))], total: 40 });
   vi.mocked(taskApi.get).mockClear();
-  render(<App><TaskCenter /></App>);
+  render(<App><TaskCenter onClose={vi.fn()} /></App>);
   await screen.findByText("A");
   const search = screen.getByPlaceholderText("搜索任务名称");
   fireEvent.change(search, { target: { value: "日报" } });
-  fireEvent.keyDown(search, { key: "Enter", code: "Enter" });
+  await waitFor(() => expect(taskApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ name: "日报", page: 1 }), expect.any(AbortSignal)));
   await screen.findByText("A");
   fireEvent.click(screen.getByTitle("2"));
   await waitFor(() => expect(taskApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ name: "日报", page: 2 }), expect.any(AbortSignal)));
@@ -143,7 +143,7 @@ it("opens the latest run in a drawer and preserves list search and page when it 
 it("keeps each task's action pending independently when requests finish out of order", async () => {
   const finish = new Map<string, (value: TaskRun) => void>();
   vi.mocked(taskApi.action).mockImplementation(task => new Promise(resolve => { finish.set(task.id, resolve); }));
-  render(<App><TaskCenter /></App>);
+  render(<App><TaskCenter onClose={vi.fn()} /></App>);
   const rowA = (await screen.findByText("A")).closest("tr")!;
   const rowB = screen.getByText("B").closest("tr")!;
   const runA = within(rowA).getByRole("button", { name: /^运\s*行$/ }) as HTMLButtonElement;

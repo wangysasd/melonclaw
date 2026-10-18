@@ -14,7 +14,7 @@ beforeEach(() => {
 });
 
 it("edits a name without sending an immutable ID or password, then unmounts the form", async () => {
-  render(<App><AccountManagement /></App>);
+  render(<App><AccountManagement onClose={vi.fn()} /></App>);
   await screen.findByText("测试用户");
   fireEvent.click(screen.getByRole("button", { name: /编\s*辑/ }));
   expect((screen.getByLabelText("用户 ID") as HTMLInputElement).disabled).toBe(true);
@@ -26,7 +26,7 @@ it("edits a name without sending an immutable ID or password, then unmounts the 
 });
 
 it("uses a separate password form and keeps errors reviewable", async () => {
-  render(<App><AccountManagement /></App>);
+  render(<App><AccountManagement onClose={vi.fn()} /></App>);
   await screen.findByText("测试用户");
   fireEvent.click(screen.getByRole("button", { name: "修改密码" }));
   fireEvent.change(screen.getByLabelText("新密码"), { target: { value: "another-password" } });
@@ -36,4 +36,17 @@ it("uses a separate password form and keeps errors reviewable", async () => {
   await screen.findByText("当前有请求正在执行，请稍后重试。");
   expect(screen.getByRole("dialog")).toBeTruthy();
   expect(apiRequest).toHaveBeenCalledWith("/api/admin/users/alice/password", { method: "POST", body: { password: "another-password", confirm_password: "another-password" } });
+});
+
+
+it("returns keyboard focus to the account action after cancelling its dialog", async () => {
+  render(<App><AccountManagement onClose={vi.fn()} /></App>);
+  await screen.findByText("测试用户");
+  const trigger = screen.getByRole("button", { name: "创建用户" });
+  trigger.focus();
+  fireEvent.click(trigger);
+  await screen.findByRole("dialog");
+  fireEvent.click(screen.getByRole("button", { name: /取\s*消/ }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
 });

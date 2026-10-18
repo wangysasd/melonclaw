@@ -16,10 +16,8 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-2) var(--page-padding);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--line);
   background: var(--canvas);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
   flex-shrink: 0;
 }
 
@@ -99,7 +97,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-6) max(var(--space-4), calc((100% - var(--content-max-width)) / 2)) var(--space-8);
+  padding: var(--space-6) max(var(--page-padding), calc((100% - var(--content-max-width)) / 2)) var(--space-8);
   overscroll-behavior: contain;
 }
 
@@ -536,20 +534,7 @@
   width: 100%;
   max-width: var(--content-max-width);
   gap: var(--space-3);
-  /* 上下各 14px，保证单条消息的外间距一致；相邻消息之间仍为 28px。 */
-  margin: 14px auto;
-  animation: appear 180ms ease-out;
-}
-
-@keyframes appear {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  margin: var(--space-4) auto;
 }
 
 .message.user {
@@ -590,7 +575,7 @@
 }
 
 .message.assistant .message-content {
-  max-width: 680px;
+  max-width: calc(100% - 44px);
 }
 
 .message.user .message-content {
@@ -600,7 +585,7 @@
 .message-meta {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
   margin: 2px 0 var(--space-2);
   color: var(--muted);
   font-size: var(--text-md);
@@ -609,14 +594,13 @@
 
 .message.user .message-meta {
   justify-content: flex-end;
-  /* 用户气泡上下留白一致：下方相邻消息间距为 28px。 */
-  margin-bottom: 28px;
+  margin-bottom: var(--space-2);
 }
 
 .message-meta span {
   color: var(--muted);
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
 }
 
 .message-body {
@@ -717,12 +701,12 @@
 }
 
 .message-body p {
-  margin: 0.72em 0;
+  margin: var(--space-3) 0;
 }
 
 .message-body ul,
 .message-body ol {
-  margin: 0.65em 0;
+  margin: var(--space-3) 0;
   padding-left: 1.45em;
 }
 
@@ -731,12 +715,12 @@
 }
 
 .message-body blockquote {
-  margin: 0.8em 0;
+  margin: var(--space-4) 0;
   padding: 0.45em 0.85em;
   color: var(--muted);
   border-left: 3px solid var(--line);
-  background: rgba(0, 0, 0, 0.03);
-  border-radius: 0 8px 8px 0;
+  background: var(--disabled-bg);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
 }
 
 .message-body a {
@@ -771,7 +755,7 @@
 /* 审批插槽 */
 
 .approval-slot {
-  width: min(var(--content-max-width), calc(100% - 40px));
+  width: min(var(--content-max-width), calc(100% - 2 * var(--page-padding)));
   flex-shrink: 0;
   margin: 0 auto;
   padding: 0 0 var(--space-3);
@@ -869,8 +853,8 @@
   gap: var(--space-2);
   width: 100%;
   min-width: 0;
-  min-height: 28px;
-  padding: 3px 0;
+  min-height: var(--control-height-md);
+  padding: var(--space-1) 0;
   overflow: hidden;
   cursor: pointer;
   list-style: none;
@@ -886,10 +870,10 @@
 }
 .execution-node-title {
   min-width: 0;
-  flex-shrink: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   color: var(--ink);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-regular);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1019,10 +1003,10 @@
 /* 输入区 */
 
 .composer-wrap {
-  width: min(var(--content-max-width), calc(100% - 40px));
+  width: min(var(--content-max-width), calc(100% - 2 * var(--page-padding)));
   flex-shrink: 0;
   margin: 0 auto;
-  padding: 0 0 19px;
+  padding: 0 0 var(--space-5);
 }
 
 /* 项目栏不建立高层级上下文，避免盖住输入框内向上展开的附件和技能菜单。 */
@@ -1159,11 +1143,9 @@
   display: flex;
   flex-direction: column;
   padding: 6px var(--space-3);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--line);
   border-radius: var(--radius-composer);
-  background: rgba(255, 255, 255, 0.86);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
+  background: var(--panel);
   box-shadow: var(--shadow-composer);
 }
 
@@ -1339,9 +1321,9 @@
   max-width: 100%;
   margin: 0;
   padding: 0;
-  color: #6e56cf;
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
+  color: var(--brand-primary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   line-height: 24px;
 }
 
@@ -1380,6 +1362,7 @@
   z-index: 1;
   top: 3px;
   left: 8px;
+  max-width: 60%;
   pointer-events: none;
 }
 .composer .melon-sender textarea { min-height: 38px; max-height: 180px; padding: 3px 0; color: var(--ink); font-family: var(--font-ui); font-size: var(--text-md); line-height: 1.5; resize: none; }
@@ -1389,8 +1372,8 @@
 .composer-attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 2px 0 var(--space-2);
+  gap: var(--space-2);
+  padding: var(--space-1) 0 var(--space-2);
 }
 
 .composer-attachment,
@@ -1399,7 +1382,8 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
-  padding: 7px 9px;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: var(--radius-card);
   background: rgba(245, 245, 247, 0.8);
@@ -1680,13 +1664,16 @@
   justify-content: center;
   gap: var(--space-3);
   margin-top: var(--space-2);
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .composer-hint {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--icon-gap);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: center;
   color: var(--muted);
   font-size: var(--text-xs);
 }
@@ -1821,7 +1808,7 @@
 
   .approval-slot,
   .composer-wrap {
-    width: calc(100% - 28px);
+    width: calc(100% - 2 * var(--page-padding));
   }
 
   .conversation {
@@ -1842,7 +1829,7 @@
 @media (max-width: 460px) {
   .approval-slot,
   .composer-wrap {
-    width: calc(100% - 20px);
+    width: calc(100% - 2 * var(--page-padding));
   }
 
   .conversation {
@@ -1954,10 +1941,6 @@
   .user-question-skip { align-self: stretch; }
   .chat-attention { font-size: var(--text-md); gap: 5px; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .mc-icon-spin { animation: none !important; }
-  .chat-view *, .chat-view *::before, .chat-view *::after { scroll-behavior: auto !important; transition: none !important; }
-}
 /* Agent 执行过程：不套卡片。状态摘要行 + 一段缩进的轻时间线，正文保持纯文本。 */
 .agent-execution {
   width: 100%;
@@ -1968,10 +1951,11 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 2px 0 var(--space-2);
+  gap: var(--space-2);
+  min-height: var(--control-height-md);
+  padding: var(--space-1) 0 var(--space-2);
   border: 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  border-bottom: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
   font-size: var(--text-md);
@@ -1991,12 +1975,12 @@
 .agent-execution-state { color: var(--muted); flex-shrink: 0; }
 .agent-execution.is-running .agent-execution-chevron,
 .agent-execution.is-running .agent-execution-state,
-.agent-execution.is-running .agent-execution-duration { color: var(--brand-primary); }
+.agent-execution.is-running .agent-execution-duration { font-size: var(--text-sm); color: var(--brand-primary); }
 .agent-execution.is-failed .agent-execution-state,
 .agent-execution.is-cancelled .agent-execution-state { color: var(--status-error); }
 .agent-execution.is-waiting .agent-execution-state,
-.agent-execution.is-unconfirmed .agent-execution-state { color: #b06000; }
-.agent-execution-duration { color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.agent-execution.is-unconfirmed .agent-execution-state { color: var(--status-warning); }
+.agent-execution-duration { font-size: var(--text-sm); color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 .agent-execution-hint { color: var(--muted); font-size: var(--text-md); }
 
@@ -2099,12 +2083,13 @@
 }
   .result-chart-canvas { height: 280px; }
 }
-.melon-markdown .markdown-paragraph { margin: 0 0 1em; line-height: inherit; }
+.melon-markdown .markdown-paragraph { margin: 0 0 var(--space-3); line-height: inherit; }
+.melon-markdown > :last-child { margin-bottom: 0; }
 .melon-markdown .markdown-paragraph:last-child { margin-bottom: 0; }
 .melon-markdown .markdown-pre { margin: var(--space-3) 0; white-space: normal; }
 .result-card, .result-asset, .result-sources, .result-actions { font-family: var(--font-ui); white-space: normal; }
 .melon-markdown.x-markdown .result-table-wrapper .markdown-table table { display: table; width: 100%; min-width: 480px; border-collapse: collapse; }
-.melon-markdown.x-markdown .result-table-wrapper .markdown-table th, .melon-markdown.x-markdown .result-table-wrapper .markdown-table td { padding: var(--space-2) 10px; line-height: 1.5; }
+.melon-markdown.x-markdown .result-table-wrapper .markdown-table th, .melon-markdown.x-markdown .result-table-wrapper .markdown-table td { padding: var(--space-2) var(--space-3); line-height: 1.5; }
 .result-diff code { font-family: var(--font-mono); }
 
 /* 表格导出是次要操作，固定在内容下方左侧。 */

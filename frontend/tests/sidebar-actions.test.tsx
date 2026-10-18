@@ -80,7 +80,7 @@ describe("sidebar resource actions", () => {
     session.optimisticConversations = [{ id: "c2", project_id: "p1", title: "刚发送的消息", updated_at: "2026-09-23T05:00:00Z" }];
     setup();
     expect(screen.getByText("刚发送的消息")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "在此项目中新建首个对话" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "新建项目首个对话" })).toBeNull();
     expect(screen.queryByRole("button", { name: "对话「刚发送的消息」更多操作" })).toBeNull();
   });
 
@@ -89,14 +89,14 @@ describe("sidebar resource actions", () => {
     session.optimisticConversations = [{ id: "local:1", project_id: "p1", title: "第一条消息", localOnly: true }];
     setup();
     expect(screen.getByRole("button", { name: /第一条消息/ }).hasAttribute("disabled")).toBe(true);
-    expect(screen.queryByRole("button", { name: "在此项目中新建首个对话" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "新建项目首个对话" })).toBeNull();
   });
 
   it("toggles the folder without changing the active chat", () => {
     setup();
     expect(screen.getByLabelText("项目甲的对话")).toBeTruthy();
     expect(screen.getByText("对话甲")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "在此项目中新建首个对话" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "新建项目首个对话" })).toBeNull();
     expect(screen.getByRole("button", { name: "项目甲" }).querySelector('[style*="folder-open.svg"]')).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "项目甲" }));
     expect(session.openProject).not.toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe("sidebar resource actions", () => {
     session.conversations = [];
     try {
       setup();
-      fireEvent.click(screen.getByRole("button", { name: "在此项目中新建首个对话" }));
+      fireEvent.click(screen.getByRole("button", { name: "新建项目首个对话" }));
       expect(session.startNewConversation).toHaveBeenCalledWith("p1");
     } finally {
       session.conversations = existing;
@@ -157,7 +157,7 @@ describe("sidebar resource actions", () => {
     session.conversationsLoading = true;
     try {
       setup();
-      expect(screen.queryByRole("button", { name: "在此项目中新建首个对话" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "新建项目首个对话" })).toBeNull();
       expect(screen.getByText("会话加载中…")).toBeTruthy();
     } finally {
       session.conversations = existing;

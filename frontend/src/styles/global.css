@@ -11,6 +11,7 @@ body,
   margin: 0;
   padding: 0;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 body {
@@ -95,36 +96,41 @@ body {
   background: var(--canvas);
 }
 
-.resource-view-header {
+.workspace-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: var(--space-2) var(--page-padding);
   border-bottom: 1px solid var(--line);
   gap: var(--space-4);
-  height: 49px;
+  height: calc(var(--control-height-md) + 2 * var(--space-2) + 1px);
   flex-shrink: 0;
   flex-wrap: nowrap;
 }
 
-.resource-view-title {
+.workspace-header-title {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
 }
 
-.resource-view-title h1 {
+.workspace-header-title h1 {
   margin: 0;
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
   line-height: var(--control-height-md);
 }
 
+.workspace-header-actions { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
+.workspace-page-description { margin: 0 0 var(--space-4); color: var(--muted); font-size: var(--text-md); line-height: var(--line-height-base); }
+
 .resource-view-tabs {
   flex: 1;
   min-height: 0;
   padding: 0 var(--page-padding);
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .resource-view-tabs > .ant-tabs-content-holder {
@@ -153,7 +159,7 @@ body {
 .user-create-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
   margin-top: var(--space-2);
 }
 
@@ -167,14 +173,8 @@ body {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: var(--control-height-lg);
+  min-height: var(--control-height-md);
   flex-wrap: wrap;
-}
-
-.environment-actions > .ant-input-search {
-  flex: 0 1 28%;
-  min-width: 180px;
-  margin-right: auto;
 }
 
 .skill-resource-actions .skill-search {
@@ -366,6 +366,18 @@ body {
   box-shadow: var(--shadow-card);
 }
 
+/* Shared partitioned footer: content above, metadata and primary action centered below. */
+.skill-resource-card, .mcp-card { padding: 0; gap: 0; min-width: 0; }
+.skill-resource-card > .skill-card-content, .mcp-card > .mcp-card-content { padding: var(--space-4); }
+.skill-resource-card .skill-card-head, .mcp-card .skill-card-head { padding-right: var(--space-10); align-items: flex-start; }
+.skill-resource-card .skill-card-head { flex-wrap: wrap; }
+.skill-resource-card .skill-card-name { flex-basis: 120px; }
+.resource-card-menu { position: absolute; top: var(--space-3); right: var(--space-3); }
+.resource-card-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-3); min-height: calc(var(--control-height-md) + 2 * var(--space-3) + 1px); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line-light); border-radius: 0 0 calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px); background: var(--panel); }
+.resource-card-footer .skill-card-meta { align-self: auto; min-height: 24px; margin: 0; line-height: var(--line-height-sm); white-space: nowrap; }
+.resource-card-footer-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2); min-width: 0; margin-left: auto; }
+.resource-card-note { color: var(--muted); font-size: var(--text-xs); line-height: var(--line-height-sm); overflow-wrap: anywhere; }
+
 .skill-card.is-broken {
   border-color: var(--status-error);
 }
@@ -375,8 +387,6 @@ body {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  padding-right: 0;
-  padding-top: var(--control-height-sm);
 }
 
 .app-logo {
@@ -412,18 +422,9 @@ body {
   outline-offset: 4px;
 }
 
-.skill-card-top-actions {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
 .skill-card-icon-action.ant-btn {
-  width: 28px;
-  height: 28px;
+  width: var(--control-height-md);
+  height: var(--control-height-md);
   padding: var(--space-1);
   display: inline-flex;
   align-items: center;
@@ -437,7 +438,7 @@ body {
 }
 
 .skill-card-icon-action.ant-btn:disabled {
-  color: #b8b8bd;
+  color: var(--disabled-text);
   background: transparent;
 }
 
@@ -454,8 +455,8 @@ body {
 
 .skill-card-primary-action.ant-btn {
   min-width: 0;
-  height: var(--control-height-sm);
-  padding: 0 var(--space-2);
+  height: var(--control-height-md);
+  padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-control);
   background: var(--disabled-bg);
@@ -470,7 +471,7 @@ body {
 
 .skill-card-primary-action.ant-btn:hover:not(:disabled) {
   color: var(--brand-primary);
-  background: #e9e9ec;
+  background: var(--fill-active);
 }
 
 .skill-card-primary-action.is-use.ant-btn {
@@ -480,17 +481,17 @@ body {
 
 .skill-card-primary-action.is-use.ant-btn:hover:not(:disabled) {
   color: var(--brand-primary);
-  background: rgba(0, 113, 227, 0.16);
+  background: var(--brand-soft-hover);
 }
 
 .skill-card-primary-action.is-add.ant-btn {
-  color: #248a3d;
-  background: rgba(52, 199, 89, 0.14);
+  color: var(--status-success);
+  background: var(--status-success-bg);
 }
 
 .skill-card-primary-action.is-add.ant-btn:hover:not(:disabled) {
-  color: #1f7a35;
-  background: rgba(52, 199, 89, 0.22);
+  color: var(--status-success);
+  background: var(--status-success-border);
 }
 
 .skill-card-primary-action.ant-btn:disabled {
@@ -504,9 +505,7 @@ body {
   font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
   color: var(--ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   line-height: 24px;
 }
 
@@ -626,7 +625,7 @@ body {
 }
 
 .provider-dot.is-on {
-  background: #52c41a;
+  background: var(--status-success);
 }
 
 .provider-card-info {
@@ -871,46 +870,8 @@ body {
 @media (max-width: 768px) {
   .app-shell { --page-padding: 16px; }
   .resource-actions > *, .skill-actions-trailing { max-width: 100%; }
-  .environment-actions > .ant-input-search,
-  .skill-resource-actions .skill-search,
-  .mcp-manager .resource-actions > .ant-input { flex: 1 1 180px; min-width: 0; }
-  .resource-view-title h1 { font-size: var(--text-title); }
-}
-
-/* 技能与 MCP 操作共用名称行；列宽由按钮文字决定，长标题自动省略。 */
-.skill-resource-card,
-.mcp-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto 1fr;
-  column-gap: var(--space-2);
-}
-.skill-resource-card > .skill-card-content,
-.mcp-card > .mcp-card-content {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-row: 1 / 4;
-  grid-template-columns: subgrid;
-  grid-template-rows: subgrid;
-}
-.skill-resource-card .skill-card-head,
-.mcp-card .skill-card-head {
-  grid-column: 1;
-  padding-top: 0;
-}
-.skill-resource-card .skill-card-desc,
-.skill-resource-card .skill-card-meta,
-.mcp-card .skill-card-desc,
-.mcp-card .mcp-card-meta-row { grid-column: 1 / -1; }
-.skill-resource-card .skill-card-meta { justify-self: start; }
-.skill-resource-card > .skill-card-top-actions,
-.mcp-card > .skill-card-top-actions {
-  position: relative;
-  inset: auto;
-  grid-column: 2;
-  grid-row: 1;
-  align-self: center;
-  z-index: 1;
+  .skill-resource-actions .skill-search { flex: 1 1 180px; min-width: 0; }
+  .skill-actions-trailing { margin-left: 0; }
 }
 
 /* Intrinsic single-line columns consume only their widest cell plus table padding.
@@ -922,7 +883,12 @@ body {
 .environment-table .ant-table-cell:not(.environment-description) code {
   white-space: nowrap;
 }
+.environment-manager { min-width: 0; }
 .environment-table .environment-description {
   min-width: 120px;
   max-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }

@@ -1,11 +1,10 @@
-.login-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: #f7f8fa; font-size: 14px; }
+.login-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--canvas); font-size: var(--text-md); }
 .passwordless-button { margin-top: 12px; }
-.account-page { flex: 1; min-width: 0; overflow: auto; padding: 24px 32px; font-size: 14px; }
-.account-page h1 { font-size: 18px; font-weight: 600; margin: 0 0 20px; }
-.account-toolbar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-.account-toolbar .ant-input-affix-wrapper { max-width: 260px; }
-.account-toolbar .ant-select { min-width: 200px; }
-@media (max-width: 600px) { .account-page { padding: 20px 16px; } }
+.account-page { display: flex; flex: 1; flex-direction: column; min-width: 0; height: 100dvh; font-size: var(--text-md); }
+.account-page-content { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--page-padding) var(--space-6); }
+.account-toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.account-page .ant-table { border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
+.account-page .ant-table-cell { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 
 /* RMS 登录：浅蓝品牌区与白色表单区；认证沿用同一表单。 */
 .rms-login-page {
@@ -65,13 +64,7 @@
   justify-content: center;
   min-width: 0;
   padding: 64px clamp(32px, 5vw, 80px);
-  background: radial-gradient(
-    ellipse 85% 68% at 50% 50%,
-    color-mix(in srgb, var(--brand-primary) 10%, transparent) 0%,
-    color-mix(in srgb, var(--brand-primary) 6%, transparent) 42%,
-    color-mix(in srgb, var(--brand-primary) 2%, transparent) 70%,
-    transparent 100%
-  );
+  background: var(--panel);
 }
 .rms-login-form { width: 100%; max-width: 360px; min-width: 0; }
 .rms-login-form-logo {
@@ -112,7 +105,7 @@
   grid-template-columns: 44% minmax(0, 1fr);
   place-items: stretch;
   padding: 0;
-  background: #fff;
+  background: var(--panel);
   color: var(--ink);
 }
 .melon-login-content {
@@ -128,27 +121,6 @@
   width: 100%;
   max-width: 430px;
   min-width: 0;
-}
-.melon-login-form::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  top: 50%;
-  left: 50%;
-  width: 175%;
-  aspect-ratio: 1;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  background: radial-gradient(
-    circle at center,
-    color-mix(in srgb, var(--brand-primary) 10%, transparent) 0%,
-    color-mix(in srgb, var(--brand-primary) 6%, transparent) 32%,
-    color-mix(in srgb, var(--brand-primary) 2%, transparent) 48%,
-    transparent 68%
-  );
-}
-@media (max-width: 600px) {
-  .melon-login-form::before { width: 145%; }
 }
 .melon-login-logo {
   display: block;

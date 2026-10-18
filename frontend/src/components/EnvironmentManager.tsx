@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, Form, Input, Modal, Popconfirm, Space, Switch, Table, Tag, Typography } from "antd";
 import { deleteEnvironment, listEnvironment, saveEnvironment, type EnvironmentVariable } from "../api/environment";
 
+import { Icon } from "./Icon";
+
 interface Props { userId: string; isAdmin: boolean }
 interface Draft { name: string; description: string; value: string; enabled: boolean }
 const emptyDraft: Draft = { name: "", description: "", value: "", enabled: true };
@@ -54,11 +56,13 @@ export function EnvironmentManager({ userId, isAdmin }: Props) {
       ...(!editor.row || draft.value !== "" ? { value: draft.value ?? "" } : {}) };
     await mutate(signal => saveEnvironment(userId, draft.name, fields, editor.row, signal), true);
   }
-  return <section style={{ fontSize: 14, padding: 24 }} aria-label="环境变量管理">
-    <Space orientation="vertical" style={{ width: "100%" }} size="middle">
+  return <section className="resource-section environment-manager" aria-label="环境变量管理">
+    <div className="resource-section">
       {error && <Alert type="error" showIcon message={error} action={<Button onClick={() => { const signal = controller.current?.signal; if (signal) void reload(signal); }}>重试</Button>} />}
-      <div className="resource-actions environment-actions"><Input.Search aria-label="搜索环境变量" placeholder="搜索变量名或说明" value={search} onChange={event => setSearch(event.target.value)} allowClear />
-        <Button type="primary" onClick={() => edit()} disabled={busy}>新增环境变量</Button></div>
+      <div className="resource-actions skill-resource-actions"><Input className="skill-search" prefix={<Icon name="search" size={14} />} aria-label="搜索环境变量" placeholder="搜索变量名或说明" value={search} onChange={event => setSearch(event.target.value)} allowClear />
+        <div className="skill-actions-trailing"><Button type="primary" icon={<Icon name="plus" size={14} />} onClick={() => edit()} disabled={busy}>新增环境变量</Button>
+          <Button icon={<Icon name="refresh-cw" size={14} />} loading={loading} disabled={busy} aria-label="刷新环境变量列表" onClick={() => { const signal = controller.current?.signal; if (signal) void reload(signal); }} />
+        </div></div>
       <Table<EnvironmentVariable> className="environment-table" tableLayout="auto" rowKey="id" loading={loading} scroll={{ x: 850 }} pagination={{ pageSize: 20 }}
         dataSource={rows.filter(row => `${row.name} ${row.description}`.toLowerCase().includes(search.toLowerCase()))}
         columns={[
@@ -72,15 +76,15 @@ export function EnvironmentManager({ userId, isAdmin }: Props) {
             render: description => <Typography.Text style={{ display: "block", width: "100%" }}
               ellipsis={{ tooltip: description }}>{description}</Typography.Text> },
           { title: "操作", render: (_, row) => <Space><Button type="link" disabled={busy} onClick={() => edit(row)}>编辑</Button>
-            <Popconfirm title="删除环境变量？" description={isAdmin ? "依赖此共享变量的用户将不再获得该值。" : "删除后将自动使用可用的同名系统共享值。"}
+            <Popconfirm title={`删除环境变量 ${row.name}？`} description={isAdmin ? "依赖此共享变量的用户将不再获得该值。" : "删除后将自动使用可用的同名系统共享值。"}
               onConfirm={() => mutate(signal => deleteEnvironment(userId, row, signal))} okText="删除" cancelText="取消">
               <Button type="link" danger disabled={busy}>删除</Button></Popconfirm></Space> },
         ]} />
-    </Space>
-    {editor && <Modal title={editor?.row ? "编辑环境变量" : "新增环境变量"} open={editor !== null} onCancel={close}
+    </div>
+    <Modal title={editor?.row ? "编辑环境变量" : "新增环境变量"} open={editor !== null} onCancel={close}
       onOk={() => void save()} confirmLoading={busy} cancelButtonProps={{ disabled: busy }} destroyOnHidden>
-      <Form form={form} initialValues={{ ...emptyDraft, ...(editor.row ? { name: editor.row.name, description: editor.row.description, enabled: editor.row.enabled } : {}) }} layout="vertical" preserve={false} autoComplete="off">
-        <Form.Item name="name" label="变量名" rules={[{ required: true, pattern: /^[A-Za-z_][A-Za-z0-9_]{0,127}$/, message: "请填写合法变量名" }]}>
+      {editor && <Form form={form} initialValues={{ ...emptyDraft, ...(editor.row ? { name: editor.row.name, description: editor.row.description, enabled: editor.row.enabled } : {}) }} layout="vertical" preserve={false} autoComplete="off">
+        <Form.Item name="name" label="变量名" rules={[{ required: true, pattern: /^[A-Za-z_][A-Za-z0-9_]{0,127}$/, message: "以字母或下划线开头，仅含字母、数字和下划线，最多 128 位" }]}>
           <Input disabled={!!editor?.row} maxLength={128} /></Form.Item>
         <Form.Item name="value" label={editor.row ? "值" : "值（空字符串也会保存）"}>
           <Input.Password autoComplete="new-password" maxLength={8192} visibilityToggle={false}
@@ -88,7 +92,7 @@ export function EnvironmentManager({ userId, isAdmin }: Props) {
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} maxLength={500} /></Form.Item>
         <Form.Item name="enabled" label="启用" valuePropName="checked"><Switch /></Form.Item>
         {error && <Alert type="error" message={error} showIcon />}
-      </Form>
-    </Modal>}
+      </Form>}
+    </Modal>
   </section>;
 }

@@ -347,7 +347,7 @@ export function SidebarContent({
                             onNavigateChat?.();
                             session.startNewConversation(project.id);
                           }} disabled={!canCreate}>
-                            <Icon name="plus" size={13} /> 在此项目中新建首个对话
+                            <Icon name="plus" size={13} /> 新建项目首个对话
                           </button>
                         ) : null}
                       </div>
