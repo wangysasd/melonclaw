@@ -14,7 +14,7 @@ beforeEach(() => {
   Object.defineProperty(window, "matchMedia", { writable: true, value: vi.fn().mockImplementation(() => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() })) });
 });
 it.each([false, true])("shows switching only when the backend dev capability is %s", async (enabled) => {
-  vi.mocked(getAuthConfig).mockResolvedValue({ passwordless: enabled });
+  vi.mocked(getAuthConfig).mockResolvedValue({ passwordless: enabled, assistant_name: "Melon" });
   render(<App><UserPicker compact /></App>);
   await waitFor(() => expect(getAuthConfig).toHaveBeenCalled());
   if (enabled) expect(await screen.findByRole("button", { name: "更换用户" })).toBeTruthy();

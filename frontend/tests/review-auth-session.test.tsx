@@ -10,6 +10,7 @@ import {
   type AuthUser,
 } from "../src/api/auth";
 import { AccountManagement } from "../src/components/AccountManagement";
+import { useAssistantName } from "../src/state/assistantName";
 import { AuthGate } from "../src/components/AuthGate";
 import { ChangePasswordDialog } from "../src/components/ChangePasswordDialog";
 
@@ -54,8 +55,10 @@ const bob: AuthUser = {
 
 function PrivateChat({ user }: { user: AuthUser }) {
   const [draft, setDraft] = useState("");
+  const assistantName = useAssistantName();
   return <section>
     <div>当前身份：{user.user_id}</div>
+    <div>助手：{assistantName}</div>
     <label>聊天草稿<input value={draft} onChange={(event) => setDraft(event.target.value)} /></label>
   </section>;
 }
@@ -91,6 +94,7 @@ it("drops the old chat subtree on identity refresh and ignores an older session 
   const nextIdentity = deferred<Response>();
   let sessionCalls = 0;
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    if (pathOf(input) === "/api/auth/config") return Promise.resolve(response(200, { passwordless: false, assistant_name: "Melon" }));
     if (pathOf(input) !== "/api/auth/session") throw new Error(`Unexpected request: ${pathOf(input)}`);
     sessionCalls += 1;
     if (sessionCalls === 1) return initial.promise;
@@ -103,6 +107,7 @@ it("drops the old chat subtree on identity refresh and ignores an older session 
   await waitFor(() => expect(sessionCalls).toBe(1));
   act(() => window.dispatchEvent(new StorageEvent("storage", { key: AUTH_STORAGE })));
   expect(await screen.findByText("当前身份：alice")).toBeTruthy();
+  expect(screen.getByText("助手：Melon")).toBeTruthy();
 
   fireEvent.change(screen.getByLabelText("聊天草稿"), { target: { value: "Alice 的未发送内容" } });
   act(() => window.dispatchEvent(new Event(AUTH_EVENT)));
@@ -146,7 +151,7 @@ it("returns to login after a successful password change invalidates the cookie s
     if (path === "/api/auth/session") {
       return Promise.resolve(authenticated ? response(200, alice) : response(401, { detail: "请先登录" }));
     }
-    if (path === "/api/auth/config") return Promise.resolve(response(200, { passwordless: false }));
+    if (path === "/api/auth/config") return Promise.resolve(response(200, { passwordless: false, assistant_name: "Melon" }));
     if (path === "/api/auth/password" && init?.method === "POST") {
       authenticated = false;
       return Promise.resolve(response(200, { ok: true }));

@@ -19,7 +19,7 @@ def build_tool_discovery(max_requests: int = 4):
         query: Annotated[str, Field(min_length=1, max_length=512)],
         runtime: ToolRuntime,
     ) -> Command:
-        """当前可见工具不足时，描述缺少的具体能力。官方选择器下一轮扩充工具池。"""
+        """当前可见工具不足时，描述缺少的具体能力。选择器在本次请求内、下一次模型调用前扩充工具池。"""
         query = query.strip()
         if not query:
             raise ValueError("工具需求不能为空。")
@@ -28,7 +28,7 @@ def build_tool_discovery(max_requests: int = 4):
         accepted = len(requests) < max_requests
         content = json.dumps({
             "status": "queued" if accepted else "exhausted",
-            "hint": "需求已提交；下一轮以可见工具列表为准。没有合适工具时如实说明。"
+            "hint": "需求已提交；本次请求内下一次模型调用前完成选择。检查可见工具并继续，不需要等待用户再次发消息；没有合适工具时如实说明。"
                     if accepted else "本消息检索额度已用完，请使用当前工具或说明能力不足。",
         }, ensure_ascii=False)
         return Command(update={

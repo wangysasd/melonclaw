@@ -65,7 +65,8 @@ def set_cookie(request, response, token):
 
 @router.get("/api/auth/config")
 async def config(request: Request):
-    return {"passwordless": load_settings().profile == "dev"}
+    settings = load_settings()
+    return {"passwordless": settings.profile == "dev", "assistant_name": settings.assistant_name}
 
 
 @router.post("/api/auth/login")

@@ -1,6 +1,5 @@
 /// <reference types="vite/client" />
 
-declare const __MELONCLAW_NAME__: string;
 declare const __MELONCLAW_IS_RMS_BRAND__: boolean;
 
 interface ImportMetaEnv {

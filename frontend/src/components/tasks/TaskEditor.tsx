@@ -1,3 +1,4 @@
+import { useAssistantName } from "../../state/assistantName";
 import { Alert, App, Button, Drawer, Form, Input, Select, Space, Switch } from "antd";
 import { useRef, useState } from "react";
 import { ApiError } from "../../api/client";
@@ -8,6 +9,7 @@ import { useSession } from "../../state/session";
 
 export function TaskEditor({ task, onClose, onSaved }: { task?: Task; onClose: () => void; onSaved: (id: string, conversationId?: string) => void }) {
   const session = useSession();
+  const assistantName = useAssistantName();
   const { message } = App.useApp();
   const [form] = Form.useForm<TaskDefinition & { enabled: boolean; once_local?: string }>();
   const kind = Form.useWatch(["schedule", "kind"], form);
@@ -48,7 +50,7 @@ export function TaskEditor({ task, onClose, onSaved }: { task?: Task; onClose: (
     <Alert type="info" showIcon title="任务结果自动进入固定会话" description="可使用已授权的联网搜索；不读取聊天、项目文件或长期记忆。所有计划按北京时间执行；错过不补跑，上一轮未结束则跳过本次，后台可用能力少于普通聊天。" />
     {error && <Alert className="task-alert" type="error" showIcon title={error} />}
     <Form form={form} layout="vertical" disabled={Boolean(busy)} className="task-form" initialValues={task ? { ...task.definition, enabled: task.status === "enabled", once_local: task.definition.schedule.run_at ? zonedLocal(task.definition.schedule.run_at) : undefined } : { name: "", instruction: "", model_id: defaultModel?.id, enabled: true, schedule: { kind: "manual", local_time: "09:00", weekday: 0 } }}>
-      <Form.Item label="执行助手"><Input disabled value="MelonClaw" /></Form.Item>
+      <Form.Item label="执行助手"><Input disabled value={assistantName} /></Form.Item>
       <Form.Item name="name" label="任务名称" rules={[{ required: true, whitespace: true, max: 120 }]}><Input maxLength={120} /></Form.Item>
       <Form.Item name="instruction" label="任务要求" rules={[{ required: true, whitespace: true, max: 12000 }]}><Input.TextArea rows={7} maxLength={12000} showCount placeholder="说明要研究的问题、输出格式和需要引用的来源" /></Form.Item>
       <Form.Item name="model_id" label="执行模型" rules={[{ required: true }]} extra={!models.length ? "暂无可用模型，请先到拓展 → 模型配置。" : defaultModel ? "默认选择管理员设置的系统默认模型，保存后固定使用所选模型。" : "暂无可用的系统默认模型，请明确选择执行模型或联系管理员设置。"}><Select options={models.map(m => ({ value: m.id, label: m.display_name }))} /></Form.Item>

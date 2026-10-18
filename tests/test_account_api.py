@@ -62,7 +62,8 @@ def test_profile_gate_and_no_password_echo(monkeypatch, profile, enabled):
         app = create_app()
         app.state.chat = SimpleNamespace(storage=MemoryAccounts())
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
-            assert (await client.get("/api/auth/config")).json() == {"passwordless": enabled}
+            monkeypatch.setenv("MELONCLAW_NAME", " Melon ")
+            assert (await client.get("/api/auth/config")).json() == {"passwordless": enabled, "assistant_name": "Melon"}
             response = await client.post("/api/auth/passwordless")
             assert response.status_code == (200 if enabled else 403)
             await client.post("/api/auth/login", json={"user_id": "alice", "password": "password-123"})
@@ -123,4 +124,20 @@ def test_self_password_confirmation_scope_and_session_revocation(monkeypatch):
             assert (await client.get("/api/auth/session")).status_code == 401
             assert (await client.post("/api/auth/login", json={"user_id": "alice", "password": "password-123"})).status_code == 401
             assert (await client.post("/api/auth/login", json={"user_id": "alice", "password": "new-password"})).status_code == 200
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("name,expected", [(None, "MelonClaw"), ("  ", "MelonClaw"), (" Melon ", "Melon")])
+def test_assistant_name_from_backend_environment(monkeypatch, name, expected):
+    if name is None:
+        monkeypatch.delenv("MELONCLAW_NAME", raising=False)
+    else:
+        monkeypatch.setenv("MELONCLAW_NAME", name)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(create_app()), base_url="http://test") as client:
+            response = await client.get("/api/auth/config")
+            assert response.status_code == 200
+            assert response.json()["assistant_name"] == expected
+
     asyncio.run(run())

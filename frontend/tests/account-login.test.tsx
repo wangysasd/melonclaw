@@ -11,7 +11,7 @@ vi.mock("../src/api/auth", () => ({
 }));
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(auth.getAuthConfig).mockResolvedValue({ passwordless: false });
+  vi.mocked(auth.getAuthConfig).mockResolvedValue({ passwordless: false, assistant_name: "Melon" });
   Object.defineProperty(window, "matchMedia", { writable: true, value: vi.fn().mockImplementation(() => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() })) });
 });
 
@@ -25,7 +25,7 @@ it("shows logo and password form without development text or passwordless by def
 });
 
 it("allows passwordless without requiring form values only when backend enables it", async () => {
-  vi.mocked(auth.getAuthConfig).mockResolvedValue({ passwordless: true });
+  vi.mocked(auth.getAuthConfig).mockResolvedValue({ passwordless: true, assistant_name: "Melon" });
   vi.mocked(auth.passwordlessLogin).mockResolvedValue(undefined);
   render(<LoginPage />);
   fireEvent.click(await screen.findByRole("button", { name: "免密登录" }));

@@ -20,7 +20,7 @@ export function notifyAuthChange() {
   writeStorage(AUTH_STORAGE, createRequestId());
 }
 export const getAuthSession = () => apiRequest<AuthUser>("/api/auth/session");
-export const getAuthConfig = () => apiRequest<{ passwordless: boolean }>("/api/auth/config");
+export const getAuthConfig = () => apiRequest<{ passwordless: boolean; assistant_name: string }>("/api/auth/config");
 export async function login(user_id: string, password: string) {
   await apiRequest("/api/auth/login", { method: "POST", body: { user_id, password } });
   notifyAuthChange();

@@ -13,7 +13,7 @@
 | [用户持久文件与代码升级](persistent-user-files.md) | 已实现 | 运行时 Skill 数据默认移出仓库，明确工作区、数据库和模板的部署边界 |
 | [常驻全局导航](global-navigation.md) | 已实现 | 全局窄栏、定时任务闹钟选中黑色圆盘与白色指针、拓展图标右上方块旋转 45°、rms 品牌开关控制 A/M/登录页及侧栏字标/助手头像/Browser Tab、Home 独立折叠、拓展 TAB 记忆和聊天状态保留 |
 | [Agent 运行控制与用量](agent-runtime-controls.md) | 已实现 | 数据库模型窗口与可见工具摘要计数、任务调用预算（默认模型 1000／工具 5000）、最多两次取数的提示指引、瞬时重试、显式 Todo 启停与跨模型用量账本；主／子装配及审批恢复、流中断行为验收覆盖，无新增表 |
-| [DeepSeek 联网搜索与网页读取](deepseek-web-tools.md) | 已实现 | 共用协议校验、截断提示、严格输入、凭据注入、有限重试与进程内节流；后台只开放搜索 |
+| [DeepSeek 联网搜索与网页读取](deepseek-web-tools.md) | 已实现 | 普通聊天主/子 Agent 常驻搜索与读取，不占动态工具池；共用协议校验、有限重试与节流；后台只开放授权搜索 |
 | [按需官方工具选择与会话池](on-demand-tool-pool.md) | 已实现 | 官方选择、find_tools 按需触发、跨消息复用、目录失效、父子隔离与并行预算；内置 DeepSeek 搜索（`internet_search`）与网页读取（`web_fetch`）在装配入口统一包装，真实构建路径已覆盖回归验证 |
 | [MelonClaw 登录页](melonclaw-login-page.md) | 已实现 | 非 RMS 与空品牌的浅蓝玻璃 AI 登录页、响应式表单与原认证链路 |
 | [RMS 登录页](rms-login-page.md) | 已实现 | RMS 品牌左右分栏式登录、玻璃环本地配图、精简文案与原认证链路 |

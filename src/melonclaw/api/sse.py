@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from contextvars import copy_context
 from typing import Any
 
 from fastapi.responses import StreamingResponse
@@ -28,12 +29,14 @@ async def stream_events(
     """转发 Agent 事件，并在长时间无事件时发送 SSE 心跳。"""
 
     iterator = events.__aiter__()
+    # All iterator steps and cleanup must share the context that owns trace tokens.
+    stream_context = copy_context()
     sequence = 0
     next_event: asyncio.Task[dict[str, Any]] | None = None
     try:
         while True:
             if next_event is None:
-                next_event = asyncio.create_task(iterator.__anext__())
+                next_event = asyncio.create_task(iterator.__anext__(), context=stream_context)
             try:
                 done, _ = await asyncio.wait({next_event}, timeout=15.0)
                 if not done:
@@ -64,6 +67,15 @@ async def stream_events(
             {"type": "done", "terminal_reason": "transport_error"},
             event_id=sequence,
         )
+
+    finally:
+        if next_event is not None:
+            if not next_event.done():
+                next_event.cancel()
+            await asyncio.gather(next_event, return_exceptions=True)
+        close = getattr(iterator, "aclose", None)
+        if close is not None:
+            await asyncio.create_task(close(), context=stream_context)
 
 
 def stream_response(

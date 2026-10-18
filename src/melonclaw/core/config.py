@@ -82,6 +82,7 @@ class Settings:
     """应用运行配置，不包含模型连接或模型凭据。"""
 
     workspace_root: Path
+    assistant_name: str = "MelonClaw"
     profile: str = ""
     data_root: Path = field(default_factory=_create_data_root)
     database_url: str = field(default="", repr=False)
@@ -179,6 +180,7 @@ def load_settings() -> Settings:
 
     return Settings(
         workspace_root=_create_workspace_root(),
+        assistant_name=os.getenv("MELONCLAW_NAME", "").strip() or "MelonClaw",
         profile=os.getenv("profile", ""),
         database_url=os.getenv("DATABASE_URL", ""),
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),

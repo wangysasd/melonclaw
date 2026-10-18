@@ -1,3 +1,4 @@
+import { useAssistantName } from "../state/assistantName";
 import { Spin } from "antd";
 import Bubble from "@ant-design/x/es/bubble";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -404,7 +405,8 @@ const MessageBubble = memo(function MessageBubble({
   userId: string;
   projectId: string;
 }) {
-  const metaLabel = message.role === "user" ? userName : __MELONCLAW_NAME__;
+  const assistantName = useAssistantName();
+  const metaLabel = message.role === "user" ? userName : assistantName;
   const metaDetail =
     message.role === "user"
       ? formatMessageTime(message.timestamp ?? null)
@@ -431,7 +433,7 @@ const MessageBubble = memo(function MessageBubble({
         {message.role === "user" ? userInitials(userName, userId) : (
           <img
             src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-mark-rms.png" : "/assets/brand/melonclaw-mark.png"}
-            alt={__MELONCLAW_NAME__}
+            alt={assistantName}
           />
         )}
       </div>

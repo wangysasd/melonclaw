@@ -25,7 +25,8 @@ from melonclaw.tool import search as search_module
 from melonclaw.tool import tools as tools_module
 
 
-def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatch, tmp_path):
+@pytest.mark.parametrize("use_eval", [False, True])
+def test_web_tools_are_always_visible_without_discovery(monkeypatch, tmp_path, use_eval):
     bindings, selections, searches, fetches = [], [], [], []
 
     def fake_search(query: str, count: int = 5, ori_question: str | None = None,
@@ -52,7 +53,10 @@ def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatc
             user = next(m for m in reversed(messages) if isinstance(m, HumanMessage))
             bindings.append((user.content, set(visible_names)))
             results = [m for m in messages[messages.index(user) + 1:] if isinstance(m, ToolMessage)]
-            if user.content == "普通问答" or results and results[-1].name in {"web_fetch", "task"}:
+            if results and results[-1].name == "eval":
+                assert "<error" not in results[-1].content
+                assert "离线正文" in results[-1].content
+            if user.content == "普通问答" or results and results[-1].name in {"web_fetch", "task", "eval"}:
                 message = AIMessage(content="完成")
             elif results and results[-1].name == "internet_search":
                 message = AIMessage(content="", tool_calls=[{
@@ -64,6 +68,14 @@ def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatc
                     "name": "task", "id": "delegate", "args": {
                         "description": "查找子任务资料", "subagent_type": "general-purpose",
                     },
+                }])
+            elif use_eval and {"eval", "internet_search"} <= set(visible_names):
+                message = AIMessage(content="", tool_calls=[{
+                    "name": "eval", "id": f"eval-{len(fetches)}",
+                    "args": {"code": (
+                        f"await tools.internetSearch({{query: {json.dumps(user.content)}}});\n"
+                        'await tools.webFetch({url: "https://example.com/a"});'
+                    )},
                 }])
             elif "internet_search" in visible_names:
                 message = AIMessage(content="", tool_calls=[{
@@ -96,16 +108,14 @@ def test_application_tools_support_chat_search_and_subagent_discovery(monkeypatc
             assert result["messages"][-1].content == "完成"
             if index == 0:
                 assert not selections and not searches and not fetches
-                assert "internet_search" not in bindings[0][1]
-                assert "web_fetch" not in bindings[0][1]
+                assert {"internet_search", "web_fetch"} <= bindings[0][1]
         assert [item["query"] for item in searches] == ["查找资料", "查找子任务资料"]
         assert [item["url"] for item in fetches] == ["https://example.com/a", "https://example.com/a"]
-        assert len(selections) == 2
-        assert "查找资料" in selections[0] and "查找子任务资料" in selections[1]
+        assert not selections
         child_bindings = [names for content, names in bindings if content == "查找子任务资料"]
-        assert "internet_search" not in child_bindings[0]
+        assert {"internet_search", "web_fetch"} <= child_bindings[0]
         assert {"internet_search", "web_fetch"} <= child_bindings[-1]
-        assert (await agent.aget_state(config)).values["tool_pool"]["names"] == ["internet_search", "web_fetch"]
+        assert (await agent.aget_state(config)).values["tool_pool"]["names"] == []
 
     asyncio.run(run())
 

@@ -283,3 +283,42 @@ def test_cancelled_chat_closes_inner_stream_and_resets_trace(telemetry):
     root = next(span for span in spans_after_flush(telemetry) if span.name == "melonclaw-chat-turn")
     assert root.attributes["langfuse.observation.status_message"] == "cancelled"
     assert closed == [True]
+
+
+@pytest.mark.parametrize("stop_early", [False, True])
+def test_sse_preserves_trace_context_across_events_and_close(telemetry, stop_early):
+    from melonclaw.api.sse import stream_events
+
+    tracing, _ = telemetry
+    closed = []
+    execution = SimpleNamespace(replay_message=None, user_id="u", tenant_id="t", conversation_id=uuid4(),
+        run_id=str(uuid4()), content="question", resuming=False, project_id=None,
+        model=SimpleNamespace(profile_id="custom:test"), request_id="r", assistant_message_id=uuid4())
+
+    async def events():
+        try:
+            assert trace_config().get("callbacks")
+            yield {"type": "text", "text": "partial"}
+            assert trace_config().get("callbacks")
+            yield {"type": "completed", "content": "answer"}
+        finally:
+            assert trace_config().get("callbacks")
+            closed.append(True)
+
+    async def execute():
+        stream = stream_events(trace_chat_execution(SimpleNamespace(tracing=tracing), execution, events()))
+        first = await anext(stream)
+        assert b'"type":"text"' in first
+        assert not trace_config().get("callbacks")
+        if stop_early:
+            await stream.aclose()
+        else:
+            rest = [event async for event in stream]
+            assert len(rest) == 1
+            assert b'"type":"completed"' in rest[0]
+        assert not trace_config().get("callbacks")
+
+    asyncio.run(execute())
+    assert closed == [True]
+    root = next(span for span in spans_after_flush(telemetry) if span.name == "melonclaw-chat-turn")
+    assert root.attributes["langfuse.observation.status_message"] == ("cancelled" if stop_early else "completed")

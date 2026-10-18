@@ -292,3 +292,7 @@ ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，
 `repository/resource_versions.py` 为显式资源写入口提供单进程提交—发布协议；共享全局版本，个人用户版本。取消保护事务完成并同步发布，发布失败阻止缓存读取。runtime 六因子键为工作区、租户、模型选择、能力、全局版本、用户版本；预热命中不进行资源检查 IO，未命中才解析模型和资源。构建前后核对版本、有界重试，保留 LRU、构建锁及失败不缓存。仅单进程，离线 SQL／文件变更须重启。
 
 `AccountRepository.authenticated_user` 一次联查当前及原登录用户／租户；API 把本次 UserContext 传入服务。`services/preparation.py` 一次会话／项目归属联查后，在同次新消息、审批／问答准备与过期收尾复用上下文，不跨请求缓存。保留锁、幂等检查及副作用事务校验；两次主要身份／归属读取不代表整个消息只需两次 IO。准备计时覆盖认证依赖。范围、运行步骤与验收见[环境变量与聊天准备](design-docs/environment-and-preparation.md)。
+
+SSE 事件拉取与源迭代器关闭显式复用每条流独立的 Context，避免心跳拉取任务切换导致 Langfuse ContextVar token 跨上下文复位；调用方不继承流内监控状态。工具发现的“下一次模型调用”发生于同一用户请求内，MCP 清单仅描述 MCP，不代表内置联网工具是否可用。
+
+普通聊天的 `internet_search` 与 `web_fetch` 在 Agent 组装入口排除出动态候选目录，因此始终可见且不占会话工具池名额；主/子 Agent 共用规则，主 Agent 的 PTC 保留原只读白名单。后台搜索仍受授权控制，不开放 Fetch。

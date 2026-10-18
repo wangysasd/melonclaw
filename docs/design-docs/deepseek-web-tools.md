@@ -13,6 +13,7 @@
 `core/config.py` 从环境读取 `DEEPSEEK_API_KEY` 到 Settings，组装点将凭据绑定到工具。
 工具不得自行读取环境变量，也不使用聊天模型的凭据。
 普通聊天主/子 Agent 和 PTC 可调用 `internet_search`、`web_fetch`；
+普通聊天主/子 Agent 始终可见这两个工具，不经过 find_tools，也不占动态工具池名额；主 Agent 的 PTC 沿用只读白名单，可直接使用这两个接口。单页读取优先直接调用 `web_fetch`。`eval` 通过最后一个表达式返回结果，不使用顶层 `return`。
 后台任务仅装配受控异步 `internet_search`，不开放任意 URL 抓取。
 
 输入校验 → 共用节流器 → 固定 DeepSeek 地址 → 有限重试 → 严格响应校验 → 限长输出。

@@ -18,7 +18,7 @@
 
 ## 首次部署
 
-使用服务器现有 `ubuntu` 账号，安装 Python、uv、Node.js、PostgreSQL 客户端、Nginx；数据库服务需已配置。`ubuntu` 在 `/opt` 下执行 `git clone <仓库地址> melonclaw`，代码固定放在 `/opt/melonclaw/`，不使用软链接，以 `uv sync --locked --default-index https://pypi.org/simple` 按仓库锁文件安装，`npm --prefix frontend ci` 和 `npm --prefix frontend run build` 构建前端。显式指定与锁文件一致的官方索引，避免服务器级 uv 镜像设置改写或导致锁文件校验失败。公开品牌变量可在构建时显式传入 `MELONCLAW_NAME` 和 `brand`；不把数据库或模型凭据传入浏览器。
+使用服务器现有 `ubuntu` 账号，安装 Python、uv、Node.js、PostgreSQL 客户端、Nginx；数据库服务需已配置。`ubuntu` 在 `/opt` 下执行 `git clone <仓库地址> melonclaw`，代码固定放在 `/opt/melonclaw/`，不使用软链接，以 `uv sync --locked --default-index https://pypi.org/simple` 按仓库锁文件安装，`npm --prefix frontend ci` 和 `npm --prefix frontend run build` 构建前端。显式指定与锁文件一致的官方索引，避免服务器级 uv 镜像设置改写或导致锁文件校验失败。公开品牌变量 `brand` 可在构建时显式传入；助手名称 `MELONCLAW_NAME` 由后端运行时下发；不把数据库或模型凭据传入浏览器。
 
 以 `ubuntu` 登录后准备目录和配置（需要管理员权限的命令使用 sudo，以下命令在代码根目录执行；已有配置保留）：
 

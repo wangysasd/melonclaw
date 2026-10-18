@@ -1,10 +1,12 @@
 import { Alert, Button, Spin } from "antd";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
-import { AUTH_EVENT, AUTH_STORAGE, getAuthSession, setRequestUser, type AuthUser } from "../api/auth";
+import { AUTH_EVENT, AUTH_STORAGE, getAuthConfig, getAuthSession, setRequestUser, type AuthUser } from "../api/auth";
+import { AssistantNameContext } from "../state/assistantName";
 import { LoginPage } from "./LoginPage";
 
 export function AuthGate({ children }: { children: (user: AuthUser) => ReactNode }) {
+  const [assistantName, setAssistantName] = useState("");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
@@ -13,6 +15,9 @@ export function AuthGate({ children }: { children: (user: AuthUser) => ReactNode
     const version = ++sequence.current;
     setChecking(true); setError(""); setUser(null); setRequestUser("");
     try {
+      const config = await getAuthConfig();
+      if (sequence.current !== version) return;
+      setAssistantName(config.assistant_name);
       const current = await getAuthSession();
       if (sequence.current !== version) return;
       setRequestUser(current.user_id); setUser(current);
@@ -42,5 +47,5 @@ export function AuthGate({ children }: { children: (user: AuthUser) => ReactNode
   }, [refresh]);
   if (checking) return <main className="login-page"><Spin aria-label="正在检查登录" /></main>;
   if (error) return <main className="login-page"><section className="login-card"><Alert type="error" title={error} /><Button onClick={() => void refresh()}>重试</Button></section></main>;
-  return user ? children(user) : <LoginPage />;
+  return <AssistantNameContext.Provider value={assistantName}>{user ? children(user) : <LoginPage />}</AssistantNameContext.Provider>;
 }

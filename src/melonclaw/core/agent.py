@@ -115,7 +115,8 @@ def _build_tool_selector_middleware(
             tool
             for tool in tools
             if _tool_name(tool) not in {
-                FIND_TOOLS_NAME, MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "prepare_skill_creation",
+                FIND_TOOLS_NAME, MCP_CATALOG_TOOL_NAME, "internet_search", "web_fetch",
+                "prepare_skill_install", "prepare_skill_creation",
                 "confirm_skill_install", "inspect_environment", "prepare_environment_change", "confirm_environment_change", "prepare_mcp_install", "test_mcp_install", "confirm_mcp_install",
                 "configure_task",
             }
@@ -282,7 +283,7 @@ async def build_research_agent(
             "middleware": child_middleware,
             "skills": skill_sources or None,
             "system_prompt": GENERAL_PURPOSE_SUBAGENT["system_prompt"] + (
-                "\n优先使用当前工具；缺少能力时调用 find_tools 描述具体需求，下一轮使用新增工具。"
+                "\n优先使用当前工具；缺少能力时调用 find_tools 描述具体需求，在本次请求的下一次模型调用中检查新增工具并继续执行。读取单页优先直接调用 web_fetch。"
                 f"\n{MCP_EXECUTION_GUIDANCE}"
                 f"\n{FILE_EXECUTION_GUIDANCE}"
                 f"\n{DATA_RETRY_GUIDANCE}"
