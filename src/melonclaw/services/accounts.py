@@ -28,12 +28,7 @@ class AccountService:
             return token
 
     async def session(self, token):
-        session = await self.storage.get_auth_session(token_digest(token))
-        if session is None:
-            return None
-        current = await self.storage.get_user_context(session["user_id"])
-        origin = await self.storage.get_user_context(session["login_user_id"])
-        return current if origin is not None else None
+        return await self.storage.authenticated_user(token_digest(token))
 
     async def switch(self, token, user_id):
         async with self.storage.account_guard():

@@ -30,13 +30,14 @@ async def submit_approval(
     if not manager.ready:
         return JSONResponse(await manager.status(), status_code=503)
     try:
-        preparation_started = perf_counter()
+        preparation_started = getattr(request.state, "preparation_started_at", perf_counter())
         execution, command = await manager.prepare_approval(
             conversation_id,
             payload.user_id,
             payload.decisions,
             approval_batch_id=payload.approval_batch_id,
             assistant_message_id=payload.assistant_message_id,
+            user_context=request.state.user,
         )
         execution.preparation_duration_ms = int((perf_counter() - preparation_started) * 1000)
     except Exception as exc:  # noqa: BLE001 - 准备阶段需要真实 HTTP 状态码

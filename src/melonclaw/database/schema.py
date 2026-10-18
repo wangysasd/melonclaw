@@ -703,3 +703,46 @@ task_operations = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Index("ix_task_operations_retention", "created_at", postgresql_where=text("response IS NOT NULL")),
 )
+
+
+# 环境变量资源；值只供受控运行时装配，管理接口永不返回。
+environment_variables = Table(
+    "environment_variables", metadata,
+    Column("id", PGUUID(as_uuid=True), primary_key=True),
+    Column("name", String(128), nullable=False),
+    Column("description", String(500), nullable=False, server_default=""),
+    Column("scope", String(16), nullable=False),
+    Column("owner_user_id", String(64), ForeignKey("users.user_id")),
+    Column("created_by", String(64), ForeignKey("users.user_id"), nullable=False),
+    Column("value", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False),
+    Column("version", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("(scope = 'global' AND owner_user_id IS NULL) OR "
+                    "(scope = 'user' AND owner_user_id IS NOT NULL)", name="ck_environment_scope"),
+    CheckConstraint("version > 0", name="ck_environment_version"),
+    Index("uq_environment_global", "name", unique=True, postgresql_where=text("scope = 'global'")),
+    Index("uq_environment_user", "owner_user_id", "name", unique=True,
+          postgresql_where=text("scope = 'user'")),
+)
+
+environment_operations = Table(
+    "environment_operations", metadata,
+    Column("id", PGUUID(as_uuid=True), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.user_id"), nullable=False),
+    Column("conversation_id", PGUUID(as_uuid=True), nullable=False),
+    ForeignKeyConstraint(["conversation_id", "user_id"],
+                         ["chat_conversations.id", "chat_conversations.user_id"]),
+    Column("request_id", String(80), nullable=False),
+    Column("payload", JSONB),
+    Column("manifest", JSONB),
+    Column("response", JSONB),
+    Column("status", String(16), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("user_id", "conversation_id", "request_id", name="uq_environment_operation_request"),
+    CheckConstraint("status IN ('staged','prepared','committed','rejected','expired')",
+                    name="ck_environment_operation_status"),
+    Index("ix_environment_operations_expiry", "expires_at"),
+)

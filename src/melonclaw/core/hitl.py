@@ -38,6 +38,12 @@ SENSITIVE_TOOL_INTERRUPTS["confirm_mcp_install"] = InterruptOnConfig(
     allowed_decisions=["approve", "reject"],
     description="确认 MCP 名称、个人归属、地址、工具白名单及启用选项。仅安装到当前用户，下一条消息生效。",
 )
+SENSITIVE_TOOL_INTERRUPTS["confirm_environment_change"] = InterruptOnConfig(
+    allowed_decisions=["approve", "reject"],
+    description="确认环境变量名称、操作与作用域；系统共享影响所有使用者，个人仅自己。值不回显，下一轮生效。",
+)
+# prepare_environment_change 仅准备当前真实消息绑定的不可变草稿，无有效配置写入，免审批。
+# confirm_environment_change 发布配置必须审批；两工具仅主聊天 Agent 开放，不进入 PTC。
 # internet_search 与 web_fetch 基于 DeepSeek Search & Fetch API，仅执行无写入副作用的
 # 公开网页搜索与单页 Markdown 读取；web_fetch 校验公网 HTTP(S) URL 并拒绝凭据、本地与内网地址，
 # 服务端统一注入 DEEPSEEK_API_KEY 且脱敏错误，因此免逐次审批并允许进入 Interpreter PTC。

@@ -171,6 +171,12 @@ body {
   flex-wrap: wrap;
 }
 
+.environment-actions > .ant-input-search {
+  flex: 0 1 28%;
+  min-width: 180px;
+  margin-right: auto;
+}
+
 .skill-resource-actions .skill-search {
   flex: 0 1 28%;
   min-width: 180px;
@@ -865,6 +871,7 @@ body {
 @media (max-width: 768px) {
   .app-shell { --page-padding: 16px; }
   .resource-actions > *, .skill-actions-trailing { max-width: 100%; }
+  .environment-actions > .ant-input-search,
   .skill-resource-actions .skill-search,
   .mcp-manager .resource-actions > .ant-input { flex: 1 1 180px; min-width: 0; }
   .resource-view-title h1 { font-size: var(--text-title); }
@@ -904,4 +911,18 @@ body {
   grid-row: 1;
   align-self: center;
   z-index: 1;
+}
+
+/* Intrinsic single-line columns consume only their widest cell plus table padding.
+   Description gets the remaining width; max-width prevents its text widening the table. */
+.environment-table .ant-table-cell:not(.environment-description) {
+  width: 1%;
+  white-space: nowrap;
+}
+.environment-table .ant-table-cell:not(.environment-description) code {
+  white-space: nowrap;
+}
+.environment-table .environment-description {
+  min-width: 120px;
+  max-width: 0;
 }

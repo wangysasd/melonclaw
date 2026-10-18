@@ -26,6 +26,7 @@ from melonclaw.repository import (
 )
 from melonclaw.services.attachments import AttachmentService
 from melonclaw.services.conversations import ConversationService
+from melonclaw.services.environment_chat import ChatEnvironmentService
 from melonclaw.services.errors import (
     AgentExecutionError,
     InvalidUserError,
@@ -33,6 +34,7 @@ from melonclaw.services.errors import (
 )
 from melonclaw.services.execution import ExecutionService, PreparedExecution
 from melonclaw.services.mcp_install import ChatMcpInstallService
+from melonclaw.services.preparation import prepare_context
 from melonclaw.services.resource_service import (
     ModelConfigPayload,
     ProviderConfigPayload,
@@ -74,6 +76,7 @@ class ChatService:
         self._skill_imports: SkillImportService | None = None
         self.runtime.skill_install_provider = ChatSkillInstallService(self)
         self.runtime.mcp_install_provider = ChatMcpInstallService(self)
+        self.runtime.environment_provider = ChatEnvironmentService(self)
         self.runtime.task_history_provider = TaskChatService(self.runtime)
         self.runtime.task_configuration_provider = TaskConfigurationService(self.runtime)
 
@@ -474,8 +477,10 @@ class ChatService:
         skill_id: str | None = None,
         attachment_ids: list[UUID] | None = None,
         capabilities: list[str] | None = None,
+        *, user_context=None,
     ) -> PreparedExecution:
-        await self._release_stale_user_interaction(conversation_id, user_id)
+        preparation = await prepare_context(self.conversations, conversation_id, user_id, user_context)
+        await self._release_stale_user_interaction(conversation_id, user_id, preparation)
         return await self.execution.prepare_message(
             conversation_id,
             user_id,
@@ -484,20 +489,21 @@ class ChatService:
             model_id=model_id,
             skill_id=skill_id,
             attachment_ids=attachment_ids,
-            capabilities=capabilities,
+            capabilities=capabilities, preparation=preparation,
         )
 
     async def _release_stale_user_interaction(
         self,
         conversation_id: UUID,
         user_id: str,
+        preparation=None,
     ) -> None:
         """发新消息前一次判断并收尾过期问题或待人工结束的失败轮次。"""
 
         try:
             await self.user_input.cancel_before_new_message(
                 conversation_id,
-                user_id,
+                user_id, preparation=preparation,
             )
         except Exception:  # noqa: BLE001 - 自动解锁失败不应阻塞新消息
             logger.warning(
@@ -514,6 +520,7 @@ class ChatService:
         *,
         approval_batch_id: UUID,
         assistant_message_id: UUID,
+        user_context=None,
     ) -> tuple[PreparedExecution, Any]:
         return await self.execution.prepare_approval(
             conversation_id,
@@ -521,6 +528,7 @@ class ChatService:
             decisions,
             approval_batch_id=approval_batch_id,
             assistant_message_id=assistant_message_id,
+            user_context=user_context,
         )
 
     async def prepare_user_input(
@@ -531,6 +539,7 @@ class ChatService:
         assistant_message_id: UUID,
         decision_request_id: str,
         answer: Any,
+        *, user_context=None,
     ):
         return await self.user_input.prepare(
             conversation_id,
@@ -538,7 +547,7 @@ class ChatService:
             interaction_id,
             assistant_message_id,
             decision_request_id,
-            answer,
+            answer, user_context=user_context,
         )
 
     async def stream_execution(

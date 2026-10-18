@@ -47,6 +47,7 @@ from melonclaw.middleware.task_context import TaskContextMiddleware
 from melonclaw.middleware.tool_name_guard import ToolNameGuardMiddleware
 from melonclaw.middleware.tool_selection import ToolPoolMiddleware
 from melonclaw.middleware.usage_observation import UsageObservationMiddleware
+from melonclaw.tool.environment import build_environment_tools
 from melonclaw.tool.mcp_install import McpInstallProvider, build_mcp_install_tools
 from melonclaw.tool.skill_install import SkillInstallProvider, build_skill_install_tools
 from melonclaw.tool.task_configuration import build_task_configuration_tool
@@ -115,7 +116,7 @@ def _build_tool_selector_middleware(
             for tool in tools
             if _tool_name(tool) not in {
                 FIND_TOOLS_NAME, MCP_CATALOG_TOOL_NAME, "prepare_skill_install", "prepare_skill_creation",
-                "confirm_skill_install", "prepare_mcp_install", "test_mcp_install", "confirm_mcp_install",
+                "confirm_skill_install", "inspect_environment", "prepare_environment_change", "confirm_environment_change", "prepare_mcp_install", "test_mcp_install", "confirm_mcp_install",
                 "configure_task",
             }
         ],
@@ -138,6 +139,8 @@ async def build_research_agent(
     skill_install_provider: SkillInstallProvider | None = None,
     mcp_install_provider: McpInstallProvider | None = None,
     task_history_provider: Any | None = None,
+    environment_provider: Any | None = None,
+    environment: dict[str, str] | None = None,
     task_configuration_provider: Any | None = None,
     client_capabilities: object = None,
     mcp_servers: dict[str, dict[str, Any]] | None = None,
@@ -163,7 +166,7 @@ async def build_research_agent(
     if unattended is not None:
         if any((runtime_backend, memory_service, attachment_hydration_provider,
                 skill_install_provider, mcp_install_provider, task_history_provider,
-                task_configuration_provider, client_capabilities,
+                task_configuration_provider, environment_provider, environment, client_capabilities,
                 mcp_servers, mcp_tool_allowlists, skill_dirs)):
             raise ValueError("无人值守执行不能混入普通聊天的能力或工作区挂载。")
         return build_unattended_agent(
@@ -184,6 +187,8 @@ async def build_research_agent(
         tools.extend(build_skill_install_tools(skill_install_provider))
     if mcp_install_provider is not None:
         tools.extend(build_mcp_install_tools(mcp_install_provider))
+    if environment_provider is not None:
+        tools.extend(build_environment_tools(environment_provider))
     if task_history_provider is not None:
         tools.append(build_task_history_tool(task_history_provider))
     if task_configuration_provider is not None:
@@ -208,6 +213,7 @@ async def build_research_agent(
             else "quickstart-research-agent"
         ),
         skill_dirs=skill_dirs,
+        environment=environment,
     )
     print(
         "运行时后端: CompositeBackend（默认虚拟根目录: "
@@ -272,7 +278,7 @@ async def build_research_agent(
         middleware=middleware,
         subagents=[{
             **GENERAL_PURPOSE_SUBAGENT,
-            "tools": [tool for tool in tools if _tool_name(tool) != "configure_task"],
+            "tools": [tool for tool in tools if _tool_name(tool) not in {"configure_task", "inspect_environment", "prepare_environment_change", "confirm_environment_change"}],
             "middleware": child_middleware,
             "skills": skill_sources or None,
             "system_prompt": GENERAL_PURPOSE_SUBAGENT["system_prompt"] + (

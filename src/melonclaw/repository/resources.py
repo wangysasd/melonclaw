@@ -27,6 +27,7 @@ from melonclaw.database.schema import (
     skills,
 )
 from melonclaw.repository.mappers import _as_iso, _now
+from melonclaw.repository.resource_versions import resource_change
 
 
 def _skill_row(
@@ -114,6 +115,7 @@ class ResourceRepositoryMixin:
             value = (await connection.execute(query)).scalar()
         return bool(value) if value is not None else None
 
+    @resource_change(user="user_id")
     async def set_skill_user_state(
         self, user_id: str, skill_id: Any, enabled: bool
     ) -> None:
@@ -164,6 +166,7 @@ class ResourceRepositoryMixin:
             rows = (await connection.execute(query)).mappings().all()
         return [dict(row) for row in rows]
 
+    @resource_change(scope="scope", owner="created_by")
     async def create_skill_row(
         self,
         *,
@@ -194,6 +197,7 @@ class ResourceRepositoryMixin:
             await connection.execute(insert(skills).values(**row))
         return row
 
+    @resource_change(scope="scope", owner="created_by")
     async def create_skill_row_if_missing(
         self,
         *,
@@ -239,6 +243,7 @@ class ResourceRepositoryMixin:
             result = await connection.execute(statement)
             return result.scalar_one_or_none() is not None
 
+    @resource_change(row="get_skill_row", key="skill_id")
     async def update_skill_row(self, skill_id: Any, **fields: Any) -> None:
         fields["updated_at"] = _now()
         async with self.engine.begin() as connection:
@@ -246,6 +251,7 @@ class ResourceRepositoryMixin:
                 update(skills).where(skills.c.id == skill_id).values(**fields)
             )
 
+    @resource_change(row="get_skill_row", key="skill_id")
     async def delete_skill_row(self, skill_id: Any) -> None:
         async with self.engine.begin() as connection:
             await connection.execute(delete(skills).where(skills.c.id == skill_id))
@@ -281,6 +287,7 @@ class ResourceRepositoryMixin:
             row = (await connection.execute(query)).mappings().first()
         return dict(row) if row is not None else None
 
+    @resource_change()
     async def create_provider_row(
         self,
         *,
@@ -322,6 +329,7 @@ class ResourceRepositoryMixin:
             await connection.execute(insert(model_providers).values(**row))
         return row
 
+    @resource_change()
     async def update_provider_row(self, provider_key: str, **fields: Any) -> None:
         fields["updated_at"] = _now()
         # 任何字段更新都视为配置变更：版本自推进，Agent 缓存键随之失效。
@@ -333,6 +341,7 @@ class ResourceRepositoryMixin:
                 .values(**fields)
             )
 
+    @resource_change()
     async def delete_provider_row(self, provider_key: str) -> None:
         async with self.engine.begin() as connection:
             await connection.execute(
@@ -370,6 +379,7 @@ class ResourceRepositoryMixin:
             rows = (await connection.execute(query)).mappings().all()
         return {str(row["provider_key"]): True for row in rows}
 
+    @resource_change(user="user_id")
     async def upsert_user_provider_key(
         self, *, provider_key: str, user_id: str, api_key: str
     ) -> None:
@@ -393,6 +403,7 @@ class ResourceRepositoryMixin:
                 )
             )
 
+    @resource_change(user="user_id")
     async def delete_user_provider_key(
         self, provider_key: str, user_id: str
     ) -> None:
@@ -492,6 +503,7 @@ class ResourceRepositoryMixin:
                 return await self.get_system_default_model_key(connection=borrowed)
         return await connection.scalar(query)
 
+    @resource_change(scope="scope", owner="created_by")
     async def create_model_row(
         self,
         *,
@@ -529,6 +541,7 @@ class ResourceRepositoryMixin:
             await connection.execute(insert(model_configs).values(**row))
         return row
 
+    @resource_change(row="get_model_row", key="model_key")
     async def set_default_model(self, model_key: str) -> None:
         """切换默认模型：单事务内清掉旧默认再置新默认。
 
@@ -554,6 +567,7 @@ class ResourceRepositoryMixin:
                 .values(is_default=True, updated_at=_now())
             )
 
+    @resource_change(row="get_model_row", key="model_key")
     async def update_model_row(self, model_key: str, **fields: Any) -> None:
         fields["updated_at"] = _now()
         # 任何字段更新都视为配置变更：版本自推进，Agent 缓存键随之失效。
@@ -565,6 +579,7 @@ class ResourceRepositoryMixin:
                 .values(**fields)
             )
 
+    @resource_change(row="get_model_row", key="model_key")
     async def delete_model_row(self, model_key: str) -> None:
         async with self.engine.begin() as connection:
             await connection.execute(

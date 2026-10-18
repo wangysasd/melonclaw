@@ -41,6 +41,11 @@ from melonclaw.repository import (
 )
 from melonclaw.services.attachments import AttachmentService
 from melonclaw.services.conversations import ConversationService
+from melonclaw.services.environment_chat import (
+    cleanup_environment_operation,
+    parse_environment_chat,
+    reject_environment_decisions,
+)
 from melonclaw.services.errors import (
     AgentExecutionError,
     RequestInProgressError,
@@ -53,6 +58,7 @@ from melonclaw.services.execution_finalize import (
 from melonclaw.services.execution_models import PreparedExecution
 from melonclaw.services.execution_trace import ExecutionTrace
 from melonclaw.services.mcp_chat_config import parse_chat_mcp
+from melonclaw.services.preparation import prepare_context
 from melonclaw.services.result_index import extract_result_refs, message_result_refs
 from melonclaw.services.runtime import ChatRuntime
 from melonclaw.services.tracing import trace_chat_execution
@@ -80,13 +86,16 @@ class ExecutionService:
         skill_id: str | None = None,
         attachment_ids: list[UUID] | None = None,
         capabilities: list[str] | None = None,
+        *, preparation=None,
     ) -> PreparedExecution:
         """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。"""
 
         storage = self.runtime.require_ready()
         normalized_capabilities = normalize_capabilities(capabilities)
+        env_content, env_draft = parse_environment_chat(content.strip(), user_id=user_id,
+            conversation_id=str(conversation_id), request_id=request_id)
         clean_content, mcp_drafts = parse_chat_mcp(
-            content.strip(), user_id=user_id, conversation_id=str(conversation_id), request_id=request_id,
+            env_content, user_id=user_id, conversation_id=str(conversation_id), request_id=request_id,
         )
         try:
             normalized_attachment_ids = [UUID(str(item)) for item in (attachment_ids or [])]
@@ -96,18 +105,8 @@ class ExecutionService:
             raise AttachmentStateError("消息正文和附件不能同时为空。", "message_empty")
         if len(clean_content) > 12000:
             raise ValueError("消息不能超过 12000 个字符。")
-        selected_skill = await self.runtime.resolve_skill(user_id, skill_id)
-        if skill_id and selected_skill is None:
-            raise ValueError("选择的技能不存在或已被移除。")
-        conversation = await storage.get_conversation(conversation_id, user_id)
-        if conversation is None:
-            raise ConversationNotFoundError
-        context = await self.conversations.resolve_user(user_id)
-        project = await self.conversations.project_for_conversation(
-            storage,
-            conversation,
-            context,
-        )
+        preparation = preparation or await prepare_context(self.conversations, conversation_id, user_id, storage=storage)
+        context, conversation, project = preparation.user, preparation.conversation, preparation.project
 
         existing = await storage.find_request(
             conversation_id,
@@ -162,16 +161,18 @@ class ExecutionService:
                     project=project,
                     model=stored_model,
                 )
-            model = await self.runtime.resolve_model(context.user_id, model_id)
+            agent = await self.runtime.agent_for_conversation(
+                conversation, project, model_id, normalized_capabilities, user_context=context
+            )
+            model = agent.melonclaw_resolved_model
+            if skill_id and not any(item["id"] == skill_id for item in agent.melonclaw_skill_references):
+                raise ValueError("选择的技能已不可用，请重新选择。")
             from melonclaw.services.task_chat import TaskChatService
             task_context = {}
             if conversation.get("task_id"):
                 task_context.update(await TaskChatService(self.runtime).history_selection(
                     context.user_id, conversation_id, model, clean_content,
                 ))
-            agent = await self.runtime.agent_for_conversation(
-                conversation, project, model, normalized_capabilities
-            )
             if await aget_pending_interaction(
                 agent,
                 self.runtime.conversation_config(conversation_id),
@@ -199,8 +200,8 @@ class ExecutionService:
                     # 状态已经由持锁执行收敛；不要用旧快照覆盖它。
                     pass
             display_metadata: dict[str, Any] | None = None
-            if selected_skill is not None:
-                pinned = next((item for item in agent.melonclaw_skill_references if item["id"] == selected_skill.key), None)
+            if skill_id:
+                pinned = next((item for item in agent.melonclaw_skill_references if item["id"] == skill_id), None)
                 if pinned is None:
                     raise ValueError("选择的技能已不可用，请重新选择。")
                 display_metadata = {"skill": pinned}
@@ -213,6 +214,9 @@ class ExecutionService:
                 display_metadata["capabilities"] = list(normalized_capabilities)
             if self.runtime.settings is None:
                 raise RuntimeError("运行配置尚未加载。")
+            if env_draft:
+                display_metadata["environment_operation_id"] = env_draft["id"]
+                await self.runtime.environment_provider.stage(env_draft, context, conversation_id, request_id)
             if mcp_drafts:
                 await storage.stage_mcp_drafts(context.user_id, conversation_id, mcp_drafts)
             pair = await storage.create_message_pair(
@@ -243,10 +247,12 @@ class ExecutionService:
                 model,
                 run_id=str(uuid4()),
                 worker_id=self.runtime.worker_id,
-                skill_id=selected_skill.key if selected_skill is not None else None,
+                skill_id=skill_id,
                 attachments=list(pair.attachments),
             )
         except BaseException:
+            if env_draft:
+                await cleanup_environment_operation(storage, env_draft["id"], user_id, conversation_id)
             # Agent 构建也在持锁区内；请求取消同样必须释放连接级会话锁。
             if lock_connection is not None:
                 await storage.release_advisory_lock(lock_connection, conversation_id)
@@ -433,6 +439,7 @@ class ExecutionService:
             user_message_id=UUID(pair.user_message["id"]),
             task_context={k: v for k, v in pair.user_message.get("display_metadata", {}).items() if k in {"task_history"}},
             content=pair.user_message["content"],
+            environment_operation_id=pair.user_message.get("display_metadata", {}).get("environment_operation_id"),
             skill_id=skill_id,
             lock_connection=lock_connection,
             attachments=attachments or [],
@@ -447,17 +454,11 @@ class ExecutionService:
         *,
         approval_batch_id: UUID,
         assistant_message_id: UUID,
+        user_context=None,
     ) -> tuple[PreparedExecution, Any]:
         storage = self.runtime.require_ready()
-        conversation = await storage.get_conversation(conversation_id, user_id)
-        if conversation is None:
-            raise ConversationNotFoundError
-        context = await self.conversations.resolve_user(user_id)
-        project = await self.conversations.project_for_conversation(
-            storage,
-            conversation,
-            context,
-        )
+        preparation = await prepare_context(self.conversations, conversation_id, user_id, user_context, storage=storage)
+        context, conversation, project = preparation.user, preparation.conversation, preparation.project
         assistant = await storage.get_incomplete_assistant(
             conversation_id,
             context.user_id,
@@ -471,15 +472,15 @@ class ExecutionService:
             context.user_id,
             assistant["request_id"],
         )
-        model = await self.runtime.model_for_message(context.user_id, assistant)
         agent = await self.runtime.agent_for_conversation(
             conversation,
             project,
-            model,
+            (assistant.get("model") or {}).get("id"),
             self.runtime.capabilities_for_message(
                 request_record.user_message if request_record is not None else None
-            ),
+            ), user_context=context, fallback_default=True,
         )
+        model = agent.melonclaw_resolved_model
         pending = await aget_pending_approval(
             agent,
             self.runtime.conversation_config(conversation_id),
@@ -497,6 +498,7 @@ class ExecutionService:
             raise ConversationBusyError("当前会话正在处理另一条消息，请稍候。")
         try:
             command = build_resume_command(pending, decisions)
+            await reject_environment_decisions(storage, pending, command, context.user_id, conversation_id)
         except Exception:
             await storage.release_advisory_lock(lock_connection, conversation_id)
             raise
@@ -522,6 +524,7 @@ class ExecutionService:
                 content=assistant["content"],
                 resuming=True,
                 user_message_id=UUID(request_record.user_message["id"]) if request_record else None,
+                environment_operation_id=request_record.user_message.get("display_metadata", {}).get("environment_operation_id") if request_record else None,
                 task_context={k: v for k, v in request_record.user_message.get("display_metadata", {}).items()
                               if k in {"task_history"}} if request_record else {},
                 attachments=(
@@ -622,24 +625,15 @@ class ExecutionService:
             if agent_input is None:
                 messages: list[dict[str, str]] = []
                 if execution.skill_id:
-                    skill = await self.runtime.resolve_skill(
-                        execution.user_id, execution.skill_id
-                    )
-                    if skill is None:
-                        # 用户重新选一个技能就能继续，不是服务端故障。
-                        raise AgentExecutionError(
-                            "选择的技能已不可用，请重新选择技能后重试。",
-                            status_code=409,
-                        )
                     pinned = next((item for item in agent.melonclaw_skill_references if item["id"] == execution.skill_id), None)
-                    if pinned is None or pinned["content_hash"] != skill.content_hash:
-                        raise AgentExecutionError("技能内容已更新，请重新发送消息。", status_code=409)
+                    if pinned is None:
+                        raise AgentExecutionError("选择的技能已不可用，请重新选择。", status_code=409)
                     messages.append(
                         {
                             "role": "system",
                             "content": (
                                 "本轮用户通过技能选择器明确选择了一个技能。请优先读取并遵守 "
-                                f"{skill.virtual_path} 中的 SKILL.md；不要向用户暴露该内部路径。"
+                                f"{'/skills-user/' if pinned['scope'] == 'user' else '/skills/'}{pinned['name']}/SKILL.md；不要向用户暴露该内部路径。"
                             ),
                         }
                     )
@@ -794,6 +788,8 @@ class ExecutionService:
             yield {"type": "done", "message_id": saved["id"]}
             finished = True
         except asyncio.CancelledError:
+            if execution.environment_operation_id:
+                await cleanup_environment_operation(storage, execution.environment_operation_id, execution.user_id, execution.conversation_id)
             trace.close()
             await mark_interaction_recovery_required(
                 self.runtime.storage,

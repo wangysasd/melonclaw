@@ -45,7 +45,7 @@ async def submit_user_input(
     if not manager.ready:
         return JSONResponse(await manager.status(), status_code=503)
     try:
-        preparation_started = perf_counter()
+        preparation_started = getattr(request.state, "preparation_started_at", perf_counter())
         result = await manager.prepare_user_input(
             conversation_id,
             payload.user_id,
@@ -53,6 +53,7 @@ async def submit_user_input(
             payload.assistant_message_id,
             str(payload.decision_request_id),
             payload.answer,
+            user_context=request.state.user,
         )
     except Exception as exc:  # noqa: BLE001 - 准备阶段需要真实 HTTP 状态码
         return error_response(exc)

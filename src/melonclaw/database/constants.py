@@ -18,6 +18,7 @@ BUSINESS_TABLES = (
     # 资源表同样由 schema.py 派生，必须一起纳入 verify_schema 的列校验：
     # create_all 不会修补已有表，漏检会让结构漂移一路带到种子 INSERT 才以
     # 裸数据库错误暴露（例如 model_configs 缺 is_default 列）。
+    "environment_variables", "environment_operations",
     "skills",
     "skill_user_states",
     "mcp_servers",

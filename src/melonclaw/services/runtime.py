@@ -33,7 +33,7 @@ from melonclaw.database import (
 from melonclaw.memory import MemoryService
 from melonclaw.output.formatting import sanitize_text
 from melonclaw.repository import BusinessRepository
-from melonclaw.services.mcp import mcp_snapshot_revision, resolve_user_mcp_servers
+from melonclaw.services.mcp import resolve_user_mcp_servers
 from melonclaw.services.mcp_discovery import McpDiscoveryCoordinator
 from melonclaw.services.model_resolution import ModelResolutionMixin
 from melonclaw.services.skill_snapshot import clear_stale_snapshots, skill_snapshot
@@ -70,6 +70,7 @@ class ChatRuntime(ModelResolutionMixin):
     attachment_hydration_provider: Any | None = None
     skill_install_provider: Any | None = None
     mcp_install_provider: Any | None = None
+    environment_provider: Any | None = None
     task_history_provider: Any | None = None
     task_configuration_provider: Any | None = None
     workspace_agents: dict[Any, Any] | None = None
@@ -365,91 +366,87 @@ class ChatRuntime(ModelResolutionMixin):
         self,
         conversation: dict[str, Any],
         project: dict[str, Any] | None,
-        model: ResolvedModel | None = None,
+        model: ResolvedModel | str | None = None,
         capabilities: object = None,
+        *,
+        user_context=None,
+        fallback_default=False,
     ) -> Any:
-        """按工作区 + 模型版本 + 客户端能力缓存 Agent。
-
-        能力必须进缓存键：同一个 Project 上，声明了提问能力的客户端和没声明的
-        客户端拿到的是两个不同的 Agent（工具集不同），不能互相复用。
-        """
-
-        self.require_ready()
-        if self.settings is None or self.checkpointer is None:
+        """六因子内存缓存；资源读取、模型解析和 Skill 扫描只在未命中时执行。"""
+        storage = self.require_ready()
+        if self.settings is None or self.checkpointer is None or self.memory_service is None:
             raise RuntimeError("Agent 仍在启动，请稍候。")
-        if self.memory_service is None:
-            raise RuntimeError("Memory Store 仍在启动，请稍候。")
         if self.workspace_agents is None:
             self.workspace_agents = {}
-        normalized_capabilities = normalize_capabilities(capabilities)
         user_id = str(conversation["user_id"])
-        resolved_model = model or await self.resolve_model(user_id)
+        context = user_context or await storage.get_user_context(user_id)
+        if context is None or context.user_id != user_id:
+            raise ValueError("用户不存在或所属租户已停用。")
+        capabilities = normalize_capabilities(capabilities)
+        selection = model.profile_id if isinstance(model, ResolvedModel) else model
+        model_key = ("message" if fallback_default else "explicit", selection) if selection else ("default",)
         workspace_key = (
-            f"project:{user_id}:{project['id']}"
-            if project is not None
+            f"project:{user_id}:{project['id']}" if project is not None
             else f"conversation:{user_id}:{conversation['id']}"
         )
-        storage = self.require_ready()
-        # 三份快照互不依赖，独立连接读取；等待最慢的一份即可继续缓存命中判断。
-        models_revision, skill_state, mcp_rows = await asyncio.gather(
-            storage.models_revision(),
-            skill_snapshot(storage, user_id, self.settings.data_root, self._catalog_for(user_id)),
-            storage.list_visible_mcp_rows(user_id),
-        )
-        skills_revision, skill_dirs, skill_references = skill_state
-        mcp_revision = mcp_snapshot_revision(mcp_rows)
-        user_context = await storage.get_user_context(user_id)
-        if user_context is None:
-            raise ValueError("用户不存在或所属租户已停用。")
-        key = (
-            workspace_key,
-            user_context.tenant_id,
-            resolved_model.cache_key,
-            normalized_capabilities,
-            skills_revision,
-            mcp_revision,
-            models_revision,
-        )
-        cached = self.workspace_agents.get(key)
-        if cached is not None:
-            self.workspace_agents.pop(key)
-            self.workspace_agents[key] = cached
-            return cached
-        build_lock = self.agent_build_locks.setdefault(key, _AgentBuildLock())
-        build_lock.users += 1
-        try:
-            async with build_lock.lock:
-                cached = self.workspace_agents.get(key)
-                if cached is not None:
-                    return cached
-                mcp_servers, mcp_allowlists = resolve_user_mcp_servers(mcp_rows)
-                agent = await build_research_agent(
-                    self.settings,
-                    checkpointer=self.checkpointer,
-                    workspace_dir=self.workspace_dir(conversation, project),
-                    model=resolved_model,
-                    memory_service=self.memory_service,
-                    attachment_hydration_provider=self.attachment_hydration_provider,
-                    skill_install_provider=self.skill_install_provider,
-                    mcp_install_provider=self.mcp_install_provider,
-                    task_history_provider=self.task_history_provider,
-                    task_configuration_provider=self.task_configuration_provider,
-                    client_capabilities=normalized_capabilities,
-                    mcp_servers=mcp_servers,
-                    mcp_tool_allowlists=mcp_allowlists,
-                    skill_dirs=skill_dirs,
-                )
-                agent.melonclaw_skill_references = skill_references
-                if not agent.melonclaw_mcp_failed:
-                    self.workspace_agents[key] = agent
-                cache_limit = max(1, self.settings.agent_cache_entries)
-                while len(self.workspace_agents) > cache_limit:
-                    self.workspace_agents.pop(next(iter(self.workspace_agents)))
-                return agent
-        finally:
-            build_lock.users -= 1
-            if build_lock.users == 0 and self.agent_build_locks.get(key) is build_lock:
-                self.agent_build_locks.pop(key)
+        for _attempt in range(3):
+            generation = await storage.resource_versions.read(user_id)
+            key = (workspace_key, context.tenant_id, model_key, capabilities, *generation)
+            cached = self.workspace_agents.pop(key, None)
+            if cached is not None:
+                self.workspace_agents[key] = cached
+                return cached
+            build_lock = self.agent_build_locks.setdefault(key, _AgentBuildLock())
+            build_lock.users += 1
+            try:
+                async with build_lock.lock:
+                    if generation != await storage.resource_versions.read(user_id):
+                        continue
+                    cached = self.workspace_agents.pop(key, None)
+                    if cached is not None:
+                        self.workspace_agents[key] = cached
+                        return cached
+                    try:
+                        resolved_model = await self.resolve_model(user_id, selection)
+                    except ValueError:
+                        if not fallback_default or not selection or not is_custom_model_id(selection):
+                            raise
+                        resolved_model = await self._resolve_default_model(user_id)
+                    skill_state, mcp_rows, environment = await asyncio.gather(
+                        skill_snapshot(storage, user_id, self.settings.data_root, self._catalog_for(user_id)),
+                        storage.list_visible_mcp_rows(user_id),
+                        storage.effective_environment(user_id),
+                    )
+                    _, skill_dirs, skill_references = skill_state
+                    mcp_servers, mcp_allowlists = resolve_user_mcp_servers(mcp_rows)
+                    agent = await build_research_agent(
+                        self.settings, checkpointer=self.checkpointer,
+                        workspace_dir=self.workspace_dir(conversation, project),
+                        model=resolved_model, memory_service=self.memory_service,
+                        attachment_hydration_provider=self.attachment_hydration_provider,
+                        skill_install_provider=self.skill_install_provider,
+                        mcp_install_provider=self.mcp_install_provider,
+                        environment_provider=self.environment_provider,
+                        task_history_provider=self.task_history_provider,
+                        task_configuration_provider=self.task_configuration_provider,
+                        client_capabilities=capabilities, mcp_servers=mcp_servers,
+                        mcp_tool_allowlists=mcp_allowlists, skill_dirs=skill_dirs,
+                        environment=environment,
+                    )
+                    agent.melonclaw_skill_references = skill_references
+                    agent.melonclaw_resolved_model = resolved_model
+                    if generation != await storage.resource_versions.read(user_id):
+                        continue
+                    if not agent.melonclaw_mcp_failed:
+                        self.workspace_agents[key] = agent
+                    while len(self.workspace_agents) > max(1, self.settings.agent_cache_entries):
+                        self.workspace_agents.pop(next(iter(self.workspace_agents)))
+                    return agent
+            finally:
+                build_lock.users -= 1
+                if build_lock.users == 0 and self.agent_build_locks.get(key) is build_lock:
+                    self.agent_build_locks.pop(key)
+        raise ValueError("资源配置持续变化，请稍后重试。")
 
     @staticmethod
     def capabilities_for_message(message: dict[str, Any] | None) -> tuple[str, ...]:

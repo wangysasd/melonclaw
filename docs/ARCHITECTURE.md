@@ -117,17 +117,17 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 关注点 | 唯一入口 | 说明 |
 |---|---|---|
 | 配置与环境变量 | `core/config.py` 的 `Settings` / `load_settings()` | 新增环境变量在这里解析，不要在各模块直接读 `os.environ`（`MELONCLAW_*` 风格） |
-| 模型与能力 | `core/model_catalog.py` 的 `ResolvedModel` + 目录条目转换；模型目录以 `model_providers` + `model_configs` 两张表为唯一事实来源（供应商持有 base_url/api_key/模型列表端点，模型经 `provider_key` 引用供应商；db-init 只写无凭据、未启用的供应商模板，不创建模型），runtime 按 user_id 查可见行并联查供应商行 | 请求只能提交目录模型 ID（`custom:` 前缀），不接受前端传任意模型名；`model_providers.api_key` 只写不回读，模型停用或缺少有效 Key 时不可用，全局模型另受供应商开关控制；`ResolvedModel.cache_key` 同时携带模型版本与供应商版本，供应商换 Key 后旧 Agent 缓存即时失效；DB 无可用行时返回空选择并提示配置；Agent 构建必须显式接收数据库解析后的模型 |
+| 模型与能力 | `core/model_catalog.py` 的 `ResolvedModel` + 目录条目转换；模型目录以 `model_providers` + `model_configs` 两张表为唯一事实来源（供应商持有 base_url/api_key/模型列表端点，模型经 `provider_key` 引用供应商；db-init 只写无凭据、未启用的供应商模板，不创建模型），runtime 按 user_id 查可见行并联查供应商行 | 请求只能提交目录模型 ID（`custom:` 前缀），不接受前端传任意模型名；`model_providers.api_key` 只写不回读，模型停用或缺少有效 Key 时不可用，全局模型另受供应商开关控制；模型／供应商／Key 写入统一发布内存资源版本，下一次准备时旧 Agent 缓存失效；DB 无可用行时返回空选择并提示配置；Agent 构建必须显式接收数据库解析后的模型 |
 | 模型实例 | `core/chat_model.py` 的 `build_chat_model()` | 所有 provider（含 custom）统一经此构造 |
 | MCP 服务定义 | `services/mcp.py` 的运行时装配（数据来自 `mcp_servers` 表）；根目录 `mcp.json` 只是 db-init 的内置种子 | 无 MCP 时必须能正常启动；user scope 仅 http/sse 且禁止 `${VAR}`，global scope 允许 stdio 与 `${VAR}`（管理员发布） |
 | 长期记忆 | `memory/` 的 `MemoryService` | 写入必须经过它的固定工具与审计，不直接写 Store |
-| HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission`；用户问题由 `core/user_input.py` 的 `interrupt()` 进入同一 Checkpoint | write_file、edit_file、delete 免逐次审批，仍受 FilesystemPermission 路径规则限制；固定工具审批仅保留 Skill 安装、MCP 测试和安装；Shell 沿用受信任本地开发免审批例外；缺少关键用户决策时 Agent 可暂停等待回答；审批恢复必须绑定当前 `approval_batch_id` 与 `assistant_message_id`；用户问题的唯一出口是一次真正的 `Command(resume=...)`，答案可以是选项/文本，也可以是 `{"type": "cancelled"}`（用户跳过或 TTL 过期后由 `services/user_input_execution.py` 代答），只改 `user_interactions` 状态不会解除 Checkpoint 挂起；答案已收但本轮没跑完时账本会被标成 `recovery_required` 并且**禁止自动重放**（不知道副作用执行到哪一步），此时历史表现为失败，唯一的解锁入口是用户发新消息——那时服务层会先代答取消、把 Checkpoint 叫醒收尾 |
+| HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission`；用户问题由 `core/user_input.py` 的 `interrupt()` 进入同一 Checkpoint | write_file、edit_file、delete 免逐次审批，仍受 FilesystemPermission 路径规则限制；固定工具审批保留 Skill 安装、MCP 测试和安装、环境变量确认；Shell 沿用受信任本地开发免审批例外；缺少关键用户决策时 Agent 可暂停等待回答；审批恢复必须绑定当前 `approval_batch_id` 与 `assistant_message_id`；用户问题的唯一出口是一次真正的 `Command(resume=...)`，答案可以是选项/文本，也可以是 `{"type": "cancelled"}`（用户跳过或 TTL 过期后由 `services/user_input_execution.py` 代答），只改 `user_interactions` 状态不会解除 Checkpoint 挂起；答案已收但本轮没跑完时账本会被标成 `recovery_required` 并且**禁止自动重放**（不知道副作用执行到哪一步），此时历史表现为失败，唯一的解锁入口是用户发新消息——那时服务层会先代答取消、把 Checkpoint 叫醒收尾 |
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
 | Skill 资源 | `services/skills.py` 解析正文；`skill_state.py` 统一有效状态；`skill_import.py` 导入更新；`skill_operations.py` 文件日志恢复；`skill_index.py` 索引重建 | 正文在文件系统，DB 保存归属、启停、版本和来源。持久草稿与内容提交受同数据根文件锁保护；更新保留 ID/偏好，删除先隔离目录。管理、Picker 和 Agent 共用有效状态；`skill_snapshot.py` 固定有效目录内容与摘要，`middleware/skill_refresh.py` 每轮刷新 Checkpoint 摘要。详见 [Skill 生命周期](design-docs/skill-lifecycle.md)。 |
 | Skill/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
 | HTTP 身份 | `api/auth.py` 的 `require_session()` | 统一验证 Cookie 会话、来源和页面身份断言；附件由 `api/identity.py` 读取已验证身份。管理授权按当前 system/admin，业务归属仍由服务层校验 |
 
-凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`LANGFUSE_SECRET_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；给 Agent 的变量名集中在 `core/defaults.py` 声明，值只来自 `.env`。
+凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`LANGFUSE_SECRET_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；系统基础环境与禁止注入规则集中在 `core/defaults.py`，Skill 业务变量只由数据库共享／个人资源解析，不从 `.env` 透传。
 
 ### 聊天安装 Skill 与教程
 
@@ -205,7 +205,7 @@ MCP 管理从 `services/mcp_management.py` 进入，持久化由 `repository/mcp
 `mcp_user_preferences`。先确定个人覆盖来源，再判断启用，停用个人项不回退全局。
 headers/env 字面值由 `core/mcp_credentials.py` 按明文存入数据库；管理 API 不回传凭据值。
 数据库查询、转储与备份可读到这些凭据，应限制其读取范围。
-缓存摘要来自同一配置/偏好快照，涵盖删除；失败工具发现不永久缓存。
+缓存判断使用统一内存资源版本；配置／偏好写入（含删除）提交后发布版本，未命中才读快照；失败工具发现不永久缓存。
 已启用且白名单允许的外部 MCP 工具免逐次审批，不进入 PTC；`core/hitl.py` 仅保留固定敏感工具
 清单，聊天安装/测试 MCP 仍审批。主/子 Agent 提示词禁止用 `ask_user` 或文字请求批准 MCP 调用。
 命名空间中的连接指纹防止旧调用使用新连接。JSON 原文只在前端导入，不进入数据库或模型。
@@ -283,3 +283,12 @@ ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，
 ## DeepSeek 联网工具
 
 `tool/deepseek.py` 统一搜索/抓取的严格响应协议、同步异步传输、进程内按接口节流与有限重试；`search.py` 和 `task_search.py` 分别负责聊天和后台输出与权限边界。凭据只经 `core/config.py` 注入，工具不读取环境变量；异常结构不当作无结果，截断显式标记。后台不开放 Fetch。设计与并发/取消限制见[联网工具](design-docs/deepseek-web-tools.md)。
+
+
+### 环境变量与准备阶段（2026-10-18）
+
+`services/environment.py` 为环境资源的权限与合并入口，`repository/environment.py` 管理持久化及原子审批；业务值只由数据库解析后显式传入 Backend，不修改进程环境。管理列表在服务层生成 masked_value 脱敏预览，仅超过 8 字符显示前后各 4 字符，短值全部遮盖，完整值不返回浏览器。`services/environment_chat.py` 在消息持久化／模型／监控之前提取敏感值，工具只携带消息绑定的引用；聊天确认进入 HITL，不进入子 Agent/PTC。两张新增表通过 `20261017_environment` 保留数据升级。系统基础环境和禁止注入规则集中在 `core/defaults.py`，旧默认凭据名单与部署白名单透传已删除。
+
+`repository/resource_versions.py` 为显式资源写入口提供单进程提交—发布协议；共享全局版本，个人用户版本。取消保护事务完成并同步发布，发布失败阻止缓存读取。runtime 六因子键为工作区、租户、模型选择、能力、全局版本、用户版本；预热命中不进行资源检查 IO，未命中才解析模型和资源。构建前后核对版本、有界重试，保留 LRU、构建锁及失败不缓存。仅单进程，离线 SQL／文件变更须重启。
+
+`AccountRepository.authenticated_user` 一次联查当前及原登录用户／租户；API 把本次 UserContext 传入服务。`services/preparation.py` 一次会话／项目归属联查后，在同次新消息、审批／问答准备与过期收尾复用上下文，不跨请求缓存。保留锁、幂等检查及副作用事务校验；两次主要身份／归属读取不代表整个消息只需两次 IO。准备计时覆盖认证依赖。范围、运行步骤与验收见[环境变量与聊天准备](design-docs/environment-and-preparation.md)。

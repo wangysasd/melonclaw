@@ -70,10 +70,7 @@ class ConversationService:
     ) -> dict[str, Any] | None:
         if conversation["project_id"] is None:
             return None
-        project = await storage.get_project(
-            UUID(conversation["project_id"]),
-            context.user_id,
-        )
+        project = await storage.get_project(UUID(conversation["project_id"]), context.user_id)
         if project is None:
             raise ProjectNotFoundError
         return project

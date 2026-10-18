@@ -20,6 +20,7 @@ from melonclaw.api.routes.approvals import router as approvals_router
 from melonclaw.api.routes.attachments import router as attachments_router
 from melonclaw.api.routes.chat import router as chat_router
 from melonclaw.api.routes.conversations import router as conversations_router
+from melonclaw.api.routes.environment import router as environment_router
 from melonclaw.api.routes.files import router as files_router
 from melonclaw.api.routes.mcp import router as mcp_router
 from melonclaw.api.routes.models import router as models_router
@@ -56,8 +57,8 @@ def create_app() -> FastAPI:
             return JSONResponse({"error": "字段格式无效；名称最多 64 字符，密码需要 5～128 字符。"}, status_code=422)
         if request.url.path.startswith(("/api/tasks", "/api/task-runs")):
             return JSONResponse({"error": "任务字段格式无效，请检查名称、要求、模型和版本。"}, status_code=422)
-        if request.url.path.startswith("/api/mcp"):
-            return JSONResponse({"error": "MCP 字段格式无效，请检查名称、标识和连接配置。"}, status_code=422)
+        if request.url.path.startswith(("/api/mcp", "/api/environment")):
+            return JSONResponse({"error": "资源字段格式无效，请检查名称、值和版本。"}, status_code=422)
         if request.url.path.endswith("/messages"):
             return JSONResponse({"error": "消息字段格式无效，正文最多 12000 字符；请检查请求。"}, status_code=422)
         return await request_validation_exception_handler(request, exc)
@@ -95,6 +96,7 @@ def create_app() -> FastAPI:
     application.include_router(models_router)
     application.include_router(skills_router)
     application.include_router(mcp_router)
+    application.include_router(environment_router)
     application.include_router(tasks_router)
     application.include_router(projects_router)
     application.include_router(attachments_router)

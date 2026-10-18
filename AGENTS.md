@@ -53,6 +53,9 @@ MelonClaw 是一个持续演进的 Deep Agents 应用。开发工作应围绕可
 - 新增持久化路径时，区分临时 runtime、Web Project 持久 workspace、项目源文件和数据库数据，避免把用户数据写进仓库。持久数据根和工作区不得配置在代码目录内；Linux 部署约定见 `docs/deployment.md` 和 `ops/`，内置模板部署与迁移走 `melonclaw-resources`，不得覆盖已有用户资源。
 - 保持跨用户运行所需的相对路径和用户目录默认值；不要假设仓库位于某个固定用户名目录下。
 
+- 环境变量业务资源只读数据库，通过 `services/environment.py` 按管理员 global／普通用户 user 管理；个人启用覆盖共享，个人停用或删除回退共享。HOME/LANG/TZ/LC_* 与 PATH 自动提供，旧默认名单和 `MELONCLAW_SHELL_ENV_ALLOWLIST` 不再透传。聊天完整输入先脱敏，经 HITL 提交（管理员共享、普通用户个人），值不进入消息／Checkpoint／追踪；管理值仅回显前后各 4 位的脱敏预览，短值全部遮盖，数据库及备份按含凭据数据保护。新增 schema 更新为 `20261017_environment`。
+- Agent 缓存使用 `repository/resource_versions.py` 的单进程全局／用户内存版本；新增资源写入口必须显式登记提交—发布边界，不能仅更新数据库而不失效。预热命中不查询资源版本、不扫描 Skill、不重新解析模型；准备身份每请求实时联查一次，会话／项目归属联查一次，同次准备复用，恢复请求重验。保留锁、幂等和事务内权限检查；手工 SQL／文件修改后重启，不支持多 Web 进程。
+
 ## Agent 能力与安全边界
 
 - 普通聊天主/子 Agent 的 write_file、edit_file、delete 免逐次人工审批，不通过 ask_user 请求调用批准；文件工具仍受既有路径与权限规则约束，不进入 PTC。其他有副作用的工具必须明确经过 HITL 或受控权限边界；Shell 沿用仅限受信任本地开发的免审批例外。已启用且白名单允许的外部 MCP 工具免逐次审批，不通过 ask_user 请求调用批准；权限由配置作用域、启用状态、白名单和远端凭据限制，不进入 PTC。聊天安装与测试 MCP 配置仍走 HITL。

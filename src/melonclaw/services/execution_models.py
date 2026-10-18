@@ -32,6 +32,7 @@ class PreparedExecution:
     user_message_id: UUID | None = None
     content: str = ""
     skill_id: str | None = None
+    environment_operation_id: str | None = None
     user_interaction_id: UUID | None = None
     resuming: bool = False
     replay_message: dict[str, Any] | None = None

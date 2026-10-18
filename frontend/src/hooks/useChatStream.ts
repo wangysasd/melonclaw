@@ -1,6 +1,7 @@
 import { useVisibleRefresh } from "./useVisibleRefresh";
 import type { TaskMessageContext } from "../types/api";
 import { mergeDisplayEvent } from "../lib/modelUsage";
+import { environmentChatDisplay } from "../lib/environmentChat";
 import { mcpChatDisplay } from "../lib/mcpChat";
 import type { AssetRef } from "../lib/resultBlocks";
 import {
@@ -1058,7 +1059,7 @@ export function useChatStream({
     ) => {
       const snapshot = sessionRef.current;
       const cleanText = content.trim();
-      const displayText = mcpChatDisplay(cleanText);
+      const displayText = environmentChatDisplay(mcpChatDisplay(cleanText));
       const pendingQuestion = chatStateRef.current.userQuestion;
       const canReplaceExpiredQuestion = Boolean(
         pendingQuestion && isUserQuestionExpired(pendingQuestion.expires_at),

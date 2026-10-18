@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from time import perf_counter
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request
@@ -38,6 +39,7 @@ def check_origin(request):
 
 
 async def require_session(request: Request):
+    request.state.preparation_started_at = perf_counter()
     check_origin(request)
     if request.url.path in PUBLIC_PATHS:
         yield

@@ -19,7 +19,6 @@ from melonclaw.core.hitl import (
 )
 from melonclaw.repository import (
     ConversationBusyError,
-    ConversationNotFoundError,
     UserInteractionExpiredError,
 )
 from melonclaw.repository.user_interaction_lifecycle import (
@@ -28,6 +27,7 @@ from melonclaw.repository.user_interaction_lifecycle import (
     UserInteractionStatus,
 )
 from melonclaw.services.execution import ExecutionService, PreparedExecution
+from melonclaw.services.preparation import prepare_context
 from melonclaw.tool.user_input import (
     USER_INPUT_ANSWER_CANCELLED,
     USER_INPUT_KIND,
@@ -116,14 +116,14 @@ class UserInputExecutionService:
         answer: Any,
         *,
         allow_expired: bool = False,
+        user_context=None,
+        preparation=None,
     ) -> tuple[PreparedExecution, Any, dict[str, Any]] | dict[str, Any]:
         runtime = self.execution.runtime
         conversations = self.execution.conversations
         storage = runtime.require_ready()
-        conversation = await storage.get_conversation(conversation_id, user_id)
-        if conversation is None:
-            raise ConversationNotFoundError
-        context = await conversations.resolve_user(user_id)
+        preparation = preparation or await prepare_context(conversations, conversation_id, user_id, user_context, storage=storage)
+        context, conversation, project = preparation.user, preparation.conversation, preparation.project
         stored_interaction = await storage.get_user_interaction(
             conversation_id,
             context.user_id,
@@ -157,11 +157,6 @@ class UserInputExecutionService:
                 and not allow_expired
             ):
                 raise UserInteractionExpiredError
-        project = await conversations.project_for_conversation(
-            storage,
-            conversation,
-            context,
-        )
         assistant = await storage.get_incomplete_assistant(
             conversation_id,
             context.user_id,
@@ -173,15 +168,15 @@ class UserInputExecutionService:
             context.user_id,
             assistant["request_id"],
         )
-        model = await runtime.model_for_message(context.user_id, assistant)
         agent = await runtime.agent_for_conversation(
             conversation,
             project,
-            model,
+            (assistant.get("model") or {}).get("id"),
             runtime.capabilities_for_message(
                 request_record.user_message if request_record is not None else None
-            ),
+            ), user_context=context, fallback_default=True,
         )
+        model = agent.melonclaw_resolved_model
         # 先抢锁，再校验：设计要求的顺序是「取锁 → 锁内重读 assistant /  pending
         # → 校验 → 原子接收」。反过来做的话，两个标签页并发提交时各自都能用自己
         # 那份旧快照通过问题校验，失败方最后只收到一句「已提交过不同的答案」，
@@ -274,6 +269,7 @@ class UserInputExecutionService:
                     user_interaction_id=interaction_id,
                     resuming=True,
                     user_message_id=UUID(request_record.user_message["id"]) if request_record else None,
+                    environment_operation_id=request_record.user_message.get("display_metadata", {}).get("environment_operation_id") if request_record else None,
                     task_context={k: v for k, v in request_record.user_message.get("display_metadata", {}).items()
                                   if k in {"task_history"}} if request_record else {},
                     attachments=(
@@ -297,6 +293,7 @@ class UserInputExecutionService:
         self,
         conversation_id: UUID,
         user_id: str,
+        *, preparation=None,
     ) -> bool:
         """发新消息前一次判断并收尾挂起的提问，正常 waiting 卡片保持不动。
 
@@ -315,7 +312,7 @@ class UserInputExecutionService:
         reason = _cancel_reason(candidate)
         if candidate is None or reason is None:
             return False
-        return await self.cancel(conversation_id, user_id, reason, candidate)
+        return await self.cancel(conversation_id, user_id, reason, candidate, preparation=preparation)
 
     async def cancel(
         self,
@@ -323,6 +320,7 @@ class UserInputExecutionService:
         user_id: str,
         reason: CancelReason,
         candidate: dict[str, Any],
+        *, preparation=None,
     ) -> bool:
         """按 reason 声明的策略做一次代答取消，解锁仍挂起的 Checkpoint。
 
@@ -339,7 +337,7 @@ class UserInputExecutionService:
             conversation_id,
             user_id,
             reason,
-            candidate,
+            candidate, preparation=preparation,
         )
         if prepared is None:
             return False
@@ -351,15 +349,14 @@ class UserInputExecutionService:
         user_id: str,
         reason: CancelReason,
         candidate: dict[str, Any],
+        *, preparation=None,
     ) -> tuple[PreparedExecution, Any, dict[str, Any]] | dict[str, Any] | None:
         policy = _CANCEL_POLICY[reason]
         runtime = self.execution.runtime
         conversations = self.execution.conversations
         storage = runtime.require_ready()
-        conversation = await storage.get_conversation(conversation_id, user_id)
-        if conversation is None:
-            return None
-        context = await conversations.resolve_user(user_id)
+        preparation = preparation or await prepare_context(conversations, conversation_id, user_id, storage=storage)
+        context, conversation, project = preparation.user, preparation.conversation, preparation.project
         if policy.assistant == "latest":
             assistant = await storage.get_latest_assistant(
                 conversation_id,
@@ -376,11 +373,6 @@ class UserInputExecutionService:
             or str(assistant["id"]) != str(candidate["assistant_message_id"])
         ):
             return None
-        project = await conversations.project_for_conversation(
-            storage,
-            conversation,
-            context,
-        )
         # 代答取消也必须沿用提问那一轮声明的能力，否则恢复用的 Agent 可能
         # 没有 ask_user，工具集和提问时不一致。
         request_record = await storage.find_request(
@@ -391,10 +383,10 @@ class UserInputExecutionService:
         agent = await runtime.agent_for_conversation(
             conversation,
             project,
-            await runtime.model_for_message(context.user_id, assistant),
+            (assistant.get("model") or {}).get("id"),
             runtime.capabilities_for_message(
                 request_record.user_message if request_record is not None else None
-            ),
+            ), user_context=context, fallback_default=True,
         )
         pending = await aget_pending_interaction(
             agent,
@@ -450,7 +442,7 @@ class UserInputExecutionService:
             UUID(assistant["id"]),
             str(uuid4()),
             dict(CANCEL_ANSWER),
-            allow_expired=True,
+            allow_expired=True, preparation=preparation,
         )
 
     async def _run_cancel(

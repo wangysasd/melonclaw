@@ -8,6 +8,7 @@ from typing import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from melonclaw.database.updates.account_management import upgrade as account_management
+from melonclaw.database.updates.environment import upgrade as environment
 from melonclaw.database.updates.task_center import upgrade as task_center
 from melonclaw.database.updates.task_reliability import upgrade as task_reliability
 
@@ -27,4 +28,5 @@ UPDATES = (
     ),
     SchemaUpdate("20261010_task_center", "任务中心三表与固定会话", task_center),
     SchemaUpdate("20261015_task_reliability", "移除任务通知与操作回执保留策略", task_reliability),
+    SchemaUpdate("20261017_environment", "环境变量资源与聊天审批操作", environment),
 )
