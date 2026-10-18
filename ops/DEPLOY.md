@@ -97,6 +97,7 @@ bash ops/deploy.sh
 10. 验证本次修改的功能。
 
 Nginx 从 `/opt/melonclaw/frontend/dist/` 读取新文件。
+入口 `index.html` 应设置 `Cache-Control: no-store`，避免浏览器发版后继续使用旧的 Vite 资源清单；仓库的 Nginx 模板已包含该响应头。
 仅更新前端时，不需要重启后端服务。
 未修改 Nginx 配置时，不需要重新加载 Nginx。
 

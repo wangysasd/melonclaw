@@ -66,7 +66,7 @@ uv run melonclaw-resources --service-stopped migrate --source <旧工作区根> 
 
 ## 升级、回滚与备份
 
-升级前记录当前 Git 提交并停止 Web 服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked --default-index https://pypi.org/simple`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。若版本包含数据库升级，标准部署可直接运行 `uv run melonclaw-db-update`：命令会自动读取 `/etc/melonclaw/melonclaw.env`，与 systemd 服务使用相同配置。若配置文件放在其他位置，先设置 `MELONCLAW_ENV_FILE=/实际配置文件路径` 再运行。成功后重启 Web，检查包含任务执行器的 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
+升级前记录当前 Git 提交并停止 Web 服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked --default-index https://pypi.org/simple`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。Nginx 应使用 `ops/nginx/melonclaw.conf` 中对 `/index.html` 设置的 `Cache-Control: no-store`，使浏览器在发版后及时加载新入口与哈希资源；使用自定义配置时应保留该行为。若版本包含数据库升级，标准部署可直接运行 `uv run melonclaw-db-update`：命令会自动读取 `/etc/melonclaw/melonclaw.env`，与 systemd 服务使用相同配置。若配置文件放在其他位置，先设置 `MELONCLAW_ENV_FILE=/实际配置文件路径` 再运行。成功后重启 Web，检查包含任务执行器的 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
 
 回滚代码前确认数据库结构与旧版本兼容；切回已记录的旧 Git 提交后，重新同步依赖和构建前端，再启动服务。代码回滚不会自动回滚数据库 schema。异机备份需要包含 PostgreSQL、整个 data/workspaces 和受控保存的配置，定期演练恢复；数据库与磁盘应在同一停写窗口或一致快照中备份。
 
