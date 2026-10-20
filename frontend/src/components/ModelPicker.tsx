@@ -1,8 +1,27 @@
-import { Button, Select } from "antd";
+import { Button, ConfigProvider, Select, type ThemeConfig } from "antd";
+import { tokens } from "../theme/tokens";
 
 import type { ModelOption } from "../types/api";
 import { getProviderAvatar } from "./providerIcons";
 import { Icon } from "./Icon";
+
+const modelPickerTheme: ThemeConfig = {
+  components: {
+    Select: {
+      selectorBg: tokens["glass-highlight"],
+      colorBorder: tokens["glass-edge"],
+      colorText: tokens["message-user-ink"],
+      hoverBorderColor: tokens["brand-border"],
+      activeBorderColor: tokens["brand-border"],
+      activeOutlineColor: "transparent",
+      optionActiveBg: tokens["glass-blue"],
+      controlItemBgActiveHover: tokens["glass-action-end"],
+      optionSelectedBg: tokens["message-user-bg"],
+      optionSelectedColor: tokens["brand-primary-active"],
+      optionSelectedFontWeight: 500,
+    },
+  },
+};
 
 interface ModelPickerProps {
   options: ModelOption[];
@@ -74,41 +93,43 @@ export function ModelPicker({
       : []),
   ];
   return (
-    <Select
-      className="model-picker"
-      classNames={{ popup: { root: "model-picker-dropdown" } }}
-      aria-label="选择模型"
-      popupMatchSelectWidth={338}
-      styles={{ popup: { root: { maxWidth: "calc(100vw - 24px)" } } }}
-      placeholder="请先配置模型"
-      value={value || undefined}
-      disabled={disabled}
-      title="模型选择从下一条消息生效"
-      notFoundContent={
-        <span className="model-picker-empty">
-          暂无可用模型。点击下方添加自定义模型，在拓展 → 模型中配置 Key、添加并启用模型；没有供应商时请联系管理员。
-        </span>
-      }
-      options={groups}
-      onChange={onChange}
-      labelRender={(props) => {
-        const current = options.find((item) => item.id === props.value);
-        return <span>{current?.display_name ?? props.label}</span>;
-      }}
-      dropdownRender={(menu) => (
-        <>
-          {menu}
-          <div className="model-picker-footer">
-            <Button
-              type="text"
-              icon={<Icon name="plus" size={14} />}
-              onClick={onAddCustomModel}
-            >
-              添加自定义模型
-            </Button>
-          </div>
-        </>
-      )}
-    />
+    <ConfigProvider theme={modelPickerTheme}>
+      <Select
+        className="model-picker"
+        classNames={{ popup: { root: "model-picker-dropdown" } }}
+        aria-label="选择模型"
+        popupMatchSelectWidth={338}
+        styles={{ popup: { root: { maxWidth: "calc(100vw - 48px - 2 * var(--page-padding) - var(--control-height-md) - var(--space-5))" } } }}
+        placeholder="请先配置模型"
+        value={value || undefined}
+        disabled={disabled}
+        title="模型选择从下一条消息生效"
+        notFoundContent={
+          <span className="model-picker-empty">
+            暂无可用模型。点击下方添加自定义模型，在拓展 → 模型中配置 Key、添加并启用模型；没有供应商时请联系管理员。
+          </span>
+        }
+        options={groups}
+        onChange={onChange}
+        labelRender={(props) => {
+          const current = options.find((item) => item.id === props.value);
+          return <span>{current?.display_name ?? props.label}</span>;
+        }}
+        dropdownRender={(menu) => (
+          <>
+            {menu}
+            <div className="model-picker-footer">
+              <Button
+                type="text"
+                icon={<Icon name="plus" size={14} />}
+                onClick={onAddCustomModel}
+              >
+                添加自定义模型
+              </Button>
+            </div>
+          </>
+        )}
+      />
+    </ConfigProvider>
   );
 }

@@ -26,13 +26,13 @@ it("saves a concrete manual definition and reuses the key after ambiguous networ
   render(<App><TaskEditor onClose={() => {}} onSaved={onSaved} /></App>);
   fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "每周研究" } });
   fireEvent.change(screen.getByLabelText("任务要求"), { target: { value: "整理公开信息" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存并运行" }));
+  fireEvent.click(screen.getByRole("button", { name: /保\s*存/ }));
   await screen.findByText("连接中断");
-  fireEvent.click(screen.getByRole("button", { name: "保存并运行" }));
-  await waitFor(() => expect(onSaved).toHaveBeenCalledWith("task-1", undefined));
+  fireEvent.click(screen.getByRole("button", { name: /保\s*存/ }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith("task-1"));
   const [first, second] = vi.mocked(taskApi.save).mock.calls;
   expect(first[1]).toEqual(second[1]);
-  expect(first[1]).toMatchObject({ run_now: true, enabled: true, definition: { model_id: "custom:test", schedule: { kind: "manual" } } });
+  expect(first[1]).toMatchObject({ run_now: false, enabled: true, definition: { model_id: "custom:test", schedule: { kind: "manual" } } });
   expect(first[1]).not.toHaveProperty("user_id");
 });
 
@@ -64,21 +64,30 @@ it.each(["missing", "disabled"])("requires an explicit model when the system def
   expect(taskApi.save).not.toHaveBeenCalled();
 });
 
-it.each([false, true])("shows loading only on the requested save action (runNow=%s)", async runNow => {
+it("shows save loading and disables cancel while saving", async () => {
   let finish!: (value: Awaited<ReturnType<typeof taskApi.save>>) => void;
   vi.mocked(taskApi.save).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   render(<App><TaskEditor onClose={() => {}} onSaved={() => {}} /></App>);
   fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "研究" } });
   fireEvent.change(screen.getByLabelText("任务要求"), { target: { value: "整理公开信息" } });
   const save = screen.getByRole("button", { name: /^保\s*存$/ }) as HTMLButtonElement;
-  const run = screen.getByRole("button", { name: "保存并运行" }) as HTMLButtonElement;
-  fireEvent.click(runNow ? run : save);
+  const cancel = screen.getByRole("button", { name: /取\s*消/ }) as HTMLButtonElement;
+  fireEvent.click(save);
   await waitFor(() => expect(taskApi.save).toHaveBeenCalledOnce());
-  expect(save.classList.contains("ant-btn-loading")).toBe(!runNow);
-  expect(run.classList.contains("ant-btn-loading")).toBe(runNow);
-  expect(save.disabled && run.disabled).toBe(true);
-  fireEvent.click(runNow ? save : run);
+  expect(save.classList.contains("ant-btn-loading")).toBe(true);
+  expect(cancel.classList.contains("ant-btn-loading")).toBe(false);
+  expect(save.disabled && cancel.disabled).toBe(true);
+  fireEvent.click(save);
   expect(taskApi.save).toHaveBeenCalledOnce();
   finish({ task: { id: "saved" } as Task, run: null });
-  await waitFor(() => expect(save.disabled || run.disabled).toBe(false));
+  await waitFor(() => expect(save.disabled || cancel.disabled).toBe(false));
+});
+
+it("cancels without saving and has no save-and-run action", () => {
+  const onClose = vi.fn();
+  render(<App><TaskEditor onClose={onClose} onSaved={vi.fn()} /></App>);
+  expect(screen.queryByRole("button", { name: "保存并运行" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /取\s*消/ }));
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(taskApi.save).not.toHaveBeenCalled();
 });

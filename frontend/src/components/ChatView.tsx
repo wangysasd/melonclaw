@@ -4,6 +4,7 @@ import Bubble from "@ant-design/x/es/bubble";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icon } from "./Icon";
+import { GlassIcon } from "./GlassIcon";
 import { Composer } from "./Composer";
 import { toolSummary } from "../lib/toolDisplay";
 import { ApprovalPanel } from "./ApprovalPanel";
@@ -51,7 +52,7 @@ const WELCOME_PROMPTS = [
   {
     category: "neutral",
     key: "capabilities",
-    icon: <Icon name="brain" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="layers" />,
     label: "了解助手能力",
     description: "查看可以协助处理的研究任务",
     prompt: "请介绍你能协助我完成哪些研究任务，并举例说明各自的适用场景。",
@@ -59,7 +60,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "industry-outlook",
-    icon: <Icon name="scan-search" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="chart" />,
     label: "查看行业观点",
     description: "查询行业或赛道的最新周度观点",
     prompt: "请查询【行业/赛道】最新一条周度观点，区分行业观点与赛道观点，保留原文并注明日期。",
@@ -67,7 +68,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "research-reports",
-    icon: <Icon name="book-open" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="document" />,
     label: "检索研究报告",
     description: "按公司、行业或方向查找最新报告",
     prompt: "请按【公司/行业/研究方向】检索最新研究报告，列出标题、发布时间、摘要和评级信息，完整保留返回内容。",
@@ -75,7 +76,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "market-review",
-    icon: <Icon name="calendar-days" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="document" />,
     label: "复盘近期市场",
     description: "回顾最近交易日或一周的A股行情",
     prompt: "请复盘最近一个交易日的A股市场，梳理主要指数、行业板块表现和市场驱动因素，并总结后续观察要点。",
@@ -83,7 +84,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "financial-model",
-    icon: <Icon name="calculator" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="chart" />,
     label: "查询公司财务数据",
     description: "查看财务三表、指标或预测数据",
     prompt: "请查询【公司】的营业收入、归母净利润等指标，或展示利润表、资产负债表、现金流量表；注明年份并区分实际值与预测值。",
@@ -91,7 +92,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "article-search",
-    icon: <Icon name="search" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="globe" />,
     label: "搜索研究文章",
     description: "查找主题文章与发布时间、摘要",
     prompt: "请检索【主题】相关研究文章，整理标题、发布日期和正文摘要；若没有检索到，请明确说明。",
@@ -99,7 +100,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "performance-review",
-    icon: <Icon name="list-checks" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="document" />,
     label: "梳理业绩表现",
     description: "提炼财务指标、经营亮点与风险",
     prompt: "请点评【公司】最新一期业绩，提取核心财务指标，分析盈利驱动、经营亮点和潜在风险。",
@@ -107,7 +108,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "core-assumptions",
-    icon: <Icon name="brain" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="layers" />,
     label: "拆解经营假设",
     description: "分析业务贡献与关键变量敏感性",
     prompt: "请拆解【公司】的业务线贡献和关键经营假设，说明各变量变化对收入、利润预测的敏感性。",
@@ -115,7 +116,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "earnings-forecast",
-    icon: <Icon name="calculator" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="chart" />,
     label: "分析盈利预测",
     description: "查看预测指标、业务贡献和变动原因",
     prompt: "请查询【公司】未来几年的营收、净利润和每股收益预测，拆分业务贡献，解释预测变动并与同行对比。",
@@ -123,7 +124,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "stock-valuation",
-    icon: <Icon name="scan-search" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="chart" />,
     label: "分析个股估值",
     description: "结合历史分位、同业比较与基本面",
     prompt: "请分析【公司】的PE、PB、PS指标、近1年和3年历史分位及同业估值差异，梳理估值支撑逻辑与风险。",
@@ -131,7 +132,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "industry-research",
-    icon: <Icon name="blocks" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="layers" />,
     label: "研究行业赛道",
     description: "梳理产业链、供需变化与竞争格局",
     prompt: "请研究【行业/赛道】的产业链、供需变化、竞争格局和增长驱动，结合A股行业配置视角列出关键观察指标与风险。",
@@ -139,7 +140,7 @@ const WELCOME_PROMPTS = [
   {
     category: "equity",
     key: "macro-assets",
-    icon: <Icon name="globe-2" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="globe" />,
     label: "分析宏观与资产",
     description: "理解政策、利率汇率和跨资产传导",
     prompt: "请分析【宏观主题】对经济周期、货币政策、利率、汇率、债券及海内外市场的传导关系，梳理跨资产逻辑并标注不确定性。",
@@ -147,7 +148,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "bond-daily",
-    icon: <Icon name="calendar-days" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="document" />,
     label: "生成债市日报",
     description: "汇总债市行情与资金面，制作回顾海报",
     prompt: "请使用 DM 数据和每日债市回顾 Skill，生成最近一个交易日的债市日报及海报，覆盖资金面、机构情绪、活跃券、国债期货和收益率曲线；注明数据日期、来源与缺失项。",
@@ -155,7 +156,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "funding-watch",
-    icon: <Icon name="scan-search" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="chart" />,
     label: "跟踪资金市场",
     description: "观察 DR007、回购利差与公开市场操作",
     prompt: "请使用 DM 数据和资金面跟踪 Skill，分析最近一周 DR007、R001、R-DR 利差、资金情绪与央行公开市场操作，梳理流动性变化及对短端债券的影响，注明实际数据覆盖日期。",
@@ -163,7 +164,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "credit-analysis",
-    icon: <Icon name="list-checks" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="document" />,
     label: "分析主体信用",
     description: "梳理存续债、到期压力与流动性风险",
     prompt: "请使用 DM 数据和信用分析 Skill，分析【发行人全称/债券代码】的主体资质、存续债与到期分布、市场定价和流动性信号，对比同行并列出风险监测点；缺失财务数据需明确说明，模型估计与事实分开。",
@@ -171,7 +172,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "institution-behavior",
-    icon: <Icon name="blocks" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="layers" />,
     label: "观察机构行为",
     description: "比较机构分歧、买卖力量与资金情绪",
     prompt: "请使用 DM 数据和机构行为分析 Skill，分析最近一周国际货币分歧指数、国利货币买卖力量和资金情绪，比较银行、证券、保险、基金等机构信号，说明跨来源的一致性与分歧，不把分歧指数直接作为买卖建议。",
@@ -179,7 +180,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "bond-market",
-    icon: <Icon name="search" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="globe" />,
     label: "查询债券行情",
     description: "查看收益率、成交与估值偏离",
     prompt: "请使用 DM 债券行情与分析工具，查询【债券名称/代码】最近可用的收益率、成交和估值数据，比较同期限曲线与同类债券，注明数据时点、单位与覆盖范围。",
@@ -187,7 +188,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "bond-primary",
-    icon: <Icon name="book-open" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="document" />,
     label: "跟踪债券发行",
     description: "查看发行条款与一级市场供给",
     prompt: "请使用 DM 债券一级市场工具，查询【日期范围/发行人】的债券发行信息，整理发行规模、期限和可用条款，分析一级市场供给；先确认可用字段，未返回的数据明确标注。",
@@ -195,7 +196,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "treasury-futures",
-    icon: <Icon name="calculator" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="chart" />,
     label: "分析国债期货",
     description: "联动期货行情、基差与现券走势",
     prompt: "请使用 DM 国债期货工具，分析【合约/最近交易日】的行情，结合可用的基差、IRR 和持仓数据观察期现关系，区分日度与盘中口径，注明数据来源与缺失项。",
@@ -203,7 +204,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "offshore-bond",
-    icon: <Icon name="globe-2" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="globe" />,
     label: "研究境外债券",
     description: "查看境外债条款、行情与主体风险",
     prompt: "请使用 DM 境外债券与公司工具，查询【发行人/ISIN】的境外债信息，整理可用条款、市场定价与发行人风险，注明币种、数据时点及覆盖限制。",
@@ -211,7 +212,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "yield-curve",
-    icon: <Icon name="scan-search" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="chart" />,
     label: "分析收益率曲线",
     description: "比较期限利差、曲线形态与历史变化",
     prompt: "请使用可用的 DM 数据，分析【日期范围】国债与政策性金融债收益率曲线，比较关键期限、期限利差和曲线形态变化，梳理可能的驱动因素；注明数据日期、来源、单位与缺失项，不混用不同估值口径。",
@@ -219,7 +220,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "credit-spread",
-    icon: <Icon name="calculator" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="chart" />,
     label: "比较信用利差",
     description: "对比评级、行业与期限的定价差异",
     prompt: "请使用可用的 DM 数据，比较【行业/评级/期限】债券的信用利差及近期变化，说明基准曲线和匹配方式，区分信用风险与流动性影响；注明数据日期、来源与覆盖范围，缺少可比数据时明确说明。",
@@ -227,7 +228,7 @@ const WELCOME_PROMPTS = [
   {
     category: "fixed-income",
     key: "bond-maturity",
-    icon: <Icon name="calendar-days" size={18} className="prompt-icon" />,
+    icon: <GlassIcon name="document" />,
     label: "梳理债券到期",
     description: "观察到期分布、回售安排与偿债压力",
     prompt: "请使用可用的 DM 数据，梳理【发行人/行业】未来【时间范围】的债券到期分布、到期规模与可用回售安排，结合发行情况观察再融资压力；区分到期与回售口径，注明数据日期、来源及缺失项，不把到期规模直接等同于违约风险。",
@@ -432,7 +433,7 @@ const MessageBubble = memo(function MessageBubble({
       >
         {message.role === "user" ? userInitials(userName, userId) : (
           <img
-            src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-mark-rms.png" : "/assets/brand/melonclaw-mark.png"}
+            src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-mark-rms.png" : "/assets/brand/melonclaw-mark-transparent.webp"}
             alt={assistantName}
           />
         )}
@@ -630,7 +631,7 @@ export function ChatView({
         <div className="topbar-leading">
           <button
             type="button"
-            className="icon-button sidebar-reopen"
+            className="icon-button sidebar-reopen sidebar-panel-toggle"
             onClick={() =>
               window.dispatchEvent(new Event("melonclaw:open-sidebar"))
             }
@@ -661,7 +662,7 @@ export function ChatView({
           <div className="welcome">
             <div className="welcome-mark">
               <img
-                src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-word-rms.png" : "/assets/brand/melonclaw-word.png"}
+                src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-word-rms.png" : "/assets/brand/melonclaw-word-transparent.webp"}
                 alt={__MELONCLAW_IS_RMS_BRAND__ ? "RMS" : "MelonClaw"}
               />
             </div>

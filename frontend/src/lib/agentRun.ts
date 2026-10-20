@@ -328,8 +328,8 @@ export function buildAgentRun(
 export function formatDuration(ms: number | null | undefined): string | null {
   if (ms === null || ms === undefined) return null;
   if (!Number.isFinite(ms) || ms < 0) return null;
-  // 毫秒级的快速工具保留一位小数只会显示成 0.0s，看起来像没测到时间。
-  if (ms > 0 && ms < 100) return "<0.1s";
+  // 正耗时最小显示为 0.1s，避免 0.0s 或小于号干扰状态列阅读。
+  if (ms > 0 && ms < 100) return "0.1s";
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
   const totalSeconds = Math.round(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);

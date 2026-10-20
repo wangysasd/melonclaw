@@ -1,0 +1,53 @@
+/* Extension workspace: the same translucent blue surfaces as chat. */
+.resource-view { background: var(--chat-surface); }
+.resource-view-tabs > .ant-tabs-nav::before { border-bottom-color: var(--glass-edge); }
+.resource-view-tabs > .ant-tabs-nav .ant-tabs-tab { border-radius: var(--radius-control); padding-inline: var(--space-3); transition: background var(--duration-fast); }
+.resource-view-tabs > .ant-tabs-nav .ant-tabs-tab:hover { background: var(--sidebar-row-hover); }
+.resource-view-tabs > .ant-tabs-nav .ant-tabs-tab-active { background: var(--glass-highlight); }
+.resource-view .skill-card {
+  background: var(--resource-card-surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius-resource-card);
+  box-shadow: var(--resource-card-shadow);
+  transition: box-shadow var(--duration-fast);
+}
+.resource-view .skill-card:has(:is(.skill-card-content, .mcp-card-content):hover),
+.resource-view .skill-card:focus-within { box-shadow: var(--resource-card-shadow-hover); }
+.resource-view .skill-card.is-broken { border-color: var(--status-error-border); }
+.resource-view .resource-card-footer { background: transparent; border-top-color: transparent; border-radius: 0 0 var(--radius-resource-card) var(--radius-resource-card); }
+.resource-view .provider-card-actions { margin-top: auto; padding-top: var(--space-3); border-top: 1px solid transparent; }
+.resource-view .skill-search { background: var(--glass-highlight); border-color: var(--glass-edge); box-shadow: inset 0 1px 0 var(--glass-highlight); }
+.resource-view .skill-card-icon-action.ant-btn:not(:disabled) { color: var(--panel-toggle-ink); background: transparent; box-shadow: none; border-color: transparent; }
+.resource-view .skill-card-icon-action.ant-btn:not(:disabled):hover { color: var(--brand-primary); background: var(--glass-blue); }
+.resource-view .ant-btn:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .resource-view .skill-card, .resource-view-tabs > .ant-tabs-nav .ant-tabs-tab { transition: none; } }
+
+/* Equalize provider cards across every row within the same group. */
+.provider-card-grid { grid-auto-rows: 1fr; }
+.provider-card-grid-mini .provider-card-mini .skill-card-content { flex: 1; }
+
+/* Shared portal menu for skill and connector cards. */
+.skill-card-menu.ant-dropdown { width: 220px; max-width: calc(100vw - 2 * var(--space-4)); }
+.skill-card-menu.ant-dropdown .ant-dropdown-menu { padding: var(--space-1); background: var(--panel); border-radius: var(--radius-overlay); box-shadow: var(--shadow-pop); }
+.skill-card-menu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item {
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+  line-height: var(--line-height-sm);
+  border-radius: var(--radius-control);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.skill-card-menu.ant-dropdown .ant-dropdown-menu-item .ant-dropdown-menu-item-icon { color: var(--panel-toggle-ink); margin-inline-end: var(--space-2); }
+.skill-card-menu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item:not(.ant-dropdown-menu-item-disabled):hover,
+.skill-card-menu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-active:not(.ant-dropdown-menu-item-disabled) { background: var(--glass-blue); }
+.skill-card-menu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-danger,
+.skill-card-menu.ant-dropdown .ant-dropdown-menu-item-danger .ant-dropdown-menu-item-icon { color: var(--status-error); }
+.skill-card-menu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-danger:not(.ant-dropdown-menu-item-disabled):hover,
+.skill-card-menu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-danger.ant-dropdown-menu-item-active { background: var(--status-error-bg); color: var(--status-error); }
+.skill-card-menu.ant-dropdown .ant-dropdown-menu .ant-dropdown-menu-item-disabled,
+.skill-card-menu.ant-dropdown .ant-dropdown-menu-item-disabled .ant-dropdown-menu-item-icon { color: var(--disabled-text); }
+.skill-card-menu.ant-dropdown .ant-dropdown-menu-item-divider { margin: var(--space-1) var(--space-2); background: var(--line-light); }
+.skill-card-menu.ant-dropdown .ant-dropdown-menu-item:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: -2px; }

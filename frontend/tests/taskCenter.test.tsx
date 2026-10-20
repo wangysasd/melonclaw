@@ -30,7 +30,7 @@ beforeEach(() => {
   vi.mocked(taskApi.action).mockResolvedValue(run("B"));
 });
 
-it("shows separate list columns, Beijing schedule and run times, and the five original actions", async () => {
+it("shows separate list columns, Beijing schedule and run times, and compact actions with the original commands in a menu", async () => {
   const open = vi.fn();
   vi.mocked(taskApi.list).mockResolvedValue({ items: [{
     id: "weekly", conversation_id: "chat-weekly", name: "每周行业报告", version: 2, status: "enabled",
@@ -48,8 +48,9 @@ it("shows separate list columns, Beijing schedule and run times, and the five or
   expect(cells[2].textContent).toBe("每周一 09:00");
   expect(cells[4].textContent).toBe("成功2026-10-1209:00");
   expect(cells[5].textContent).toBe("2026-10-1909:00");
-  expect(within(cells[6]).getAllByRole("button").map(button => button.textContent?.replace(/\s/g, ""))).toEqual(["查看会话", "运行", "编辑", "归档", "暂停"]);
-  fireEvent.click(within(row).getByRole("button", { name: "查看会话" }));
+  expect(within(cells[6]).getAllByRole("button").map(button => button.textContent?.replace(/\s/g, ""))).toEqual(["运行", "···"]);
+  fireEvent.click(within(row).getByRole("button", { name: /更多操作/ }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "查看会话" }));
   expect(open).toHaveBeenCalledWith("chat-weekly");
 });
 
@@ -71,11 +72,16 @@ it("shows why no future run is scheduled and preserves archived action restricti
     expect(cells[4].textContent).toBe("尚未运行");
     expect(cells[5].textContent).toBe(next);
     const buttons = Array.from(cells[6].querySelectorAll("button"));
-    expect(buttons).toHaveLength(5);
-    if (tasks[index].status === "archived") expect(buttons.slice(1).every(button => button.disabled)).toBe(true);
+    expect(buttons).toHaveLength(2);
+    if (tasks[index].status === "archived") {
+      expect(buttons[0].disabled).toBe(true);
+      fireEvent.click(buttons[1]);
+      for (const name of ["编辑", "恢复", "归档"]) expect((await screen.findByRole("menuitem", { name })).getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(await screen.findByRole("menuitem", { name: "查看会话" }));
+    }
   }
   expect(screen.getAllByText("每天 10:30")).toHaveLength(2);
-  expect(screen.getByText("2026-10-14 09:00")).toBeTruthy();
+  expect(screen.getByText("一次 2026-10-14 09:00")).toBeTruthy();
 });
 
 it("opens task names directly in their fixed conversations and runs the current configuration from the list", async () => {
@@ -98,7 +104,8 @@ it("opens task names directly in their fixed conversations and runs the current 
 it("focuses cancel in the archive dialog and archives the selected task only after explicit confirmation", async () => {
   render(<App><TaskCenter onClose={vi.fn()} /></App>);
   const row = (await screen.findByText("A")).closest("tr")!;
-  fireEvent.click(within(row).getByRole("button", { name: /^归\s*档$/ }));
+  fireEvent.click(within(row).getByRole("button", { name: /更多操作/ }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "归档" }));
   let dialog = await screen.findByRole("dialog");
   expect(dialog.textContent).toContain("归档任务？");
   expect(within(dialog).getByText("A")).toBeTruthy();
@@ -108,7 +115,8 @@ it("focuses cancel in the archive dialog and archives the selected task only aft
   fireEvent.click(cancel);
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(taskApi.action).not.toHaveBeenCalled();
-  fireEvent.click(within(row).getByRole("button", { name: /^归\s*档$/ }));
+  fireEvent.click(within(row).getByRole("button", { name: /更多操作/ }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "归档" }));
   dialog = await screen.findByRole("dialog");
   fireEvent.click(within(dialog).getByRole("button", { name: "确认归档" }));
   await waitFor(() => expect(taskApi.action).toHaveBeenCalledOnce());

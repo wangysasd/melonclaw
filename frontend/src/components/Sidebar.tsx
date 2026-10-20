@@ -6,6 +6,7 @@ import { listConversations } from "../api/client";
 import { formatConversationTime } from "../lib/format";
 import { useSession } from "../state/session";
 import { SIDEBAR_STORAGE_KEY, readStorage, writeStorage } from "../state/storage";
+import { tokens } from "../theme/tokens";
 import type { ConversationSummary } from "../types/api";
 
 type ResourceKind = "project" | "conversation";
@@ -160,9 +161,21 @@ export function SidebarContent({
         setRenaming({ kind, id, name });
       } else if (key === "delete") {
         modal.confirm({
-          title: `删除${kind === "project" ? "项目" : "对话"}「${name}」？`,
-          content: kind === "project" ? "项目及其中的对话将从列表中移除。" : "该对话将从列表中移除。",
-          okText: "删除",
+          rootClassName: "sidebar-delete-modal",
+          centered: true,
+          width: 440,
+          icon: null,
+          styles: { container: { padding: tokens["space-6"] }, body: { padding: 0 } },
+          title: kind === "project" ? "删除项目？" : "删除对话？",
+          content: <div className="sidebar-delete-content">
+            <div className="sidebar-delete-resource">
+              <span className="sidebar-delete-icon"><Icon name={kind === "project" ? "folder" : "message-circle"} size={24} /></span>
+              <div><strong>{name}</strong><span>{kind === "project" ? "项目" : "对话"}</span></div>
+            </div>
+            <p>{kind === "project" ? "项目及其中的对话将从列表中移除。" : "该对话将从列表中移除。"}</p>
+          </div>,
+          okText: "确认删除",
+          focusable: { autoFocusButton: "cancel" },
           okButtonProps: { danger: true },
           cancelText: "取消",
           onOk: async () => {
@@ -229,12 +242,12 @@ export function SidebarContent({
       <div className="sidebar-content is-collapsed">
         <button
           type="button"
-          className="icon-button sidebar-expand"
+          className="icon-button sidebar-expand sidebar-panel-toggle"
           onClick={onToggleCollapse}
           aria-label="展开侧栏"
           title="展开侧栏"
         >
-          <Icon name="panel-right" size={16} />
+          <Icon name="panel-left" size={18} />
         </button>
       </div>
     );
@@ -246,18 +259,18 @@ export function SidebarContent({
         <div className="brand">
           <img
             className={`brand-wordmark${__MELONCLAW_IS_RMS_BRAND__ ? " is-rms-brand" : ""}`}
-            src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-word-rms.png" : "/assets/brand/melonclaw-word.png"}
+            src={__MELONCLAW_IS_RMS_BRAND__ ? "/assets/brand/melonclaw-word-rms.png" : "/assets/brand/melonclaw-word-transparent.webp"}
             alt="MelonClaw"
           />
         </div>
         <button
           type="button"
-          className="icon-button sidebar-collapse"
+          className="icon-button sidebar-collapse sidebar-panel-toggle"
           onClick={onToggleCollapse}
           aria-label="收起侧栏"
           title="收起侧栏"
         >
-          <Icon name="panel-left" size={16} />
+          <Icon name="panel-left" size={18} />
         </button>
       </div>
 
@@ -292,14 +305,13 @@ export function SidebarContent({
             </button>
           </div>
           {session.projects.length === 0 && session.contextReady ? (
-            <Button
-              type="dashed"
-              block
-              className="project-empty-create"
+            <button
+              type="button"
+              className="new-session project-empty-create"
               onClick={() => onOpenProjectDialog()}
             >
               创建新项目
-            </Button>
+            </button>
           ) : (
             <div className="project-list">
               {session.projects.map((project) => {

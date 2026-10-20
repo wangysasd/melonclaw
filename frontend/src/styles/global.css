@@ -462,7 +462,7 @@ body {
   background: var(--disabled-bg);
   box-shadow: none;
   font-size: var(--text-md);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-regular);
   gap: var(--icon-gap);
   letter-spacing: 0;
   line-height: 1;
@@ -534,17 +534,19 @@ body {
   line-height: var(--line-height-base);
 }
 
-.skill-delete-modal .ant-modal-container { border-radius: var(--radius-overlay); }
-.skill-delete-modal .ant-modal-confirm-title { font-size: var(--text-lg); font-weight: var(--weight-semibold); }
-.skill-delete-modal .ant-modal-confirm-content { margin-top: var(--space-4); font-size: var(--text-md); }
-.skill-delete-content { display: grid; gap: var(--space-4); }
-.skill-delete-resource { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line-light); border-radius: var(--radius-card); background: var(--canvas); }
-.skill-delete-resource > div { display: grid; gap: var(--space-1); min-width: 0; }
-.skill-delete-resource strong { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
-.skill-delete-resource span, .skill-delete-note { color: var(--muted); }
-.skill-delete-content p { margin: 0; line-height: var(--line-height-base); }
-.skill-delete-modal .ant-modal-confirm-btns { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--line-light); }
-.skill-delete-modal .ant-modal-confirm-btns .ant-btn { margin-inline-start: 0; min-height: 36px; padding-inline: var(--space-4); font-size: var(--text-md); }
+:is(.skill-delete-modal, .sidebar-delete-modal, .delete-confirm-modal) .ant-modal-container { border-radius: var(--radius-overlay); }
+:is(.skill-delete-modal, .sidebar-delete-modal, .delete-confirm-modal) .ant-modal-confirm-title { font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+:is(.skill-delete-modal, .sidebar-delete-modal, .delete-confirm-modal) .ant-modal-confirm-content { margin-top: var(--space-4); font-size: var(--text-md); }
+:is(.skill-delete-content, .sidebar-delete-content, .delete-confirm-content) { display: grid; gap: var(--space-4); }
+:is(.skill-delete-resource, .sidebar-delete-resource, .delete-confirm-resource) { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line-light); border-radius: var(--radius-card); background: var(--canvas); }
+:is(.skill-delete-resource, .sidebar-delete-resource, .delete-confirm-resource) > div { display: grid; gap: var(--space-1); min-width: 0; }
+:is(.skill-delete-resource, .sidebar-delete-resource, .delete-confirm-resource) strong { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+:is(.skill-delete-resource, .sidebar-delete-resource, .delete-confirm-resource) span, .skill-delete-note { color: var(--muted); }
+:is(.skill-delete-content, .sidebar-delete-content, .delete-confirm-content) p { margin: 0; line-height: var(--line-height-base); }
+:is(.skill-delete-modal, .sidebar-delete-modal, .delete-confirm-modal) .ant-modal-confirm-btns { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--line-light); }
+:is(.skill-delete-modal, .sidebar-delete-modal, .delete-confirm-modal) .ant-modal-confirm-btns .ant-btn { margin-inline-start: 0; min-height: 36px; padding-inline: var(--space-4); font-size: var(--text-md); }
+
+.sidebar-delete-icon { display: grid; place-items: center; width: var(--control-height-lg); height: var(--control-height-lg); flex: 0 0 auto; border-radius: var(--radius-card); background: var(--panel); }
 
 .skill-detail-modal-content {
   display: flex;
@@ -892,3 +894,11 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Filled controls use their surface as the boundary; outlined actions retain theirs. */
+.ant-btn.ant-btn-primary,
+.ant-btn.ant-btn-primary:not(:disabled):hover,
+.ant-btn.ant-btn-primary:not(:disabled):active { border-color: transparent; }
+
+/* Native action buttons follow the same regular weight as Ant Design Button. */
+button { font-weight: var(--weight-regular); }

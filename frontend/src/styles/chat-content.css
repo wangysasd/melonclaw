@@ -1,0 +1,51 @@
+/* Readable conversation surfaces share the resource-card material. */
+.message .markdown-code,
+.result-card,
+.result-asset,
+.message .message-attachment {
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-radius: var(--radius-resource-card);
+  background: var(--resource-card-surface);
+  box-shadow: var(--resource-card-shadow);
+}
+.message .markdown-code-head {
+  background: var(--table-header-bg);
+  color: var(--message-user-ink);
+  border-bottom: 1px solid var(--table-divider);
+  font-size: var(--text-sm);
+}
+.message .markdown-code .ant-codeHighlighter-code { border: 0 !important; }
+.message .markdown-code pre { background: transparent; }
+.message .markdown-code-head button,
+.result-actions button,
+.result-asset > button {
+  min-height: var(--control-height-md);
+  height: auto;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--brand-primary);
+  font-weight: var(--weight-regular);
+  border-radius: var(--radius-control);
+}
+.message .markdown-code-head button { padding: var(--space-1) var(--space-2); font-family: var(--font-ui); }
+.message .markdown-code-head button:hover,
+.result-actions button:not(:disabled):hover,
+.result-asset > button:not(:disabled):hover { background: var(--glass-blue); color: var(--brand-primary-active); }
+.message .markdown-code-head button:focus-visible,
+.message .message-attachment a:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+.message .message-attachment-info a { white-space: normal; overflow-wrap: anywhere; }
+.message .message-attachment-info span { color: var(--muted); }
+.result-card .result-title { color: var(--ink); margin-bottom: var(--space-3); }
+/* A nested table or code block needs one outer shadow, not several layers. */
+.result-card :is(.markdown-table, .markdown-code, .result-card, .result-asset) { box-shadow: none; }
+.result-card .result-card,
+.result-card .result-asset { background: transparent; }
+.result-asset .result-image-thumb { background: transparent; box-shadow: none; }
+.message .message-attachment-info { white-space: normal; }
+@media (pointer: coarse) {
+  .message .markdown-code-head button,
+  .result-actions button { min-height: var(--control-height-touch); }
+}

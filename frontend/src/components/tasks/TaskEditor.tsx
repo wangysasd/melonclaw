@@ -13,13 +13,13 @@ export function TaskEditor({ task, onClose, onSaved }: { task?: Task; onClose: (
   const { message } = App.useApp();
   const [form] = Form.useForm<TaskDefinition & { enabled: boolean; once_local?: string }>();
   const kind = Form.useWatch(["schedule", "kind"], form);
-  const [busy, setBusy] = useState<"save" | "run" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const pending = useRef<{ fingerprint: string; key: string } | null>(null);
   const submitting = useRef(false);
   const models = session.modelOptions.filter(m => m.available);
   const defaultModel = models.find(m => m.scope === "global" && m.is_default);
-  const submit = async (runNow: boolean) => {
+  const submit = async () => {
     if (submitting.current) return;
     submitting.current = true;
     let definition: TaskDefinition;
@@ -33,20 +33,20 @@ export function TaskEditor({ task, onClose, onSaved }: { task?: Task; onClose: (
           ...(["daily", "weekly"].includes(kind) ? { local_time: values.schedule.local_time } : {}),
           ...(kind === "weekly" ? { weekday: values.schedule.weekday } : {}) } };
     } catch (err) { submitting.current = false; if (err instanceof Error) setError(err.message); return; }
-    const fingerprint = JSON.stringify({ definition, enabled, runNow });
+    const fingerprint = JSON.stringify({ definition, enabled });
     if (pending.current?.fingerprint !== fingerprint) pending.current = { fingerprint, key: createRequestId() };
-    setBusy(runNow ? "run" : "save"); setError("");
+    setBusy(true); setError("");
     try {
-      const result = await taskApi.save(task?.id, { definition, enabled, expected_version: task?.version, idempotency_key: pending.current.key, run_now: runNow });
-      void message.success(runNow ? "任务已保存并进入队列" : "任务已保存");
-      onSaved(result.task.id, runNow ? result.task.conversation_id : undefined);
+      const result = await taskApi.save(task?.id, { definition, enabled, expected_version: task?.version, idempotency_key: pending.current.key, run_now: false });
+      void message.success("任务已保存");
+      onSaved(result.task.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
       if (err instanceof ApiError && err.status > 0 && err.status < 500) pending.current = null;
-    } finally { submitting.current = false; setBusy(null); }
+    } finally { submitting.current = false; setBusy(false); }
   };
   return <Drawer open title={task ? "编辑任务" : "新建任务"} size={540} onClose={() => { if (!busy) onClose(); }} maskClosable={!busy}
-    footer={<Space className="task-drawer-footer"><Button disabled={Boolean(busy)} loading={busy === "save"} onClick={() => void submit(false)}>保存</Button><Button type="primary" disabled={Boolean(busy)} loading={busy === "run"} onClick={() => void submit(true)}>保存并运行</Button></Space>}>
+    footer={<Space className="task-drawer-footer"><Button className="action-secondary" disabled={busy} onClick={onClose}>取消</Button><Button type="primary" disabled={busy} loading={busy} onClick={() => void submit()}>保存</Button></Space>}>
     <Alert type="info" showIcon title="任务结果自动进入固定会话" description="可使用已授权的联网搜索；不读取聊天、项目文件或长期记忆。所有计划按北京时间执行；错过不补跑，上一轮未结束则跳过本次，后台可用能力少于普通聊天。" />
     {error && <Alert className="task-alert" type="error" showIcon title={error} />}
     <Form form={form} layout="vertical" disabled={Boolean(busy)} className="task-form" initialValues={task ? { ...task.definition, enabled: task.status === "enabled", once_local: task.definition.schedule.run_at ? zonedLocal(task.definition.schedule.run_at) : undefined } : { name: "", instruction: "", model_id: defaultModel?.id, enabled: true, schedule: { kind: "manual", local_time: "09:00", weekday: 0 } }}>

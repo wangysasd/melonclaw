@@ -18,6 +18,7 @@ import {
 import type { ManageableModel, ManageableProvider } from "../types/api";
 import { ContextWindowInput, DEFAULT_CONTEXT_WINDOW, ModelContextWindowEditor } from "./ModelContextWindow";
 import { Icon } from "./Icon";
+import { deleteConfirmation } from "./deleteConfirmation";
 import { getProviderAvatar } from "./providerIcons";
 
 interface Notify {
@@ -142,7 +143,7 @@ export function ModelSection({ userId, isAdmin, notify, onChanged }: ModelSectio
           >
             新增供应商
           </Button> : null}
-          <Button
+          <Button className="action-secondary"
             icon={<Icon name="refresh-cw" size={14} />}
             loading={loading}
             aria-label="刷新供应商列表"
@@ -232,7 +233,7 @@ function ProviderGroup({
   return (
     <section className="skill-group">
       <h2 className="skill-group-title">{title}</h2>
-      <div className="skill-card-grid">
+      <div className={`skill-card-grid provider-card-grid provider-card-grid-${variant}`}>
         {providers.map((provider) => (
           <ProviderCard
             key={provider.provider_key}
@@ -490,11 +491,11 @@ function ProviderModal({
   const remove = () => {
     if (!provider) return;
     modal.confirm({
-      title: "删除供应商？",
-      content: `删除「${provider.display_name}」后无法恢复，需先删除其下模型。`,
-      okText: "删除",
-      cancelText: "取消",
-      okButtonProps: { danger: true },
+      ...deleteConfirmation({
+        title: "删除供应商？", name: provider.display_name,
+        metadata: `供应商 ID：${provider.provider_key}`, icon: <Icon name="brain" size={24} />,
+        description: "删除后无法恢复，需先删除其下模型。",
+      }),
       onOk: () =>
         deleteProvider(provider.provider_key, { userId })
           .then(() => {
@@ -519,6 +520,7 @@ function ProviderModal({
       footer={
         <div className="provider-modal-footer">
           <Button
+            className="action-secondary"
             disabled={saving}
             loading={testing}
             onClick={() => void testConnection()}
@@ -529,7 +531,7 @@ function ProviderModal({
             <Button danger disabled={saving || testing} onClick={remove}>删除供应商</Button>
           ) : null}
           <span className="provider-modal-footer-spacer" />
-          <Button disabled={saving || testing} onClick={onClose}>取消</Button>
+          <Button className="action-secondary" disabled={saving || testing} onClick={onClose}>取消</Button>
           <Button type="primary" loading={saving} disabled={testing} onClick={() => void save()}>
             确定
           </Button>
@@ -817,6 +819,7 @@ function ModelManageModal({
                   />
                   {!model.is_default && model.enabled ? (
                     <Button
+                      type="primary"
                       size="small"
                       onClick={() =>
                         void runAction(
@@ -849,7 +852,7 @@ function ModelManageModal({
 
       {canWrite ? (
         <div className="resource-actions" style={{ marginTop: 12 }}>
-          <Button
+          <Button className="action-secondary"
             icon={<Icon name="refresh-cw" size={14} />}
             loading={remoteLoading}
             disabled={!provider?.models_endpoint}
@@ -923,7 +926,7 @@ function ModelManageModal({
                     added ? (
                       <span className="resource-hint">已添加</span>
                     ) : (
-                      <Button size="small" loading={busy} onClick={() => void addRemote(item)}>
+                      <Button type="primary" size="small" loading={busy} onClick={() => void addRemote(item)}>
                         添加
                       </Button>
                     )

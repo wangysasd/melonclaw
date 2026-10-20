@@ -1,0 +1,72 @@
+/* Shared gradient actions, including buttons rendered in portal overlays. */
+.ant-btn.ant-btn:is(.ant-btn-default, .ant-btn-primary):not(.ant-btn-dangerous):not(.action-secondary),
+.ant-btn.ant-btn:is(.skill-card-primary-action, .provider-card-manage-button):not(.ant-btn-dangerous):not(.action-secondary),
+button.new-session {
+  color: var(--brand-primary-active);
+  background: var(--action-surface, linear-gradient(145deg, var(--glass-action-start), var(--glass-action-end)));
+  border-color: transparent;
+  box-shadow: var(--glass-action-shadow);
+  font-weight: var(--weight-regular);
+  transition: background-color var(--button-transition-duration), box-shadow var(--button-transition-duration), color var(--button-transition-duration);
+}
+.ant-btn.ant-btn:is(.ant-btn-default, .ant-btn-primary, .skill-card-primary-action, .provider-card-manage-button):not(.ant-btn-dangerous):not(.action-secondary):not(:disabled):hover,
+button.new-session:not(:disabled):hover {
+  color: var(--brand-primary-active);
+  background: var(--action-hover-surface, var(--button-hover-surface));
+  border-color: transparent;
+  box-shadow: var(--button-shadow-hover);
+}
+.ant-btn.ant-btn:is(.ant-btn-default, .ant-btn-primary, .skill-card-primary-action, .provider-card-manage-button):not(.ant-btn-dangerous):not(.action-secondary):not(:disabled):active,
+button.new-session:not(:disabled):active {
+  background: var(--action-active-surface, var(--button-active-surface));
+  box-shadow: var(--button-shadow-active);
+}
+.ant-btn.ant-btn.skill-card-primary-action.is-add:not(:disabled) { color: var(--status-success); background: linear-gradient(145deg, var(--glass-highlight), var(--glass-mint)); }
+.ant-btn.ant-btn.skill-card-primary-action.is-add:not(:disabled):hover { background: linear-gradient(145deg, var(--glass-mint), var(--status-success-bg)); box-shadow: var(--button-shadow-hover); }
+.ant-btn.ant-btn.skill-card-primary-action.is-add:not(:disabled):active { background: var(--status-success-bg); box-shadow: var(--button-shadow-active); }
+.ant-btn.ant-btn:is(.ant-btn-default, .ant-btn-primary, .skill-card-primary-action, .provider-card-manage-button):not(.ant-btn-dangerous):not(.action-secondary):disabled,
+button.new-session:disabled { background: var(--disabled-bg); color: var(--disabled-text); box-shadow: none; border-color: transparent; }
+.ant-btn:focus-visible, button.new-session:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .ant-btn.ant-btn, button.new-session { transition: none; }
+}
+
+/* Secondary actions share primary styling with a white surface. */
+:is(.ant-btn.ant-btn, button).action-secondary {
+  color: var(--brand-primary-active);
+  background: var(--panel);
+  border-color: transparent;
+  box-shadow: var(--glass-action-shadow);
+  font-weight: var(--weight-regular);
+  transition: box-shadow var(--button-transition-duration), color var(--button-transition-duration);
+}
+:is(.ant-btn.ant-btn, button).action-secondary:not(:disabled):hover {
+  color: var(--brand-primary-active);
+  background: var(--panel);
+  border-color: transparent;
+  box-shadow: var(--button-shadow-hover);
+}
+:is(.ant-btn.ant-btn, button).action-secondary:not(:disabled):active {
+  background: var(--panel);
+  box-shadow: var(--button-shadow-active);
+}
+:is(.ant-btn.ant-btn, button).action-secondary:disabled {
+  color: var(--disabled-text);
+  background: var(--disabled-bg);
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) { :is(.ant-btn.ant-btn, button).action-secondary { transition: none; } }
+
+/* Modal default actions are secondary; data submissions use Button primary. */
+:is(.ant-modal, .ant-drawer, .ant-popconfirm) .ant-btn-default:not(.ant-btn-dangerous) {
+  --action-surface: var(--panel);
+  --action-hover-surface: var(--panel);
+  --action-active-surface: var(--panel);
+}
+:is(.ant-modal, .ant-drawer, .ant-popconfirm) .ant-btn.ant-btn-dangerous:not(.ant-btn-link):not(.ant-btn-text):not(:disabled) {
+  box-shadow: var(--button-danger-shadow);
+  transition: background-color var(--button-transition-duration), box-shadow var(--button-transition-duration);
+}
+:is(.ant-modal, .ant-drawer, .ant-popconfirm) .ant-btn.ant-btn-dangerous:not(.ant-btn-link):not(.ant-btn-text):not(:disabled):hover { box-shadow: var(--button-danger-shadow-hover); }
+:is(.ant-modal, .ant-drawer, .ant-popconfirm) .ant-btn.ant-btn-dangerous:not(.ant-btn-link):not(.ant-btn-text):not(:disabled):active { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { :is(.ant-modal, .ant-drawer, .ant-popconfirm) .ant-btn.ant-btn-dangerous { transition: none; } }

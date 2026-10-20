@@ -1,5 +1,5 @@
 import { App as AntdApp } from "antd";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SidebarContent } from "../src/components/Sidebar";
@@ -208,13 +208,26 @@ describe("sidebar resource actions", () => {
     expect(onOpenProjectDialog).toHaveBeenCalledWith("c0");
   });
 
+  it("focuses cancel and leaves the project untouched when deletion is cancelled", async () => {
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "项目「项目甲」更多操作" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "删除" }));
+    const dialog = await screen.findByRole("dialog", { name: "删除项目？" });
+    const cancel = within(dialog).getByRole("button", { name: /取\s*消/ });
+    await waitFor(() => expect(document.activeElement).toBe(cancel));
+    fireEvent.click(cancel);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "删除项目？" })).toBeNull());
+    expect(session.deleteProject).not.toHaveBeenCalled();
+  });
+
   it("confirms deletion of a project before calling the service", async () => {
     setup();
     fireEvent.click(screen.getByRole("button", { name: "项目「项目甲」更多操作" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "删除" }));
     expect(session.deleteProject).not.toHaveBeenCalled();
     const dialog = await screen.findByRole("dialog", { name: /删除项目/ });
-    fireEvent.click(dialog.querySelector(".ant-btn-primary") as HTMLElement);
+    expect(within(dialog).getByText("项目甲")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认删除" }));
     await waitFor(() => expect(session.deleteProject).toHaveBeenCalledWith("p1"));
   });
 });

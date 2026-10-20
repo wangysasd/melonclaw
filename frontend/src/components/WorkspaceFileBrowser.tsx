@@ -87,8 +87,9 @@ function WorkspaceDirectoryEntry({ row, scope, currentKey, onOpenFile, active, r
   </div>;
 }
 
-export function WorkspaceFileBrowser({ scope, location, selectedKey, revision, onOpenFile, active = true, showFiles = true, scopeControl, currentKey = selectedKey }: {
+export function WorkspaceFileBrowser({ scope, location, selectedKey, revision, onOpenFile, active = true, showFiles = true, scopeControl, onRefresh, refreshPending = false, currentKey = selectedKey }: {
   currentKey?: string; active?: boolean; showFiles?: boolean; scopeControl?: ReactNode;
+  onRefresh?: () => void; refreshPending?: boolean;
   scope: ResultScope; location: FileLocation; selectedKey: string; revision: string;
   onOpenFile: (ref: FileRef) => void;
 }) {
@@ -105,9 +106,11 @@ export function WorkspaceFileBrowser({ scope, location, selectedKey, revision, o
   }, [active, showFiles, selectedKey, loading, rows]);
   return <div className={`workspace-file-browser${showFiles ? "" : " toolbar-only"}`}>
     <div className="file-browser-toolbar">
-      {showFiles ? <>
-      <button type="button" className="icon-button file-refresh-button" aria-label="刷新文件列表" onClick={() => setRefresh((value) => value + 1)}><Icon name="refresh-cw" /></button>
-      </> : null}
+      <button type="button" className="icon-button file-refresh-button sidebar-panel-toggle action-secondary"
+        aria-label="刷新文件列表" aria-busy={showFiles ? loading : refreshPending} disabled={showFiles ? loading : refreshPending || !onRefresh}
+        onClick={() => { if (showFiles) setRefresh((value) => value + 1); else onRefresh?.(); }}>
+        <Icon name="refresh-cw" size={18} className={(showFiles ? loading : refreshPending) ? "mc-icon-spin" : undefined} />
+      </button>
       {scopeControl}
     </div>
     <div hidden={!showFiles} className="workspace-file-list" ref={list}>

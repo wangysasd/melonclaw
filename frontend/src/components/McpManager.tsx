@@ -1,3 +1,4 @@
+import { resourceMenuItems } from "./resourceMenu";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { App, Button, Dropdown, Input, Spin } from "antd";
 import { listMcp } from "../api/client";
@@ -114,7 +115,7 @@ export function McpManager({ userId, isAdmin, notify }: {
   return <div className="resource-section mcp-manager">
     <div className="resource-actions skill-resource-actions"><Input className="skill-search" allowClear prefix={<Icon name="search" size={14} />} aria-label="搜索 MCP 服务" placeholder="搜索 MCP 服务" value={query} onChange={e => setQuery(e.target.value)} />
       <div className="skill-actions-trailing"><Button type="primary" icon={<Icon name="plus" size={14} />} onClick={() => { detailRequest.current?.abort(); setEditor({}); }}>创建连接器</Button>
-      <Button icon={<Icon name="refresh-cw" size={14} />} loading={refreshing} disabled={busy} aria-label="刷新 MCP 服务列表" onClick={() => void refresh()} /></div>
+      <Button className="action-secondary" icon={<Icon name="refresh-cw" size={14} />} loading={refreshing} disabled={busy} aria-label="刷新 MCP 服务列表" onClick={() => void refresh()} /></div>
     </div>
     <p className="resource-hint">配置从下一条消息生效，当前运行不受影响。</p>
     <Spin spinning={busy}>
@@ -165,7 +166,7 @@ export function McpManager({ userId, isAdmin, notify }: {
                 <Dropdown
                   classNames={{ root: "skill-card-menu" }}
                   trigger={["click"]}
-                  menu={{ items: menus, onClick: ({ key }) => {
+                  menu={{ items: resourceMenuItems(menus), onClick: ({ key }) => {
                     if (key === "add") void action(() => addMcp(item, userId));
                     if (key === "stop") void action(() => stopMcp(item, userId));
                     if (key === "edit") void edit(item);

@@ -8,6 +8,7 @@ import { tokenNumber } from "../theme/tokens";
  */
 export const ICON_NAMES = [
   "alarm-clock",
+  "alarm-clock-filled",
   "home",
   "home-filled",
   "arrow-up",
@@ -22,7 +23,9 @@ export const ICON_NAMES = [
   "book-open",
   "bookmark",
   "blocks",
+  "blocks-filled",
   "brain",
+  "building-2",
   "file-text",
   "file-pen-line",
   "folder",

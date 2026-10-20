@@ -1,5 +1,7 @@
+import { tablePagination } from "./tablePresentation";
 import { PasswordFields } from "./PasswordFields";
 import { Icon } from "./Icon";
+import { tokens } from "../theme/tokens";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 import { App, Button, Form, Input, Modal, Select, Space, Switch, Table, Tabs, Tag } from "antd";
 import { useEffect, useRef, useState } from "react";
@@ -76,7 +78,18 @@ export function AccountManagement({ onClose }: { onClose: () => void }) {
     finally { setSaving(false); }
   }
   function remove(user: User) {
-    modal.confirm({ title: "删除用户", content: `确认删除 ${user.user_name_zh}（${user.user_id}）？个人数据将保留。`, okText: "删除", cancelText: "取消", okButtonProps: { danger: true },
+    modal.confirm({
+      rootClassName: "delete-confirm-modal", centered: true, width: 440, icon: null,
+      styles: { container: { padding: tokens["space-6"] }, body: { padding: 0 } },
+      title: "删除用户？",
+      content: <div className="delete-confirm-content">
+        <div className="delete-confirm-resource">
+          <Icon name="users" size={24} />
+          <div><strong>{user.user_name_zh}</strong><span>用户 ID：{user.user_id}</span></div>
+        </div>
+        <p>删除此用户后，个人数据将保留。</p>
+      </div>,
+      okText: "确认删除", cancelText: "取消", focusable: { autoFocusButton: "cancel" }, okButtonProps: { danger: true },
       onOk: async () => {
         try {
           await apiRequest(`/api/admin/users/${encodeURIComponent(user.user_id)}`, { method: "DELETE" });
@@ -89,29 +102,29 @@ export function AccountManagement({ onClose }: { onClose: () => void }) {
   const matches = (...values: string[]) => values.some((value) => value.toLowerCase().includes(keyword));
   const idRules = [{ required: true, pattern: /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/, message: "以字母或数字开头，1～64 位字母、数字、下划线或连字符" }];
   return <section className="account-page">
-    <WorkspaceHeader title="系统管理" icon="users" actions={<Button icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>返回聊天</Button>} />
+    <WorkspaceHeader title="系统管理" icon="users" actions={<Button className="action-secondary" icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>返回聊天</Button>} />
     <div className="account-page-content">
-    <Tabs activeKey={tab} onChange={(value) => { setTab(value); setSearch(""); }} items={[{ key: "users", label: "用户管理" }, { key: "tenants", label: "租户管理" }]} />
+    <Tabs activeKey={tab} onChange={(value) => { setTab(value); setSearch(""); }} items={[{ key: "users", label: <span className="resource-tab-label"><Icon name="users" size={18} />用户管理</span> }, { key: "tenants", label: <span className="resource-tab-label"><Icon name="building-2" size={18} />租户管理</span> }]} />
     <div className="account-toolbar resource-actions skill-resource-actions">
       <Input className="skill-search" prefix={<Icon name="search" size={14} />} allowClear aria-label="搜索 ID 或名称" placeholder="搜索 ID 或名称" value={search} onChange={(event) => setSearch(event.target.value)} />
       {tab === "users" ? <Select style={{ width: 140 }} allowClear placeholder="全部租户" aria-label="筛选租户" value={tenant} onChange={setTenant} options={tenants.map((t) => ({ value: t.tenant_id, label: `${t.tenant_name_zh}（${t.tenant_id}）` }))} /> : null}
       <div className="skill-actions-trailing"><Button type="primary" icon={<Icon name="plus" size={14} />} onClick={() => open({ kind: tab === "users" ? "user" : "tenant" })}>{tab === "users" ? "创建用户" : "创建租户"}</Button>
-      <Button icon={<Icon name="refresh-cw" size={14} />} aria-label={tab === "users" ? "刷新用户列表" : "刷新租户列表"} onClick={() => void refresh()} loading={loading} /></div>
+      <Button className="action-secondary" icon={<Icon name="refresh-cw" size={14} />} aria-label={tab === "users" ? "刷新用户列表" : "刷新租户列表"} onClick={() => void refresh()} loading={loading} /></div>
     </div>
-    {tab === "users" ? <Table<User> rowKey="user_id" loading={loading} scroll={{ x: 800 }} pagination={{ pageSize: 10, showSizeChanger: false }}
+    {tab === "users" ? <Table<User> rowKey="user_id" loading={loading} scroll={{ x: 800 }} pagination={{ ...tablePagination, pageSize: 10, showSizeChanger: false }}
       dataSource={users.filter((u) => matches(u.user_id, u.user_name_zh) && (!tenant || tenant === u.tenant_id))}
       columns={[
         { title: "用户 ID", dataIndex: "user_id" }, { title: "用户名称", dataIndex: "user_name_zh" },
         { title: "所属租户", render: (_, u) => <>{u.tenant_name_zh}（{u.tenant_id}）{!u.tenant_enabled ? <Tag>已停用</Tag> : null}</> },
         { title: "创建时间", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString() },
-        { title: "操作", render: (_, u) => <Space><Button size="small" onClick={() => open({ kind: "user", row: u })}>编辑</Button><Button size="small" onClick={() => open({ kind: "password", row: u })}>修改密码</Button><Button size="small" danger disabled={u.user_id === "admin"} onClick={() => remove(u)}>删除</Button></Space> },
-      ]} /> : <Table<Tenant> rowKey="tenant_id" loading={loading} scroll={{ x: 600 }} pagination={{ pageSize: 10, showSizeChanger: false }}
+        { title: "操作", className: "table-actions-cell", fixed: "right", width: 240, render: (_, u) => <Space><Button type="link" onClick={() => open({ kind: "user", row: u })}>编辑</Button><Button type="link" onClick={() => open({ kind: "password", row: u })}>修改密码</Button><Button type="link" danger disabled={u.user_id === "admin"} onClick={() => remove(u)}>删除</Button></Space> },
+      ]} /> : <Table<Tenant> rowKey="tenant_id" loading={loading} scroll={{ x: 600 }} pagination={{ ...tablePagination, pageSize: 10, showSizeChanger: false }}
       dataSource={tenants.filter((t) => matches(t.tenant_id, t.tenant_name_zh))}
       columns={[
         { title: "租户 ID", dataIndex: "tenant_id" }, { title: "租户名称", dataIndex: "tenant_name_zh" },
         { title: "状态", render: (_, t) => <Tag color={t.enabled ? "green" : "default"}>{t.enabled ? "启用" : "停用"}</Tag> },
         { title: "创建时间", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString() },
-        { title: "操作", render: (_, t) => <Button size="small" onClick={() => open({ kind: "tenant", row: t })}>编辑</Button> },
+        { title: "操作", className: "table-actions-cell", fixed: "right", width: 90, render: (_, t) => <Button type="link" onClick={() => open({ kind: "tenant", row: t })}>编辑</Button> },
       ]} />}
     </div>
     <Modal destroyOnHidden title={editor?.kind === "password" ? `修改密码 · ${editor.row.user_name_zh}` : `${editor?.row ? "编辑" : "创建"}${editor?.kind === "user" ? "用户" : "租户"}`} open={editor !== null} onCancel={() => { if (!saving) { setEditor(null); form.resetFields(); } }} onOk={() => form.submit()} confirmLoading={saving} okText="保存" cancelText="取消">
