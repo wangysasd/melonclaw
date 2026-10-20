@@ -2,7 +2,7 @@
 .task-center-content { flex: 1; min-height: 0; overflow: auto; padding: var(--space-4) var(--page-padding) var(--space-6); }
 .task-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4); }
 .task-create-action { flex-shrink: 0; margin-left: auto; }
-.task-name-link { height: auto; padding: 0; white-space: normal; text-align: left; overflow-wrap: anywhere; font-weight: var(--weight-medium); }
+.task-name-link { height: auto; padding: 0; white-space: normal; text-align: left; overflow-wrap: anywhere; font-weight: var(--weight-regular); }
 .task-run-link { height: auto; padding: 0; flex-direction: column; align-items: flex-start; gap: var(--space-1); white-space: normal; }
 .task-cell-secondary { color: var(--muted); font-size: var(--text-sm); }
 .task-form { margin-top: var(--space-6); }
@@ -27,14 +27,13 @@
 .task-archive-confirm .ant-modal-confirm-btns .ant-btn { margin-inline-start: 0; font-size: var(--text-md); min-height: var(--control-height-md); }
 
 /* Status text stays explicit; colors come from the same palette as chat and resources. */
-.task-status-pill { display: inline-flex; align-items: center; flex: 0 0 auto; width: fit-content; padding: 0 var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-regular); line-height: var(--line-height-base); white-space: nowrap; }
-.task-status-pill.is-success { border-color: var(--status-success-border); background: var(--status-success-bg); color: var(--status-success); }
-.task-status-pill.is-warning { border-color: var(--status-warning-border); background: var(--status-warning-bg); color: var(--status-warning); }
-.task-status-pill.is-processing { border-color: var(--brand-border); background: var(--brand-soft); color: var(--brand-primary); }
-.task-status-pill.is-error { border-color: var(--status-error-border); background: var(--status-error-bg); color: var(--status-error); }
+.task-status-pill { display: inline-flex; align-items: center; flex: 0 0 auto; width: fit-content; padding: 0 var(--space-2); border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--canvas); color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-regular); line-height: var(--line-height-base); white-space: nowrap; }
+.task-status-pill.is-success { border-color: transparent; background: var(--status-success-bg); color: var(--status-success); }
+.task-status-pill.is-warning { border-color: transparent; background: var(--status-warning-bg); color: var(--status-warning); }
+.task-status-pill.is-processing { border-color: transparent; background: var(--brand-soft); color: var(--brand-primary); }
+.task-status-pill.is-error { border-color: transparent; background: var(--status-error-bg); color: var(--status-error); }
 
 .task-list { width: 100%; min-width: 0; }
-.task-list .ant-table { border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
 .task-list .ant-table-tbody > tr > td { vertical-align: middle; overflow-wrap: anywhere; }
 .task-list .ant-table-tbody > tr:last-child > td { border-bottom: 0; }
 .task-list .task-name-link { display: block; max-width: 100%; font-size: var(--text-md); line-height: var(--line-height-base); }
@@ -42,12 +41,19 @@
 .task-list .task-run-link { font-size: var(--text-sm); line-height: var(--line-height-sm); text-align: left; }
 .task-list .ant-pagination { margin: var(--space-5) 0 0; }
 .task-actions { white-space: nowrap; }
-.task-actions .ant-btn { height: var(--control-height-md); padding-inline: var(--space-2); border-radius: var(--radius-control); font-size: var(--text-md); }
-.task-actions .task-action-run:not(:disabled) { color: var(--brand-primary); background: var(--brand-soft); border-color: var(--brand-border); }
-.task-actions .task-action-run:not(:disabled):hover { color: var(--brand-primary-active); background: var(--brand-soft-hover); }
 .task-time { display: flex; flex-direction: column; align-items: flex-start; line-height: var(--line-height-sm); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .task-time > span + span { color: var(--muted); }
 .task-run-link .task-time { flex-direction: row; gap: var(--space-2); }
 .task-drawer-footer { display: flex; justify-content: flex-end; }
 @media (max-width: 768px) {
 }
+
+/* Keep task rows compact; long labels remain available through their title. */
+.task-list .ant-table-cell { white-space: nowrap; }
+.task-list .task-name-link { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-list .task-run-link { flex-direction: row; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.task-list .task-time { flex-direction: row; gap: var(--space-2); }
+
+.task-list .task-run-link .task-time { color: var(--muted); }
+
+.task-list .ant-table-tbody > tr > td.task-cell-muted { color: var(--muted); }

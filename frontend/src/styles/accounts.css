@@ -3,7 +3,6 @@
 .account-page { display: flex; flex: 1; flex-direction: column; min-width: 0; height: 100dvh; font-size: var(--text-md); }
 .account-page-content { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--page-padding) var(--space-6); }
 .account-toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
-.account-page .ant-table { border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; }
 .account-page .ant-table-cell { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 
 /* RMS 登录：浅蓝品牌区与白色表单区；认证沿用同一表单。 */

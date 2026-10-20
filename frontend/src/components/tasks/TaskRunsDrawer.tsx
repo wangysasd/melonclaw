@@ -1,3 +1,4 @@
+import { tablePagination } from "../tablePresentation";
 import { Alert, App, Button, Collapse, Descriptions, Drawer, Empty, Space, Table } from "antd";
 import { useCallback, useRef, useState } from "react";
 import { taskApi, type TaskRun } from "../../api/tasks";
@@ -71,7 +72,7 @@ export function TaskRunsDrawer({ id, revision, onClose, onChanged }: {
       <h3>运行历史</h3>
       <Table<TaskRun> size="small" rowKey="id" dataSource={data?.history.items ?? []} loading={!data && !error} scroll={{ x: 360, y: 260 }} locale={{ emptyText: "尚无运行记录" }}
         rowClassName={row => row.id === selected ? "is-selected" : ""}
-        pagination={{ current: page, total: data?.history.total ?? 0, pageSize: 20, showSizeChanger: false, onChange: n => { setPage(n); setRunId(undefined); } }}
+        pagination={{ ...tablePagination, current: page, total: data?.history.total ?? 0, pageSize: 20, showSizeChanger: false, onChange: n => { setPage(n); setRunId(undefined); } }}
         columns={[
           { title: "创建时间（北京时间）", dataIndex: "created_at", render: (v: string, row) => <Button type="link" aria-label={`查看 ${time(v)} 的运行记录`} onClick={() => setRunId(row.id)}>{time(v)}</Button> },
           { title: "状态", dataIndex: "status", render: v => <StatusTag status={v} /> },

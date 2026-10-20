@@ -1,5 +1,5 @@
 import { App } from "antd";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { AccountManagement } from "../src/components/AccountManagement";
 import { apiRequest } from "../src/api/client";
@@ -49,4 +49,23 @@ it("returns keyboard focus to the account action after cancelling its dialog", a
   fireEvent.click(screen.getByRole("button", { name: /取\s*消/ }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
+
+it("uses the shared deletion layout and only deletes after explicit confirmation", async () => {
+  render(<App><AccountManagement onClose={vi.fn()} /></App>);
+  await screen.findByText("测试用户");
+  fireEvent.click(screen.getByRole("button", { name: /删\s*除/ }));
+  let dialog = await screen.findByRole("dialog");
+  expect(dialog.textContent).toContain("删除用户？");
+  expect(within(dialog).getByText("用户 ID：alice")).toBeTruthy();
+  expect(within(dialog).getByText("删除此用户后，个人数据将保留。")).toBeTruthy();
+  const cancel = within(dialog).getByRole("button", { name: /取\s*消/ });
+  await waitFor(() => expect(document.activeElement).toBe(cancel));
+  fireEvent.click(cancel);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(vi.mocked(apiRequest).mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: /删\s*除/ }));
+  dialog = await screen.findByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认删除" }));
+  await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("/api/admin/users/alice", { method: "DELETE" }));
 });

@@ -1,0 +1,44 @@
+/* Data management surfaces share the extension workspace palette. */
+:is(.task-center, .account-page) { background: var(--chat-surface); }
+:is(.task-center, .account-page, .environment-manager) .ant-table {
+  background: var(--glass-highlight);
+  font-variant-numeric: tabular-nums;
+}
+:is(.task-center, .account-page, .environment-manager) .ant-table-thead > tr > th { background: var(--table-header-bg); color: var(--message-user-ink); border-bottom-color: var(--table-border); font-weight: var(--weight-medium); }
+:is(.task-center, .account-page, .environment-manager) .ant-table-thead > tr > th::before { background-color: var(--table-divider); }
+:is(.task-center, .account-page, .environment-manager) .ant-table-tbody > tr > td { background: var(--panel); border-bottom-color: var(--table-divider); }
+:is(.task-center, .account-page, .environment-manager) .ant-table-tbody > tr.ant-table-row:hover > td { background: var(--table-row-hover); }
+:is(.task-center, .account-page, .environment-manager) .ant-table-tbody > tr.ant-table-row-selected > td { background: var(--message-user-bg); }
+:is(.task-center, .account-page, .environment-manager) .ant-table-tbody > tr:last-child > td { border-bottom: 0; }
+:is(.task-center, .account-page) .skill-search { background: var(--glass-highlight); border-color: var(--glass-edge); }
+:is(.task-center, .account-page) .ant-select-outlined { --ant-select-selector-bg: var(--glass-highlight); --ant-select-color-border: var(--glass-edge); }
+:is(.task-center, .account-page, .environment-manager) .ant-btn-text:not(:disabled):not(.ant-btn-dangerous):hover,
+:is(.task-center, .account-page, .environment-manager) .ant-btn-link:not(:disabled):not(.ant-btn-dangerous):hover { color: var(--brand-primary-active); background: var(--glass-blue); }
+:is(.task-center, .account-page, .environment-manager) .ant-btn:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+.account-page-content > .ant-tabs > .ant-tabs-nav::before { border-bottom-color: var(--glass-edge); }
+.account-page-content > .ant-tabs > .ant-tabs-nav .ant-tabs-tab { padding-inline: var(--space-3); border-radius: var(--radius-control); }
+.account-page-content > .ant-tabs > .ant-tabs-nav .ant-tabs-tab-active { background: var(--glass-highlight); }
+.account-page-content > .ant-tabs > .ant-tabs-nav .ant-tabs-tab:hover { background: var(--sidebar-row-hover); }
+.environment-table .ant-typography code { color: var(--message-user-ink); background: var(--glass-blue); border-color: var(--glass-edge); }
+
+/* One continuous workspace panel; navigation stays outside its outline. */
+.app-shell:has(> :is(.resource-view, .task-center, .account-page)) { background: var(--workspace-canvas); }
+.app-shell > :is(.resource-view, .task-center, .account-page) {
+  margin: var(--space-2) var(--space-2) var(--space-2) 0;
+  height: calc(100dvh - 2 * var(--space-2));
+  min-height: 0;
+  border: 0;
+  border-radius: var(--radius-workspace);
+  overflow: hidden;
+  background: var(--chat-surface);
+}
+:is(.resource-view, .task-center, .account-page) > .workspace-header {
+  background: transparent;
+  border-bottom-color: transparent;
+}
+@media (max-width: 768px) {
+  .app-shell > :is(.resource-view, .task-center, .account-page) {
+    margin: var(--space-1) var(--space-1) var(--space-1) 0;
+    height: calc(100dvh - 2 * var(--space-1));
+  }
+}

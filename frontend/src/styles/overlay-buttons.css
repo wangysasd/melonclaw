@@ -1,0 +1,5 @@
+/* Overlays share the global button presentation, including portal content. */
+:is(.ant-modal, .ant-drawer, .ant-popconfirm) .ant-btn:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}

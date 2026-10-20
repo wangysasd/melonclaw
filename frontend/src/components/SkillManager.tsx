@@ -1,3 +1,4 @@
+import { resourceMenuItems } from "./resourceMenu";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App as AntdApp, Button, Dropdown, Input, Modal } from "antd";
 import { cancelSkillImport, confirmSkillImport, deleteSkill, downloadSkill, listManageableSkills,
@@ -244,9 +245,6 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
           className="skill-search"
         />
         <div className="skill-actions-trailing">
-          <Button disabled={installStage !== null} icon={<Icon name="blocks" size={14} />} onClick={() => { setUpdateTarget(null); setRemoteOpen(true); }}>
-            远程安装
-          </Button>
           <Button
             type="primary"
             disabled={installStage !== null}
@@ -256,11 +254,14 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
           >
             上传 Skill
           </Button>
-          {isAdmin ? <Button onClick={() => void runAction(async () => {
+          <Button type="text" className="action-secondary" disabled={installStage !== null} icon={<Icon name="blocks" size={14} />} onClick={() => { setUpdateTarget(null); setRemoteOpen(true); }}>
+            远程安装
+          </Button>
+          {isAdmin ? <Button type="text" className="action-secondary" onClick={() => void runAction(async () => {
             const report = await recoverSkills(userId);
             notify.success(report.summary);
           }, "恢复与索引检查完成")}>恢复与检查</Button> : null}
-          <Button
+          <Button className="action-secondary"
             icon={<Icon name="refresh-cw" size={14} />}
             loading={loading}
             aria-label="刷新技能列表"
@@ -346,7 +347,7 @@ export function SkillManager({ userId, isAdmin, notify, onChanged, onTrySkill }:
                         classNames={{ root: "skill-card-menu" }}
                         trigger={["click"]}
                         menu={{
-                          items: menuItems,
+                          items: resourceMenuItems(menuItems),
                           onClick: ({ key }) => {
                             if (key === "download") {
                               void downloadSkill(skill.name, { userId, scope: apiScope })

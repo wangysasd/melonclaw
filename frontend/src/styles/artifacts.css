@@ -1,5 +1,35 @@
-.chat-artifact-workspace { display: flex; flex: 1; min-width: 0; height: 100dvh; position: relative; overflow: hidden; }
+.chat-artifact-workspace {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: calc(100dvh - 2 * var(--space-2));
+  margin: var(--space-2) var(--space-2) var(--space-2) 0;
+  position: relative;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-workspace);
+  background: var(--panel);
+}
+
+@media (max-width: 768px) {
+  .chat-artifact-workspace {
+    height: calc(100dvh - 2 * var(--space-1));
+    margin: var(--space-1) var(--space-1) var(--space-1) 0;
+  }
+}
 .chat-artifact-workspace > .chat-view { min-width: 0; }
+/* Separate rounded surfaces replace the former full-height divider. */
+.chat-artifact-workspace.artifact-open {
+  gap: var(--space-1);
+  border: 0;
+  background: transparent;
+}
+.artifact-open > .chat-view {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-workspace);
+}
 .topbar-actions { display: flex; flex-shrink: 0; gap: 4px; }
 .message-artifacts { display: grid; gap: 8px; margin-top: 12px; min-width: 0; }
 .message-artifacts .result-asset { margin: 0; }
@@ -12,15 +42,31 @@
 .artifact-file-description { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .artifact-file-description > span:first-child { font-weight: 500; overflow-wrap: anywhere; }
 .artifact-file-card .result-actions { margin: 0; flex: 0 0 auto; }
-.artifact-drawer { display: flex; flex-direction: column; position: relative; width: min(var(--artifact-width), 60%); flex: 0 0 auto; min-width: 360px; min-height: 0; height: 100%; background: var(--panel); border-left: 1px solid var(--line); font-size: 14px; animation: artifact-enter 160ms ease-out; }
+.artifact-drawer {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  width: min(var(--artifact-width), 60%);
+  flex: 0 0 auto;
+  min-width: 360px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--chat-surface);
+  border: 1px solid var(--line-light);
+  border-radius: var(--radius-workspace);
+  font-size: var(--text-md);
+  animation: artifact-enter 160ms ease-out;
+}
 .artifact-drawer:focus { outline: none; }
-.artifact-header { min-height: 52px; padding: 8px 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0; }
+.artifact-header { min-height: 48px; padding: var(--space-2) var(--space-3); background: transparent; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-shrink: 0; }
 .artifact-header-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .artifact-drawer button { font: inherit; color: var(--ink); cursor: pointer; }
 .artifact-header-actions > button:not(.icon-button), .artifact-update button, .artifact-list > div[role=alert] button { min-height: 32px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .artifact-header-actions button:disabled { cursor: wait; opacity: .6; }
-.artifact-resizer { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 1; touch-action: none; }
-.artifact-resizer:hover, .artifact-resizer:focus-visible { background: var(--brand-soft); outline: 1px solid var(--brand-primary); }
+.artifact-resizer { position: absolute; left: 0; top: var(--radius-workspace); bottom: var(--radius-workspace); width: 8px; cursor: col-resize; z-index: 1; touch-action: none; }
+.artifact-resizer:hover { background: var(--brand-soft); }
+.artifact-resizer:focus-visible { background: var(--brand-soft); outline: 2px solid var(--brand-primary); outline-offset: -2px; }
 .artifact-list { flex: 1; overflow-y: auto; padding: 16px; min-height: 0; }
 .artifact-list .result-asset { margin: 0; }
 .artifact-list > div { margin-bottom: 16px; }
@@ -35,6 +81,7 @@
 .artifact-preview-state { padding: 24px; color: var(--muted); font-size: 14px; }
 .artifact-update { padding: 8px 12px; background: var(--brand-soft); display: flex; gap: 8px; align-items: center; }
 .artifact-error { color: var(--status-error); padding: 8px 12px; margin: 0; overflow-wrap: anywhere; }
+.artifact-expanded .artifact-resizer { display: none; }
 .artifact-expanded .artifact-drawer { position: absolute; inset: 0; width: 100%; min-width: 0; z-index: 20; }
 @keyframes artifact-enter { from { opacity: .7; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
 @media (max-width: 1100px) {
@@ -55,7 +102,24 @@
 .file-browser-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
 .file-browser-toolbar > .icon-button { flex: 0 0 auto; min-width: 32px; min-height: 32px; }
 .file-scope-segmented { flex: 0 0 auto; max-width: 100%; margin-left: auto; font-size: 14px; }
-.file-scope-segmented .ant-segmented-item-label { font-size: 14px; padding-inline: 8px; }
+.file-scope-segmented.ant-segmented {
+  padding: var(--space-1);
+  background: var(--glass-blue);
+  border-radius: var(--radius-card);
+  color: var(--muted);
+}
+.file-scope-segmented .ant-segmented-item { border-radius: var(--radius-control); }
+.file-scope-segmented .ant-segmented-item-label { font-size: var(--text-md); padding-inline: var(--space-2); }
+.file-scope-segmented .ant-segmented-item:not(.ant-segmented-item-selected):hover {
+  color: var(--brand-primary);
+  background: var(--brand-soft);
+}
+.file-scope-segmented .ant-segmented-item-selected,
+.file-scope-segmented .ant-segmented-thumb {
+  color: var(--brand-primary);
+  background: var(--glass-highlight);
+  box-shadow: none;
+}
 .workspace-file-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
 .workspace-file-row { display: flex; gap: 10px; width: 100%; align-items: center; padding: 10px 8px; border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; text-align: left; }
 .workspace-file-row:hover { background: var(--hover); }
@@ -71,18 +135,24 @@
 
 /* A single document strip and one contextual toolbar. */
 .artifact-drawer [hidden], .artifact-drawer[hidden] { display: none !important; }
-.artifact-document-tabs { display: flex; gap: 6px; flex: 1; min-width: 0; align-items: center; }
-.artifact-document-tabs button { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; min-height: 32px; padding: 4px 8px; border-radius: var(--radius-control); min-width: 0; }
+.artifact-document-tabs { display: flex; gap: calc(var(--space-1) / 2); flex: 0 1 auto; min-width: 0; align-items: center; padding: calc(var(--space-1) / 2); background: var(--glass-blue); border-radius: var(--radius-card); }
+.artifact-document-tabs button { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--muted); min-height: var(--control-height-sm); padding: calc(var(--space-1) / 2) var(--space-2); border-radius: var(--radius-control); min-width: 0; }
 .artifact-document-tabs > button { flex-shrink: 0; }
-.artifact-document-tabs > button[aria-pressed=true], .artifact-document-tab.is-active { background: var(--hover); }
+.artifact-document-tabs > button[aria-pressed=true], .artifact-document-tab.is-active {
+  background: var(--glass-highlight);
+  color: var(--brand-primary);
+}
+.artifact-document-tab.is-active > button:first-child { color: var(--brand-primary); }
+.artifact-document-tabs > button:not([aria-pressed=true]):hover,
+.artifact-document-tab:not(.is-active):hover { background: var(--brand-soft); }
 .artifact-document-tab { display: flex; align-items: center; border-radius: var(--radius-control); min-width: 0; }
 .artifact-document-tab > button:first-child { min-width: 0; }
 .artifact-document-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artifact-document-tab .icon-button { flex-shrink: 0; }
 .artifact-content, .artifact-files-pane, .artifact-preview-pane { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .artifact-files-pane, .artifact-preview-pane { flex-direction: column; }
-.artifact-files-pane.is-navigation { flex: 0 0 320px; border-right: 1px solid var(--line); }
-.artifact-file-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); min-height: 49px; }
+.artifact-files-pane.is-navigation { flex: 0 0 320px; border-right: 1px solid var(--line-light); }
+.artifact-file-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 48px; }
 .artifact-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .artifact-file-toolbar button { flex-shrink: 0; min-height: 32px; border: 0; background: transparent; border-radius: var(--radius-control); color: var(--ink); font: inherit; font-size: 13px; padding: 4px 8px; }
 .artifact-file-toolbar button:hover { background: var(--hover); }
@@ -113,3 +183,14 @@
   .file-scope-segmented.ant-segmented { min-height: 44px; }
   .file-scope-segmented .ant-segmented-item-label { display: flex; align-items: center; min-height: 36px; }
 }
+
+.artifact-drawer :is(.workspace-file-list, .artifact-preview-body, .artifact-list) {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.artifact-drawer :is(.workspace-file-list, .artifact-preview-body, .artifact-list):is(:hover, :focus-within) {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Keep the open drawer close to the viewport edge. */
+.chat-artifact-workspace.artifact-open { margin-right: 2px; }

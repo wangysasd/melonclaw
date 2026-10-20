@@ -15,8 +15,8 @@ import { WorkspaceFileBrowser } from "./WorkspaceFileBrowser";
 
 export function ArtifactTrigger() {
   const controls = useArtifacts();
-  return controls ? <button type="button" className="tool-catalog-trigger artifact-trigger" onClick={controls.openList} aria-expanded={controls.open} aria-label="查看会话或项目文件">
-    <Icon name="panel-right" size={16} /><span className="artifact-trigger-tooltip" aria-hidden="true">文件</span>
+  return controls ? <button type="button" className="tool-catalog-trigger artifact-trigger sidebar-panel-toggle" onClick={controls.openList} hidden={controls.open} aria-expanded={controls.open} aria-label="查看会话或项目文件">
+    <Icon name="panel-right" size={18} /><span className="artifact-trigger-tooltip" aria-hidden="true">文件</span>
   </button> : null;
 }
 
@@ -50,7 +50,7 @@ export function ArtifactWorkspace({ userId, conversationId, projectId, projectNa
   const [actionError, setActionError] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [width, setWidth] = useState(560);
+  const [width, setWidth] = useState(448);
   const [narrow, setNarrow] = useState(() => window.innerWidth <= 1100);
   const panel = useRef<HTMLElement>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -102,8 +102,11 @@ export function ArtifactWorkspace({ userId, conversationId, projectId, projectNa
 
   const close = useCallback(() => {
     action.current?.abort(); setOpen(false); setDownloading(false); setActionError(""); setExpanded(false);
-    opener.current?.focus({ preventScroll: true });
   }, []);
+  useEffect(() => {
+    // Restore focus after the trigger is visible again and chat inertness is cleared.
+    if (!open) opener.current?.focus({ preventScroll: true });
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     panel.current?.focus({ preventScroll: true });
@@ -202,8 +205,8 @@ export function ArtifactWorkspace({ userId, conversationId, projectId, projectNa
           </nav>
           <div className="artifact-header-actions">
             {expanded && !narrow && selected && view === "preview" ? <button type="button" className="icon-button" aria-label="切换文件导航" aria-pressed={showNavigation} onClick={() => setShowNavigation((value) => !value)}><Icon name="folder" /></button> : null}
-            <button type="button" className="icon-button" aria-label={expanded ? "恢复面板大小" : "放大文件面板"} onClick={() => setExpanded((value) => !value)}><Icon name="scan-search" /></button>
-            <button type="button" className="icon-button" aria-label="关闭文件浏览器" onClick={close}><Icon name="x" /></button>
+            <button type="button" className="icon-button sidebar-panel-toggle" aria-pressed={expanded} aria-label={expanded ? "恢复面板大小" : "放大文件面板"} onClick={() => setExpanded((value) => !value)}><Icon name="scan-search" size={18} /></button>
+            <button type="button" className="icon-button sidebar-panel-toggle" aria-label="关闭文件浏览器" title="收起文件栏" onClick={close}><Icon name="panel-right" size={18} /></button>
           </div>
         </header>
         {actionError ? <p className="artifact-error" role="alert">{actionError}</p> : null}
@@ -212,6 +215,7 @@ export function ArtifactWorkspace({ userId, conversationId, projectId, projectNa
             <section className={`artifact-files-pane${view === "preview" ? " is-navigation" : ""}`} hidden={view !== "files" && !(expanded && !narrow && showNavigation)} aria-label="文件列表">
               <WorkspaceFileBrowser scope={scope} location={location} selectedKey={returnKey} currentKey={selectedKey} revision={terminalKey}
                 active={open && (view === "files" || (expanded && !narrow && showNavigation))} showFiles={filter === "all"}
+                onRefresh={conversationId ? () => { setIndexLoading(true); setIndexRetry((value) => value + 1); } : undefined} refreshPending={indexLoading}
                 scopeControl={<Segmented aria-label="文件范围" className="file-scope-segmented" value={filter} onChange={(value) => setFilter(value as "all" | "delivered")}
                   options={[{ label: "全部文件", value: "all" }, { label: `本对话产物 · ${items.length}`, value: "delivered" }]} />}
                 onOpenFile={(ref) => openArtifact(ref)} />

@@ -40,6 +40,39 @@ beforeEach(() => {
 describe("workspace file browser", () => {
   const file = (path: string) => ({ name: path.split("/").at(-1), path, kind: "file", size_bytes: 4, modified_at: "2026-10-03T00:00:00Z" });
   const page = (path: string, items: unknown[], next_offset: number | null = null) => ({ path, items, next_offset, total: items.length, scope: { kind: "conversation", name: "测试" } });
+  it("hides the chat entry while open and restores it with focus after closing", async () => {
+    render(<Fixture />);
+    const trigger = screen.getByRole("button", { name: "查看会话或项目文件" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("button", { name: "查看会话或项目文件" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "关闭文件浏览器" }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(screen.getByRole("button", { name: "查看会话或项目文件" })).toBe(trigger);
+    fireEvent.click(trigger);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it("refreshes delivered files and their count without reloading workspace directories", async () => {
+    render(<Fixture />);
+    fireEvent.click(screen.getByRole("button", { name: "查看会话或项目文件" }));
+    await screen.findByText("当前还没有文件。");
+    await waitFor(() => expect(index).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("radio", { name: /本对话产物/ }));
+    const directoryCalls = directory.mock.calls.length;
+    let resolveRefresh!: (value: { items: unknown[] }) => void;
+    index.mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve; }));
+    const refresh = screen.getByRole("button", { name: "刷新文件列表" });
+    fireEvent.click(refresh);
+    await waitFor(() => expect(index).toHaveBeenCalledTimes(2));
+    expect(refresh).toHaveProperty("disabled", true);
+    await act(async () => resolveRefresh({ items: [{ ref: { path: "/outputs/second.html" }, message_id: "second", created_at: "2026-10-03T00:00:00Z" }] }));
+    await screen.findByRole("radio", { name: "本对话产物 · 2" });
+    expect(refresh).toHaveProperty("disabled", false);
+    expect(directory).toHaveBeenCalledTimes(directoryCalls);
+  });
+
   it("browses non-delivered files, returns to their directory and retains delivery provenance", async () => {
     directory.mockImplementation(async (_scope, path) => path === "/" ? page(path, [{ name: "src", path: "/src", kind: "directory", size_bytes: null, modified_at: "" }])
       : page(path, [file("/src/app.py")]));

@@ -1,4 +1,5 @@
-import { Alert, App, Button, Input, Select, Space, Table } from "antd";
+import { tablePagination } from "../tablePresentation";
+import { Alert, App, Button, Dropdown, Input, Select, Space, Table } from "antd";
 import { useCallback, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { taskApi, type Task } from "../../api/tasks";
@@ -65,11 +66,11 @@ export default function TaskCenter({ onClose, onOpenConversation }: { onClose: (
         <li>停止后续计划，归档后无法编辑或再次运行。</li>
       </ul>
     </div>,
-    okText: "确认归档", cancelText: "取消", focusable: { autoFocusButton: "cancel" },
+    okText: "确认归档", okButtonProps: { danger: true }, cancelText: "取消", focusable: { autoFocusButton: "cancel" },
     onOk: () => act(task, "archive"),
   });
   return <main className="task-center">
-    <WorkspaceHeader title="定时任务" icon="alarm-clock" actions={<Button icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>返回聊天</Button>} />
+    <WorkspaceHeader title="定时任务" icon="alarm-clock" actions={<Button className="action-secondary" icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>返回聊天</Button>} />
     <div className="task-center-content">
       {error && <Alert type="error" showIcon title={error} />}
       {data && !data.health.executor.ready && <Alert type="warning" showIcon title="任务调度尚未就绪" description={data.health.executor.error || "任务调度随 Web 自动启动，请稍候或检查服务状态。"} />}
@@ -77,19 +78,28 @@ export default function TaskCenter({ onClose, onOpenConversation }: { onClose: (
           <Input aria-label="搜索任务" placeholder="搜索任务名称" prefix={<Icon name="search" size={14} />} allowClear value={name} onChange={event => { setName(event.target.value); setPage(1); }} className="skill-search" />
           <Select aria-label="任务状态" placeholder="全部状态" allowClear value={status} onChange={v => { setStatus(v); setPage(1); }} style={{ width: 140 }} options={[{ value: "enabled", label: "已启用" }, { value: "paused", label: "已暂停" }, { value: "archived", label: "已归档" }]} />
         <div className="skill-actions-trailing"><Button type="primary" className="task-create-action" icon={<Icon name="plus" size={16} />} onClick={() => setEditor("new")}>新建任务</Button>
-          <Button icon={<Icon name="refresh-cw" size={14} />} aria-label="刷新任务列表" onClick={() => setRevision(n => n + 1)} />
+          <Button className="action-secondary" icon={<Icon name="refresh-cw" size={14} />} aria-label="刷新任务列表" onClick={() => setRevision(n => n + 1)} />
         </div>
       </div>
-      <Table<Task> className="task-list" tableLayout="fixed" rowKey="id" size="middle" dataSource={data?.list.items ?? []} loading={!data && !error} scroll={{ x: 1280 }} locale={{ emptyText: "还没有任务，点击新建任务开始" }}
-        pagination={{ current: page, total: data?.list.total ?? 0, pageSize: 20, showSizeChanger: false, onChange: setPage }}
+      <Table<Task> className="task-list" tableLayout="fixed" rowKey="id" size="middle" dataSource={data?.list.items ?? []} loading={!data && !error} scroll={{ x: 1120 }} locale={{ emptyText: "还没有任务，点击新建任务开始" }}
+        pagination={{ ...tablePagination, current: page, total: data?.list.total ?? 0, pageSize: 20, showSizeChanger: false, onChange: setPage }}
         columns={[
-          { title: "任务名称", dataIndex: "name", width: 220, render: (v: string, task) => <Button type="link" className="task-name-link" onClick={() => onOpenConversation?.(task.conversation_id)}>{v}</Button> },
-          { title: "任务模型", width: 160, render: (_, task) => session.modelOptions.find(m => m.id === task.definition.model_id)?.display_name ?? task.definition.model_id },
-          { title: "执行计划", width: 160, render: (_, task) => <div>{task.definition.schedule.kind === "once" ? <><span>一次</span><div>{task.definition.schedule.run_at ? zonedLocal(task.definition.schedule.run_at).replace("T", " ") : "—"}</div></> : scheduleLabel(task.definition.schedule)}</div> },
+          { title: "任务名称", dataIndex: "name", ellipsis: true, width: 220, render: (v: string, task) => <Button type="link" className="task-name-link" title={v} onClick={() => onOpenConversation?.(task.conversation_id)}>{v}</Button> },
+          { title: "任务模型", className: "task-cell-muted", ellipsis: true, width: 180, render: (_, task) => session.modelOptions.find(m => m.id === task.definition.model_id)?.display_name ?? task.definition.model_id },
+          { title: "执行计划", className: "task-cell-muted", ellipsis: true, width: 180, render: (_, task) => <div>{task.definition.schedule.kind === "once" ? <>一次 {task.definition.schedule.run_at ? zonedLocal(task.definition.schedule.run_at).replace("T", " ") : "—"}</> : scheduleLabel(task.definition.schedule)}</div> },
           { title: "状态", dataIndex: "status", width: 90, render: v => <StatusTag status={v} /> },
-          { title: "最近一次运行", width: 190, render: (_, task) => task.latest_run ? <Button type="link" className="task-run-link" aria-label={`查看${task.name}的运行记录，最近一次${statusNames[task.latest_run.status]}，${zonedLocal(task.latest_run.started_at ?? task.latest_run.created_at).replace("T", " ")}`} onClick={() => setHistoryTaskId(task.id)}><StatusTag status={task.latest_run.status} /><TaskTime value={task.latest_run.started_at ?? task.latest_run.created_at} /></Button> : "尚未运行" },
-          { title: "下一次运行", width: 130, render: (_, task) => task.status === "paused" ? "已暂停" : task.status === "archived" ? "已归档" : task.next_run_at ? <TaskTime value={task.next_run_at} /> : task.definition.schedule.kind === "once" ? "计划已结束" : task.definition.schedule.kind === "manual" ? "手动运行" : "—" },
-          { title: "操作", width: 320, render: (_, task) => <Space size={4} className="task-actions"><Button type="text" size="small" onClick={() => onOpenConversation?.(task.conversation_id)}>查看会话</Button><Button className="task-action-run" size="small" disabled={task.status === "archived" || Boolean(busy[task.id]) || task.has_active_run} loading={busy[task.id] === "runs"} onClick={() => void act(task, "runs")}>运行</Button><Button type="text" size="small" disabled={task.status === "archived" || Boolean(busy[task.id])} onClick={() => setEditor(task)}>编辑</Button><Button type="text" danger size="small" loading={busy[task.id] === "archive"} disabled={task.status === "archived" || Boolean(busy[task.id])} onClick={() => archive(task)}>归档</Button><Button type="text" size="small" loading={busy[task.id] === "enabled"} disabled={task.status === "archived" || Boolean(busy[task.id])} onClick={() => enable(task)}>{task.status === "enabled" ? "暂停" : "恢复"}</Button></Space> },
+          { title: "最近一次运行", width: 240, render: (_, task) => task.latest_run ? <Button type="link" className="task-run-link" aria-label={`查看${task.name}的运行记录，最近一次${statusNames[task.latest_run.status]}，${zonedLocal(task.latest_run.started_at ?? task.latest_run.created_at).replace("T", " ")}`} onClick={() => setHistoryTaskId(task.id)}><StatusTag status={task.latest_run.status} /><TaskTime value={task.latest_run.started_at ?? task.latest_run.created_at} /></Button> : "尚未运行" },
+          { title: "下一次运行", className: "task-cell-muted", width: 170, render: (_, task) => task.status === "paused" ? "已暂停" : task.status === "archived" ? "已归档" : task.next_run_at ? <TaskTime value={task.next_run_at} /> : task.definition.schedule.kind === "once" ? "计划已结束" : task.definition.schedule.kind === "manual" ? "手动运行" : "—" },
+          { title: "操作", className: "table-actions-cell", fixed: "right", width: 128, render: (_, task) => <Space size={8} className="task-actions">
+            <Button type="link" className="task-action-run" disabled={task.status === "archived" || Boolean(busy[task.id]) || task.has_active_run} loading={busy[task.id] === "runs"} onClick={() => void act(task, "runs")}>运行</Button>
+            <Dropdown trigger={["click"]} menu={{ items: [
+              { key: "conversation", label: "查看会话", onClick: () => onOpenConversation?.(task.conversation_id) },
+              { key: "edit", label: "编辑", disabled: task.status === "archived" || Boolean(busy[task.id]), onClick: () => setEditor(task) },
+              { key: "enabled", label: task.status === "enabled" ? "暂停" : "恢复", disabled: task.status === "archived" || Boolean(busy[task.id]), onClick: () => enable(task) },
+              { type: "divider" },
+              { key: "archive", label: "归档", danger: true, disabled: task.status === "archived" || Boolean(busy[task.id]), onClick: () => archive(task) },
+            ] }}><Button type="link" aria-label={`${task.name}更多操作`}>···</Button></Dropdown>
+          </Space> },
         ]} />
     </div>
     {historyTaskId && <TaskRunsDrawer key={historyTaskId} id={historyTaskId} revision={revision} onClose={() => setHistoryTaskId(undefined)} onChanged={() => setRevision(n => n + 1)} />}

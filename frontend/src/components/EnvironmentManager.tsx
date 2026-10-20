@@ -1,14 +1,17 @@
+import { tablePagination } from "./tablePresentation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Button, Form, Input, Modal, Popconfirm, Space, Switch, Table, Tag, Typography } from "antd";
+import { Alert, App, Button, Form, Input, Modal, Space, Switch, Table, Tag, Typography } from "antd";
 import { deleteEnvironment, listEnvironment, saveEnvironment, type EnvironmentVariable } from "../api/environment";
 
 import { Icon } from "./Icon";
+import { deleteConfirmation } from "./deleteConfirmation";
 
 interface Props { userId: string; isAdmin: boolean }
 interface Draft { name: string; description: string; value: string; enabled: boolean }
 const emptyDraft: Draft = { name: "", description: "", value: "", enabled: true };
 
 export function EnvironmentManager({ userId, isAdmin }: Props) {
+  const { modal } = App.useApp();
   const [rows, setRows] = useState<EnvironmentVariable[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -61,9 +64,9 @@ export function EnvironmentManager({ userId, isAdmin }: Props) {
       {error && <Alert type="error" showIcon message={error} action={<Button onClick={() => { const signal = controller.current?.signal; if (signal) void reload(signal); }}>重试</Button>} />}
       <div className="resource-actions skill-resource-actions"><Input className="skill-search" prefix={<Icon name="search" size={14} />} aria-label="搜索环境变量" placeholder="搜索变量名或说明" value={search} onChange={event => setSearch(event.target.value)} allowClear />
         <div className="skill-actions-trailing"><Button type="primary" icon={<Icon name="plus" size={14} />} onClick={() => edit()} disabled={busy}>新增环境变量</Button>
-          <Button icon={<Icon name="refresh-cw" size={14} />} loading={loading} disabled={busy} aria-label="刷新环境变量列表" onClick={() => { const signal = controller.current?.signal; if (signal) void reload(signal); }} />
+          <Button className="action-secondary" icon={<Icon name="refresh-cw" size={14} />} loading={loading} disabled={busy} aria-label="刷新环境变量列表" onClick={() => { const signal = controller.current?.signal; if (signal) void reload(signal); }} />
         </div></div>
-      <Table<EnvironmentVariable> className="environment-table" tableLayout="auto" rowKey="id" loading={loading} scroll={{ x: 850 }} pagination={{ pageSize: 20 }}
+      <Table<EnvironmentVariable> className="environment-table" tableLayout="auto" rowKey="id" loading={loading} scroll={{ x: 850 }} pagination={{ ...tablePagination, pageSize: 20 }}
         dataSource={rows.filter(row => `${row.name} ${row.description}`.toLowerCase().includes(search.toLowerCase()))}
         columns={[
           { title: "启用", render: (_, row) => <Switch aria-label={`${row.name} 启用`} checked={row.enabled} disabled={busy}
@@ -75,10 +78,15 @@ export function EnvironmentManager({ userId, isAdmin }: Props) {
           { title: "说明", dataIndex: "description", className: "environment-description",
             render: description => <Typography.Text style={{ display: "block", width: "100%" }}
               ellipsis={{ tooltip: description }}>{description}</Typography.Text> },
-          { title: "操作", render: (_, row) => <Space><Button type="link" disabled={busy} onClick={() => edit(row)}>编辑</Button>
-            <Popconfirm title={`删除环境变量 ${row.name}？`} description={isAdmin ? "依赖此共享变量的用户将不再获得该值。" : "删除后将自动使用可用的同名系统共享值。"}
-              onConfirm={() => mutate(signal => deleteEnvironment(userId, row, signal))} okText="删除" cancelText="取消">
-              <Button type="link" danger disabled={busy}>删除</Button></Popconfirm></Space> },
+          { title: "操作", className: "table-actions-cell", fixed: "right", width: 140, render: (_, row) => <Space><Button type="link" disabled={busy} onClick={() => edit(row)}>编辑</Button>
+            <Button type="link" danger disabled={busy} onClick={() => modal.confirm({
+              ...deleteConfirmation({
+                title: "删除环境变量？", name: row.name,
+                metadata: row.scope === "global" ? "系统共享" : "个人变量", icon: <Icon name="terminal" size={24} />,
+                description: isAdmin ? "依赖此共享变量的用户将不再获得该值。" : "删除后将自动使用可用的同名系统共享值。",
+              }),
+              onOk: () => mutate(signal => deleteEnvironment(userId, row, signal)),
+            })}>删除</Button></Space> },
         ]} />
     </div>
     <Modal title={editor?.row ? "编辑环境变量" : "新增环境变量"} open={editor !== null} onCancel={close}

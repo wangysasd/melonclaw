@@ -36,12 +36,13 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills", onTab
   return (
     <main className="resource-view" data-active-tab={activeTab} aria-label="拓展">
       <WorkspaceHeader title="拓展" icon="blocks" actions={
-        <Button icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>
+        <Button className="action-secondary" icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>
           返回聊天
         </Button>
       } />
       <Tabs
         className="resource-view-tabs"
+        tabBarGutter={0}
         activeKey={activeTab}
         onChange={(tab) => { setActiveTab(tab); onTabChange?.(tab); }}
         items={[

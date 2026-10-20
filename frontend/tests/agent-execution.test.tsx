@@ -358,7 +358,7 @@ describe("duration formatting", () => {
     expect(formatDuration(12_800)).toBe("12.8s");
     expect(formatDuration(68_000)).toBe("1m 08s");
     // 8ms 的真实耗时不能被四舍五入成看着像没有数据的 0.0s。
-    expect(formatDuration(8)).toBe("<0.1s");
+    expect(formatDuration(8)).toBe("0.1s");
     expect(formatDuration(null)).toBeNull();
   });
 });

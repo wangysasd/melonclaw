@@ -38,12 +38,12 @@ export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin
         </Tooltip>
         <Tooltip title="定时任务" placement="right">
           <button className={`global-nav-button${view === "tasks" ? " is-active" : ""}`} aria-label="定时任务" aria-current={view === "tasks" ? "page" : undefined} onClick={onTasks}>
-            {view === "tasks" ? <img src="/assets/icons/alarm-clock-filled.svg" width={20} height={20} alt="" aria-hidden="true" /> : <Icon name="alarm-clock" size={20} />}
+            <Icon name={view === "tasks" ? "alarm-clock-filled" : "alarm-clock"} size={20} />
           </button>
         </Tooltip>
         <Tooltip title="拓展" placement="right" trigger={["hover", "focus"]}>
           <button className={`global-nav-button${view === "resources" ? " is-active" : ""}`} aria-label="拓展" aria-current={view === "resources" ? "page" : undefined} onClick={onResources}>
-            {view === "resources" ? <img src="/assets/icons/blocks-filled.svg" width={20} height={20} alt="" aria-hidden="true" /> : <Icon name="blocks" size={20} />}
+            <Icon name={view === "resources" ? "blocks-filled" : "blocks"} size={20} />
           </button>
         </Tooltip>
         {__MELONCLAW_IS_RMS_BRAND__ ? (

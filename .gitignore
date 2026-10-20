@@ -53,3 +53,6 @@ dist/
 !.data/skills/shared/tushare-fetcher/
 !.data/skills/shared/melonclaw-tutorial/
 !.data/skills/shared/skill-creator/
+
+# 本地生成的截图与验证产物
+/output/

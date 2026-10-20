@@ -18,7 +18,7 @@ export const antdTheme: ThemeConfig = {
   },
   components: {
     Layout: { siderBg: t.canvas, headerBg: "transparent", bodyBg: t.canvas },
-    Button: { fontWeight: n("weight-medium"), paddingInline: n("space-3"), iconGap: n("icon-gap"), defaultShadow: "none", primaryShadow: "none", dangerShadow: "none" },
+    Button: { fontWeight: n("weight-regular"), paddingInline: n("space-3"), iconGap: n("icon-gap"), defaultShadow: "none", primaryShadow: "none", dangerShadow: "none" },
     Input: { paddingInline: n("space-3"), activeShadow: "none" },
     Select: { optionSelectedBg: t["brand-soft"], optionSelectedColor: t["brand-primary"], optionSelectedFontWeight: n("weight-medium") },
     Card: { borderRadiusLG: n("radius-card"), bodyPadding: n("space-4"), headerPadding: n("space-4"), headerFontSize: n("text-lg") },
@@ -27,7 +27,7 @@ export const antdTheme: ThemeConfig = {
     Dropdown: { borderRadiusLG: n("radius-card"), paddingBlock: n("space-2") },
     Popover: { borderRadiusLG: n("radius-card"), titleMinWidth: 0 },
     Tooltip: { borderRadius: n("radius-control") },
-    Table: { headerBg: t.canvas, headerColor: t.muted, rowHoverBg: t.hover, borderColor: t["line-light"], headerBorderRadius: n("radius-card"), cellPaddingBlock: n("space-3"), cellPaddingInline: n("space-4"), cellFontSize: n("text-md") },
+    Table: { headerBg: t["table-header-bg"], headerColor: t.muted, rowHoverBg: t["table-row-hover"], borderColor: t["table-divider"], headerBorderRadius: n("radius-card"), cellPaddingBlock: n("space-3"), cellPaddingInline: n("space-4"), cellFontSize: n("text-md") },
     Tabs: { titleFontSize: n("text-md"), horizontalItemPadding: "12px 0", horizontalItemGutter: n("space-6"), horizontalMargin: "0 0 16px 0" },
     Tag: { borderRadiusSM: n("radius-sm"), fontSizeSM: n("text-xs"), lineHeightSM: 22 / 12 },
     Menu: { itemHeight: n("control-height-lg"), itemBorderRadius: n("radius-control"), iconSize: n("icon-lg"), itemSelectedBg: t["brand-soft"], itemSelectedColor: t["brand-primary"] },
