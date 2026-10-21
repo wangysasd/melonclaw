@@ -3,32 +3,27 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
-  height: calc(100dvh - 2 * var(--space-2));
-  margin: var(--space-2) var(--space-2) var(--space-2) 0;
+  height: 100%;
   position: relative;
   overflow: hidden;
   border: 0;
-  border-radius: var(--radius-workspace);
+  border-radius: 0;
   background: var(--panel);
 }
 
-@media (max-width: 768px) {
-  .chat-artifact-workspace {
-    height: calc(100dvh - 2 * var(--space-1));
-    margin: var(--space-1) var(--space-1) var(--space-1) 0;
-  }
+.chat-artifact-workspace > .chat-view {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 0 var(--radius-workspace) var(--radius-workspace) 0;
 }
-.chat-artifact-workspace > .chat-view { min-width: 0; }
-/* Separate rounded surfaces replace the former full-height divider. */
+/* File preview stays separate inside the unified workspace shell. */
 .chat-artifact-workspace.artifact-open {
-  gap: var(--space-1);
+  gap: var(--workspace-panel-gap);
   border: 0;
-  background: transparent;
+  background: var(--workspace-canvas);
 }
 .artifact-open > .chat-view {
-  overflow: hidden;
   border: 0;
-  border-radius: var(--radius-workspace);
 }
 .topbar-actions { display: flex; flex-shrink: 0; gap: 4px; }
 .message-artifacts { display: grid; gap: 8px; margin-top: 12px; min-width: 0; }
@@ -192,6 +187,3 @@
 .artifact-drawer :is(.workspace-file-list, .artifact-preview-body, .artifact-list):is(:hover, :focus-within) {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
-
-/* Keep the open drawer close to the viewport edge. */
-.chat-artifact-workspace.artifact-open { margin-right: 2px; }

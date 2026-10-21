@@ -1,22 +1,16 @@
-/* 侧栏样式：macOS 磨砂侧栏 + 项目/会话分组。 */
+/* 面板内浅蓝灰侧栏与项目/会话分组。 */
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  background-color: var(--workspace-canvas);
-  background-image: linear-gradient(to bottom, var(--sidebar), var(--sidebar-art-veil)), url('/assets/glass/sidebar.webp');
-  background-position: center, center bottom;
-  background-size: cover, 100% auto;
-  background-repeat: no-repeat;
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
+  background: var(--sidebar);
   flex: 0 0 var(--sidebar-width);
   min-width: var(--sidebar-width);
   width: var(--sidebar-width);
   max-width: var(--sidebar-width);
-  height: 100vh;
-  position: sticky;
-  top: 0;
+  height: 100%;
+  min-height: 0;
+  position: relative;
 }
 
 .sidebar.is-collapsed {
@@ -412,7 +406,7 @@
 }
 
 .conversation-item.is-active {
-  background: var(--brand-soft);
+  background: var(--sidebar-row-selected);
   color: var(--brand-primary);
 }
 
@@ -532,7 +526,7 @@
 
 .sidebar-drawer .ant-drawer-body {
   padding: 0;
-  background: var(--canvas);
+  background: var(--sidebar);
 }
 
 @media (max-width: 768px) {
@@ -575,7 +569,24 @@
 .global-status-dot.is-ready { background: var(--status-success); }
 .user-picker.is-compact .user-trigger { width: 36px; height: 36px; padding: 3px; justify-content: center; border: 0; background: transparent; }
 .user-picker.is-compact .user-trigger-copy, .user-picker.is-compact .user-trigger > span:last-child:not(.user-avatar) { display: none; }
-.home-workspace { display: flex; flex: 1; min-width: 0; height: 100dvh; background: var(--workspace-canvas); }
+/* One outer panel encloses both conversation navigation and the reading area. */
+.home-workspace {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: calc(100dvh - 2 * var(--space-2));
+  margin: var(--space-2) var(--space-2) var(--space-2) 0;
+  overflow: hidden;
+  border-radius: var(--radius-workspace);
+  background: var(--panel);
+}
+@media (max-width: 768px) {
+  .home-workspace {
+    height: calc(100dvh - 2 * var(--space-1));
+    margin: var(--space-1) var(--space-1) var(--space-1) 0;
+  }
+}
 .home-workspace[hidden] { display: none; }
 .home-workspace .sidebar.is-collapsed { display: none; }
 .sidebar-reopen { display: none; }

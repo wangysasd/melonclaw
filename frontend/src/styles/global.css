@@ -30,6 +30,7 @@ body {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  background: var(--workspace-canvas);
 }
 
 /* 图标动画 */

@@ -166,7 +166,7 @@
 }
 
 .welcome h1 {
-  margin: var(--space-2) 0 var(--space-3);
+  margin: var(--space-4) 0 var(--space-4);
   font-size: var(--text-title);
   font-weight: var(--weight-semibold);
   letter-spacing: -0.02em;
@@ -2234,7 +2234,49 @@
 
 
 .welcome-services { width: 100%; }
-.welcome-tabs { display: inline-flex; gap: 4px; padding: 4px; margin: 4px 0 12px; background: var(--glass-blue); border: 1px solid var(--glass-edge); border-radius: var(--radius-overlay); }
-.welcome-tab { min-width: 96px; padding: 8px 24px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 14px; cursor: pointer; }
-.welcome-tab.is-active { background: var(--glass-highlight); color: var(--brand-primary); box-shadow: var(--glass-action-shadow); }
+.welcome-services .prompt-grid { margin-top: 0; }
+.welcome-tabs {
+  display: inline-flex;
+  gap: var(--space-8);
+  margin: 0 0 var(--space-6);
+}
+.welcome-tab {
+  position: relative;
+  min-width: 48px;
+  min-height: 44px;
+  padding: var(--space-3) var(--space-2);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+  line-height: 20px;
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+.welcome-tab::after {
+  content: "";
+  position: absolute;
+  right: var(--space-2);
+  bottom: 0;
+  left: var(--space-2);
+  height: 2px;
+  background: var(--brand-primary);
+  opacity: 0;
+  transform: scaleX(0.6);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.welcome-tab:hover { color: var(--ink); }
+.welcome-tab.is-active { color: var(--ink); font-weight: var(--weight-medium); }
+.welcome-tab.is-active::after { opacity: 1; transform: scaleX(1); }
 .welcome-tab:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+@media (max-width: 768px) {
+  .welcome { margin-top: var(--space-4); }
+  .welcome-tabs { margin-bottom: var(--space-4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-tab, .welcome-tab::after { transition: none; }
+}

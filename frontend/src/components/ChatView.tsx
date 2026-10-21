@@ -666,7 +666,7 @@ export function ChatView({
                 alt={__MELONCLAW_IS_RMS_BRAND__ ? "RMS" : "MelonClaw"}
               />
             </div>
-            <h1>请选择您需要的研究服务</h1>
+            <h1>探索研究服务</h1>
             <WelcomePrompts onSelect={setDraft} />
           </div>
         ) : (

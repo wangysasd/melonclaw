@@ -85,3 +85,8 @@
 提示词：Use case: background-extraction. Remove only the off-white/light gray background completely. Preserve the exact MelonClaw heavy rounded black wordmark, watermelon replacing the o, letter shapes, spacing and colors; for the mark preserve three dark brown teardrop seeds above the red watermelon pad, pale green rind and dark green base. True transparent alpha background including gaps and lettering counters, smooth antialiased edges. No white matte, rectangle, checkerboard, ground shadow, new text or objects.
 
 透明素材验收：两张发布 WebP 均核验包含从 0 开始的 alpha 通道，字标 1086×362、头像 192×192；浏览器确认新图片成功加载、助手头像容器背景透明且边框 0px，四档宽度无页面水平溢出。scripts/check.sh 全部通过；生产构建通过（保留既有分块体积提示）。实际截图位于本地 `output/playwright/glass-workspace/transparent-brand-1440.png`。
+
+
+## 会话侧栏与聊天统一外轮廓（2026-10-21）
+
+侧栏现纳入 home-workspace 的统一 16px 圆角面板，采用纯浅蓝灰底，移除侧栏装饰纹理与磨砂；聊天内部接缝平直。外层统一承担留白及视口高度，折叠、窄屏抽屉和文件覆盖保持原行为。此约定取代前文侧栏位于聊天面板外的说明；具体布局见 [视觉一致性](ui-consistency.md)。
