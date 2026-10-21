@@ -4,13 +4,13 @@ import { fileRefKey, workspaceFileRef, type FileLocation, type FileRef } from ".
 
 export type FileRow = {
   name: string; kind: "directory" | "file"; path?: string; ref?: FileRef;
-  source?: "上传" | "输出";
+  source?: "上传" | "产物";
 };
 export type FileListing = { rows: FileRow[]; next: number | null; loading: boolean; error: string };
 export const EMPTY_LISTING: FileListing = { rows: [], next: null, loading: true, error: "" };
 export const ROOT_SOURCES = ["/", "attachments", "/outputs"] as const;
 export type RootSource = typeof ROOT_SOURCES[number];
-export const SOURCE_LABELS: Record<RootSource, string> = { "/": "工作区文件", attachments: "上传附件", "/outputs": "输出文件" };
+export const SOURCE_LABELS: Record<RootSource, string> = { "/": "工作区文件", attachments: "上传附件", "/outputs": "产物文件" };
 
 export function fileRowKey(row: FileRow): string {
   return row.ref ? fileRefKey(row.ref) : row.path!;
@@ -50,5 +50,5 @@ export async function readFileListing(scope: ResultScope, path: FileLocation, of
   const page = await workspaceDirectory(scope, path, options, signal);
   return { rows: page.items.map((item): FileRow => ({ name: item.name, kind: item.kind, path: item.path,
     ref: item.kind === "file" ? workspaceFileRef(item.path) : undefined,
-    source: item.path.startsWith("/outputs/") ? "输出" : undefined })), next_offset: page.next_offset };
+    source: item.path.startsWith("/outputs/") ? "产物" : undefined })), next_offset: page.next_offset };
 }

@@ -93,8 +93,8 @@
 .brand-wordmark.is-rms-brand {
   width: 140px;
   flex-basis: 140px;
-  /* 抵消图片内部左侧留白，让 R 在下方新建对话按钮左边缘内侧 2px。 */
-  transform: translateX(-32.7px);
+  /* 抵消透明图片内部留白，让 R 的可见左边缘与新建对话按钮对齐。 */
+  transform: translateX(-28.8px);
 }
 
 .sidebar-primary-actions {

@@ -163,6 +163,7 @@
 .workspace-file-browser.toolbar-only { flex: 0 0 auto; }
 .file-browser-toolbar { gap: 4px; }
 .workspace-file-row { min-height: 36px; padding: 7px 8px; }
+.workspace-file-row:not(.workspace-directory-row) { padding-right: 34px; }
 .workspace-file-row.is-selected { background: var(--hover); border-color: transparent; }
 .workspace-file-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-file-source { flex: 0 0 auto; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; background: var(--hover); color: var(--muted); font-size: 12px; line-height: 18px; }

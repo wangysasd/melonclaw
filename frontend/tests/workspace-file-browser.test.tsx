@@ -24,22 +24,22 @@ describe("unified workspace root", () => {
       : page([file("/outputs/charts/chart.svg")]));
     attachments.mockResolvedValue(page([attachment("upload-id", "brief.pdf")]));
     const view = render(<WorkspaceFileBrowser {...props} />);
-    const output = await screen.findByRole("button", { name: "bee.html 输出" });
+    const output = await screen.findByRole("button", { name: "bee.html 产物" });
     const upload = screen.getByRole("button", { name: "brief.pdf 上传" });
     expect(screen.queryByRole("button", { name: "上传附件" })).toBeNull();
     expect(screen.queryByRole("button", { name: "outputs" })).toBeNull();
     expect(screen.getByRole("button", { name: "notes.txt" })).toBeTruthy();
     expect(directory.mock.calls.map((call) => call[1])).toEqual(["/", "/outputs"]);
-    expect([...view.container.querySelectorAll(".workspace-file-row")].map((row) => row.textContent)).toEqual(["charts输出", "images", "bee.html输出", "brief.pdf上传", "notes.txt"]);
+    expect([...view.container.querySelectorAll(".workspace-file-row")].map((row) => row.textContent)).toEqual(["charts产物", "images", "bee.html产物", "brief.pdf上传", "notes.txt"]);
     fireEvent.click(output);
     expect(props.onOpenFile).toHaveBeenLastCalledWith({ path: "/outputs/bee.html" });
     fireEvent.click(upload);
     expect(props.onOpenFile).toHaveBeenLastCalledWith({ attachment_id: "upload-id" });
-    fireEvent.click(screen.getByRole("button", { name: "charts 输出" }));
-    fireEvent.click(await screen.findByRole("button", { name: "chart.svg 输出" }));
+    fireEvent.click(screen.getByRole("button", { name: "charts 产物" }));
+    fireEvent.click(await screen.findByRole("button", { name: "chart.svg 产物" }));
     expect(props.onOpenFile).toHaveBeenLastCalledWith({ path: "/outputs/charts/chart.svg" });
-    fireEvent.click(screen.getByRole("button", { name: "charts 输出" }));
-    expect(screen.queryByRole("button", { name: "chart.svg 输出" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "charts 产物" }));
+    expect(screen.queryByRole("button", { name: "chart.svg 产物" })).toBeNull();
   });
 
   it("keeps identically named files and folders separate by their actual references", async () => {
@@ -47,15 +47,15 @@ describe("unified workspace root", () => {
       : path === "/outputs" ? page([folder("/outputs/data"), file("/outputs/report.pdf")]) : page([file(`${path}/one.txt`)]));
     attachments.mockResolvedValue(page([attachment("first", "report.pdf"), attachment("second", "report.pdf")]));
     const view = render(<WorkspaceFileBrowser {...props} />);
-    await screen.findByRole("button", { name: "report.pdf 输出" });
+    await screen.findByRole("button", { name: "report.pdf 产物" });
     for (const row of screen.getAllByRole("button", { name: /^report.pdf/ })) fireEvent.click(row);
     expect(props.onOpenFile.mock.calls.map(([ref]) => ref)).toEqual(expect.arrayContaining([
       { workspace_path: "/report.pdf" }, { path: "/outputs/report.pdf" }, { attachment_id: "first" }, { attachment_id: "second" },
     ]));
     expect(props.onOpenFile).toHaveBeenCalledTimes(4);
     fireEvent.click(screen.getByRole("button", { name: "data", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "data 输出" }));
-    await screen.findByRole("button", { name: "one.txt 输出" });
+    fireEvent.click(screen.getByRole("button", { name: "data 产物" }));
+    await screen.findByRole("button", { name: "one.txt 产物" });
     expect(view.container.querySelectorAll(".workspace-file-tree-node")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "one.txt", exact: true })).toBeTruthy();
   });
@@ -75,9 +75,9 @@ describe("unified workspace root", () => {
       ? options.offset ? page([folder("/outputs")]) : page([folder("/aaa")], 200)
       : path === "/outputs" ? page([folder("/outputs/charts")]) : page([file("/outputs/charts/plot.svg")]));
     render(<WorkspaceFileBrowser {...props} location="/outputs/charts" selectedKey="/outputs/charts/plot.svg" />);
-    const row = await screen.findByRole("button", { name: "plot.svg 输出" });
+    const row = await screen.findByRole("button", { name: "plot.svg 产物" });
     await waitFor(() => expect(document.activeElement).toBe(row));
-    expect(screen.getByRole("button", { name: "charts 输出" }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: "charts 产物" }).getAttribute("aria-expanded")).toBe("true");
     expect(directory.mock.calls.map((call) => call[1])).not.toContain("/aaa");
   });
 
@@ -86,9 +86,9 @@ describe("unified workspace root", () => {
       : options.offset ? page([file("/outputs/second.txt")]) : page([file("/outputs/first.txt")], 200));
     attachments.mockImplementation(async (_scope, options) => options.offset ? page([attachment("second", "second.pdf")]) : page([attachment("first", "first.pdf")], 200));
     const view = render(<WorkspaceFileBrowser {...props} />);
-    await screen.findByRole("button", { name: "first.txt 输出" });
+    await screen.findByRole("button", { name: "first.txt 产物" });
     fireEvent.click(screen.getByRole("button", { name: "加载更多文件" }));
-    await screen.findByRole("button", { name: "second.txt 输出" });
+    await screen.findByRole("button", { name: "second.txt 产物" });
     expect(screen.getByRole("button", { name: "second.pdf 上传" })).toBeTruthy();
     const list = view.container.querySelector(".workspace-file-list")!;
     list.scrollTop = 120;
@@ -100,10 +100,10 @@ describe("unified workspace root", () => {
     view.rerender(<WorkspaceFileBrowser {...props} />);
     expect([directory.mock.calls.length, attachments.mock.calls.length]).toEqual(calls);
     expect(list.scrollTop).toBe(120);
-    expect(screen.getByRole("button", { name: "second.txt 输出" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "second.txt 产物" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "刷新文件列表" }));
-    await screen.findByRole("button", { name: "first.txt 输出" });
-    expect(screen.queryByRole("button", { name: "second.txt 输出" })).toBeNull();
+    await screen.findByRole("button", { name: "first.txt 产物" });
+    expect(screen.queryByRole("button", { name: "second.txt 产物" })).toBeNull();
     expect(screen.queryByRole("button", { name: "second.pdf 上传" })).toBeNull();
     expect(directory.mock.calls.filter((call) => call[1] === "/outputs" && call[2].offset === 0)).toHaveLength(2);
   });
@@ -113,13 +113,13 @@ describe("unified workspace root", () => {
       : path === "/outputs" ? page([folder("/outputs/charts")])
       : options.offset ? page([file("/outputs/charts/second.svg")], 400) : page([file("/outputs/charts/first.svg")], 200));
     const view = render(<WorkspaceFileBrowser {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "charts 输出" }));
-    await screen.findByRole("button", { name: "first.svg 输出" });
+    fireEvent.click(await screen.findByRole("button", { name: "charts 产物" }));
+    await screen.findByRole("button", { name: "first.svg 产物" });
     fireEvent.click(screen.getByRole("button", { name: "加载更多文件" }));
-    await screen.findByRole("button", { name: "second.svg 输出" });
+    await screen.findByRole("button", { name: "second.svg 产物" });
     view.rerender(<WorkspaceFileBrowser {...props} active={false} />);
     view.rerender(<WorkspaceFileBrowser {...props} />);
-    expect(screen.getByRole("button", { name: "second.svg 输出" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "second.svg 产物" })).toBeTruthy();
     directory.mockImplementationOnce(() => new Promise(() => {}));
     fireEvent.click(screen.getByRole("button", { name: "加载更多文件" }));
     const signal = directory.mock.calls.at(-1)![3] as AbortSignal;
@@ -135,19 +135,19 @@ describe("unified workspace root", () => {
     });
     attachments.mockResolvedValue(page([attachment("brief", "brief.pdf")]));
     render(<WorkspaceFileBrowser {...props} />);
-    await screen.findByRole("button", { name: "first.txt 输出" });
+    await screen.findByRole("button", { name: "first.txt 产物" });
     fireEvent.click(screen.getByRole("button", { name: "加载更多文件" }));
     const error = await screen.findByRole("alert");
-    expect(error.textContent).toContain("输出文件加载失败");
+    expect(error.textContent).toContain("产物文件加载失败");
     expect(screen.getByRole("button", { name: "notes.txt" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "brief.pdf 上传" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "first.txt 输出" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "first.txt 产物" })).toBeTruthy();
     directory.mockImplementation(async (_scope, path) => page([file(`${path}/second.txt`)]));
     fireEvent.click(within(error).getByRole("button", { name: "重试" }));
-    expect(await screen.findByRole("button", { name: "second.txt 输出" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "second.txt 产物" })).toBeTruthy();
     expect(directory.mock.calls.at(-1)![2].offset).toBe(200);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("button", { name: "first.txt 输出" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "first.txt 产物" })).toBeTruthy();
   });
 
   it("shows uploads when the root fails, and displays one empty state when all sources are empty", async () => {
@@ -174,7 +174,7 @@ describe("unified workspace root", () => {
     expect(screen.getByText("当前还没有文件。")).toBeTruthy();
     created = true;
     await act(async () => { vi.advanceTimersByTime(5000); });
-    expect(screen.getByRole("button", { name: "new.txt 输出" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "new.txt 产物" })).toBeTruthy();
     expect(directory.mock.calls.map((call) => call[1])).toContain("/outputs");
   });
 

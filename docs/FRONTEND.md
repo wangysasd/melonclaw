@@ -4,7 +4,7 @@
 
 聊天消息的助手作者名、头像替代文本与任务表单执行助手名称由后端 `/api/auth/config` 的 `assistant_name` 下发，统一读取后端环境变量 `MELONCLAW_NAME`（去除首尾空格，未设置或为空时默认 `MelonClaw`）。修改后重启后端并刷新页面，无需重新构建前端；前端构建环境不再决定助手名称。
 
-根目录环境变量 `brand` 为 `rms`（忽略大小写）时，全局导航显示 AMP（A）和 Mindera（M），登录页采用左右分栏布局（左侧浅蓝玻璃环配图、右侧居中 Logo 与精简登录表单，900px 以下隐藏配图），登录页与侧栏字标使用 `melonclaw-word-rms.png`，侧栏字标抵消图片内部左侧留白，使字母 R 位于新建对话按钮左边缘内侧 2px；助手头像改用 `melonclaw-mark-rms.png`，Browser Tab 显示 `RMS · 投研助手` 并使用其 48×48 压缩 favicon。其他值或未设置时隐藏 A/M 并保留现有标题、favicon 和图片。默认 dev profile 读取 `.env`；prod 启动脚本使用 `prod` mode，Vite production build 也会读取 `.env.prod`。构建时显式传入的 `brand` 优先于仓库环境文件；Vite 不直接读取后端 `MELONCLAW_ENV_FILE`，不能把服务端凭据注入前端。品牌配置变化后重启前端或重新构建。
+根目录环境变量 `brand` 为 `rms`（忽略大小写）时，全局导航显示 AMP（A）和 Mindera（M），登录页采用左右分栏布局（左侧浅蓝玻璃环配图、右侧居中 Logo 与精简登录表单，900px 以下隐藏配图），登录页与侧栏字标使用 `melonclaw-word-rms.png`，侧栏字标抵消图片内部左侧留白，使字母 R 的可见左边缘与新建对话按钮左边缘对齐；助手头像改用 `melonclaw-mark-rms.png`，Browser Tab 显示 `RMS · 投研助手` 并使用其 48×48 压缩 favicon。其他值或未设置时隐藏 A/M 并保留现有标题、favicon 和图片。默认 dev profile 读取 `.env`；prod 启动脚本使用 `prod` mode，Vite production build 也会读取 `.env.prod`。构建时显式传入的 `brand` 优先于仓库环境文件；Vite 不直接读取后端 `MELONCLAW_ENV_FILE`，不能把服务端凭据注入前端。品牌配置变化后重启前端或重新构建。
 
 ## 1. 技术栈与命令
 
@@ -431,3 +431,7 @@ ResourceView 在模型后显示第四个环境变量 TAB，使用 18px 终端图
 任务编辑/新建抽屉底部仅有取消与保存：取消在左使用次级白底，保存在右使用主渐变；保存只保存配置（run_now=false），需要立即执行时从任务列表运行，不提供保存并运行。
 
 对话内容表面第一轮统一由styles/chat-content.css管理：代码框/附件/结果卡片复用resource-card表面、12px圆角、轻阴影，取消外描边；代码标题栏极淡蓝、正文语法配色与内部横滚保留。复制/查看/下载为轻文字操作；长附件名可换行。结果卡中嵌套表格/代码不重复叠加阴影；图片缩略图不画按钮底。正文、用户气泡、引用和执行时间线不改。
+
+2026-10-21：RMS 侧栏字标与助手头像重新生成并替换为具有真实 Alpha 通道的 PNG（原资源路径不变），去除浅色矩形底，保留蓝青渐变字形和蓝白机器人形象；默认品牌与 favicon 不变。
+
+文件栏来源胶囊统一使用“产物”（生成文件）与“上传”（附件）；文件行右侧预留与目录展开箭头及间距相同的 26px，确保同层文件和文件夹胶囊右边缘对齐。

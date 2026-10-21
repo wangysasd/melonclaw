@@ -104,10 +104,10 @@ describe("workspace file browser", () => {
     fireEvent.click(screen.getByRole("link", { name: "报告" }));
     await screen.findByTitle("report.html");
     fireEvent.click(screen.getByRole("button", { name: "文件", exact: true }));
-    const row = await within(screen.getByRole("region", { name: "文件列表" })).findByRole("button", { name: /^report.html 输出$/ });
+    const row = await within(screen.getByRole("region", { name: "文件列表" })).findByRole("button", { name: /^report.html 产物$/ });
     await waitFor(() => expect(document.activeElement).toBe(row));
     expect(directory).toHaveBeenCalledWith(expect.anything(), "/outputs", { q: "", sort: "name", offset: 200 }, expect.anything());
-    expect(screen.getByRole("button", { name: /^first.txt 输出$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^first.txt 产物$/ })).toBeTruthy();
   });
   it("shows attachment original names and returns to the registered attachment list", async () => {
     attachments.mockResolvedValue({ items: [{ attachment_id: "registered-id", file_name: "原始资料.txt", size_bytes: 4, modified_at: "" }], next_offset: null });
