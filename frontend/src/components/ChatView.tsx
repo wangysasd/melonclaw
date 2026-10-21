@@ -723,7 +723,7 @@ export function ChatView({
           }}>{chat.state.userQuestion ? "查看待处理问题" : "查看待确认操作"}</button>
         </div>
       ) : null}
-      {awayFromBottom ? (
+      {hasMessages && awayFromBottom ? (
         <button type="button" className={`jump-to-latest${unread.hasUnread ? " has-unread" : ""}`} onClick={() => { unread.acknowledge(); scroll.scrollToBottom(true); }}>
           {unread.hasUnread ? "有新内容 · 回到最新消息" : "回到最新消息"}<Icon name="chevron-down" size={16} />
         </button>

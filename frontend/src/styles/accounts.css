@@ -36,7 +36,7 @@
   height: 44px;
   overflow: hidden;
 }
-/* 源字标自带留白；局部裁切展示并将中性底色与配图融合。 */
+/* 源字标自带透明留白；缩放与偏移须保留完整字标。 */
 .rms-login-logo img {
   position: absolute;
   width: 253px;
@@ -72,9 +72,9 @@
   margin: 0 auto 48px;
 }
 .rms-login-form-logo img {
-  width: 316px;
-  left: -78px;
-  top: -27px;
+  width: 260px;
+  left: -50px;
+  top: -13px;
 }
 .rms-login-form .ant-alert { margin-bottom: var(--space-5); }
 .rms-login-form .ant-form-item { margin-bottom: var(--space-8); }
@@ -124,10 +124,10 @@
 .melon-login-logo {
   display: block;
   position: relative;
-  width: min(100%, 360px);
+  width: min(100%, 240px);
   aspect-ratio: 7.4;
   overflow: hidden;
-  margin-bottom: 72px;
+  margin-bottom: 56px;
   mix-blend-mode: multiply;
 }
 .melon-login-logo img { position: absolute; width: 147%; max-width: none; left: -23.7%; top: -122%; filter: brightness(1.06); }
