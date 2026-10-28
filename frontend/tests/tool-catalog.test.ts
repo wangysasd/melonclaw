@@ -9,8 +9,8 @@ import {
 
 describe("tool catalog", () => {
   it("lists every fixed Agent tool exactly once", () => {
-    expect(TOOL_CATALOG).toHaveLength(26);
-    expect(new Set(TOOL_CATALOG.map((tool) => tool.name)).size).toBe(26);
+    expect(TOOL_CATALOG).toHaveLength(28);
+    expect(new Set(TOOL_CATALOG.map((tool) => tool.name)).size).toBe(28);
     expect(new Set(TOOL_CATALOG.map((tool) => tool.category))).toEqual(
       new Set(TOOL_CATEGORIES.map((category) => category.id)),
     );

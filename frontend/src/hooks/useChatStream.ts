@@ -851,7 +851,7 @@ export function useChatStream({
           if (viewing) sessionRef.current.setRunStatus("processing");
           break;
         case "assistant_tool_result":
-          if (event.result.name === "confirm_skill_install" && context.userId === sessionRef.current.userId) {
+          if (["confirm_skill_install", "confirm_skill_batch"].includes(event.result.name) && context.userId === sessionRef.current.userId) {
             void sessionRef.current.refreshSkills();
           }
           dispatchFor(conversationId, {

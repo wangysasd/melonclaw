@@ -67,9 +67,9 @@ export const TOOL_CATEGORIES: readonly ToolCategory[] = [
 ] as const;
 
 export const TOOL_CATALOG: readonly ToolDefinition[] = [
-  { name: "prepare_mcp_install", label: "预览 MCP 安装", description: "从聊天配置草稿准备个人安装清单，不连接远端。", category: "mcp", icon: "plug", availability: "core", availabilityLabel: "核心工具" },
+  { name: "prepare_mcp_install", label: "预览 MCP 配置", description: "准备新增或同名更新清单，保留省略字段，不连接远端。", category: "mcp", icon: "plug", availability: "core", availabilityLabel: "核心工具" },
   { name: "test_mcp_install", label: "测试 MCP 安装", description: "审批后向目标发送凭据并发现工具，不安装。", category: "mcp", icon: "plug", availability: "core", availabilityLabel: "需要审批" },
-  { name: "confirm_mcp_install", label: "安装 MCP", description: "审批后安装到自己名下，下一条消息生效。", category: "mcp", icon: "shield-check", availability: "core", availabilityLabel: "需要审批" },
+  { name: "confirm_mcp_install", label: "保存 MCP", description: "审批后按当前角色范围新增或版本化更新，下一条消息生效。", category: "mcp", icon: "shield-check", availability: "core", availabilityLabel: "需要审批" },
   {
     name: "prepare_skill_creation",
     label: "生成 Skill 预览",
@@ -82,7 +82,7 @@ export const TOOL_CATALOG: readonly ToolDefinition[] = [
   {
     name: "prepare_skill_install",
     label: "预览 Skill 安装",
-    description: "从 GitHub 或聊天 ZIP 附件下载、校验并准备安装清单。",
+    description: "从 GitHub、HTTPS 或 ZIP 附件准备安装/更新清单。",
     category: "workspace",
     icon: "file-text",
     availability: "core",
@@ -96,6 +96,14 @@ export const TOOL_CATALOG: readonly ToolDefinition[] = [
     icon: "shield-check",
     availability: "core",
     availabilityLabel: "需要审批",
+  },
+  {
+    name: "prepare_skill_batch", label: "批量预览 Skill", description: "下载并展开合集，预览新增、更新和同名冲突。",
+    category: "workspace", icon: "file-text", availability: "core", availabilityLabel: "核心工具",
+  },
+  {
+    name: "confirm_skill_batch", label: "批量同步 Skill", description: "审批后逐项安装或更新，保留已有启用状态。",
+    category: "workspace", icon: "shield-check", availability: "core", availabilityLabel: "需要审批",
   },
   {
     name: "ls",

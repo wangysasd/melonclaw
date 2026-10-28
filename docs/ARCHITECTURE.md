@@ -135,6 +135,8 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 
 `ChatService` 向 runtime 注入 `ChatSkillInstallService` provider，`core/agent.py` 使用 `tool/skill_install.py` 的协议创建准备和确认工具。身份由 `ToolRuntime` 的 `AgentContext.user_id/tenant_id/conversation_id/project_id` 提供，每次执行重新查询用户、会话与项目；模型不提供身份。聊天与页面共用导入服务，confirm 通过 `core/hitl.py` 审批，按草稿核对完整清单及会话，不进入 PTC。ZIP 附件使用 archive 类型，仓储绑定时无需文档解析或视觉模型，hydration 仅传附件 ID。安装并启用在原操作日志 ready 提交中完成，下一轮快照生效。教程通过现有内置索引默认启用。详见 [设计与边界](design-docs/chat-skill-install.md)。
 
+聊天批量同步由 `prepare_skill_batch` / `confirm_skill_batch` 复用原 Skill 导入服务：公网 HTTPS 下载按 DNS 校验并固定连接 IP，受控展开 `skills/` 子 ZIP；按当前 scope 与包内 name 自动更新，同名不同内容显式冲突，相同内容跳过。保留资源身份、启用状态和原提交/恢复/资源失效边界；批量各项独立提交，正式写入须 HITL，均不进 PTC。混合输入先提取并脱敏多项环境变量，复用 environment_operations 保存同范围 change 列表，一次审批、同一事务保存与幂等回执；技能与变量独立提交。详见[聊天安装设计](design-docs/chat-skill-install.md)。
+
 ### Agent 运行控制
 
 `core/agent_controls.py` 是主/子 Agent 运行中间件组装入口，配置统一来自 `core/config.py`。模型窗口从 `model_configs.context_window` 进入 ResolvedModel，默认 1,000,000；压缩阈值为当前窗口乘 `.env` 的比例（默认 0.8），主/子 Agent 与上下文观测使用同一窗口。API 和资源管理 UI 支持创建/编辑，配置版本递增使缓存失效。`middleware/summarization.py` 按官方 SummarizationMiddleware 名称替换默认实例，在官方计数前复用工具池的请求过滤；摘要算法、offload 和溢出恢复仍由官方实现负责。官方 ModelRetryMiddleware、ModelCallLimitMiddleware、ToolCallLimitMiddleware 和 TodoListMiddleware 分别负责瞬时重试、调用限额和任务清单。Todo 关闭时由 `middleware/todo.py` 显式替换默认 Todo 插槽，不注入工具或提示词，并清空旧清单；主/子 Agent 均覆盖模型 profile 的自动注入。`middleware/task_budget.py` 用私有状态把官方 thread 计数按业务用户消息分段，审批恢复不重置。供应商 SDK 重试关闭，模型边界保留 ContextOverflowError 并禁止已输出流的重放。
@@ -165,7 +167,7 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 
 ### 5.3.1 回复流畅性与会话内工具选择
 
-`core/tool_catalog.py` 定义请求 ID、目录摘要和 Checkpoint 工具池；`tool/tool_discovery.py` 的 `find_tools` 只提交具体能力需求，不执行候选工具。`middleware/tool_selection.py` 在 before_model 统一处理本消息预算内的待处理请求，委托官方 `LLMToolSelectorMiddleware`，其 handler 只收集工具名，不调用主模型。选择参数使用需求文本而非原始用户消息。池与已处理 ID 在模型执行前落入 Checkpoint；跨消息复用，审批恢复不重新选择。容量有限，最近选择/实际请求的工具优先保留。目录摘要覆盖已授权工具名称、描述和 schema；变化清池，旧请求不自动重放。共享 Project Agent 实例不保存会话状态，主/子 Agent 显式装配工具池 middleware，PrivateStateAttr 阻止父子池传播。超时、结构化输出失败保留旧池且发出降级阶段，不输出异常细节；取消向上传播。不扩大 MCP 白名单、HITL 或 PTC。池容量、单次扩充、每消息预算和超时均从 `core/config.py` 进入，详见 [按需工具池](design-docs/on-demand-tool-pool.md)。
+`core/tool_catalog.py` 定义请求 ID、目录摘要和 Checkpoint 工具池；`tool/tool_discovery.py` 的 `find_tools` 提交能力需求或真实工具名称，不执行候选工具。提供 `tool_names` 时直接校验当前授权目录，未知名称整批拒绝；否则委托官方选择器。before_model 按稳定消息 ID 替换对应 tool_call_id 的 queued 回执，向模型报告最终加载状态、已加载名称和当前池；并行请求按最终容量结果报告，不把加载视为业务调用成功。`middleware/tool_selection.py` 在 before_model 统一处理本消息预算内的待处理请求，委托官方 `LLMToolSelectorMiddleware`，其 handler 只收集工具名，不调用主模型。选择参数使用需求文本而非原始用户消息。池与已处理 ID 在模型执行前落入 Checkpoint；跨消息复用，审批恢复不重新选择。容量有限，最近选择/实际请求的工具优先保留。目录摘要覆盖已授权工具名称、描述和 schema；变化清池，旧请求不自动重放。共享 Project Agent 实例不保存会话状态，主/子 Agent 显式装配工具池 middleware，PrivateStateAttr 阻止父子池传播。超时、结构化输出失败保留旧池且发出降级阶段，不输出异常细节；取消向上传播。不扩大 MCP 白名单、HITL 或 PTC。池容量、单次扩充、每消息预算和超时均从 `core/config.py` 进入，详见 [按需工具池](design-docs/on-demand-tool-pool.md)。
 
 `output/events.py` 并发排空各 ToolCallStream，快工具结果不等待慢工具。生成调用仅标记 queued；观测工具执行才记开始时间，耗时用单调时钟。`services/execution_trace.py` 保存阶段耗时及子 Agent 展示轨迹；准备阶段仍在 SSE 之前，错误保持 HTTP 语义。`output/stream_redaction.py` 在连续增量之间识别凭据，普通正文不作整段缓冲。SSE 与最终 `assistant_steps.content_blocks` 同时保留正文/推理顺序；细节见 [回复流畅性与推理协议](design-docs/response-fluency.md)。
 
@@ -218,7 +220,7 @@ headers/env 字面值由 `core/mcp_credentials.py` 按明文存入数据库；�
 
 消息准备阶段由 `services/mcp_chat_config.py` 提取 MCP JSON，数据库 `mcp_install_drafts` 保存受控配置，消息、Checkpoint 和模型只接收草稿引用。`ChatService` 注入 `ChatMcpInstallService` provider，`tool/mcp_install.py` 提供准备、审批测试和审批安装工具。身份从 ToolRuntime 注入并重新校验用户、会话和项目，不允许模型指定用户。聊天安装与资源页统一按当前角色决定范围：管理员/owner 为系统共享，普通用户为个人；`McpManagementService.prepare(personal=False)` 复用管理校验，测试和确认时重新核验角色与审批范围一致。
 
-正式安装由 `repository/mcp_install.py` 在同一事务写配置、个人项的偏好和草稿结果，行锁保护并发幂等；不自动覆盖同范围同名项。测试和安装进入 HITL，均不进入 PTC，下一轮沿用现有 MCP 快照摘要生效。草稿有效期 24 小时，过期访问拒绝，暂存新配置时清理；审批草稿安装成功后清空 payload。详见 [聊天安装设计](design-docs/chat-mcp-install.md)。
+正式安装由 `repository/mcp_install.py` 在同一事务写配置、个人项的偏好和草稿结果，行锁保护并发幂等；按 scope/owner/slug 更新同名原记录，保留未提供字段、原身份与偏好；目标版本、合并快照、当前角色及会话归属在提交事务内重验。明确偏好变更另比较原偏好，更新与无凭据幂等回执同事务；测试状态只绑定当前草稿，不扩展白名单。测试和保存进入 HITL，均不进入 PTC，下一轮沿用现有 MCP 快照摘要生效。草稿有效期 24 小时，过期访问拒绝，暂存新配置时清理；审批草稿提交成功后擦除敏感快照，payload 只保留无凭据 result 回执；纯 URL 凭据轮换也按变更处理。详见 [聊天安装设计](design-docs/chat-mcp-install.md)。
 
 
 ### 聊天结果组件与成果读取

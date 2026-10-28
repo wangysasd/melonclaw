@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from time import perf_counter
 from typing import Any
@@ -11,12 +12,17 @@ from uuid import uuid4
 from langchain.agents.middleware import AgentMiddleware, LLMToolSelectorMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables.config import ensure_config, merge_configs, set_config_context
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.types import Overwrite
 
-from melonclaw.core.tool_catalog import CatalogSelectionState, catalog_fingerprint, selection_turn
+from melonclaw.core.tool_catalog import (
+    FIND_TOOLS_NAME,
+    CatalogSelectionState,
+    catalog_fingerprint,
+    selection_turn,
+)
 
 
 class ToolPoolMiddleware(AgentMiddleware):
@@ -54,17 +60,65 @@ class ToolPoolMiddleware(AgentMiddleware):
             # 旧目录请求不能在新目录下自动重放；新 find_tools 调用才重新选择。
             pool["processed"] = [r["id"] for r in requests]
         pending = [r for r in requests[:self.max_requests] if r["id"] not in pool["processed"]]
+        receipts = []
         if pending:
-            selected, outcome = await self._select(state, runtime, pending)
+            selected, results = [], {}
+            semantic = []
+            for request in pending:
+                names = request.get("tool_names", [])
+                if not names:
+                    semantic.append(request)
+                elif len(names) > self.pool_size:
+                    results[request["id"]] = ([], "capacity_exceeded")
+                elif any(name not in self.catalog_names for name in names):
+                    results[request["id"]] = ([], "unavailable")
+                else:
+                    selected.extend(names)
+                    results[request["id"]] = (names, "selected")
+            outcome = "selected"
+            if semantic:
+                found, outcome = await self._select(state, runtime, semantic)
+                selected.extend(found)
+                for request in semantic:
+                    results[request["id"]] = (found, outcome if found or outcome == "degraded" else "no_match")
+            selected = list(dict.fromkeys(selected))
             # 新结果在列表末尾；扩充时优先保留最近选择/使用过的工具。
             pool["names"] = [n for n in pool["names"] if n not in selected] + selected
             pool["names"] = pool["names"][-self.pool_size:]
             pool["processed"].extend(r["id"] for r in pending)
             pool["outcome"] = outcome
+            for request in pending:
+                names, status = results[request["id"]]
+                visible = [name for name in names if name in pool["names"]]
+                if len(visible) != len(names):
+                    status = "capacity_exceeded"
+                receipts.append(self._receipt(request, status, visible, pool["names"]))
+        overflow = [r for r in requests[self.max_requests:] if r["id"] not in pool["processed"]]
+        for request in overflow:
+            receipts.append(self._receipt(request, "exhausted", [], pool["names"]))
+            pool["processed"].append(request["id"])
         update = {"tool_pool": pool}
+        if receipts:
+            update["messages"] = receipts
         if previous is None or previous["turn_id"] != turn:
             update["tool_requests"] = Overwrite(requests)
         return update
+
+    @staticmethod
+    def _receipt(request, status, names, visible):
+        hints = {
+            "selected": "工具已加载，请直接调用；尚未执行任何业务工具。",
+            "no_match": "未找到匹配工具；尚未执行任何业务工具。",
+            "degraded": "工具选择失败或超时；尚未执行任何业务工具。可根据目录真实名称精确加载。",
+            "unavailable": "指定名称不在当前授权目录，本次精确加载全部拒绝；请重新读取真实目录。",
+            "capacity_exceeded": "请求超出工具池容量，部分或全部工具未加载；请分批加载并调用。",
+            "exhausted": "本消息检索额度已用完；请使用当前可见工具或说明能力不足。",
+        }
+        return ToolMessage(
+            id=f"tool-discovery:{request['id']}", tool_call_id=request["id"], name=FIND_TOOLS_NAME,
+            content=json.dumps({"status": status, "added_tools": names, "visible_tools": list(visible),
+                                "hint": hints[status]}, ensure_ascii=False),
+        )
 
     async def _select(self, state, runtime, pending):
         activity_id = str(uuid4())

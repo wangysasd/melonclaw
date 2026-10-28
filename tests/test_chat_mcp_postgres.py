@@ -53,7 +53,8 @@ def test_chat_mcp_install_transaction_and_race():
             assert rows[0]["enabled"] and rows[0]["user_enabled"] is None and rows[0]["tool_allowlist"] == []
             async with engine.connect() as connection:
                 draft = (await connection.execute(select(mcp_install_drafts).where(mcp_install_drafts.c.installed_id.is_not(None)))).mappings().one()
-                assert draft["payload"] == {}
+                assert set(draft["payload"]) == {"result"}
+                assert "fixture-only" not in json.dumps(draft["payload"])
                 assert len((await connection.execute(select(mcp_servers))).all()) == 1
             # 两份独立审批清单抢同一 slug：第二份失败，不能留下额外偏好或结果。
             assert (await provider.confirm(context, preview2["installation"]))["status"] == "error"

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from langchain.agents import create_agent
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
@@ -126,6 +126,10 @@ def test_timeout_retains_pool_and_does_not_retry_automatically():
         agent, calls, _, _ = make_agent(fail=True)
         result = await send(agent, "first")
         assert len(calls) == 1 and result["tool_pool"]["outcome"] == "degraded"
+        receipts = [m for m in result["messages"] if isinstance(m, ToolMessage)]
+        assert len(receipts) == 1
+        assert json.loads(receipts[0].content)["status"] == "degraded"
+        assert "queued" not in receipts[0].content
         await agent.ainvoke({"messages": []}, {"configurable": {"thread_id": "one"}})
         assert len(calls) == 1
     asyncio.run(run())
@@ -173,5 +177,96 @@ def test_request_validation_and_parallel_budget():
         await agent.ainvoke({"messages": []}, config)
         result = (await agent.aget_state(config)).values
         assert len(calls) == 1
-        assert result["tool_pool"]["processed"] == [str(i) for i in range(4)]
+        assert result["tool_pool"]["processed"] == [str(i) for i in range(10)]
+        assert all(json.loads(m.content)["status"] == "exhausted"
+                   for m in result["messages"] if isinstance(m, ToolMessage) and m.tool_call_id in {str(i) for i in range(4, 10)})
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("exact", [False, True])
+def test_final_receipt_replaces_queue_and_tool_executes_in_same_deep_agent_run(exact):
+    from deepagents import create_deep_agent
+
+    async def run():
+        selections, executions, receipts = [], [], []
+
+        @tool
+        def read_calendar() -> str:
+            """Read an offline trade calendar."""
+            executions.append("called")
+            return "calendar-result"
+
+        class Model(FakeMessagesListChatModel):
+            def bind_tools(self, tools, **kwargs):
+                return self.bind(visible_names=[t.name for t in tools])
+
+            def with_structured_output(self, schema, **kwargs):
+                async def select(messages):
+                    selections.append(messages[-1].content)
+                    return {"tools": ["read_calendar"]}
+                return RunnableLambda(select)
+
+            async def _agenerate(self, messages, *, visible_names, **kwargs):
+                from langchain_core.outputs import ChatGeneration, ChatResult
+
+                results = [m for m in messages if isinstance(m, ToolMessage)]
+                if not results:
+                    args = {"tool_names": ["read_calendar"]} if exact else {"query": "trade calendar"}
+                    message = AIMessage(content="", tool_calls=[{
+                        "name": "find_tools", "args": args, "id": "discover-calendar"}])
+                elif results[-1].name == "find_tools":
+                    receipt = json.loads(results[-1].content)
+                    receipts.append(receipt)
+                    assert receipt["status"] == "selected"
+                    assert receipt["added_tools"] == ["read_calendar"]
+                    assert "read_calendar" in visible_names
+                    message = AIMessage(content="", tool_calls=[{
+                        "name": "read_calendar", "args": {}, "id": "execute-calendar"}])
+                else:
+                    assert results[-1].content == "calendar-result"
+                    message = AIMessage(content="done")
+                return ChatResult(generations=[ChatGeneration(message=message)])
+
+        model = Model(responses=[])
+        pool = ToolPoolMiddleware(model=model, catalog_tools=[read_calendar])
+        agent = create_deep_agent(model=model, tools=[read_calendar, build_tool_discovery()],
+                                  middleware=[pool], checkpointer=InMemorySaver())
+        result = await agent.ainvoke({"messages": [HumanMessage(id="u", content="read calendar")]},
+                                    {"configurable": {"thread_id": "calendar"}})
+        assert executions == ["called"] and len(receipts) == 1
+        assert len(selections) == (0 if exact else 1)
+        messages = [m for m in result["messages"] if isinstance(m, ToolMessage) and m.name == "find_tools"]
+        assert len(messages) == 1 and json.loads(messages[0].content)["status"] == "selected"
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(("names", "capacity", "status"), [
+    (["first_read", "unauthorized"], 2, "unavailable"),
+    (["first_read", "second_read"], 1, "capacity_exceeded"),
+])
+def test_exact_loading_rejects_entire_invalid_request_without_selector(names, capacity, status):
+    async def run():
+        _, selections, _, pool = make_agent(pool_size=capacity)
+        state = {"messages": [HumanMessage(id="u", content="load")], "tool_requests": [
+            {"id": "find", "turn_id": "u", "query": "ignored", "tool_names": names}]}
+        runtime = SimpleNamespace(context=None, stream_writer=lambda event: None)
+        update = await pool.abefore_model(state, runtime)
+        assert selections == [] and update["tool_pool"]["names"] == []
+        assert json.loads(update["messages"][0].content)["status"] == status
+    asyncio.run(run())
+
+
+def test_empty_selection_is_reported_to_model():
+    async def run():
+        _, _, _, pool = make_agent()
+
+        async def empty(*args):
+            return [], "selected"
+
+        pool._select = empty
+        update = await pool.abefore_model(
+            {"messages": [HumanMessage(id="u", content="load")],
+             "tool_requests": [{"id": "find", "turn_id": "u", "query": "missing"}]},
+            SimpleNamespace(context=None, stream_writer=lambda event: None))
+        assert json.loads(update["messages"][0].content)["status"] == "no_match"
     asyncio.run(run())

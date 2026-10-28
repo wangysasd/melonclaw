@@ -99,7 +99,7 @@ def parse_chat_mcp(content: str, *, user_id: str, conversation_id: str, request_
             raise McpConfigError("每条消息支持 1–20 个 MCP 服务。")
         drafts = []
         for name, config in entries:
-            payload = normalize_chat_mcp(name, config)
+            payload = normalize_chat_mcp(name, config, allow_partial="mcpServers" in decoded)
             digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
             identifier = str(uuid5(NAMESPACE_URL, f"mcp:{user_id}:{conversation_id}:{request_id}:{name}:{digest}"))
             drafts.append({"id": identifier, "payload": payload})
@@ -115,11 +115,13 @@ def parse_chat_mcp(content: str, *, user_id: str, conversation_id: str, request_
         raise McpConfigError("MCP JSON 格式或字段无效，请检查配置；原文未发送给模型。") from None
 
 
-def normalize_chat_mcp(name, config):
+def normalize_chat_mcp(name, config, *, allow_partial=False):
     if not isinstance(name, str) or not MCP_SLUG_RE.fullmatch(name):
         raise McpConfigError("MCP 标识需为 1–64 个小写字母、数字、下划线或短横线。")
     if not isinstance(config, dict) or set(config) - {"type", "transport", "url", "command", "args", "headers", "env"}:
         raise McpConfigError("MCP 配置含不支持的字段；归属与启用由系统决定。")
+    if not config:
+        raise McpConfigError("MCP 配置至少需要一个连接字段。")
     types = [config[key] for key in ("type", "transport") if key in config]
     if any(not isinstance(value, str) or value not in TRANSPORT_ALIASES for value in types):
         raise McpConfigError("MCP 连接类型无效。")
@@ -127,7 +129,7 @@ def normalize_chat_mcp(name, config):
         raise McpConfigError("type 和 transport 冲突。")
     transport = TRANSPORT_ALIASES[types[0]] if types else ("stdio" if config.get("command") else "http")
     for key in ("url", "command"):
-        if key in config and (not isinstance(config[key], str) or len(config[key]) > 2000):
+        if key in config and config[key] is not None and (not isinstance(config[key], str) or len(config[key]) > 2000):
             raise McpConfigError("MCP 地址或启动程序无效。")
     args = config.get("args", [])
     if not isinstance(args, list) or len(args) > 64 or any(not isinstance(v, str) or len(v) > 8192 for v in args):
@@ -143,7 +145,12 @@ def normalize_chat_mcp(name, config):
     payload = dict(slug=name, display_name=name, description="聊天安装", transport=transport,
                    url=config.get("url"), command=config.get("command"), args=args,
                    **maps, tool_allowlist=None)
-    validate_mcp_payload(scope="user", **{k: payload[k] for k in ("transport", "url", "command", "args", "headers", "env")})
+    candidate = {key: payload[key] for key in ("transport", "url", "command", "args", "headers", "env")}
+    # 片段只校验字段形状；服务层必须从有权更新的目标合并后做完整校验。
+    validate_mcp_payload(scope="user", **candidate, allow_missing_url=allow_partial and "url" not in config)
+    payload["provided_fields"] = sorted({
+        "transport" if key in {"type", "transport"} else key for key in config
+    })
     return payload
 
 

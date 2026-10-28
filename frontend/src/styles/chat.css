@@ -160,8 +160,8 @@
 
 .welcome-mark img {
   display: block;
-  width: 240px;
-  height: 80px;
+  width: 180px;
+  height: 60px;
   object-fit: contain;
 }
 
@@ -1762,11 +1762,8 @@
   cursor: pointer;
   transition: box-shadow var(--duration-fast);
 }
-.welcome-prompt-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); }
 .welcome-prompt-title { font-weight: var(--weight-semibold); }
 .welcome-prompt-description { color: var(--muted); line-height: 1.5; }
-.welcome-prompt--equity .welcome-prompt-heading { color: #32649b; }
-.welcome-prompt--fixed-income .welcome-prompt-heading { color: #26735f; }
 .welcome-prompt:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 3px; }
 .welcome-prompt:hover, .welcome-prompt:focus-visible { box-shadow: var(--resource-card-shadow-hover); }
 .welcome-prompt:hover .welcome-prompt-title { color: var(--brand-primary); }
@@ -2233,50 +2230,25 @@
 .message-token-usage { margin-top: var(--space-2); color: var(--muted); font-size: var(--text-md); }
 
 
-.welcome-services { width: 100%; }
+/* 欢迎页：方向标签与具体问题保持清晰的两级关系。 */
+.welcome-services { width: 100%; text-align: left; margin-top: var(--space-3); }
+.welcome-category-list { display: flex; justify-content: center; flex-wrap: wrap; gap: var(--space-2); }
+.welcome-category { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 0 1 calc(25% - var(--space-2)); min-height: 44px; padding: 8px 14px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); font: inherit; cursor: pointer; transition: background var(--duration-fast), color var(--duration-fast); }
+.welcome-category:hover { background: var(--hover); color: var(--ink); }
+.welcome-category.is-active { background: var(--brand-soft); color: var(--brand-primary); }
+.welcome-category-name { font-size: var(--text-md); }
+.welcome-category.is-active .welcome-category-name { font-weight: var(--weight-semibold); }
+.welcome-category:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+.welcome-prompts-section { margin-top: var(--space-4); }
 .welcome-services .prompt-grid { margin-top: 0; }
-.welcome-tabs {
-  display: inline-flex;
-  gap: var(--space-8);
-  margin: 0 0 var(--space-6);
-}
-.welcome-tab {
-  position: relative;
-  min-width: 48px;
-  min-height: 44px;
-  padding: var(--space-3) var(--space-2);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--text-md);
-  font-weight: var(--weight-regular);
-  line-height: 20px;
-  cursor: pointer;
-  transition: color 180ms ease;
-}
-.welcome-tab::after {
-  content: "";
-  position: absolute;
-  right: var(--space-2);
-  bottom: 0;
-  left: var(--space-2);
-  height: 2px;
-  background: var(--brand-primary);
-  opacity: 0;
-  transform: scaleX(0.6);
-  transition: opacity 180ms ease, transform 180ms ease;
-}
-.welcome-tab:hover { color: var(--ink); }
-.welcome-tab.is-active { color: var(--ink); font-weight: var(--weight-medium); }
-.welcome-tab.is-active::after { opacity: 1; transform: scaleX(1); }
-.welcome-tab:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+.welcome-prompt-description { font-size: var(--text-md); }
+.welcome-more-button { min-height: 44px; display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2) auto 0; padding: 0 12px; border: 0; background: transparent; color: var(--brand-primary); font: inherit; font-size: var(--text-md); cursor: pointer; }
+.welcome-more-button:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
 @media (max-width: 768px) {
-  .welcome { margin-top: var(--space-4); }
-  .welcome-tabs { margin-bottom: var(--space-4); }
+  .welcome { margin-top: var(--space-3); }
+  .welcome-mark img { width: 140px; height: 44px; }
+  .welcome-category { flex: 1 1 calc(50% - var(--space-2)); min-width: 0; padding-inline: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .welcome-tab, .welcome-tab::after { transition: none; }
+  .welcome-category { transition: none; }
 }

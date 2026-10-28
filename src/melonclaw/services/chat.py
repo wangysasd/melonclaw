@@ -42,9 +42,10 @@ from melonclaw.services.resource_service import (
 )
 from melonclaw.services.results import ResultFileService
 from melonclaw.services.runtime import ChatRuntime
-from melonclaw.services.skill_import import SkillImportService
+from melonclaw.services.skill_import import SkillImportError, SkillImportService
 from melonclaw.services.skill_install import ChatSkillInstallService
 from melonclaw.services.skill_remote import (
+    expand_skill_archives,
     fetch_remote_skill_archive,
     filter_archive_subdir,
     pin_remote_source,
@@ -218,6 +219,7 @@ class ChatService:
             user_id=user_id,
             archive_bytes=archive_bytes,
             conversation_id=conversation_id, enable_on_install=enable_on_install,
+            sync_existing=bool(conversation_id),
             target_id=target_id,
             storage=self.runtime.require_ready(),
         )
@@ -227,17 +229,22 @@ class ChatService:
         self, user_id: str, repo: str, target_id: str | None = None,
         *, conversation_id: str = "", enable_on_install: bool = False,
     ) -> dict[str, Any]:
-        """从 GitHub 远程市场下载 Skill 包并进入两段式确认。"""
+        """从 GitHub/HTTPS 下载单个 Skill；合集使用批量入口。"""
 
         await self.conversations.resolve_user(user_id)
-        source = await pin_remote_source(resolve_remote_skill_source(repo))
+        source = resolve_remote_skill_source(repo)
+        if source.ref:
+            source = await pin_remote_source(source)
         archive = await fetch_remote_skill_archive(source.url)
         if source.subpath is not None:
             archive = filter_archive_subdir(archive, source.subpath)
+        if any(member for member, _ in expand_skill_archives(archive)):
+            raise SkillImportError("此地址是技能合集，请使用 prepare_skill_batch 展开预览。")
         draft = await self.skill_imports.prepare(
             user_id=user_id,
             archive_bytes=archive,
             conversation_id=conversation_id, enable_on_install=enable_on_install,
+            sync_existing=bool(conversation_id),
             storage=self.runtime.require_ready(),
             source_type="remote",
             target_id=target_id,
@@ -245,6 +252,33 @@ class ChatService:
             source_ref=source.ref,
         )
         return draft.public_dict()
+
+    async def prepare_remote_skill_bundle(
+        self, user_id: str, repo: str, *, conversation_id: str, enable_on_install: bool,
+    ) -> list[dict[str, Any]]:
+        await self.conversations.resolve_user(user_id)
+        source = resolve_remote_skill_source(repo)
+        if source.ref:
+            source = await pin_remote_source(source)
+        archive = await fetch_remote_skill_archive(source.url)
+        if source.subpath is not None:
+            archive = filter_archive_subdir(archive, source.subpath)
+        results = []
+        for member, payload in expand_skill_archives(archive):
+            try:
+                draft = await self.skill_imports.prepare(
+                    user_id=user_id, archive_bytes=payload, storage=self.runtime.require_ready(),
+                    source_type="remote", source_url=source.source_url,
+                    source_ref="/".join(filter(None, (source.ref, member))),
+                    conversation_id=conversation_id, enable_on_install=enable_on_install,
+                    sync_existing=True,
+                )
+                results.append({"status": "prepared", **draft.public_dict()})
+            except SkillImportError as exc:
+                results.append({"status": "error", "source_ref": member, "message": str(exc)})
+            except Exception:
+                results.append({"status": "error", "source_ref": member, "message": "无法校验该子技能，请检查内容和依赖声明。"})
+        return results
 
     async def skill_details(self, user_id: str, name: str, scope: str) -> dict[str, Any]:
         return await self.resources.skill_details(user_id, name, scope)

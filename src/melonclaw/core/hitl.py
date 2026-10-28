@@ -30,13 +30,18 @@ SENSITIVE_TOOL_INTERRUPTS["confirm_skill_install"] = InterruptOnConfig(
         "来源与内容摘要将在提交时再次核验；不会执行包内脚本。"
     ),
 )
+SENSITIVE_TOOL_INTERRUPTS["confirm_skill_batch"] = InterruptOnConfig(
+    allowed_decisions=["approve", "reject"],
+    description="确认批量技能的逐项新增/更新、来源、范围、内容摘要和启用状态；逐项提交，失败项单独重试，不执行脚本。",
+)
+# prepare_skill_batch 仅有界下载校验暂存，免审批；confirm_skill_batch 必须审批，均不进 PTC。
 SENSITIVE_TOOL_INTERRUPTS["test_mcp_install"] = InterruptOnConfig(
     allowed_decisions=["approve", "reject"],
     description="确认向清单中的 MCP 地址发送连接请求和已提供凭据；仅发现工具，不调用工具。",
 )
 SENSITIVE_TOOL_INTERRUPTS["confirm_mcp_install"] = InterruptOnConfig(
     allowed_decisions=["approve", "reject"],
-    description="确认 MCP 名称、个人归属、地址、工具白名单及启用选项。仅安装到当前用户，下一条消息生效。",
+    description="确认 MCP 新增/更新操作、目标版本、变更字段、脱敏连接地址、真实范围及工具权限。更新保留省略字段，下一条消息生效；保存不代表连接测试通过。",
 )
 SENSITIVE_TOOL_INTERRUPTS["confirm_environment_change"] = InterruptOnConfig(
     allowed_decisions=["approve", "reject"],

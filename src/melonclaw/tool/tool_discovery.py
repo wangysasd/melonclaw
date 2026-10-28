@@ -16,13 +16,20 @@ def build_tool_discovery(max_requests: int = 4):
 
     @tool(FIND_TOOLS_NAME)
     def find_tools(
-        query: Annotated[str, Field(min_length=1, max_length=512)],
         runtime: ToolRuntime,
+        query: Annotated[str, Field(min_length=1, max_length=512)] = "",
+        tool_names: Annotated[list[Annotated[str, Field(min_length=1, max_length=128)]],
+                              Field(max_length=64)] | None = None,
     ) -> Command:
-        """当前可见工具不足时，描述缺少的具体能力。选择器在本次请求内、下一次模型调用前扩充工具池。"""
+        """补充工具：已知目录中的真实名称时用 tool_names 精确加载，否则用 query 描述能力。
+
+        tool_names 仅允许当前授权目录中的完整名称，不接受猜测或前缀；提供时不调用选择模型。
+        本次请求内下一次模型调用前返回最终加载结果；加载不代表已执行工具。
+        """
         query = query.strip()
-        if not query:
-            raise ValueError("工具需求不能为空。")
+        if not query and not tool_names:
+            raise ValueError("请提供工具需求或真实工具名称。")
+        names = list(dict.fromkeys(tool_names or []))
         turn = selection_turn(runtime.state, runtime.context)
         requests = [r for r in runtime.state.get("tool_requests", []) if r["turn_id"] == turn]
         accepted = len(requests) < max_requests
@@ -32,8 +39,10 @@ def build_tool_discovery(max_requests: int = 4):
                     if accepted else "本消息检索额度已用完，请使用当前工具或说明能力不足。",
         }, ensure_ascii=False)
         return Command(update={
-            "tool_requests": [{"turn_id": turn, "id": runtime.tool_call_id, "query": query}] if accepted else [],
-            "messages": [ToolMessage(content=content, tool_call_id=runtime.tool_call_id, name=FIND_TOOLS_NAME)],
+            "tool_requests": [{"turn_id": turn, "id": runtime.tool_call_id, "query": query,
+                               "tool_names": names}] if accepted else [],
+            "messages": [ToolMessage(id=f"tool-discovery:{runtime.tool_call_id}", content=content,
+                                     tool_call_id=runtime.tool_call_id, name=FIND_TOOLS_NAME)],
         })
 
     return find_tools

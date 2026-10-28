@@ -117,7 +117,7 @@ def _build_tool_selector_middleware(
             if _tool_name(tool) not in {
                 FIND_TOOLS_NAME, MCP_CATALOG_TOOL_NAME, "internet_search", "web_fetch",
                 "prepare_skill_install", "prepare_skill_creation",
-                "confirm_skill_install", "inspect_environment", "prepare_environment_change", "confirm_environment_change", "prepare_mcp_install", "test_mcp_install", "confirm_mcp_install",
+                "confirm_skill_install", "prepare_skill_batch", "confirm_skill_batch", "inspect_environment", "prepare_environment_change", "confirm_environment_change", "prepare_mcp_install", "test_mcp_install", "confirm_mcp_install",
                 "configure_task",
             }
         ],

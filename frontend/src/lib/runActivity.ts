@@ -64,8 +64,10 @@ const TOOL_STAGES: Record<string, string> = {
   eval: "正在计算",
   write_todos: "正在更新任务清单",
   task: "子 Agent 正在执行",
-  confirm_skill_install: "正在安装 Skill",
-  confirm_mcp_install: "正在安装 MCP",
+  confirm_skill_install: "正在同步 Skill",
+  prepare_skill_batch: "正在下载并校验技能",
+  confirm_skill_batch: "正在批量同步技能",
+  confirm_mcp_install: "正在保存 MCP 配置",
   test_mcp_install: "正在测试 MCP 连接",
 };
 

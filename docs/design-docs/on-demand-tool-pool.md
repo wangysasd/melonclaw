@@ -6,7 +6,7 @@
 每消息预选增加等待，用户希望采用官方选择算法，但仅在当前工具不足时调用。目标是普通聊天零选择调用、跨消息复用工具池，同时保持会话隔离与审批边界。
 
 ## 方案与关键取舍
-官方 LLMToolSelectorMiddleware 负责结构化 schema、选名校验及数量限制。项目 ToolPoolMiddleware 负责生命周期，不维护第二套 JSON 选择解析器。find_tools 只提交需求；下一次 before_model 以需求为 HumanMessage 委托官方公开 awrap_model_call，handler 只收集工具名。选择器不会每轮包住主模型。
+官方 LLMToolSelectorMiddleware 负责结构化 schema、选名校验及数量限制。项目 ToolPoolMiddleware 负责生命周期，不维护第二套 JSON 选择解析器。find_tools 只提交需求或真实工具名称，不执行业务工具；下一次 before_model 以需求为 HumanMessage 委托官方公开 awrap_model_call，handler 只收集工具名。选择器不会每轮包住主模型。
 
 应用工具在 `tool/tools.py` 装配时统一返回 LangChain `BaseTool`；内置 DeepSeek 联网搜索（`internet_search`）与网页读取（`web_fetch`）由 `tool/search.py` 的 `build_web_tools` 统一构造名称、描述和参数 schema，工具池与主/子 Agent 共用这些定义。选择器先于 Agent 图构建，必须在装配入口完成包装。直接传入普通函数会在读取 `.name` 时失败，连普通问答也无法开始；重新同步只读取会话状态，修复后需重启 Web 服务加载新代码。
 
@@ -32,3 +32,15 @@ find_tools 是内部状态请求，不执行外部工具、不改变授权，不
 `tests/test_agent_tool_assembly.py` 通过实际 `build_research_agent` 入口装配应用工具，离线替换模型和 DeepSeek 搜索/读取传输，验证普通问答零选择、按需选择后执行内置搜索与网页读取、子 Agent 独立发现工具且父池不被覆盖，防止只测试已包装工具而漏检实际装配路径。
 
 验证结果：`scripts/check.sh` 全部通过，覆盖后端编译、pytest、ruff、锁文件一致性、前端 lint/类型/测试与文档链接。真实 Deep Agents 父子调用已验证子池不继承或覆盖主池。
+
+## 最终回执与精确加载（2026-10-28）
+
+`find_tools(query=...)` 保留官方语义选择；`find_tools(tool_names=[...])` 使用目录中的完整名称精确加载，不调用选择模型。二者同时提供时以名称为准。query 最长 512 字符；名称最多 64 项、单项 1～128 字符，去重后匹配当前授权候选目录。未知名称整批拒绝，超过单池容量也整批拒绝，不猜测前缀或模糊回退。每消息预算与现有容量淘汰继续生效，多个并行请求以最终池为准报告剩余名称。
+
+工具先提交请求并写入稳定 ID 的 queued ToolMessage；before_model 完成选择／校验后，以相同消息 ID 和 tool_call_id 替换最终回执，保留消息位置与工具调用协议。结果包含 status、added_tools、visible_tools（当前动态池，不包含常驻工具）和 hint。状态为 selected、no_match、degraded、unavailable、capacity_exceeded 或 exhausted；失败不泄露异常原文，取消继续传播。已处理请求不重复选择或追加回执。当前 degraded 统一表示选择失败或超时，尚未细分异常类型。
+
+精确加载仍只改变当前已授权目录的可见性，不增加权限、不执行 MCP，不进 HITL 或 PTC，不新增数据库结构、配置项或依赖。更新后重启 Web 即可，无需 db-init／db-update。验收时先读 MCP 目录，再精确加载并实际调用；加载成功与远端执行成功分别判断。
+
+验证：真实 Deep Agents 图覆盖语义／精确两条路径，同一条用户消息内收到最终回执并调用离线工具，精确加载零选择模型调用；同时覆盖无匹配、失败回执、未知名称整批拒绝、超容量、并行预算与跨消息池复用。真实外部 MCP 返回仍需部署环境验证。
+
+本次验证结果：定向工具链 30 项通过，`scripts/check.sh` 全部通过（后端编译、全量测试、lint、锁文件及前端 lint／类型／测试、文档链接与空白检查）。

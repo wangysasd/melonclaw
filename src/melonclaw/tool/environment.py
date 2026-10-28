@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict
 
 class EnvironmentChange(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
-    draft_id: str
     name: str
     scope: Literal["global", "user"]
     action: Literal["create", "update", "delete"]
@@ -19,6 +18,17 @@ class EnvironmentChange(BaseModel):
     impact: str
 
 
+class SingleEnvironmentChange(EnvironmentChange):
+    draft_id: str
+
+
+class EnvironmentBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+    draft_id: str
+    scope: Literal["global", "user"]
+    changes: list[EnvironmentChange]
+
+
 def build_environment_tools(provider):
     @tool
     async def inspect_environment(*, runtime: ToolRuntime[Any]) -> dict:
@@ -27,7 +37,7 @@ def build_environment_tools(provider):
 
     @tool
     async def prepare_environment_change(draft_id: str, *, runtime: ToolRuntime[Any]) -> dict:
-        """用户明确要求维护环境变量时，按当前消息的 draft_id 准备不含值的审批清单。
+        """用户明确要求维护环境变量时，按当前消息的 draft_id 准备单项或批量的不含值审批清单。
 
         只能使用服务端已提取的草稿；管理员创建共享变量，普通用户创建个人变量。
         不接收 value，不读取服务器环境或已有值。下一步原样调用 confirm_environment_change。
@@ -36,7 +46,7 @@ def build_environment_tools(provider):
 
     @tool
     async def confirm_environment_change(
-        change: EnvironmentChange, *, runtime: ToolRuntime[Any]
+        change: SingleEnvironmentChange | EnvironmentBatch, *, runtime: ToolRuntime[Any]
     ) -> dict:
         """原样提交 prepare 返回的 change，经人工审批后维护环境变量，下一轮生效。
 

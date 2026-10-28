@@ -99,7 +99,7 @@ def test_quoted_examples_and_assignment_without_intent_do_not_write(content):
 
 @pytest.mark.parametrize(
     "content",
-    ["设置环境变量 DEMO", "设置环境变量\nA=fixture\nB=other", "启用环境变量 DEMO=fixture"],
+    ["设置环境变量 DEMO", "设置环境变量\nA=fixture\nA=other", "启用环境变量 DEMO=fixture"],
 )
 def test_invalid_chat_input_has_safe_error(content):
     with pytest.raises(EnvironmentError) as error:
@@ -168,3 +168,39 @@ def test_chat_values_keep_literal_quotes_backticks_and_dollar_references():
 ])
 def test_environment_value_preview(value, expected):
     assert mask_environment_value(value) == expected
+
+
+def test_multiple_chat_values_are_redacted_and_install_request_survives():
+    content = ("请帮我从以下地址下载并安装全部技能\n"
+               "技能1：https://skills.example/download?name=one\n"
+               "并配置以下永久环境变量（如已有替换为最新）\n"
+               "APP_ID=fixture-id\nAPP_SECRET=fixture-secret")
+    kwargs = dict(user_id="alice", conversation_id="conversation", request_id="request")
+    clean, draft = parse_environment_chat(content, **kwargs)
+    assert "fixture-id" not in clean and "fixture-secret" not in clean
+    assert "https://skills.example/download?name=one" in clean
+    assert "安装全部技能" in clean
+    assert [item["name"] for item in draft["operations"]] == ["APP_ID", "APP_SECRET"]
+    assert draft["operations"][1]["fields"]["value"] == "fixture-secret"
+    assert parse_environment_chat(content, **kwargs) == (clean, draft)
+    _, multiple = parse_environment_chat("配置环境变量\nA=one\nB=two", **kwargs)
+    assert len(multiple["operations"]) == 2
+
+
+def test_chat_batch_limits_fail_without_echoing_values():
+    with pytest.raises(EnvironmentError, match="最多维护"):
+        parse_environment_chat("配置环境变量\n" + "\n".join(f"KEY_{i}=fixture-secret" for i in range(33)),
+                               user_id="u", conversation_id="c", request_id="r")
+
+
+def test_empty_input_and_mixed_short_values_preserve_download_urls():
+    kwargs = dict(user_id="u", conversation_id="c", request_id="r")
+    assert parse_environment_chat("", **kwargs) == ("", None)
+    url = "https://skills.example/download?name=skill-1"
+    for content in (
+        f"请安装全部技能 {url}\n并配置以下环境变量\nAPP_ID=1\nAPP_SECRET=fixture-sensitive",
+        f"配置环境变量 APP_ID=1\nAPP_SECRET=fixture-sensitive\n请安装技能 {url}",
+    ):
+        clean, draft = parse_environment_chat(content, **kwargs)
+        assert url in clean and "APP_ID=1" not in clean
+        assert "fixture-sensitive" not in clean and draft

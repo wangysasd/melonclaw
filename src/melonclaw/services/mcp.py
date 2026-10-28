@@ -19,7 +19,7 @@ class McpConfigError(ValueError):
     status_code = 422
 
 
-def validate_mcp_payload(*, scope, transport, url, command, env, headers, args=None):
+def validate_mcp_payload(*, scope, transport, url, command, env, headers, args=None, allow_missing_url=False):
     if transport not in ("http", "sse", "stdio"):
         raise McpConfigError("不支持的 MCP 连接类型。")
     if scope == "user" and transport == "stdio":
@@ -30,7 +30,7 @@ def validate_mcp_payload(*, scope, transport, url, command, env, headers, args=N
     else:
         try:
             parsed = urlsplit(url or "")
-            valid = (
+            valid = (allow_missing_url and url is None) or (
                 parsed.scheme in {"http", "https"}
                 and parsed.hostname
                 and not parsed.username

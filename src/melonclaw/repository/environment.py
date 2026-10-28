@@ -263,7 +263,15 @@ class EnvironmentRepositoryMixin:
                     or row["payload"] != change
                 ):
                     raise EnvironmentConflict("操作已失效，请重新输入。")
-                result = await self._mutate_environment(conn, change)
+                if "changes" in change:
+                    items = []
+                    for item in change["changes"]:
+                        if item["scope"] != change["scope"] or item["owner_user_id"] != change["owner_user_id"]:
+                            raise EnvironmentConflict("批量环境变量作用域不一致。")
+                        items.append({"name": item["name"], **await self._mutate_environment(conn, item)})
+                    result = {"items": items, "scope": change["scope"]}
+                else:
+                    result = await self._mutate_environment(conn, change)
                 await conn.execute(
                     update(operations)
                     .where(operations.c.id == row["id"])

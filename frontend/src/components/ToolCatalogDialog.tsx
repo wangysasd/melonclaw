@@ -48,7 +48,7 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
 
 
 type Directory<T> = { items: T[]; error: string; loading: boolean };
-const SKILL_TOOLS = new Set(["prepare_skill_creation", "prepare_skill_install", "confirm_skill_install"]);
+const SKILL_TOOLS = new Set(["prepare_skill_creation", "prepare_skill_install", "confirm_skill_install", "prepare_skill_batch", "confirm_skill_batch"]);
 const fixedTools = TOOL_CATALOG.filter(tool => !SKILL_TOOLS.has(tool.name) && tool.category !== "mcp");
 const skillTools = TOOL_CATALOG.filter(tool => SKILL_TOOLS.has(tool.name));
 const mcpTools = TOOL_CATALOG.filter(tool => tool.category === "mcp");

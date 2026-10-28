@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import replace
 from datetime import timedelta
@@ -82,14 +83,33 @@ class DraftStorage(Storage):
     async def prepare_mcp_install_draft(self, source, installation, payload):
         self.drafts[installation["draft_id"]] = dict(source, payload=payload, installation=installation)
 
+    @asynccontextmanager
+    async def account_guard(self):
+        yield
+
+    async def record_mcp_install_test(self, identifier, user_id, conversation_id, installation, state):
+        self.drafts[identifier]["payload"]["connection_status"] = state
+
     async def commit_mcp_install(self, identifier, user_id, conversation_id, installation, row):
-        self.commits += 1
-        result = await self.create_mcp_row(**row)
-        result["enabled"] = installation["enable"]
-        self.drafts[identifier].update(installed_id=str(result["id"]), payload={})
-        if row["scope"] == "user":
+        draft = self.drafts[identifier]
+        if installation["target_id"]:
+            result = self.rows[installation["target_id"]]
+            if result["version"] != installation["expected_version"]:
+                from melonclaw.repository.mcp import McpConflictError
+                raise McpConflictError("版本冲突。")
+            if installation["operation"] != "unchanged":
+                result.update(row, version=result["version"] + 1)
+        else:
+            result = await self.create_mcp_row(**row)
+            result["enabled"] = installation["enable"]
+        if row["scope"] == "user" and (not installation["target_id"] or draft["payload"]["preference"] is not None):
             self.preferences[(user_id, row["slug"])] = installation["enable"]
-        return str(result["id"])
+        reply = dict(status={"install": "installed", "update": "updated", "unchanged": "unchanged"}[installation["operation"]],
+                     id=str(result["id"]), scope=row["scope"], enabled=row["enabled"], version=result["version"],
+                     connection_status=draft["payload"]["connection_status"])
+        self.commits += 1
+        self.drafts[identifier].update(installed_id=str(result["id"]), payload={"result": reply})
+        return reply
 
 
 @pytest.fixture
@@ -128,7 +148,7 @@ def test_admin_install_is_shared_and_idempotent(setup):
         assert row["tool_allowlist"] == ["search"] and row["enabled"]
         assert await provider.confirm(context, installation) == result
         assert storage.commits == 1
-        assert (await provider.prepare(context, source, True, None))["status"] == "error"
+        assert (await provider.prepare(context, source, True, None))["status"] == "unchanged"
     asyncio.run(run())
 
 

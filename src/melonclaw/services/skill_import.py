@@ -55,11 +55,17 @@ class SkillImportDraft:
     conversation_id: str
     enable_on_install: bool
 
+    @property
+    def operation(self) -> str:
+        return ("unchanged" if self.conversation_id and self.target_id and self.base_hash == self.preview["content_hash"]
+                else "update" if self.target_id else "install")
+
     def confirmation(self) -> dict[str, object]:
         return {
             "draft_id": self.draft_id, "name": self.name, "scope": self.scope,
             "source_url": self.source_url, "source_ref": self.source_ref,
             "content_hash": self.preview["content_hash"], "enable": self.enable_on_install,
+            "operation": self.operation,
         }
 
     def public_dict(self) -> dict[str, object]:
@@ -67,7 +73,7 @@ class SkillImportDraft:
         result.pop("user_id")
         if self.conversation_id:
             result["installation"] = self.confirmation()
-        result["operation"] = "update" if self.target_id else "install"
+        result["operation"] = self.operation
         return result
 
 
@@ -126,6 +132,7 @@ class SkillImportService:
         source_ref: str = "",
         conversation_id: str = "",
         enable_on_install: bool = False,
+        sync_existing: bool = False,
     ) -> SkillImportDraft:
         async with self.operations.locked():
             await self.operations.recover(storage)
@@ -137,6 +144,15 @@ class SkillImportService:
             extracted.mkdir(parents=True)
             try:
                 definition = self._extract_and_validate(archive_bytes, extracted)
+                if sync_existing and row is None:
+                    candidates = await storage.list_skill_rows_by_name(definition.id)
+                    row = next((item for item in candidates if item["scope"] == scope and (
+                        scope == "global" or item["created_by"] == user_id
+                    )), None)
+                    if row is not None:
+                        target_id = str(row["id"])
+                        # 同步内容不改变已有资源的启用设置。
+                        enable_on_install = row["enabled"]
                 if row is not None and row["name"] != definition.id:
                     raise SkillImportError("更新包的 name 必须与现有技能相同。")
                 if row is None:
@@ -205,6 +221,9 @@ class SkillImportService:
                     f"shared/{draft.name}" if scope == "global" else f"users/{user_id}/{draft.name}"
                 )
             )
+            if draft.conversation_id and row and draft.base_hash == draft.preview["content_hash"] and row["enabled"] == draft.enable_on_install:
+                shutil.rmtree(extracted.parent)
+                return draft
             await self.operations.install(
                 storage,
                 source,

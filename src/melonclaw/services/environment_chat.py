@@ -8,21 +8,25 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from melonclaw.services.environment import EnvironmentError, EnvironmentService, environment_scope
 
 INTENT = re.compile(
-    r"^(?:请帮我|请|帮我|麻烦)?(?:新增|创建|设置|配置|保存|更新|替换|修改|删除|停用|禁用|启用|开启)(?:一个|我的|系统共享的|个人的)?环境变量"
+    r"^(?:并|同时|另外|然后)?(?:请帮我|请|帮我|麻烦)?(?:新增|创建|设置|配置|保存|更新|替换|修改|删除|停用|禁用|启用|开启)(?:一个|我的|系统共享的|个人的|以下|永久|多个|这些|的|\s)*环境变量"
 )
 ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 
 def parse_environment_chat(content, *, user_id, conversation_id, request_id):
-    if not INTENT.match(content.lstrip()):
+    direct = bool(INTENT.match(content.lstrip()))
+    first_line = next(iter(content.splitlines()), "")
+    mixed = bool(re.search(r"(?:安装|更新|同步).{0,30}(?:技能|skills?)", content if direct else first_line, re.I))
+    if not direct and not (mixed and any(INTENT.match(line.strip()) for line in content.splitlines())):
         return content, None
-    # 首版每次一项，独立赋值行或指令后的行内赋值；值不去引号、不展开。
+    # 独立赋值行或指令后的行内赋值；值按字面保存，不去引号、不展开。
     lines = content.splitlines()
     fences = [line for line in lines if re.fullmatch(r"\s*```(?:env|dotenv|sh|bash|text)?\s*", line, flags=re.I)]
     if len(fences) not in {0, 2}:
         raise EnvironmentError("请使用一个完整代码块或独立赋值行。")
     normalized = "\n".join(line for line in lines if not re.fullmatch(r"\s*```(?:env|dotenv|sh|bash|text)?\s*", line, flags=re.I))
     assignments = []
+    redacted_lines = []
     for line in normalized.splitlines():
         line = line.strip()
         match = ASSIGNMENT.fullmatch(line)
@@ -32,8 +36,13 @@ def parse_environment_chat(content, *, user_id, conversation_id, request_id):
                 match = ASSIGNMENT.fullmatch(line[intent.end() :].lstrip(" ：:"))
         if match:
             assignments.append((match[1], match[2]))
-    if len(assignments) > 1:
-        raise EnvironmentError("每条消息只维护一项环境变量，请分别提交。")
+            redacted_lines.append(line.replace(match[0], f"{match[1]}=[已安全提取]", 1))
+        else:
+            redacted_lines.append(line)
+    if len(assignments) > 32:
+        raise EnvironmentError("每条消息最多维护 32 项环境变量。")
+    if len({name for name, _ in assignments}) != len(assignments):
+        raise EnvironmentError("同一消息的变量名不能重复，请明确每项的最终值。")
     description = re.fullmatch(
         r"(?:请帮我|请|帮我)?修改环境变量\s+([A-Za-z_][A-Za-z0-9_]*)\s+的说明[：:](.*)",
         content.strip(),
@@ -58,9 +67,13 @@ def parse_environment_chat(content, *, user_id, conversation_id, request_id):
         verb, name = match.groups()
         action = "delete" if verb == "删除" else "update"
         fields = {} if action == "delete" else {"enabled": verb in {"启用", "开启"}}
-    operation = {"name": name, "action": action, "fields": fields}
+    operations = ([{"name": key, "action": "save", "fields": {"value": value}}
+                   for key, value in assignments] if assignments
+                  else [{"name": name, "action": action, "fields": fields}])
+    operation = operations[0]
+    payload = {"operations": operations} if len(operations) > 1 else {"operation": operation}
     seed = json.dumps(
-        [user_id, conversation_id, request_id, operation], sort_keys=True, ensure_ascii=False
+        [user_id, conversation_id, request_id, payload], sort_keys=True, ensure_ascii=False
     )
     try:
         seed_bytes = seed.encode("utf-8")
@@ -69,8 +82,25 @@ def parse_environment_chat(content, *, user_id, conversation_id, request_id):
     identifier = str(
         uuid5(NAMESPACE_URL, "melonclaw:environment:" + hashlib.sha256(seed_bytes).hexdigest())
     )
-    clean = f"用户请求维护环境变量 {name}；值已安全提取，不得读取或复述。请调用 prepare_environment_change，draft_id={identifier}，再提交审批。"
-    return clean, {"id": identifier, "operation": operation}
+    names = "、".join(item["name"] for item in operations)
+    clean = f"用户请求维护环境变量 {names}；值已安全提取，不得读取或复述。请调用 prepare_environment_change，draft_id={identifier}，再提交审批。"
+    if mixed:
+        # 先按赋值位置脱敏，避免短值（如 1）误伤 URL。正文重复出现的值也脱敏；
+        # URL 内偶然相同的短词/数字不视为再次引用变量值。
+        redacted = "\n".join(redacted_lines)
+        urls = re.compile(r"https://[^\s<>]+")
+        for _, value in sorted(assignments, key=lambda item: len(item[1]), reverse=True):
+            if not value:
+                continue
+            if len(value) >= 8:
+                redacted = redacted.replace(value, "[已安全提取]")
+            else:
+                parts = re.split(r"(https://[^\s<>]+)", redacted)
+                redacted = "".join(part if urls.fullmatch(part) else re.sub(
+                    rf"(?<![\w]){re.escape(value)}(?![\w])", "[已安全提取]", part,
+                ) for part in parts)
+        clean = redacted + "\n" + clean
+    return clean, {"id": identifier, **payload}
 
 
 class ChatEnvironmentService:
@@ -79,26 +109,32 @@ class ChatEnvironmentService:
         self.management = EnvironmentService(chat.runtime)
 
     async def stage(self, draft, context, conversation_id, request_id):
-        operation = draft["operation"]
+        operations = draft["operations"] if "operations" in draft else [draft["operation"]]
         rows = await self.management.storage.list_environment(context.user_id)
         scope = environment_scope(context)
-        existing = next(
-            (row for row in rows if row["scope"] == scope and row["name"] == operation["name"]),
-            None,
-        )
-        if operation["action"] != "save" and existing is None:
-            raise EnvironmentError("当前维护范围没有该变量。")
-        change = await self.management.change(
-            context.user_id,
-            name=operation["name"],
-            identifier=str(existing["id"]) if existing else None,
-            expected_version=existing["version"] if existing else None,
-            fields=operation["fields"],
-            delete=operation["action"] == "delete",
-            user=context,
-        )
+        changes = []
+        for operation in operations:
+            existing = next(
+                (row for row in rows if row["scope"] == scope and row["name"] == operation["name"]),
+                None,
+            )
+            if operation["action"] != "save" and existing is None:
+                raise EnvironmentError("当前维护范围没有该变量。")
+            changes.append(await self.management.change(
+                context.user_id,
+                name=operation["name"],
+                identifier=str(existing["id"]) if existing else None,
+                expected_version=existing["version"] if existing else None,
+                fields=operation["fields"],
+                delete=operation["action"] == "delete",
+                user=context,
+            ))
+        payload = changes[0] if len(changes) == 1 else {
+            "scope": scope, "owner_user_id": changes[0]["owner_user_id"],
+            "created_by": context.user_id, "changes": changes,
+        }
         await self.management.storage.stage_environment(
-            draft["id"], context.user_id, conversation_id, request_id, change
+            draft["id"], context.user_id, conversation_id, request_id, payload
         )
 
     async def _draft(self, context, identifier):
@@ -143,19 +179,20 @@ class ChatEnvironmentService:
             if draft["status"] == "committed":
                 return {"status": "committed", "result": draft["response"]}
             change = draft["payload"]
-            manifest = {
-                "draft_id": draft_id,
-                "name": change["name"],
-                "scope": change["scope"],
-                "action": change["action"],
-                "expected_version": change["expected_version"],
-                "replaces_value": "value" in change["fields"],
-                "enabled": change["fields"].get("enabled"),
-                "description": change["fields"].get("description"),
-                "impact": "系统共享，影响使用该共享变量的所有用户"
-                if change["scope"] == "global"
-                else "仅自己；停用或删除后自动使用可用共享配置",
-            }
+            def public_item(item):
+                return {
+                    "name": item["name"], "scope": item["scope"], "action": item["action"],
+                    "expected_version": item["expected_version"],
+                    "replaces_value": "value" in item["fields"],
+                    "enabled": item["fields"].get("enabled"),
+                    "description": item["fields"].get("description"),
+                    "impact": "系统共享，影响使用该共享变量的所有用户"
+                    if item["scope"] == "global" else "仅自己；停用或删除后自动使用可用共享配置",
+                }
+            manifest = {"draft_id": draft_id, **(
+                {"scope": change["scope"], "changes": [public_item(item) for item in change["changes"]]}
+                if "changes" in change else public_item(change)
+            )}
             saved = await storage.environment_operation(
                 draft_id, context.user_id, context.conversation_id, manifest=manifest
             )
@@ -184,17 +221,15 @@ class ChatEnvironmentService:
                 return {"status": "saved", **draft["response"]}
             payload = draft["payload"]
             # 再校验保留名、权限、目标版本，防止审批等待期间配置变化。
-            checked = await self.management.change(
-                context.user_id,
-                name=payload["name"],
-                identifier=payload["id"],
-                expected_version=payload["expected_version"],
-                fields=payload["fields"],
-                delete=payload["action"] == "delete",
-                user=user,
-            )
-            if checked != payload:
-                raise EnvironmentError("审批目标已变化。")
+            for item in payload.get("changes", [payload]):
+                checked = await self.management.change(
+                    context.user_id,
+                    name=item["name"], identifier=item["id"],
+                    expected_version=item["expected_version"], fields=item["fields"],
+                    delete=item["action"] == "delete", user=user,
+                )
+                if checked != item:
+                    raise EnvironmentError("审批目标已变化。")
             result = await storage.commit_environment(
                 change["draft_id"], context.user_id, context.conversation_id, change, payload
             )

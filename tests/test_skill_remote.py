@@ -213,3 +213,111 @@ def test_remote_subdir_filter_rejects_bomb_before_reading(monkeypatch):
     monkeypatch.setattr(skill_remote, "MAX_ARCHIVE_TOTAL_BYTES", 100)
     with pytest.raises(SkillImportError, match="上限"):
         filter_archive_subdir(buffer.getvalue(), "skills/demo")
+
+
+def test_https_download_endpoint_preserves_query():
+    source = resolve_remote_skill_source("https://skills.example/download?name=one")
+    assert source.url == source.source_url == "https://skills.example/download?name=one"
+    assert source.subpath is None and source.ref == ""
+
+
+@pytest.mark.parametrize("url", [
+    "http://skills.example/x", "https://user:password@skills.example/x",
+    "https://skills.example:444/x", "https://skills.example/x#fragment",
+    "https://localhost/x", "https://metadata.internal/x", "https://skills.example/\nx",
+])
+def test_unsafe_download_url_is_rejected(url):
+    from melonclaw.services.skill_remote import validate_download_url
+
+    with pytest.raises(SkillImportError):
+        validate_download_url(url)
+
+
+@pytest.mark.parametrize("ip", ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "224.0.0.1"])
+def test_download_rejects_nonpublic_dns_before_connecting(monkeypatch, ip):
+    import asyncio
+    import socket
+    from unittest.mock import AsyncMock
+
+    import httpx
+
+    from melonclaw.services.skill_remote import PublicDownloadTransport
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        monkeypatch.setattr(loop, "getaddrinfo", AsyncMock(return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 443))]))
+        connect = AsyncMock()
+        monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", connect)
+        async with PublicDownloadTransport() as transport:
+            with pytest.raises(SkillImportError, match="内网"):
+                await transport.handle_async_request(httpx.Request("GET", "https://skills.example/file"))
+        connect.assert_not_awaited()
+
+    asyncio.run(run())
+
+
+def test_download_pins_ip_but_preserves_host_and_tls_identity(monkeypatch):
+    import asyncio
+    import socket
+    from unittest.mock import AsyncMock
+
+    import httpx
+
+    from melonclaw.services.skill_remote import PublicDownloadTransport
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        monkeypatch.setattr(loop, "getaddrinfo", AsyncMock(return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]))
+        connect = AsyncMock(return_value=httpx.Response(200))
+        monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", connect)
+        async with PublicDownloadTransport() as transport:
+            await transport.handle_async_request(httpx.Request("GET", "https://skills.example/download?name=one"))
+        pinned = connect.call_args.args[0]
+        assert str(pinned.url) == "https://8.8.8.8/download?name=one"
+        assert pinned.headers["host"] == "skills.example"
+        assert pinned.extensions["sni_hostname"] == "skills.example"
+
+    asyncio.run(run())
+
+
+def test_bundle_expansion_is_bounded_and_never_executes_instructions(tmp_path, monkeypatch):
+    from melonclaw.services import skill_remote
+
+    inner = _zip_bytes({"SKILL.md": SKILL_MD})
+    bundle = _zip_bytes({"SKILL.md": b"run malicious-install.sh", "skills/one.zip": inner})
+    result = skill_remote.expand_skill_archives(bundle)
+    assert result == [("skills/one.zip", inner)]
+    monkeypatch.setattr(skill_remote, "MAX_ARCHIVE_TOTAL_BYTES", len(bundle) + len(inner))
+    deep = _zip_bytes({"skills/deep.zip": bundle})
+    with pytest.raises(SkillImportError, match="超过"):
+        skill_remote.expand_skill_archives(deep)
+    with pytest.raises(SkillImportError, match="非法路径"):
+        skill_remote.expand_skill_archives(_zip_bytes({"../escape": b"bad", "skills/one.zip": inner}))
+
+
+def test_redirect_to_private_address_is_revalidated(monkeypatch):
+    import asyncio
+    import socket
+    from unittest.mock import AsyncMock
+
+    import httpx
+
+    from melonclaw.services import skill_remote
+
+    seen = []
+
+    async def respond(self, request):
+        seen.append(str(request.url))
+        return httpx.Response(302, headers={"location": "https://127.0.0.1/secret"}, stream=httpx.ByteStream(b""))
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        async def addresses(host, *_args, **_kwargs):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1" if host == "127.0.0.1" else "8.8.8.8", 443))]
+        monkeypatch.setattr(loop, "getaddrinfo", AsyncMock(side_effect=addresses))
+        monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
+        with pytest.raises(SkillImportError, match="内网"):
+            await skill_remote.fetch_remote_skill_archive("https://skills.example/file")
+        assert len(seen) == 1
+
+    asyncio.run(run())

@@ -4,7 +4,6 @@ import Bubble from "@ant-design/x/es/bubble";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icon } from "./Icon";
-import { GlassIcon } from "./GlassIcon";
 import { Composer } from "./Composer";
 import { toolSummary } from "../lib/toolDisplay";
 import { ApprovalPanel } from "./ApprovalPanel";
@@ -48,248 +47,104 @@ function questionKey(question: UserQuestionRequest): string {
   return `${question.interaction_id}:${digest}`;
 }
 
+const WELCOME_CATEGORIES = [
+  { key: "company", icon: "building-2", label: "个股与公司研究" },
+  { key: "industry", icon: "blocks", label: "行业与策略研究" },
+  { key: "experts", icon: "users", label: "专家观点" },
+  { key: "reports", icon: "file-text", label: "研究资料与报告" },
+  { key: "review", icon: "calendar-days", label: "业绩与市场复盘" },
+  { key: "bond", icon: "shield-check", label: "债券与信用" },
+  { key: "multi-asset", icon: "globe-2", label: "宏观、资金与多资产" },
+] as const;
+
 const WELCOME_PROMPTS = [
-  {
-    category: "neutral",
-    key: "capabilities",
-    icon: <GlassIcon name="layers" />,
-    label: "了解助手能力",
-    description: "查看可以协助处理的研究任务",
-    prompt: "请介绍你能协助我完成哪些研究任务，并举例说明各自的适用场景。",
-  },
-  {
-    category: "equity",
-    key: "industry-outlook",
-    icon: <GlassIcon name="chart" />,
-    label: "查看行业观点",
-    description: "查询行业或赛道的最新周度观点",
-    prompt: "请查询【行业/赛道】最新一条周度观点，区分行业观点与赛道观点，保留原文并注明日期。",
-  },
-  {
-    category: "equity",
-    key: "research-reports",
-    icon: <GlassIcon name="document" />,
-    label: "检索研究报告",
-    description: "按公司、行业或方向查找最新报告",
-    prompt: "请按【公司/行业/研究方向】检索最新研究报告，列出标题、发布时间、摘要和评级信息，完整保留返回内容。",
-  },
-  {
-    category: "equity",
-    key: "market-review",
-    icon: <GlassIcon name="document" />,
-    label: "复盘近期市场",
-    description: "回顾最近交易日或一周的A股行情",
-    prompt: "请复盘最近一个交易日的A股市场，梳理主要指数、行业板块表现和市场驱动因素，并总结后续观察要点。",
-  },
-  {
-    category: "equity",
-    key: "financial-model",
-    icon: <GlassIcon name="chart" />,
-    label: "查询公司财务数据",
-    description: "查看财务三表、指标或预测数据",
-    prompt: "请查询【公司】的营业收入、归母净利润等指标，或展示利润表、资产负债表、现金流量表；注明年份并区分实际值与预测值。",
-  },
-  {
-    category: "equity",
-    key: "article-search",
-    icon: <GlassIcon name="globe" />,
-    label: "搜索研究文章",
-    description: "查找主题文章与发布时间、摘要",
-    prompt: "请检索【主题】相关研究文章，整理标题、发布日期和正文摘要；若没有检索到，请明确说明。",
-  },
-  {
-    category: "equity",
-    key: "performance-review",
-    icon: <GlassIcon name="document" />,
-    label: "梳理业绩表现",
-    description: "提炼财务指标、经营亮点与风险",
-    prompt: "请点评【公司】最新一期业绩，提取核心财务指标，分析盈利驱动、经营亮点和潜在风险。",
-  },
-  {
-    category: "equity",
-    key: "core-assumptions",
-    icon: <GlassIcon name="layers" />,
-    label: "拆解经营假设",
-    description: "分析业务贡献与关键变量敏感性",
-    prompt: "请拆解【公司】的业务线贡献和关键经营假设，说明各变量变化对收入、利润预测的敏感性。",
-  },
-  {
-    category: "equity",
-    key: "earnings-forecast",
-    icon: <GlassIcon name="chart" />,
-    label: "分析盈利预测",
-    description: "查看预测指标、业务贡献和变动原因",
-    prompt: "请查询【公司】未来几年的营收、净利润和每股收益预测，拆分业务贡献，解释预测变动并与同行对比。",
-  },
-  {
-    category: "equity",
-    key: "stock-valuation",
-    icon: <GlassIcon name="chart" />,
-    label: "分析个股估值",
-    description: "结合历史分位、同业比较与基本面",
-    prompt: "请分析【公司】的PE、PB、PS指标、近1年和3年历史分位及同业估值差异，梳理估值支撑逻辑与风险。",
-  },
-  {
-    category: "equity",
-    key: "industry-research",
-    icon: <GlassIcon name="layers" />,
-    label: "研究行业赛道",
-    description: "梳理产业链、供需变化与竞争格局",
-    prompt: "请研究【行业/赛道】的产业链、供需变化、竞争格局和增长驱动，结合A股行业配置视角列出关键观察指标与风险。",
-  },
-  {
-    category: "equity",
-    key: "macro-assets",
-    icon: <GlassIcon name="globe" />,
-    label: "分析宏观与资产",
-    description: "理解政策、利率汇率和跨资产传导",
-    prompt: "请分析【宏观主题】对经济周期、货币政策、利率、汇率、债券及海内外市场的传导关系，梳理跨资产逻辑并标注不确定性。",
-  },
-  {
-    category: "fixed-income",
-    key: "bond-daily",
-    icon: <GlassIcon name="document" />,
-    label: "生成债市日报",
-    description: "汇总债市行情与资金面，制作回顾海报",
-    prompt: "请使用 DM 数据和每日债市回顾 Skill，生成最近一个交易日的债市日报及海报，覆盖资金面、机构情绪、活跃券、国债期货和收益率曲线；注明数据日期、来源与缺失项。",
-  },
-  {
-    category: "fixed-income",
-    key: "funding-watch",
-    icon: <GlassIcon name="chart" />,
-    label: "跟踪资金市场",
-    description: "观察 DR007、回购利差与公开市场操作",
-    prompt: "请使用 DM 数据和资金面跟踪 Skill，分析最近一周 DR007、R001、R-DR 利差、资金情绪与央行公开市场操作，梳理流动性变化及对短端债券的影响，注明实际数据覆盖日期。",
-  },
-  {
-    category: "fixed-income",
-    key: "credit-analysis",
-    icon: <GlassIcon name="document" />,
-    label: "分析主体信用",
-    description: "梳理存续债、到期压力与流动性风险",
-    prompt: "请使用 DM 数据和信用分析 Skill，分析【发行人全称/债券代码】的主体资质、存续债与到期分布、市场定价和流动性信号，对比同行并列出风险监测点；缺失财务数据需明确说明，模型估计与事实分开。",
-  },
-  {
-    category: "fixed-income",
-    key: "institution-behavior",
-    icon: <GlassIcon name="layers" />,
-    label: "观察机构行为",
-    description: "比较机构分歧、买卖力量与资金情绪",
-    prompt: "请使用 DM 数据和机构行为分析 Skill，分析最近一周国际货币分歧指数、国利货币买卖力量和资金情绪，比较银行、证券、保险、基金等机构信号，说明跨来源的一致性与分歧，不把分歧指数直接作为买卖建议。",
-  },
-  {
-    category: "fixed-income",
-    key: "bond-market",
-    icon: <GlassIcon name="globe" />,
-    label: "查询债券行情",
-    description: "查看收益率、成交与估值偏离",
-    prompt: "请使用 DM 债券行情与分析工具，查询【债券名称/代码】最近可用的收益率、成交和估值数据，比较同期限曲线与同类债券，注明数据时点、单位与覆盖范围。",
-  },
-  {
-    category: "fixed-income",
-    key: "bond-primary",
-    icon: <GlassIcon name="document" />,
-    label: "跟踪债券发行",
-    description: "查看发行条款与一级市场供给",
-    prompt: "请使用 DM 债券一级市场工具，查询【日期范围/发行人】的债券发行信息，整理发行规模、期限和可用条款，分析一级市场供给；先确认可用字段，未返回的数据明确标注。",
-  },
-  {
-    category: "fixed-income",
-    key: "treasury-futures",
-    icon: <GlassIcon name="chart" />,
-    label: "分析国债期货",
-    description: "联动期货行情、基差与现券走势",
-    prompt: "请使用 DM 国债期货工具，分析【合约/最近交易日】的行情，结合可用的基差、IRR 和持仓数据观察期现关系，区分日度与盘中口径，注明数据来源与缺失项。",
-  },
-  {
-    category: "fixed-income",
-    key: "offshore-bond",
-    icon: <GlassIcon name="globe" />,
-    label: "研究境外债券",
-    description: "查看境外债条款、行情与主体风险",
-    prompt: "请使用 DM 境外债券与公司工具，查询【发行人/ISIN】的境外债信息，整理可用条款、市场定价与发行人风险，注明币种、数据时点及覆盖限制。",
-  },
-  {
-    category: "fixed-income",
-    key: "yield-curve",
-    icon: <GlassIcon name="chart" />,
-    label: "分析收益率曲线",
-    description: "比较期限利差、曲线形态与历史变化",
-    prompt: "请使用可用的 DM 数据，分析【日期范围】国债与政策性金融债收益率曲线，比较关键期限、期限利差和曲线形态变化，梳理可能的驱动因素；注明数据日期、来源、单位与缺失项，不混用不同估值口径。",
-  },
-  {
-    category: "fixed-income",
-    key: "credit-spread",
-    icon: <GlassIcon name="chart" />,
-    label: "比较信用利差",
-    description: "对比评级、行业与期限的定价差异",
-    prompt: "请使用可用的 DM 数据，比较【行业/评级/期限】债券的信用利差及近期变化，说明基准曲线和匹配方式，区分信用风险与流动性影响；注明数据日期、来源与覆盖范围，缺少可比数据时明确说明。",
-  },
-  {
-    category: "fixed-income",
-    key: "bond-maturity",
-    icon: <GlassIcon name="document" />,
-    label: "梳理债券到期",
-    description: "观察到期分布、回售安排与偿债压力",
-    prompt: "请使用可用的 DM 数据，梳理【发行人/行业】未来【时间范围】的债券到期分布、到期规模与可用回售安排，结合发行情况观察再融资压力；区分到期与回售口径，注明数据日期、来源及缺失项，不把到期规模直接等同于违约风险。",
-  },
+  { category: "company", key: "company-assumptions", label: "拆解公司经营假设", description: "业务贡献、关键变量与敏感性", prompt: "查询【公司】的核心假设变量、业务线贡献及其对收入和利润预测的敏感性。" },
+  { category: "company", key: "company-earnings", label: "查看盈利预测", description: "预测指标、变动原因与同行比较", prompt: "查询【公司】未来几年的营收、净利润和每股收益预测，解释预测变化并与同行比较。" },
+  { category: "company", key: "company-valuation", label: "分析公司估值", description: "估值指标、历史分位与估值支撑", prompt: "分析【公司】的 PE、PB、PS、近三年估值分位及同业差异，梳理估值支撑逻辑与风险。" },
+  { category: "company", key: "company-market", label: "查询个股行情", description: "查看近期日行情与区间表现", prompt: "拉【股票代码/名称】最近一个月日行情，并总结区间高低点和近期表现。" },
+  { category: "company", key: "company-profile", label: "查询公司信息", description: "了解企业工商登记与主体信息", prompt: "查询【企业名称】工商信息，包括成立时间、注册资本、法定代表人和实际控制人。" },
+  { category: "company", key: "company-model", label: "查询公司财务数据", description: "查看财务指标并区分实际值与预测值", prompt: "查询【公司】的营业收入、归母净利润等主要财务指标，注明年份并区分实际值与预测值。" },
+  { category: "company", key: "company-peers", label: "对比同行公司", description: "比较业务结构、盈利能力与估值差异", prompt: "对比【公司A】与【公司B】的业务结构、收入增长、盈利能力和估值水平，统一数据期间与口径，注明来源并说明主要差异。" },
+  { category: "company", key: "company-cash-flow", label: "分析现金流质量", description: "观察利润兑现、营运资金与资本开支", prompt: "分析【公司】近三年的经营现金流、净利润、应收账款、存货和资本开支变化，说明利润兑现情况与现金流风险，注明数据期间和来源。" },
+  { category: "industry", key: "industry-outlook", label: "查看行业观点", description: "查询最新行业或赛道周度观点", prompt: "查询【行业】最新周度观点，区分行业观点与赛道观点，并注明日期。" },
+  { category: "industry", key: "industry-research", label: "研究行业赛道", description: "梳理产业链、供需和竞争格局", prompt: "研究【行业】的产业链、供需变化、竞争格局和增长驱动，列出关键观察指标与风险。" },
+  { category: "industry", key: "industry-reports", label: "检索策略研报", description: "查找指定方向的近期研究观点", prompt: "检索【行业/策略方向】近期的 CICC／HTSC 研究报告，列出标题、日期和核心观点。" },
+  { category: "industry", key: "industry-timing", label: "分析量化择时", description: "查看目标股票的技术面信号", prompt: "分析【股票代码/名称】当前量化择时信号，并说明主要技术指标和信号时点。" },
+  { category: "industry", key: "industry-sentiment", label: "查看市场情绪", description: "了解 A 股情绪与行业景气度", prompt: "查询 A 股市场情绪和【行业】景气度的近期变化，并说明数据日期。" },
+  { category: "industry", key: "industry-index", label: "查看市场策略观点", description: "检索近期市场策略研究", prompt: "检索近期 A 股市场策略研究观点，列出报告日期和主要判断。" },
+  { category: "industry", key: "industry-policy", label: "梳理行业政策影响", description: "识别政策变化、受益环节与风险", prompt: "梳理【行业】近期重要政策，注明发布日期和来源，区分已实施政策与征求意见稿，分析对供需、竞争格局及产业链各环节的影响。" },
+  { category: "industry", key: "industry-institutions", label: "观察机构行为", description: "跟踪资金动向与行业配置变化", prompt: "结合可用机构行为和资金数据，分析【行业】近期机构配置与资金动向，注明数据日期、统计口径和来源，区分事实与推断；缺失数据请明确说明。" },
+  { category: "experts", key: "expert-global", label: "全球宏观与资产配置", description: "分析海外市场风格和跨资产传导", prompt: "从全球宏观和跨资产配置角度分析近期海外市场风格变化及其对本地资产的影响。" },
+  { category: "experts", key: "expert-strategy", label: "A 股策略与行业配置", description: "研究行业配置、制度变化与主题机会", prompt: "分析 A 股行业配置、制度变化和主题投资机会，列出关键观察指标。" },
+  { category: "experts", key: "expert-rates", label: "宏观利率与贵金属", description: "理解利率、汇率与资产配置影响", prompt: "分析美国利率变化对黄金、汇率和中国资产配置的影响。" },
+  { category: "experts", key: "expert-macro", label: "全球宏观与国际金融", description: "关注通胀、国际金融秩序和利率", prompt: "分析全球通胀和国际金融秩序变化对利率与资产价格的影响。" },
+  { category: "experts", key: "expert-energy", label: "新能源与电力设备", description: "研究新能源、储能和电网投资", prompt: "研究电力设备、新能源、储能和电网投资变化对产业链的影响。" },
+  { category: "experts", key: "expert-fixed-income", label: "固收与资金面", description: "分析央行操作、流动性和机构行为", prompt: "从固收视角分析央行操作、资金面和机构行为对债券市场的影响。" },
+  { category: "experts", key: "expert-consumption", label: "消费与出海", description: "观察食品饮料竞争和消费出海趋势", prompt: "分析食品饮料行业竞争变化、消费趋势和出海机会。" },
+  { category: "experts", key: "expert-software", label: "软件与人工智能", description: "梳理赛道逻辑、代表方向和行情", prompt: "分析软件与人工智能行业的赛道逻辑、代表方向和近期板块变化。" },
+  { category: "experts", key: "expert-retail", label: "零售、美妆与家居", description: "分析消费行业景气和渠道变化", prompt: "分析消费、零售、美妆或家居行业景气变化与渠道趋势。" },
+  { category: "reports", key: "find-data", label: "查找研究数据", description: "整理所需数据及来源", prompt: "为【行业】研究列出所需数据，查找可用数据并注明来源和时间范围。" },
+  { category: "reports", key: "find-articles", label: "搜索研究文章", description: "查找主题文章并归纳主要观点", prompt: "搜索【主题】相关研究文章，整理标题、发布日期和主要观点。" },
+  { category: "reports", key: "find-reports", label: "检索研究报告", description: "按行业、方向或时间筛选报告", prompt: "按【行业】和【时间范围】检索 CICC／HTSC 研究报告，列出标题、日期和摘要。" },
+  { category: "reports", key: "report-ratings", label: "筛选评级变化", description: "关注上调评级或首次覆盖报告", prompt: "筛选【时间范围】内【行业】评级上调或首次覆盖的研究报告。" },
+  { category: "reports", key: "review-report", label: "核查报告内容", description: "检查数据、论据和结论是否一致", prompt: "核对这份报告中的关键数字、引用、论据和结论，标出需要进一步确认的内容。" },
+  { category: "reports", key: "write-report", label: "整理研究报告", description: "按研究报告结构组织材料", prompt: "按研究报告结构整理这些材料，明确核心观点、论据、风险和待补充数据。" },
+  { category: "reports", key: "cicc-report-search", label: "查询 CICC 研究观点", description: "按主题检索相关研报", prompt: "检索 CICC 对【主题】的研究报告，列出标题、日期和核心观点。" },
+  { category: "reports", key: "htsc-report-search", label: "查询 HTSC 研究观点", description: "按主题检索华泰相关研报", prompt: "检索 HTSC 对【主题】的研究报告，列出标题、日期和摘要。" },
+  { category: "review", key: "earnings-review", label: "点评公司业绩", description: "提炼财务指标、盈利驱动与风险", prompt: "点评【公司】最新一期业绩，提炼关键财务指标、盈利驱动、经营亮点和潜在风险。" },
+  { category: "review", key: "daily-review", label: "复盘最近一个交易日", description: "总结 A 股主要指数和板块表现", prompt: "查询最近一个交易日的 A 股复盘，梳理主要指数、行业板块表现和市场驱动因素。" },
+  { category: "review", key: "weekly-review", label: "复盘最近五个交易日", description: "观察一周市场走势与主要变化", prompt: "查询最近五个交易日的 A 股复盘，总结市场走势、主要板块表现和后续观察要点。" },
+  { category: "review", key: "review-sector", label: "总结市场行业表现", description: "结合研究观点梳理板块驱动", prompt: "结合近期 CICC／HTSC 研究观点，复盘 A 股行业表现和市场驱动因素。" },
+  { category: "review", key: "review-strategy", label: "查看策略复盘观点", description: "检索市场复盘和策略研究", prompt: "检索近期市场复盘或策略研究观点，归纳主要变化与后续关注点。" },
+  { category: "review", key: "review-company-reports", label: "查业绩研究观点", description: "结合研究报告理解业绩变化", prompt: "检索【公司】近期业绩点评或市场策略报告，归纳主要观点。" },
+  { category: "review", key: "review-company-drivers", label: "分析业绩变化原因", description: "梳理经营数据与盈利驱动", prompt: "结合【公司】的经营和财务数据，分析业绩变化的主要原因及后续关注点。" },
+  { category: "review", key: "review-expectations", label: "对比业绩与预期", description: "核对实际业绩、历史指引与研究预测", prompt: "对比【公司】最新一期实际业绩与业绩公布前的公司指引或研究预测，统一期间和指标口径，梳理超预期或低于预期的项目及原因；注明来源和预测发布日期，没有可比预期时明确说明。" },
+  { category: "bond", key: "bond-daily", label: "生成债市日报", description: "回顾最近交易日债券市场", prompt: "生成最近一个交易日的债券市场日报，概括资金面、债券行情和后续关注点。" },
+  { category: "bond", key: "bond-credit", label: "分析主体信用", description: "评估偿债能力、债务结构和信用风险", prompt: "分析【发行人全称/债券代码】的主体资质、偿债能力、债务结构和主要信用风险。" },
+  { category: "bond", key: "bond-curve", label: "查询国债收益率曲线", description: "查看关键期限收益率", prompt: "拉中债国债曲线，看 1Y、10Y 关键期限收益率和期限利差。" },
+  { category: "bond", key: "bond-info", label: "查询债券基础信息", description: "查看票面利率、期限与剩余期限", prompt: "查询【债券名称/代码】基础信息，包括票面利率、发行期限和剩余期限。" },
+  { category: "bond", key: "bond-primary", label: "跟踪一级市场发行", description: "查看本周债券发行情况", prompt: "查询本周信用债一级发行情况，整理发行规模、票面利率和认购情况。" },
+  { category: "bond", key: "bond-offshore", label: "查询境外债收益率", description: "查看境外债近期收益率走势", prompt: "查询目标境外债最近可用的收益率走势和近期变化。" },
+  { category: "bond", key: "bond-maturity", label: "梳理债务到期压力", description: "观察到期分布和再融资压力", prompt: "梳理【发行人】未来一年的债券到期分布、到期规模和再融资压力。" },
+  { category: "bond", key: "bond-risk-watch", label: "建立信用风险观察清单", description: "整理需持续跟踪的偿债指标", prompt: "列出【发行人】需要持续跟踪的偿债能力和信用风险指标。" },
+  { category: "multi-asset", key: "money-market", label: "查询资金利率", description: "查看 DR007、R007 等指标", prompt: "查询今天 DR007、R007 的数值和对应日期。" },
+  { category: "multi-asset", key: "bill-market", label: "查看票据报价", description: "查询票据转贴市场报价", prompt: "查询今天票据转贴市场报价，并汇总买入和卖出报价数量。" },
+  { category: "multi-asset", key: "macro-indicator", label: "查询宏观指标", description: "查看指标定义、频率和最新日期", prompt: "查询制造业 PMI 指标信息，包括指标名称、频率和最新数据日期。" },
+  { category: "multi-asset", key: "futures-market", label: "查询期货行情", description: "查看指定国债期货合约", prompt: "查询指定国债期货合约行情，包括收盘价、持仓量和成交量。" },
+  { category: "multi-asset", key: "fx-market", label: "查询汇率行情", description: "查看美元兑人民币日行情", prompt: "查询美元兑人民币日行情，并概括指定区间的变化。" },
+  { category: "multi-asset", key: "fund-profile", label: "查询基金信息", description: "查看基金规模、经理和成立日期", prompt: "查询【基金名称/代码】基本信息，包括基金规模、基金经理和成立日期。" },
+  { category: "multi-asset", key: "company-profile-dm", label: "查询企业工商信息", description: "查看注册信息和实际控制人", prompt: "查询【企业名称】工商信息，包括成立日期、注册资本和实际控制人。" },
+  { category: "multi-asset", key: "cross-asset-performance", label: "分析大类资产表现", description: "比较股债商品汇率与宏观驱动", prompt: "比较【时间范围】内股票、债券、商品和汇率等主要资产的表现，梳理增长、通胀、利率和流动性变化的影响。明确各类资产的代表指数或指标、统计口径、数据日期和来源，区分事实与推断；缺失数据请明确说明。" },
 ];
 
 function WelcomePrompts({ onSelect }: { onSelect: (prompt: string) => void }) {
-  const [tab, setTab] = useState("equity");
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [visible, setVisible] = useState(() => !document.hidden);
-
-  useEffect(() => {
-    const update = () => setVisible(!document.hidden);
-    document.addEventListener("visibilitychange", update);
-    return () => document.removeEventListener("visibilitychange", update);
-  }, []);
-
-  useEffect(() => {
-    if (hovered || focused || !visible) return;
-    const timer = window.setTimeout(() => {
-      setTab((current) => current === "equity" ? "fixed-income" : "equity");
-    }, 8000);
-    return () => window.clearTimeout(timer);
-  }, [tab, hovered, focused, visible]);
-
+  const [category, setCategory] = useState("company");
+  const [showAll, setShowAll] = useState(false);
+  const prompts = WELCOME_PROMPTS.filter((item) => item.category === category);
+  const visiblePrompts = showAll ? prompts : prompts.slice(0, 8);
   return (
-    <div className="welcome-services"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => setFocused(true)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
-      }}
-    >
-      <div className="welcome-tabs" role="tablist" aria-label="研究服务类别">
-        {[{ key: "equity", label: "权益" }, { key: "fixed-income", label: "固收" }].map(({ key, label }) => (
-          <button key={key} type="button" role="tab" id={`welcome-tab-${key}`}
-            aria-selected={tab === key} aria-controls="welcome-prompt-panel"
-            tabIndex={tab === key ? 0 : -1}
-            className={`welcome-tab${tab === key ? " is-active" : ""}`}
-            onClick={() => setTab(key)}
-            onKeyDown={(event) => {
-              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-              event.preventDefault();
-              const next = event.key === "Home" ? "equity" : event.key === "End" ? "fixed-income" : tab === "equity" ? "fixed-income" : "equity";
-              setTab(next);
-              document.getElementById(`welcome-tab-${next}`)?.focus();
-            }}
-          >{label}</button>
-        ))}
-      </div>
-      <div className="prompt-grid" id="welcome-prompt-panel" role="tabpanel" aria-labelledby={`welcome-tab-${tab}`}>
-        {WELCOME_PROMPTS.filter(({ category }) => category === "neutral" || category === tab).map(({ key, icon, label, description, prompt }) => (
-          <button type="button" key={key} className={`welcome-prompt welcome-prompt--${tab}`} onClick={() => onSelect(prompt)}>
-            <span className="welcome-prompt-heading">{icon}</span>
-            <span className="welcome-prompt-title">{label}</span>
-            <span className="welcome-prompt-description">{description}</span>
+    <div className="welcome-services">
+      <div className="welcome-category-list" role="group" aria-label="研究分类">
+        {WELCOME_CATEGORIES.map((item) => (
+          <button key={item.key} type="button" className={`welcome-category${category === item.key ? " is-active" : ""}`}
+            aria-pressed={category === item.key} onClick={() => { setCategory(item.key); setShowAll(false); }}>
+            <Icon name={item.icon} size={16} />
+            <span className="welcome-category-name">{item.label}</span>
           </button>
         ))}
       </div>
+      <section className="welcome-prompts-section" aria-label="推荐问题" aria-live="polite">
+        <div className="prompt-grid">
+          {visiblePrompts.map(({ key, label, description, prompt }) => (
+            <button type="button" key={key} className="welcome-prompt" onClick={() => onSelect(prompt)}>
+              <span className="welcome-prompt-title">{label}</span>
+              <span className="welcome-prompt-description">{description}</span>
+            </button>
+          ))}
+        </div>
+        {prompts.length > 8 && <button type="button" className="welcome-more-button" aria-expanded={showAll}
+          onClick={() => setShowAll((value) => !value)}>{showAll ? "收起问题" : "更多问题"}<span aria-hidden="true">{showAll ? "↑" : "→"}</span></button>}
+      </section>
     </div>
   );
 }
@@ -666,7 +521,7 @@ export function ChatView({
                 alt={__MELONCLAW_IS_RMS_BRAND__ ? "RMS" : "MelonClaw"}
               />
             </div>
-            <h1>探索研究服务</h1>
+            <h1>今天想研究什么？</h1>
             <WelcomePrompts onSelect={setDraft} />
           </div>
         ) : (

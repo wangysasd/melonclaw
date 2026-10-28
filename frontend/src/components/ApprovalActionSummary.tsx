@@ -18,6 +18,11 @@ export function hasApprovalSummary(action: ApprovalAction): boolean {
   if (["confirm_skill_install", "test_mcp_install", "confirm_mcp_install"].includes(action.name)) {
     return Boolean(args.installation && typeof args.installation === "object");
   }
+  if (action.name === "confirm_skill_batch") {
+    return Array.isArray(args.installations) && args.installations.length > 0
+      && args.installations.every(item => item && typeof item === "object");
+  }
+  if (action.name === "confirm_environment_change") return Boolean(args.change && typeof args.change === "object");
   if (action.name === "execute") return typeof args.command === "string";
   return ["write_file", "edit_file", "delete"].includes(action.name)
     && typeof args.file_path === "string";

@@ -21,8 +21,9 @@ from melonclaw.services.environment_chat import parse_environment_chat
 from melonclaw.tool.environment import build_environment_tools
 
 
+@pytest.mark.parametrize("batch", [False, True])
 @pytest.mark.parametrize("decision", ["approve", "reject"])
-def test_real_environment_hitl_keeps_values_out_of_checkpoints(tmp_path, decision):
+def test_real_environment_hitl_keeps_values_out_of_checkpoints(tmp_path, decision, batch):
     async def run():
         context = AgentContext(
             user_id="alice",
@@ -33,7 +34,7 @@ def test_real_environment_hitl_keeps_values_out_of_checkpoints(tmp_path, decisio
             tenant_name="测试",
         )
         clean, draft = parse_environment_chat(
-            "设置环境变量 TOKEN=fixture-sensitive-value",
+            "设置环境变量 TOKEN=fixture-sensitive-value" + ("\nAPP_ID=fixture-id" if batch else ""),
             user_id="alice",
             conversation_id=context.conversation_id,
             request_id="request",
@@ -49,6 +50,9 @@ def test_real_environment_hitl_keeps_values_out_of_checkpoints(tmp_path, decisio
             "description": "",
             "impact": "仅自己",
         }
+        if batch:
+            item = {key: value for key, value in manifest.items() if key != "draft_id"}
+            manifest = {"draft_id": draft["id"], "scope": "user", "changes": [item, {**item, "name": "APP_ID"}]}
         provider = SimpleNamespace(
             prepare=AsyncMock(return_value={"status": "prepared", "change": manifest}),
             confirm=AsyncMock(return_value={"status": "saved"}),
@@ -101,6 +105,7 @@ def test_real_environment_hitl_keeps_values_out_of_checkpoints(tmp_path, decisio
         provider.confirm.assert_not_awaited()
         snapshot = await graph.aget_state(config)
         assert "fixture-sensitive-value" not in str(snapshot)
+        assert "fixture-id" not in str(snapshot)
         assert "value" not in json.dumps(manifest).replace("replaces_value", "replaces")
         await graph.ainvoke(
             Command(resume={"decisions": [{"type": decision}]}), config, context=context

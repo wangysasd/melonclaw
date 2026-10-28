@@ -138,3 +138,39 @@ it("shows shared installation effects and submits only an explicit approval", as
   await user.click(screen.getByRole("button", { name: "允许本次" }));
   expect(onSubmit).toHaveBeenCalledWith([{ type: "approve" }]);
 });
+
+it("shows each batch Skill operation and preserves disabled state in approval", async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn().mockResolvedValue(undefined);
+  render(<ApprovalPanel approval={approval("skill-batch", [{
+    name: "confirm_skill_batch", description: "批量同步", allowed_decisions: ["approve", "reject"],
+    args: JSON.stringify({ installations: [
+      { draft_id: "new", name: "new-skill", scope: "global", enable: true, operation: "install", source_url: "https://skills.example/new" },
+      { draft_id: "old", name: "old-skill", scope: "global", enable: false, operation: "update", source_url: "https://skills.example/old" },
+    ] }),
+  }])} onSubmit={onSubmit} />);
+  const manifest = screen.getByLabelText("Skill 安装清单");
+  expect(manifest.textContent).toContain("共 2 项技能");
+  expect(manifest.textContent).toContain("新增安装");
+  expect(manifest.textContent).toContain("更新已有技能，保留启用状态");
+  expect(manifest.textContent).toContain("保持停用");
+  expect(screen.getByText("查看完整参数 · confirm_skill_batch").closest("details")?.open).toBe(false);
+  expect(onSubmit).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "允许本次" }));
+  expect(onSubmit).toHaveBeenCalledWith([{ type: "approve" }]);
+});
+
+it("shows all environment names and atomic-save impact without values", () => {
+  render(<ApprovalPanel approval={approval("env-batch", [{
+    name: "confirm_environment_change", description: "环境变量", allowed_decisions: ["approve", "reject"],
+    args: JSON.stringify({ change: { draft_id: "env", scope: "user", changes: [
+      { name: "APP_ID", scope: "user", action: "update", replaces_value: true, impact: "仅自己" },
+      { name: "APP_SECRET", scope: "user", action: "create", replaces_value: true, impact: "仅自己" },
+    ] } }),
+  }])} onSubmit={vi.fn()} />);
+  const manifest = screen.getByLabelText("环境变量变更清单");
+  expect(manifest.textContent).toContain("APP_ID");
+  expect(manifest.textContent).toContain("APP_SECRET");
+  expect(manifest.textContent).toContain("任一项失败则全部不提交");
+  expect(screen.queryByText(/fixture-secret/)).toBeNull();
+});

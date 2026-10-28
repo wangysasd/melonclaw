@@ -15,7 +15,7 @@
 | [常驻全局导航](global-navigation.md) | 已实现 | 全局窄栏、定时任务闹钟选中黑色圆盘与白色指针、拓展图标右上方块旋转 45°、rms 品牌开关控制 A/M/登录页及侧栏字标/助手头像/Browser Tab、Home 独立折叠、拓展 TAB 记忆和聊天状态保留 |
 | [Agent 运行控制与用量](agent-runtime-controls.md) | 已实现 | 数据库模型窗口与可见工具摘要计数、任务调用预算（默认模型 1000／工具 5000）、最多两次取数的提示指引、瞬时重试、显式 Todo 启停与跨模型用量账本；主／子装配及审批恢复、流中断行为验收覆盖，无新增表 |
 | [DeepSeek 联网搜索与网页读取](deepseek-web-tools.md) | 已实现 | 普通聊天主/子 Agent 常驻搜索与读取，不占动态工具池；共用协议校验、有限重试与节流；后台只开放授权搜索 |
-| [按需官方工具选择与会话池](on-demand-tool-pool.md) | 已实现 | 官方选择、find_tools 按需触发、跨消息复用、目录失效、父子隔离与并行预算；内置 DeepSeek 搜索（`internet_search`）与网页读取（`web_fetch`）在装配入口统一包装，真实构建路径已覆盖回归验证 |
+| [按需官方工具选择与会话池](on-demand-tool-pool.md) | 已实现 | 官方选择、find_tools 最终回执与真实名称精确加载、跨消息复用、目录失效、父子隔离与并行预算；内置 DeepSeek 搜索（`internet_search`）与网页读取（`web_fetch`）在装配入口统一包装，真实构建路径已覆盖回归验证 |
 | [MelonClaw 登录页](melonclaw-login-page.md) | 已实现 | 非 RMS 与空品牌的浅蓝玻璃 AI 登录页、响应式表单与原认证链路 |
 | [RMS 登录页](rms-login-page.md) | 已实现 | RMS 品牌左右分栏式登录、玻璃环本地配图、精简文案与原认证链路 |
 | [前端视觉一致性](ui-consistency.md) | 已实现（2026-10-18 精修） | 共享 Token、Ant Design 主题、统一 WorkspaceHeader 顶栏、聊天一体化圆角面板、资源卡片分区底栏、聊天与浮层、响应式规范 |
@@ -25,7 +25,7 @@
 | [长任务状态与停止反馈](long-task-feedback.md) | 已实现 | 观测阶段、已确认任务清单、阅读历史时的新内容提示、取消后的保留与未知结果说明 |
 | [聊天确认与问题卡](chat-interaction-cards.md) | 已实现 | 统一卡片、授权对象摘要、单项直接提交、多项明确选择、问答与授权区分、页面内决定回执；文件工具免逐次审批，保留 Skill/MCP 安装与 MCP 测试审批 |
 | [聊天生成 Skill](chat-skill-creation.md) | 已实现 | 内置 skill-creator、受限文本草稿、聊天来源、角色范围、复用安装审批与文件/数据库恢复 |
-| [聊天安装 MCP](chat-mcp-install.md) | 已实现 | JSON 凭据隔离、持久草稿、按角色确定共享/个人归属、测试/安装分别审批、事务幂等与下一轮生效 |
+| [聊天安装与更新 MCP](chat-mcp-install.md) | 已实现 | JSON 凭据隔离、同名版本化更新与明确字段保留、测试/保存独立审批、原子幂等回执与下一轮生效 |
 | [MCP 两层配置与 JSON 导入](mcp-two-layer.md) | 已实现 | 角色归属、个人偏好、同名不回退、JSON 单向填表、凭据明文存储与 API 不回显、连接测试、工具白名单交集与缺失诊断、探测调度/缓存、卡片仅展示使用状态、无后台检测、工具权限胶囊对齐与编辑体验、外部工具调用免逐次审批（安装/测试仍审批） |
 | [用户管理与开发登录](user-management-login.md) | 已实现 | 两张业务表、密码登录、dev 免密、全员切换、软删除与租户启停；可撤销 Cookie 会话 |
 | [用户唯一租户归属](one-tenant-per-user.md) | 已实现 | 用户行固定归属一个租户；服务端解析租户上下文，项目与会话仍按用户归属，Tenant Memory 沿用租户隔离与角色授权 |
@@ -37,16 +37,16 @@
 | [执行准备与流式归约去重](execution-stream-performance.md) | 已实现 | 幂等回放与锁后构建、单一消息对事务、共享步骤投影、历史懒加载和前端文本批量归约 |
 | [会话与项目工作区](conversations-and-project-workspaces.md) | 已实现 | 普通会话独立持久工作区，Project 内会话共享项目工作区；包含普通会话加入项目、附件作用域、Agent 缓存与安全边界 |
 | [侧栏项目与会话管理](sidebar-resource-management.md) | 已实现 | 项目展开、资源操作、普通会话的移动级联菜单，以及输入框项目选择器与侧栏的联动 |
-| [内置教程与聊天安装 Skill](chat-skill-install.md) | 已实现 | 教程按需问答、ZIP/GitHub 聊天安装、运行上下文身份、清单绑定审批与下一轮启用 |
+| [内置教程与聊天安装 Skill](chat-skill-install.md) | 已实现 | 教程按需问答、ZIP/GitHub/HTTPS 批量同步与合集展开、同名更新/冲突、清单绑定审批与下一轮启用 |
 | [Skill 生命周期与一致性](skill-lifecycle.md) | 已实现 | 范围身份、统一有效状态、保留身份的内容更新、持久草稿与操作恢复、正文/差异/依赖预览、运行时只读快照 |
 | [用户 Skill 与 MCP 资源管理](user-skills-and-mcp.md) | 已实现 | 管理员直接安装全局共享 Skill、管理全局 MCP，普通用户安装私有 Skill（ZIP/远程两段式）与自建 HTTP MCP；Skill 严格两级 scope、管理操作显式范围、内置源单向同步、按 scope 的 `${VAR}` 安全边界 |
 | [用户自定义模型](custom-models.md) | 已实现 | 供应商固定 global、模型 global/user（数据库与 API 约束）：23 家纯 chat 内置供应商，供应商双列表单及高级配置（显式环境变量凭据兜底、请求头和扩展请求体）、未保存配置的只读连接测试，admin 配全局共享默认给全员，用户可配私有；各人启用集合不一样；`custom:` 模型 ID 解析到 `model_configs` 表，api_key 只写不回读 |
 | [空工具名快速失败](tool-name-guard.md) | 已实现 | 出站前验证工具名，避免供应商报错后才定位 |
 | [聊天错误恢复与发送前反馈](chat-error-recovery.md) | 已实现 | 错误来源、只读同步和附件发送前门槛 |
-| [环境变量与聊天准备缓存](environment-and-preparation.md) | 已实现 | 管理员共享／普通用户个人、停用回退、只写值、聊天 HITL；六因子内存缓存、提交发布及请求准备身份归属复用，MCP 业务规则不变；[补充测试矩阵](../exec-plans/completed/2026-10-18-environment-validation.md) |
+| [环境变量与聊天准备缓存](environment-and-preparation.md) | 已实现 | 管理员共享／普通用户个人、停用回退、只写值、单项/批量聊天 HITL 与混合消息脱敏；六因子内存缓存、提交发布及请求准备身份归属复用，MCP 业务规则不变；[补充测试矩阵](../exec-plans/completed/2026-10-18-environment-validation.md) |
 | [账户 review 修复](account-review-fixes.md) | 已实现 | 同站来源白名单、刷新乱序、散列校验与公开就绪探测 |
 
-欢迎页研究服务下划线导航已实现，视觉与交互边界见[前端视觉一致性](ui-consistency.md#欢迎页研究服务导航)。
+欢迎页七分类轻量标签与原引导词卡片已实现，方案见[欢迎页研究方向引导](welcome-research-prompts.md)，视觉与交互边界见[前端视觉一致性](ui-consistency.md#欢迎页研究服务导航)。
 
 ## 维护约定
 

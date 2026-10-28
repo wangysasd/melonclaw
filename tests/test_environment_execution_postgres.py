@@ -23,6 +23,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.mark.parametrize("batch", [False, True])
 @pytest.mark.parametrize(
     ("user_id", "decision", "scope"),
     [
@@ -33,7 +34,7 @@ pytestmark = pytest.mark.skipif(
     ],
 )
 def test_chat_environment_lifecycle_uses_real_checkpoint_and_repository(
-    monkeypatch, tmp_path, user_id, decision, scope
+    monkeypatch, tmp_path, user_id, decision, scope, batch
 ):
     async def run():
         raw_value = f"synthetic-environment-secret-{user_id}"
@@ -45,6 +46,10 @@ def test_chat_environment_lifecycle_uses_real_checkpoint_and_repository(
                 conversation_id = UUID(conversation["id"])
                 request_id = str(uuid4())
                 raw_message = f"设置环境变量 {variable_name}={raw_value}"
+                if batch:
+                    raw_message = ("请安装全部技能 https://skills.example/download?name=one\n"
+                                   "并配置以下永久环境变量（已有则替换）\n"
+                                   f"{variable_name}={raw_value}\n{variable_name}_SECOND={raw_value}-second")
                 clean, draft = parse_environment_chat(
                     raw_message,
                     user_id=user_id,
@@ -70,6 +75,9 @@ def test_chat_environment_lifecycle_uses_real_checkpoint_and_repository(
                         else "仅自己；停用或删除后自动使用可用共享配置"
                     ),
                 }
+                if batch:
+                    item = {key: value for key, value in manifest.items() if key != "draft_id"}
+                    manifest = {"draft_id": draft["id"], "scope": scope, "changes": [item, {**item, "name": variable_name + "_SECOND"}]}
                 model = ToolModel(
                     responses=[
                         AIMessage(
@@ -171,6 +179,8 @@ def test_chat_environment_lifecycle_uses_real_checkpoint_and_repository(
                 effective = await storage.effective_environment(user_id)
                 if decision == "approve":
                     assert effective[variable_name] == raw_value
+                    if batch:
+                        assert effective[variable_name + "_SECOND"] == raw_value + "-second"
                     committed = await storage.environment_operation(
                         draft["id"], user_id, str(conversation_id)
                     )
@@ -215,7 +225,7 @@ def test_chat_environment_lifecycle_uses_real_checkpoint_and_repository(
                 )
                 replay_events = [event async for event in chat.stream_execution(replay)]
                 assert any(event.get("replayed") for event in replay_events)
-                assert len(await storage.list_environment(user_id)) == int(decision == "approve")
+                assert len(await storage.list_environment(user_id)) == int(decision == "approve") * (2 if batch else 1)
                 async with storage.engine.connect() as conn:
                     operation_count = await conn.scalar(
                         select(func.count())
