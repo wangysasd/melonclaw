@@ -170,7 +170,7 @@ async def build_research_agent(
                 task_configuration_provider, environment_provider, environment, client_capabilities,
                 mcp_servers, mcp_tool_allowlists, skill_dirs)):
             raise ValueError("无人值守执行不能混入普通聊天的能力或工作区挂载。")
-        return build_unattended_agent(
+        return await build_unattended_agent(
             settings, model=model, checkpointer=checkpointer, options=unattended,
             context_schema=AgentContext,
         )

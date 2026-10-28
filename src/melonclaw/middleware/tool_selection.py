@@ -17,6 +17,7 @@ from langchain_core.runnables.config import ensure_config, merge_configs, set_co
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.types import Overwrite
 
+from melonclaw.core.task_policy import TaskExecutionError, TaskRunControl
 from melonclaw.core.tool_catalog import (
     FIND_TOOLS_NAME,
     CatalogSelectionState,
@@ -33,6 +34,7 @@ class ToolPoolMiddleware(AgentMiddleware):
     def __init__(
         self, *, model: BaseChatModel, catalog_tools: list[Any], pool_size: int = 16,
         selection_size: int = 8, max_requests: int = 4, timeout_seconds: float = 10,
+        control: TaskRunControl | None = None,
     ) -> None:
         super().__init__()
         if min(pool_size, selection_size, max_requests, timeout_seconds) <= 0:
@@ -43,6 +45,7 @@ class ToolPoolMiddleware(AgentMiddleware):
         self.pool_size = pool_size
         self.max_requests = max_requests
         self.timeout_seconds = timeout_seconds
+        self.control = control
         self.model = model
         self.selector = LLMToolSelectorMiddleware(model=model, max_tools=min(selection_size, pool_size))
 
@@ -61,6 +64,15 @@ class ToolPoolMiddleware(AgentMiddleware):
             pool["processed"] = [r["id"] for r in requests]
         pending = [r for r in requests[:self.max_requests] if r["id"] not in pool["processed"]]
         receipts = []
+        if self.control is not None:
+            accepted = []
+            for request in pending:
+                if self.control.reserve_discovery(f"{turn}:{request['id']}", self.max_requests):
+                    accepted.append(request)
+                else:
+                    receipts.append(self._receipt(request, "exhausted", [], pool["names"]))
+                    pool["processed"].append(request["id"])
+            pending = accepted
         if pending:
             selected, results = [], {}
             semantic = []
@@ -121,6 +133,12 @@ class ToolPoolMiddleware(AgentMiddleware):
         )
 
     async def _select(self, state, runtime, pending):
+        if self.control is not None:
+            self.control.check()
+        if not self.catalog_tools:
+            return [], "no_match"
+        if self.control is not None:
+            self.control.consume("model")
         activity_id = str(uuid4())
         started = perf_counter()
         writer = runtime.stream_writer
@@ -144,12 +162,16 @@ class ToolPoolMiddleware(AgentMiddleware):
             with set_config_context(config) as context:
                 async with asyncio.timeout(self.timeout_seconds):
                     await asyncio.create_task(self.selector.awrap_model_call(request, capture), context=context)
+        except TaskExecutionError:
+            raise
         except Exception:  # noqa: BLE001 - 只读选择失败保留旧池；取消继续向上传播
             selected = []
             outcome = "degraded"
         writer({"type": "run_activity", "id": activity_id, "kind": "selection", "status": "completed",
                 "duration_ms": int((perf_counter() - started) * 1000), "outcome": outcome})
         writer({"type": "run_phase", "phase": "waiting_model"})
+        if self.control is not None:
+            self.control.check()
         return selected, outcome
 
     def filter_request(self, request: ModelRequest) -> ModelRequest:

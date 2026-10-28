@@ -73,7 +73,7 @@ melonclaw_requirements:
 
 ## Agent 数据流
 
-`skill_snapshot` 在同一数据根锁内查询索引、计算有效状态，将有效内容复制到摘要命名的只读路由目录；源文件更新不会改变已构建 Agent 的文件。快照不参与索引重建，所有文件工具写入仍由原有 `FilesystemPermission` 拒绝。
+普通聊天的 `skill_snapshot` 在同一数据根锁内查询索引、计算有效状态，将有效内容复制到摘要命名的只读路由目录；源文件更新不会改变已构建 Agent 的文件。快照不参与索引重建，所有文件工具写入仍由原有 `FilesystemPermission` 拒绝。定时任务每次执行复用相同有效状态规则，但仅映射当前文件、不复制内容，见[当前资源与执行保护](task-resources-and-execution-guards.md)。
 
 缓存键使用有效目录的资源 ID、版本和完整内容摘要，个人开关、删除或手工改动正文都会改变目录摘要。消息的 display_metadata 保存选中 Skill 引用和本轮可见 `skill_catalog`；它表示可用目录，不虚报为所有技能均已实际调用。实际文件读取可在工具轨迹中观察，并结合记录的内容摘要追踪版本。
 

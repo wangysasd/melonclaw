@@ -22,7 +22,7 @@ services/skill_index.py 重建索引只补缺失记录，不覆盖已有归属�
 
 管理页、Picker、显式选择与 Agent 统一消费 skill_state 的有效状态。共享项同时受全员开关和个人偏好约束；有效私有项才遮蔽同名共享项。更新保留资源 ID、归属和个人偏好，内容与数据库提交使用文件锁及可恢复操作日志。
 
-运行时使用只读内容快照；缓存依据实际资源 ID、版本和内容摘要，不以全局更新时间代替个人有效目录。SkillRefreshMiddleware 每轮刷新构建时快照的元数据。持久草稿按 manifest 的 expires_at 清理，不能按进程内草稿表判断存活。
+普通聊天运行时使用只读内容快照；缓存依据实际资源 ID、版本和内容摘要，不以全局更新时间代替个人有效目录。SkillRefreshMiddleware 每轮刷新构建时快照的元数据。后台定时任务每次执行重新解析有效资源，直接只读当前文件，不复制内容快照，见[当前资源与执行保护](task-resources-and-execution-guards.md)。持久草稿按 manifest 的 expires_at 清理，不能按进程内草稿表判断存活。
 
 ## MCP 与授权
 

@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 from threading import Event, Lock
 
 TASK_SEARCH_TOOL = "internet_search"
-TASK_REVIEWED_TOOLS = frozenset({TASK_SEARCH_TOOL, "write_todos", "task", "read_task_history", "complete_task"})
+TASK_REVIEWED_TOOLS = frozenset({
+    TASK_SEARCH_TOOL, "write_todos", "task", "read_task_history", "complete_task",
+    "list_mcp_tools", "find_tools", "ls", "read_file",
+})
 
 
 class TaskExecutionError(RuntimeError):
@@ -27,6 +30,7 @@ class TaskRunControl:
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
     _model_calls: int = field(default=0, init=False)
     _tool_calls: int = field(default=0, init=False)
+    _discoveries: set[str] = field(default_factory=set, init=False, repr=False)
     goal_complete: bool = field(default=False, init=False)
 
     def __post_init__(self):
@@ -44,6 +48,17 @@ class TaskRunControl:
         self.check()
         self.goal_complete = True
 
+    def reserve_discovery(self, key: str, limit: int) -> bool:
+        """主/子 Agent 共用本次运行的发现额度；已处理请求不重复扣减。"""
+        with self._lock:
+            self.check()
+            if key in self._discoveries:
+                return True
+            if len(self._discoveries) >= limit:
+                return False
+            self._discoveries.add(key)
+            return True
+
     def consume(self, kind: str) -> None:
         with self._lock:
             self.check()
@@ -59,14 +74,20 @@ class TaskRunControl:
                 raise ValueError("未知调用预算类型。")
 
 
-def task_allowed_tools(*, search_authorized: bool, todo_enabled: bool, history_available: bool = False) -> frozenset[str]:
+def task_allowed_tools(
+    *, search_authorized: bool, todo_enabled: bool, history_available: bool = False,
+    skills_available: bool = False, mcp_tool_names: frozenset[str] = frozenset(),
+) -> frozenset[str]:
     """只接受服务端解析的授权；不把浏览器/模型传来的工具名当成许可。"""
 
-    names = {"task"}
+    names = {"task", "list_mcp_tools", "find_tools"}
     if search_authorized:
         names.add(TASK_SEARCH_TOOL)
     if todo_enabled:
         names.add("write_todos")
     if history_available:
         names.update({"read_task_history", "complete_task"})
-    return frozenset(names) & TASK_REVIEWED_TOOLS
+    if skills_available:
+        names.update({"ls", "read_file"})
+    # 外部名称只能来自本次服务端发现并通过白名单的真实工具，不按名称前缀放行。
+    return (frozenset(names) & TASK_REVIEWED_TOOLS) | mcp_tool_names

@@ -63,6 +63,9 @@ SENSITIVE_TOOL_INTERRUPTS["confirm_environment_change"] = InterruptOnConfig(
 # MCP 安装、测试与准备均不进入 PTC；测试会发送凭据，安装会写入数据库。
 # 已启用且白名单允许的外部 MCP 工具免逐次审批，不动态加入本清单，也不进入 PTC。
 # 调用权限由 MCP 配置作用域、启用状态、工具白名单及远端凭据限制；ask_user 不用于批准调用。
+# 后台 ls/read_file 仅访问服务端筛选的当前有效 Skill；只读、路径逐层拒绝符号链接，
+# 不进入 HITL/PTC。后台 find_tools/list_mcp_tools 仅操作当前授权目录，沿用只读免审批边界；
+# 后台 MCP 同样由启用状态与白名单授权，不装配安装/管理/提问工具，不自动批准中断。
 # prepare_skill_creation 不进审批：仅在受控 tmp 暂存至多 32 文件/64000 字节，
 # 不发布有效资源、不执行代码。正式保存仍由 confirm_skill_install 审批，两者不进 PTC。
 # TODO(sandbox): 沙箱落地后恢复 execute 审批。过渡期 execute 免审批，

@@ -206,10 +206,19 @@ async def build_agent_tools(
     MCP 配置由运行时按当前用户从数据库解析后显式传入。
     """
 
+    tools: list[BaseTool] = build_custom_tools(settings)
+    tools.extend(await build_mcp_tools(mcp_servers, mcp_tool_allowlists))
+    return tools
+
+
+async def build_mcp_tools(
+    mcp_servers: dict[str, dict[str, Any]] | None = None,
+    mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
+) -> list[BaseTool]:
+    """普通聊天和后台共用的 MCP 装配；不附带其他聊天工具。"""
     servers = mcp_servers or {}
     allowlists = mcp_tool_allowlists or {}
-
-    tools: list[BaseTool] = build_custom_tools(settings)
+    tools: list[BaseTool] = []
     if not servers:
         tools.append(build_mcp_catalog_tool({}, {}))
         return tools

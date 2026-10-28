@@ -252,7 +252,11 @@ headers/env 字面值由 `core/mcp_credentials.py` 按明文存入数据库；�
 
 ## 定时任务调度与执行分支
 
-`core/agent.py` 的 unattended 分支组装受限主/子 Agent，不调用普通聊天工具装配；`middleware/task_policy.py` 在工具目录、整批响应和调用入口校验权限，共享预算与停止标志。`backend/task_readonly.py` 不挂载文件或长期 Store，关闭自动落盘，上下文溢出明确失败。每轮提示词有北京时间和本次计划时间。
+`services/task_resources.py` 在每次真正执行时按已校验身份读取当前可见资源，复用 `skill_state.evaluate_skills`、`SkillOperations` 文件锁和 `services/mcp.py` 的有效来源/凭据/白名单规则。构建前后核对进程内资源版本、有界重试，资源只保留本次运行的路径和连接配置，不复制 Skill 内容、不缓存后台 Agent 或在任务表保存资源快照。
+
+`core/agent.py` 的 unattended 分支组装受限主/子 Agent；`core/task_agent.py` 复用 `tool/tools.py` 的 `build_mcp_tools`，不引入普通聊天管理工具。`backend/task_skills.py` 只提供有效单个 Skill 的虚拟只读路径，通过逐层 O_NOFOLLOW 和普通文件/大小检查拒绝符号链接及主机路径，支持 ls/read_file 和框架读取 SKILL.md，不提供写入、Shell 或长期 Store；其他操作继承 `TaskReadOnlyBackend` 拒绝策略。关闭自动落盘，上下文溢出明确失败。
+
+`middleware/task_policy.py` 在工具目录、整批响应和调用入口校验权限，授权名称来自本次真实 MCP 装配，不根据前缀放行。主/子 Agent 各有私有工具池，共享 `TaskRunControl` 的调用预算、发现额度和停止标志；`ToolPoolMiddleware` 可选接收后台 control，选择器内部模型调用同样扣减模型预算，发现额度耗尽返回 exhausted，不因子任务重置。普通聊天仍保持原有每消息发现语义。每轮提示词包含北京时间、计划时间及缺失后跳过并正常收尾的要求。资源缺失的正常说明可 succeeded，预算耗尽或超时为工程失败；有限目标仍由 complete_task 显式判断。完整边界见[当前资源与执行保护](design-docs/task-resources-and-execution-guards.md)。
 
 `core/task_schedule.py` 仅处理北京时间四种计划，错过/重叠直接跳过；`core/task_snapshot.py` 只定义任务要求和历史标识，不保存权限或模型摘要。TaskService 负责表单/对话共用保存和当前配置运行，repository 的短事务负责入队、计划推进、领取、取消和原子终态。Web 生命周期内的 APScheduler 负责周期扫描和有界异步执行，复用数据库与 Checkpointer，由 repository/task_delivery.py 把执行状态和结果同事务交付到固定会话，不启用任务 Memory。创建/修改设置记录用户实际操作，每次触发仅追加助手消息。repository/task_history.py 固定已完成消息来源，core/task_history.py 统一历史投影和相邻文本合并，services/task_history.py 负责有界摘要与原文读取，后台和追问共享业务历史。模型统一通过 services/model_resolution.py 解析，管理事务显式复用同一连接，避免嵌套取连接造成池耗尽。
 

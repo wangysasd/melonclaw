@@ -75,7 +75,6 @@ async def build(monkeypatch, tmp_path, model, *, settings=None, control=None, **
         "grep",
         "ask_user",
         "eval",
-        "find_tools",
         "confirm_skill_install",
         "confirm_mcp_install",
         "mcp__readonly_hint",
@@ -184,16 +183,16 @@ def test_allowed_search_and_child_use_same_restricted_catalog(monkeypatch, tmp_p
         assert result.status == "succeeded", result
         assert result.result_markdown == "报告：已有来源支持的分析。"
         assert searches == ["子任务搜索"]
-        assert bindings[0][1] == {"task", "internet_search", "write_todos"}
+        assert bindings[0][1] == {"task", "internet_search", "write_todos", "find_tools", "list_mcp_tools"}
         child = [names for user, names in bindings if user == "子任务搜索"]
-        assert child and all(names == {"internet_search", "write_todos"} for names in child)
+        assert child and all(names == {"internet_search", "write_todos", "find_tools", "list_mcp_tools"} for names in child)
         assert not result.result_is_partial
 
     asyncio.run(run())
 
 
 @pytest.mark.parametrize(
-    "forbidden", ["execute", "write_file", "eval", "find_tools", "task", "ask_user"]
+    "forbidden", ["execute", "write_file", "eval", "task", "ask_user"]
 )
 def test_child_rejects_forbidden_calls(monkeypatch, tmp_path, forbidden):
     class ChildAttack(Model):

@@ -15,6 +15,7 @@ from melonclaw.repository.task_history import load_history
 from melonclaw.repository.task_queue import TaskQueueRepository
 from melonclaw.services.task_execution import TaskOutcome, TaskProgress, execute_task_agent
 from melonclaw.services.task_history import RunHistoryProvider, prepare_history
+from melonclaw.services.task_resources import load_task_resources
 from melonclaw.services.tasks import TaskService
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,7 @@ class TaskScheduler:
 
         async def invoke_agent(user, definition, model):
             await self.queue.save_model_display_name(run, model.display_name)
+            resources = await load_task_resources(self.service.storage, settings, user.user_id)
             async with self.queue.transaction() as conn:
                 rows = await load_history(conn, user.user_id, run["config_snapshot"]["history"])
             snapshot = await prepare_history(run["config_snapshot"]["history"], rows, model, settings, content=definition.instruction, control=control)
@@ -183,6 +185,9 @@ class TaskScheduler:
                     execution_at=run["started_at"],
                     scheduled_for=run["scheduled_for"],
                     history_provider=history,
+                    skill_mounts=resources.skill_mounts,
+                    mcp_servers=resources.mcp_servers,
+                    mcp_tool_allowlists=resources.mcp_tool_allowlists,
                 ),
             )
             return await execute_task_agent(
