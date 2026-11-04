@@ -97,4 +97,4 @@ git diff --check
 cd frontend && npm run lint && npm run typecheck && npm test
 ```
 
-新增或调整检查项时，同时改三处：`scripts/check.sh`、`.github/workflows/check.yml` 和本节。更多环境陷阱见 [docs/QUALITY_SCORE.md](docs/QUALITY_SCORE.md)。
+新增或调整检查项时，同时更新 `scripts/check.sh` 和本节。更多环境陷阱见 [docs/QUALITY_SCORE.md](docs/QUALITY_SCORE.md)。

@@ -36,6 +36,8 @@ dist/
 
 # 本地编辑器与系统文件。
 .agents/
+.codex/
+.github/
 .codebuddy/
 .workbuddy/
 .idea/

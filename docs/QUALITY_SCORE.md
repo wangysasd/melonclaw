@@ -15,7 +15,7 @@
 | 前端测试 | 中 | 2026-10-17 首批清理后 eslint、tsc、全量 vitest 通过，另有 7 文件 77 项相关专项通过；未单独提取全量用例总数；2026-10-15 历史记录有 354 项回归通过（见下文） | 无持续运行的 E2E 测试，SSE 契约仍靠单元测试维护 |
 | 静态检查 | 中 | 后端 ruff 已显式配置（`pyproject.toml` 的 `[tool.ruff]`，规则集钉死为 `E4/E7/E9/F/I`）；2026-10-17 审计基线常规后端 ruff、前端 eslint + tsc 通过 | 同日额外检查 TRY/BLE 有 435 条告警，这些规则尚未启用，需按上下文审查（见 D3） |
 | 依赖环境 | 良 | `pyproject.toml` + `uv.lock` 固定版本，`uv lock --check` 通过；`pytest`、`ruff` 已在 `[dependency-groups] dev` 中声明 | `npm ci` 依赖前端锁文件；无其它缺口 |
-| CI | 中 | `.github/workflows/check.yml` 分后端 / 前端两个 job，覆盖编译、测试、lint、类型检查、锁文件 | 本轮未核实真实 PR 运行历史与分支保护；本机通过不代替 CI 验证 |
+| CI | 低 | 仓库不再提供 GitHub Actions 工作流；可通过 `scripts/check.sh` 手动执行检查 | 不再自动检查推送和 PR；分支保护配置需另行核实 |
 | 文档 | 中 | `docs/` 为事实来源，`AGENTS.md` 提供地图；相对链接与地图条目由 `tests/test_docs_links.py` 校验 | `note/` 未版本化（本地草稿）；无文档新鲜度倒计时机制 |
 | 可观测性 | 中 | 可选 Langfuse 追踪覆盖聊天/恢复/任务，50 项专项及 3 项云端策略验证通过，SDK 状态/事件/链接与传播日志脱敏，监控开关可独立关闭 | 未部署本地 metrics 栈；未验收生产环境长期吞吐/强杀排空与完整 DLP |
 | 安全边界 | 中 | Cookie 会话统一覆盖受保护 API；服务层保留 HITL 审批、凭据硬黑名单与归属校验 | `LocalShellBackend` 无隔离；无病毒扫描；profile=dev 可全员切换身份，仍不是生产用户间权限隔离 |
@@ -44,7 +44,7 @@
 
 ## 改进优先级
 
-1. 核实真实 PR 的 CI 记录与分支保护，确认两个 job 都能稳定通过。
+1. 核实分支保护是否仍要求已删除的自动检查。
 2. 持续运行已有 PostgreSQL 隔离测试，并补齐完整 Agent/Checkpoint/SSE 的事件顺序验证。
 3. 审查 TRY/BLE 扩展规则告警（2026-10-17 审计基线为 435 条，`uv run ruff check --select TRY,BLE src tests --statistics` 可复现），按异常与取消语义评估是否扩大 `select`，不机械修改。
 4. 提升可观测性，让 agent 能自行验证“启动耗时”“事件延迟”这类可测目标。

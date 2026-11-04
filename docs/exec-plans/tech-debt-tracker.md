@@ -13,7 +13,7 @@
 | D5 | 构建产物 `__pycache__`、依赖目录与源码混在树里 | 检索噪声大，容易误读文件规模 | 依赖 `.gitignore` 已覆盖，检索时注意排除 | 仓库结构 |
 | D6 | 大文件倾向 | 2026-10-17 复核：`memory/service.py` 730 行、`services/execution.py` 862 行、`repository/attachments.py` 857 行，均未超过 900 行 | 继续按事务和用例职责评估拆分，不为凑行数增加转发层（上限 900 行由测试强制） | `tests/test_architecture.py` |
 | D7 | 无本地可观测性栈 | agent 无法自行验证启动耗时、事件延迟等指标 | 需要时再加最小实现，不要提前建设 | `docs/QUALITY_SCORE.md` |
-| D9 | 真实 PR 的 CI 运行与分支保护状态待核实 | 仓库已有双 job 流水线，本机检查无法证明线上环境与必需检查配置 | 查看实际 PR 运行历史与保护配置，确认两个 job 稳定后再决定是否设为必需检查 | `.github/workflows/check.yml` |
+| D9 | 仓库不再提供自动 CI，分支保护状态待核实 | 推送和 PR 不再自动执行检查；若分支保护仍要求旧检查，可能阻止合并 | 提交前运行 `scripts/check.sh`，并核实分支保护配置 | `scripts/check.sh` |
 | D10 | Shell 沿用受信任本地开发免审批例外 | `execute` 未登记在当前审批清单；`LocalShellBackend` 不是沙箱，误操作/提示注入可直达宿主机 | 先设计隔离与授权边界，再评估 `core/hitl.py` 的 `TODO(sandbox)`；旧注释配置本体已删除，不能靠取消注释恢复 | `src/melonclaw/core/hitl.py`、`docs/ARCHITECTURE.md` 第 5.1 节 |
 | D11 | 长会话流持续占用业务数据库连接 | 同时执行数接近连接池上限时，普通业务查询会等待 | 记录连接池等待和锁持有时长；确认负载后优先评估独立限额锁池，再设计可保护 Checkpoint 的租约方案 | `repository/locks.py`、`database/database.py` |
 | D13 | 后台 SSE 包装器两项边界缺口 | producer 异常未取回、首次迭代前关闭源的清理仍为 strict xfail；低层测试不能单独证明 ASGI 真实请求泄漏 | 保留两项测试并补独立生命周期/断线端到端证据，不靠清理测试规避 | `tests/test_review_background_stream.py` |
