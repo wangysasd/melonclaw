@@ -89,7 +89,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | `storage/` | 无业务包 | `core/`、`database/`、`repository/`、`services/`、`api/`、`output/`、`memory/`、`tool/`、`middleware/`、`backend/`、`parsers/` |
 | `api/` | 以上全部 | 无 |
 | `main_web.py`（Web 入口） | 任意包 | 无 |
-| `main_db_init.py`、`main_db_update.py`、`main_password.py`、`main_resources.py`（管理入口） | 按职责依赖 API 以外的包 | `api/` |
+| `main_db_init.py`、`main_db_update.py`、`main_admin_password.py`、`main_resources.py`（管理入口） | 按职责依赖 API 以外的包 | `api/` |
 
 补充规则（同样由测试强制）：**`api/` 只能被入口文件 `main_web.py` 导入**，业务包不得反向引用 Web 层。
 
@@ -100,7 +100,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | `melonclaw-web` | `main_web.py` | Web 服务组装与启动 |
 | `melonclaw-db-init` | `main_db_init.py` | 首次建库、种子和持久化组件初始化 |
 | `melonclaw-db-update` | `main_db_update.py` | 执行已登记的保留数据升级 |
-| `melonclaw-admin-password` | `main_password.py` | 交互设置管理员密码 |
+| `melonclaw-admin-password` | `main_admin_password.py` | 交互设置管理员密码 |
 | `melonclaw-resources` | `main_resources.py` | 内置资源安装与持久目录迁移 |
 
 ### 为什么 `core/` 不是“最底层”

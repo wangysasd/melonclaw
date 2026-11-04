@@ -6,13 +6,11 @@
 
 本地开发使用根目录 `.env`；Linux 标准部署使用 `/etc/melonclaw/melonclaw.env`。如需其他外部文件，可设置 `MELONCLAW_ENV_FILE` 指向该文件。`DATABASE_URL` 必须指向已创建的 PostgreSQL 数据库，应用账号需要连接和建表权限。连接格式见 [.env.example](../.env.example)；用户名或密码中的 URL 特殊字符需百分号编码。
 
-例如，本地 PostgreSQL 认证配置完成后，可创建数据库：
-
-```bash
-createdb melonclaw
-```
+首次准备数据库请参阅 [PostgreSQL 准备指南](postgresql-setup.md)，完成账号创建、数据库创建和连接验证。
 
 首次建库执行 `uv run melonclaw-db-init`，保留历史数据的升级执行 `uv run melonclaw-db-update`。CLI 与服务按相同规则加载配置：显式 `MELONCLAW_ENV_FILE` 优先，其次标准 Linux 配置文件，再回退到仓库根目录 `.env`。服务启动不会自动建表或升级；不要用反复初始化来排查连接问题。
+
+个人环境变量启用后覆盖同名共享值；MCP 配置中的 `${VAR}` 从服务进程环境读取。
 
 ## 可选环境变量
 

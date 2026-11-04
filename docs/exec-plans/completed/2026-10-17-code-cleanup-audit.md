@@ -590,7 +590,7 @@ A 表示低风险清理，本轮已实施项见首批记录；B 表示需要独�
 
 ### CLN-033：重复环境加载可能改变配置来源（C）
 
-- 类别、位置：重构重复逻辑候选；`src/melonclaw/main_password.py:5/24` load_dotenv；`src/melonclaw/__init__.py:8` 起环境加载分支。
+- 类别、位置：重构重复逻辑候选；`src/melonclaw/main_admin_password.py:5/24` load_dotenv；`src/melonclaw/__init__.py:8` 起环境加载分支。
 - 事实与证据：包导入先按显式 MELONCLAW_ENV_FILE、系统文件、默认文件择一加载；main 又无参加载默认文件。这不是同一输入可保证的重复。main 由 pyproject 命令入口调用，随后连接数据库并重置密码，不能实际运行验证。
 - 尚未排除调用：未读取真实运行配置；显式文件缺失某键时，第二次加载可能补入默认文件值，从而改变数据库/配置选择（推断，未实测）。
 - 风险/置信度/影响面：高；事实高/等价删除低；管理 CLI 的配置来源，存在导入副作用。
