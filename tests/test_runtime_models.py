@@ -66,7 +66,7 @@ class FakeModelStorage:
             return None
         return row, provider
 
-    async def list_visible_model_rows(self, user_id, *, include_disabled=False):
+    async def list_visible_model_rows(self, user_id, *, include_disabled=False, purpose="chat"):
         rows = [
             row
             for row in self.rows.values()
@@ -79,6 +79,8 @@ class FakeModelStorage:
 
 def make_row(model_key, **overrides):
     row = {
+        "purpose": "chat",
+        "id": "00000000-0000-0000-0000-000000000001",
         "model_key": model_key,
         "provider_key": "deepseek",
         "scope": "global",

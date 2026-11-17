@@ -323,6 +323,8 @@ class AssistantStepAccumulator:
         tool["status"] = status if status in TOOL_STATUSES else "unknown"
         if result.get("result_preview") is not None:
             tool["result_preview"] = _preview(str(result["result_preview"]))
+        if "knowledge_sources" in result:
+            tool["knowledge_sources"] = copy.deepcopy(result["knowledge_sources"])
         if result.get("error"):
             tool["error"] = sanitize_text(str(result["error"]))
         completed_at = result.get("completed_at")
@@ -340,6 +342,7 @@ class AssistantStepAccumulator:
         step_id: str | None = None,
         completed_at: int | None = None,
         duration_ms: int | None = None,
+        knowledge_sources: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         step = self._step(step_id) if step_id else self._step_for_call(call_id)
         result_preview = _preview(result) if result is not None else None
@@ -351,6 +354,8 @@ class AssistantStepAccumulator:
         }
         if duration_ms is not None:
             result_data["duration_ms"] = duration_ms
+        if knowledge_sources is not None:
+            result_data["knowledge_sources"] = knowledge_sources
         if step is None:
             self._bounded_pending(self._pending_results, call_id, result_data)
             return None

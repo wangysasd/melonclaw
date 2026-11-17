@@ -28,7 +28,7 @@ def test_account_update_preserves_existing_rows_and_is_repeatable(monkeypatch):
         async with control.begin() as connection:
             await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
         engine = create_async_engine(
-            url, connect_args={"server_settings": {"search_path": schema}}
+            url, connect_args={"server_settings": {"search_path": f"{schema},public"}}
         )
         database = SimpleNamespace(engine=engine)
         try:

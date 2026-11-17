@@ -103,6 +103,26 @@ class ConversationRepositoryMixin:
             row = (await connection.execute(query)).mappings().first()
         return _conversation_dict(row) if row else None
 
+    async def get_visible_message(
+        self,
+        conversation_id: UUID,
+        user_id: str,
+        message_id: UUID,
+    ) -> dict[str, Any] | None:
+        """读取当前用户可见会话中的一条消息。不可见会话与缺少消息分开。"""
+
+        if await self.get_conversation(conversation_id, user_id) is None:
+            raise ConversationNotFoundError
+        query = select(chat_messages).where(
+            and_(
+                chat_messages.c.id == message_id,
+                chat_messages.c.conversation_id == conversation_id,
+            )
+        )
+        async with self.engine.connect() as connection:
+            row = (await connection.execute(query)).mappings().first()
+        return _message_dict(row) if row else None
+
     async def list_conversations(
         self,
         user_id: str,
@@ -328,6 +348,8 @@ class ConversationRepositoryMixin:
                 raise ConversationMoveError("会话附件发生变化，请重试移动。", "conversation_attachments_changed")
             if any(row["status"] == "staged" for row in attachments):
                 raise ConversationMoveError("请先发送或移除会话中尚未提交的附件。", "conversation_attachment_staged")
+            if any(row["parse_status"] == "processing" for row in attachments):
+                raise ConversationMoveError("请等待附件解析完成后再移动会话。", "conversation_attachment_processing")
 
             await self._lock_attachment_scope(connection, project_id, None)
             used_bytes = await connection.scalar(

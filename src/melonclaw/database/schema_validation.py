@@ -10,7 +10,10 @@ from melonclaw.database.constants import (
     STORE_TABLES,
 )
 from melonclaw.database.errors import DatabaseSchemaError
-from melonclaw.database.schema import metadata
+from melonclaw.database.knowledge_ddl import ensure_vector, verify_knowledge
+from melonclaw.database.knowledge_schema import SEARCH_VIEW_SQL
+from melonclaw.database.model_ddl import verify_model_purpose
+from melonclaw.database.schema import KNOWLEDGE_TABLES, metadata
 
 
 class SchemaValidationMixin:
@@ -18,11 +21,18 @@ class SchemaValidationMixin:
         """由独立初始化命令调用；API lifespan 不会自动建表。"""
 
         async with self.engine.begin() as connection:
+            first_schema = await connection.scalar(text("SELECT to_regclass('tenants')")) is None
             # db-init 仅用于首次初始化或重大变更后的空库重建。
             # 常规保留数据升级由 melonclaw-db-update 单独执行。
+            await ensure_vector(connection)
             await connection.run_sync(
                 lambda sync_connection: metadata.create_all(sync_connection)
             )
+            await connection.execute(text(SEARCH_VIEW_SQL))
+            await verify_knowledge(connection, KNOWLEDGE_TABLES)
+            if first_schema:
+                from melonclaw.database.update_runner import record_initialized_schema
+                await record_initialized_schema(connection)
         # create_all 只创建缺失对象，不会修补已有表；增量变更由 db-update 执行。
         await self.verify_schema(require_checkpointer=False, require_store=False)
 
@@ -103,3 +113,5 @@ class SchemaValidationMixin:
                 f"{details}。请先运行 uv run melonclaw-db-update；"
                 "若当前数据库不属于受支持的升级路径，再按重大变更流程重建。"
             )
+        async with self.engine.connect() as connection:
+            await verify_model_purpose(connection)

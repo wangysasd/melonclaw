@@ -9,12 +9,13 @@ import { Icon } from "./Icon";
 import { UserPicker } from "./UserPicker";
 import { ToolCatalogDialog } from "./ToolCatalogDialog";
 
-export type WorkspaceView = "chat" | "tasks" | "resources" | "amp" | "mindera" | "admin";
+export type WorkspaceView = "knowledge" | "chat" | "tasks" | "resources" | "amp" | "mindera" | "admin";
 
-export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin, onTasks }: {
+export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin, onTasks, onKnowledge }: {
   view: WorkspaceView;
   onHome: () => void;
   onTasks?: () => void;
+  onKnowledge?: () => void;
   onResources: () => void;
   onAmp: () => void;
   onMindera: () => void;
@@ -46,6 +47,7 @@ export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin
             <Icon name={view === "resources" ? "blocks-filled" : "blocks"} size={20} />
           </button>
         </Tooltip>
+        <Tooltip title="知识库" placement="right"><button className={`global-nav-button${view === "knowledge" ? " is-active" : ""}`} aria-label="知识库" aria-current={view === "knowledge" ? "page" : undefined} onClick={onKnowledge}><Icon name={view === "knowledge" ? "knowledge-books-filled" : "knowledge-books"} size={20} /></button></Tooltip>
         {__MELONCLAW_IS_RMS_BRAND__ ? (
           <>
             <Tooltip title="AMP" placement="right" trigger={["hover", "focus"]}>

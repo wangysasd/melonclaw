@@ -289,3 +289,19 @@ def test_task_history_timeout_or_cancel_releases_conversation_lock(monkeypatch, 
     asyncio.run(run())
     assert storage.calls[-1] == "unlock" and calls == ["agent"]
     assert model.stopped
+
+
+def test_retry_requires_same_knowledge_selection_and_normalizes_order():
+    from melonclaw.repository import RequestConflictError
+
+    selected = sorted([str(uuid4()), str(uuid4())])
+    existing = RequestRecord(request_id="request", content="hello",
+        user_message={"id": str(uuid4()), "display_metadata": {"knowledge_base_ids": selected}},
+        assistant_message={"id": str(uuid4()), "request_id": "request", "status": "completed",
+                           "content": "answer", "assistant_steps": [], "display_metadata": {}})
+    service, calls = _service(_Storage(existing))
+    prepared = asyncio.run(service.prepare_message(uuid4(), "user", "request", "hello", knowledge_base_ids=list(reversed(selected))))
+    assert prepared.replay_message is existing.assistant_message
+    with pytest.raises(RequestConflictError, match="知识库"):
+        asyncio.run(service.prepare_message(uuid4(), "user", "request", "hello", knowledge_base_ids=[]))
+    assert calls == []

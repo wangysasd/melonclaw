@@ -30,12 +30,13 @@ describe("sendMessageStream", () => {
 
     await sendMessageStream(
       "c1",
-      { userId: "u1", requestId: "r1", content: "你好" },
+      { userId: "u1", requestId: "r1", content: "你好", knowledgeBaseIds: ["kb-1", "kb-2"] },
       { onEvent: () => undefined },
     );
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
     expect(JSON.parse(String(init?.body)).capabilities).toEqual(["user_input_v1"]);
+    expect(JSON.parse(String(init?.body)).knowledge_base_ids).toEqual(["kb-1", "kb-2"]);
     expect(CLIENT_CAPABILITIES).toContain("user_input_v1");
   });
 });

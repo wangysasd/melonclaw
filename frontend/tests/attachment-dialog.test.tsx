@@ -4,6 +4,7 @@ import type { ComponentProps } from "react";
 
 import { AttachmentDialog } from "../src/components/AttachmentDialog";
 import * as client from "../src/api/client";
+import { validatePdfPages } from "../src/lib/attachmentPdf";
 import type { AttachmentCapabilities, AttachmentSummary } from "../src/types/api";
 
 vi.mock("../src/api/client", () => ({
@@ -11,20 +12,21 @@ vi.mock("../src/api/client", () => ({
   deleteAttachment: vi.fn(),
   uploadAttachment: vi.fn(),
 }));
+vi.mock("../src/lib/attachmentPdf", () => ({ validatePdfPages: vi.fn() }));
 
 type UploadedAttachment = AttachmentSummary & { derived_size_bytes?: number };
 
 const capabilities: AttachmentCapabilities = {
   items: [
-    { extension: ".png", media_type: "image/png", kind: "image" },
-    { extension: ".txt", media_type: "text/plain", kind: "text" },
+    { extension: ".png", media_type: "image/png", kind: "image", ocr: "text_model" },
+    { extension: ".txt", media_type: "text/plain", kind: "text", ocr: null },
   ],
   max_file_bytes: 10,
   max_total_bytes: 25,
   max_per_message: 2,
   workspace_max_bytes: 100,
   image_max_pixels: 100,
-  pdf_max_pages: 1,
+  pdf_max_pages: 1, ocr_max_file_bytes: 10, ocr_max_pages: 1000,
 };
 
 function makeFile(name: string, size: number, type = "application/octet-stream"): File {
@@ -73,6 +75,7 @@ function renderDialog(
 }
 
 beforeEach(() => {
+  vi.mocked(validatePdfPages).mockResolvedValue(null);
   vi.mocked(client.uploadAttachment).mockReset();
   vi.mocked(client.uploadAttachment).mockImplementation(async (_projectId, input) =>
     uploaded(input.file.name, input.file.size),
@@ -82,6 +85,21 @@ beforeEach(() => {
 });
 
 describe("attachment dialog", () => {
+  it("checks the effective PDF page limit before beginning the upload", async () => {
+    vi.mocked(validatePdfPages).mockResolvedValueOnce("six.pdf 超过 PDF 页数上限 5 页。");
+    renderDialog({
+      modelId: "custom:text", modelSupportsImage: false,
+      capabilities: {
+        ...capabilities, pdf_max_pages: 5,
+        items: [{ extension: ".pdf", media_type: "application/pdf", kind: "pdf", ocr: "always" }],
+      },
+    });
+    const file = makeFile("six.pdf", 5, "application/pdf");
+    fireEvent.change(screen.getByLabelText("选择附件"), { target: { files: [file] } });
+    expect(await screen.findByText(/超过 PDF 页数上限 5 页/)).toBeTruthy();
+    expect(validatePdfPages).toHaveBeenCalledWith(file, 5, expect.any(AbortSignal));
+    expect(client.uploadAttachment).not.toHaveBeenCalled();
+  });
   it("states the upload requirements from capabilities", () => {
     renderDialog();
     expect(screen.getByText(/支持 PNG \/ TXT/)).toBeTruthy();

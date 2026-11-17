@@ -46,10 +46,17 @@ class LocalAttachmentStorage:
         temp_dir.mkdir(parents=True, exist_ok=True)
         return Path(tempfile.mkdtemp(prefix=f"{UUID(str(attachment_id))}-", dir=temp_dir))
 
-    def publish_original(self, attachment_id: UUID | str, candidate: Path) -> None:
+    def publish_original(
+        self, attachment_id: UUID | str, candidate: Path, *, first_frame_only: bool = False,
+    ) -> None:
         destination = self.original_path(attachment_id)
         destination.parent.mkdir(parents=True, exist_ok=True)
         os.replace(candidate, destination)
+        if first_frame_only:
+            (destination.parent / "first-frame").touch()
+
+    def first_frame_only(self, attachment_id: UUID | str) -> bool:
+        return self.original_path(attachment_id).with_name("first-frame").is_file()
 
     def publish_derived(self, attachment_id: UUID | str, source_dir: Path) -> Path:
         destination = self.derived_dir(attachment_id)

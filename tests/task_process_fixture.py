@@ -25,7 +25,7 @@ async def run():
     assert schema.startswith("test_tasks_") and schema.replace("_", "").isalnum()
     engine = create_async_engine(
         os.environ["MELONCLAW_TEST_DATABASE_URL"],
-        connect_args={"server_settings": {"search_path": schema}},
+        connect_args={"server_settings": {"search_path": f"{schema},public"}},
     )
     storage = BusinessRepository(SimpleNamespace(engine=engine))
     settings = settings_for(Path(os.environ["TASK_TEST_WORKDIR"]), task_poll_seconds=1)

@@ -49,3 +49,5 @@
 | 2026-09-13 | 后端 lint 无配置，结果随 ruff 版本漂移 | `pyproject.toml` 增加显式 `[tool.ruff]`，钉住规则集与目标版本 |
 | 2026-09-13 | D4 `pytest` 未声明为项目依赖 | 在 `[dependency-groups] dev` 中声明 `pytest`、`ruff`；`check.sh` 与 CI 统一改用 `uv run` |
 | 2026-09-13 | D3 的导入顺序部分（23×I001） | `uv run ruff check --fix --select I` 整理 23 个文件，并把 `I` 纳入强制规则集 |
+| 2026-11-07 | KB1 导入发布前 Path.open 参数错误 | 改用支持opener的内置open，保留UTF-8/0600；完整Processor回归及真实各格式发布/下载/替换复验通过，见[导入验收](completed/knowledge-ingestion-acceptance.md) |
+| 2026-11-07 | KB2 parser 旧绑定断言不符合固定OCR契约 | 校正新库空解析引用断言，保留固定模型/供应商绑定与ACL检查；独立PostgreSQL全知识库85项通过 |

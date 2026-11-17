@@ -8,6 +8,7 @@ import XProvider from "@ant-design/x/es/x-provider";
 import zhCN from "antd/locale/zh_CN";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
+import { KnowledgeManager } from "./components/KnowledgeManager";
 import { ChatView } from "./components/ChatView";
 import { ProjectDialog } from "./components/ProjectDialog";
 import { ResourceView } from "./components/ResourceView";
@@ -79,7 +80,7 @@ function Workspace() {
 
   return (
     <div className="app-shell">
-      <GlobalNav onTasks={() => openTasks()} view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} onAmp={() => setView("amp")} onMindera={() => setView("mindera")} onAdmin={() => setView("admin")} />
+      <GlobalNav onKnowledge={() => setView("knowledge")} onTasks={() => openTasks()} view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} onAmp={() => setView("amp")} onMindera={() => setView("mindera")} onAdmin={() => setView("admin")} />
       <div className="home-workspace" hidden={view !== "chat"}>
         <Sidebar key={`sidebar:${session.userId}`} onNewConversation={newConversation} onOpenProjectDialog={openProjectDialog} onNavigateChat={() => setView("chat")} />
         <ChatView
@@ -95,6 +96,7 @@ function Workspace() {
           onInitialSkillApplied={clearInitialSkill}
         />
       </div>
+      {view === "knowledge" ? <KnowledgeManager key={session.userId} onClose={() => setView("chat")} /> : null}
       {view === "tasks" ? <Suspense fallback={<div>加载定时任务…</div>}><TaskCenter key={session.userId} onClose={() => setView("chat")} onOpenConversation={openTaskConversation} /></Suspense> : null}
       {view === "resources" ? (
         <ResourceView

@@ -35,7 +35,7 @@ def test_environment_resources_approval_and_authentication():
         schema = "test_environment_" + uuid4().hex
         engine = create_async_engine(
             normalize_async_database_url(os.environ["MELONCLAW_TEST_DATABASE_URL"]),
-            connect_args={"server_settings": {"search_path": schema}},
+            connect_args={"server_settings": {"search_path": f"{schema},public"}},
         )
         statements = []
 

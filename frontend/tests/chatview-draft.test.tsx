@@ -20,6 +20,18 @@ vi.mock("../src/api/results", () => ({
   conversationArtifacts: vi.fn(async () => ({ items: [] })),
 }));
 
+const { speechSignals } = vi.hoisted(() => ({ speechSignals: [] as AbortSignal[] }));
+vi.mock("../src/api/speech", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/api/speech")>();
+  return {
+    ...actual,
+    synthesizeSpeech: vi.fn((_input: unknown, signal: AbortSignal) => {
+      speechSignals.push(signal);
+      return new Promise(() => undefined);
+    }),
+  };
+});
+
 vi.mock("antd", async (importOriginal) => {
   const actual = await importOriginal<typeof import("antd")>();
   return {
@@ -84,6 +96,9 @@ const chatStub = {
   clearRestoreDraft: vi.fn(),
   reloadHistory: vi.fn(),
   loadMessage: vi.fn(),
+  moveQueued: vi.fn(),
+  removeQueued: vi.fn(),
+  sendQueued: vi.fn(),
 };
 vi.mock("../src/hooks/useChatStream", () => ({ useChatStream: () => chatStub }));
 
@@ -98,6 +113,22 @@ if (typeof Element.prototype.scrollTo !== "function") {
   Element.prototype.scrollTo = function () { /* noop */ };
 }
 
+class FakeAudioContext {
+  sampleRate: number;
+  currentTime = 0;
+  destination = {};
+  constructor(options?: { sampleRate?: number }) {
+    this.sampleRate = options?.sampleRate ?? 0;
+    FakeAudioContext.created.push(this);
+  }
+  static created: FakeAudioContext[] = [];
+  resume() { return Promise.resolve(); }
+  close() { return Promise.resolve(); }
+  createBuffer() { return { duration: 0, copyToChannel() { /* unused */ } }; }
+  createBufferSource() { return { buffer: null, connect() { /* unused */ }, start() { /* unused */ }, onended: null }; }
+}
+vi.stubGlobal("AudioContext", FakeAudioContext);
+
 beforeEach(() => {
   session.conversationId = "c1";
   session.projectId = "";
@@ -111,11 +142,13 @@ beforeEach(() => {
   chatState.messages = [];
   vi.mocked(client.getAttachmentCapabilities).mockReset();
   vi.mocked(client.getAttachmentCapabilities).mockResolvedValue({
-    items: [{ extension: ".txt", media_type: "text/plain", kind: "text" }],
+    items: [{ extension: ".txt", media_type: "text/plain", kind: "text", ocr: null }],
     max_file_bytes: 10, max_total_bytes: 25, max_per_message: 2,
-    workspace_max_bytes: 100, image_max_pixels: 100, pdf_max_pages: 1,
+    workspace_max_bytes: 100, image_max_pixels: 100, pdf_max_pages: 1, ocr_max_file_bytes: 10, ocr_max_pages: 1000,
   });
   vi.clearAllMocks();
+  speechSignals.length = 0;
+  FakeAudioContext.created = [];
 });
 
 describe("chatview draft", () => {
@@ -137,10 +170,57 @@ describe("chatview draft", () => {
     expect(scheduled.querySelector(".message-author")?.textContent).toBe(normal.querySelector(".message-author")?.textContent);
     expect(scheduled.querySelector(".message-body")).toBeTruthy();
     expect(scheduled.querySelector(".message-actions")).toBeTruthy();
+    const labels = [...scheduled.querySelectorAll(".message-actions button")].map((button) => button.textContent ?? "");
+    expect(labels[0]).toContain("复制");
+    expect(labels[1]).toContain("朗读");
     expect(screen.queryByText("不应展示的任务名")).toBeNull();
     expect(screen.queryByText("定时触发")).toBeNull();
     expect(screen.queryByRole("button", { name: "任务配置" })).toBeNull();
     expect(screen.queryByRole("button", { name: "引用本次结果" })).toBeNull();
+  });
+
+  it("stops read-aloud when sending, stopping, switching, leaving, or unmounting", async () => {
+    chatState.messages = [{
+      id: "a1", role: "assistant", content: "可以朗读", status: "completed",
+      markdown: true, events: [], assistantSteps: [], phases: [], artifacts: [],
+    }];
+    const view = render(<ChatView />);
+    fireEvent.click(screen.getByRole("button", { name: "朗读" }));
+    expect(FakeAudioContext.created[0]?.sampleRate).toBe(24000);
+    expect(speechSignals[0]?.aborted).toBe(false);
+
+    session.conversationId = "c2";
+    chatState.conversationId = "c2";
+    view.rerender(<ChatView />);
+    expect(speechSignals[0]?.aborted).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "朗读" }));
+    chatStub.isRunning = true;
+    view.rerender(<ChatView />);
+    fireEvent.click(screen.getByRole("button", { name: "停止生成" }));
+    expect(speechSignals.at(-1)?.aborted).toBe(true);
+    expect(chatStub.stopCurrent).toHaveBeenCalled();
+
+    chatStub.isRunning = false;
+    fireEvent.click(screen.getByRole("button", { name: "朗读" }));
+    session.modelOptions = [{
+      id: "m", display_name: "M", source: "system", provider: "p", provider_key: "p",
+      model: "m", available: true, is_default: true, input_modalities: ["text"],
+    }] as typeof session.modelOptions;
+    session.selectedModelId = "m";
+    view.rerender(<ChatView />);
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "下一句" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    expect(speechSignals.at(-1)?.aborted).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "朗读" }));
+    view.rerender(<ChatView active={false} />);
+    expect(speechSignals.at(-1)?.aborted).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "朗读" }));
+    view.unmount();
+    expect(speechSignals.at(-1)?.aborted).toBe(true);
   });
 
   it.each(["running", "failed", "cancelled"] as const)("keeps task body visible with ordinary %s feedback", (status) => {
@@ -153,7 +233,11 @@ describe("chatview draft", () => {
     render(<ChatView />);
     expect(screen.getByText("已生成的正文")).toBeTruthy();
     expect(screen.queryByText("执行状态待确认")).toBeNull();
-    if (status === "running") expect(screen.getByText("生成中")).toBeTruthy();
+    if (status === "running") {
+      expect(screen.getByText("生成中")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "朗读" })).toBeNull();
+    }
+    if (status === "failed" || status === "cancelled") expect(screen.getByRole("button", { name: "朗读" })).toBeTruthy();
     if (status === "failed") expect(screen.getByText("本次回复未完成，当前显示已接收的内容。")).toBeTruthy();
     if (status === "cancelled") expect(screen.getByText(/已停止生成/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "取消本次执行" })).toBeNull();
@@ -232,6 +316,7 @@ describe("long-running chat feedback", () => {
     ] }];
     view.rerender(<ChatView />);
     expect(view.container.querySelector(".message-body")?.textContent).toContain("最终答复");
+    fireEvent.click(screen.getByRole("button", { name: /查看执行步骤/ }));
     expect(view.container.querySelector(".assistant-reasoning summary")?.textContent).toBe("思考过程");
     const execution = view.container.querySelector(".agent-execution")!;
     expect(execution.children[0].className).toBe("agent-execution-head");

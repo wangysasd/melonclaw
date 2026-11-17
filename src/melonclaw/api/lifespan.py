@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from melonclaw.api.background_stream import close_stream_tasks
 from melonclaw.repository.task_queue import TaskExecutorUnavailable
 from melonclaw.services.chat import ChatService
+from melonclaw.services.knowledge_executor import KnowledgeExecutor
 from melonclaw.services.task_scheduler import TaskScheduler
 
 logger = logging.getLogger(__name__)
@@ -24,11 +25,18 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     manager = ChatService()
     application.state.chat = manager
     application.state.task_scheduler = None
+    application.state.knowledge_executor = None
 
     async def initialize():
         await manager.initialize()
         if not manager.ready:
             return
+        knowledge = KnowledgeExecutor(manager.settings, manager.storage)
+        application.state.knowledge_executor = knowledge
+        try:
+            await knowledge.start()
+        except Exception:
+            logger.warning("知识库执行器未就绪，请检查数据库和实例占用。")
         executor = TaskScheduler(manager.settings, manager.storage, manager.checkpointer, tracing=manager.runtime.tracing)
         application.state.task_scheduler = executor
         try:
@@ -63,6 +71,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             await startup_task
         except asyncio.CancelledError:
             pass
+        knowledge = application.state.knowledge_executor
+        if knowledge is not None:
+            await knowledge.close()
         executor = application.state.task_scheduler
         if executor is not None:
             await executor.close()

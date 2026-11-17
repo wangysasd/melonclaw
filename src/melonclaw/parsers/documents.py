@@ -1,4 +1,4 @@
-"""把受控的 PDF、文本和 Office 文件解析成 Markdown 派生文件。"""
+"""把本地附件数据和已识别的正文保存为 Markdown 派生文件。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Protocol
 
-from pypdf import PdfReader
+import xlrd
 
 
 class DocumentParser(Protocol):
@@ -38,7 +38,7 @@ def _plain(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value)).strip()
 
 
-def _write_parts(output_dir: Path, title: str, text: str, max_chars: int) -> ParsedDocument:
+def write_document_parts(output_dir: Path, title: str, text: str, max_chars: int) -> ParsedDocument:
     text = text.strip()
     if len(text) > max_chars:
         raise DocumentParseError("解析后的附件内容过大。", "parse_output_too_large")
@@ -64,9 +64,12 @@ def _parse_text(source: Path) -> str:
 
 
 def _parse_csv(source: Path) -> str:
-    rows: list[list[str]] = []
     with source.open(encoding="utf-8-sig", newline="") as handle:
         rows = [[_plain(cell) for cell in row] for row in csv.reader(handle)]
+    return _markdown_table(rows)
+
+
+def _markdown_table(rows: list[list[str]]) -> str:
     if not rows:
         return ""
     width = max(len(row) for row in rows)
@@ -83,35 +86,6 @@ def _parse_json(source: Path) -> str:
         raise DocumentParseError("JSON 文件格式无效。", "attachment_invalid") from exc
 
 
-def _parse_pdf(source: Path) -> str:
-    try:
-        reader = PdfReader(str(source), strict=False)
-        pages: list[str] = []
-        for index, page in enumerate(reader.pages, start=1):
-            text = (page.extract_text() or "").strip()
-            if len(text) < 2:
-                raise DocumentParseError("PDF 包含没有文本层的页面。", "pdf_no_text_layer")
-            pages.append(f"## 第 {index} 页\n\n{text}")
-        return "\n\n".join(pages)
-    except DocumentParseError:
-        raise
-    except Exception as exc:
-        raise DocumentParseError("PDF 解析失败。") from exc
-
-
-def _parse_docx(source: Path) -> str:
-    try:
-        from docx import Document
-
-        document = Document(BytesIO(source.read_bytes()))
-        sections = [_plain(paragraph.text) for paragraph in document.paragraphs if _plain(paragraph.text)]
-        for table in document.tables:
-            sections.append("\n".join("| " + " | ".join(_plain(cell.text) for cell in row.cells) + " |" for row in table.rows))
-        return "\n\n".join(sections)
-    except Exception as exc:
-        raise DocumentParseError("DOCX 解析失败。") from exc
-
-
 def _parse_xlsx(source: Path) -> str:
     try:
         from openpyxl import load_workbook
@@ -121,44 +95,45 @@ def _parse_xlsx(source: Path) -> str:
             read_only=True,
             data_only=True,
         )
-        sections: list[str] = []
-        for sheet in workbook.worksheets:
-            rows = [[_plain(cell) for cell in row] for row in sheet.iter_rows(values_only=True)]
-            rows = [row for row in rows if any(row)]
-            if not rows:
-                continue
-            width = max(len(row) for row in rows)
-            normalized = [row + [""] * (width - len(row)) for row in rows]
-            lines = [f"## {sheet.title}", "", "| " + " | ".join(normalized[0]) + " |", "| " + " | ".join("---" for _ in range(width)) + " |"]
-            lines.extend("| " + " | ".join(row) + " |" for row in normalized[1:])
-            sections.append("\n".join(lines))
-        workbook.close()
-        return "\n\n".join(sections)
+        try:
+            return _workbook_text(
+                (sheet.title, [[_plain(cell) for cell in row] for row in sheet.iter_rows(values_only=True)])
+                for sheet in workbook.worksheets
+            )
+        finally:
+            workbook.close()
     except Exception as exc:
         raise DocumentParseError("XLSX 解析失败。") from exc
 
 
-def _parse_pptx(source: Path) -> str:
-    try:
-        from pptx import Presentation
+def _xls_cell_text(cell: xlrd.sheet.Cell, datemode: int) -> str:
+    if cell.ctype == xlrd.XL_CELL_DATE:
+        return _plain(xlrd.xldate_as_datetime(cell.value, datemode))
+    if cell.ctype == xlrd.XL_CELL_BOOLEAN:
+        return _plain(bool(cell.value))
+    if cell.ctype == xlrd.XL_CELL_ERROR:
+        return xlrd.error_text_from_code.get(cell.value, "#ERROR!")
+    return _plain(cell.value)
 
-        presentation = Presentation(BytesIO(source.read_bytes()))
-        slides: list[str] = []
-        for index, slide in enumerate(presentation.slides, start=1):
-            texts: list[str] = []
-            for shape in slide.shapes:
-                if hasattr(shape, "text") and _plain(shape.text):
-                    texts.append(_plain(shape.text))
-                if getattr(shape, "has_table", False):
-                    texts.extend(
-                        "| " + " | ".join(_plain(cell.text) for cell in row.cells) + " |"
-                        for row in shape.table.rows
-                    )
-            if texts:
-                slides.append(f"## 第 {index} 页\n\n" + "\n\n".join(texts))
-        return "\n\n".join(slides)
+
+def _workbook_text(sheets) -> str:
+    sections = []
+    for title, rows in sheets:
+        table = _markdown_table([row for row in rows if any(row)])
+        if table:
+            sections.append(f"## {title}\n\n{table}")
+    return "\n\n".join(sections)
+
+
+def _parse_xls(source: Path) -> str:
+    try:
+        with xlrd.open_workbook(str(source), on_demand=True) as workbook:
+            return _workbook_text(
+                (sheet.name, [[_xls_cell_text(cell, workbook.datemode) for cell in row] for row in sheet.get_rows()])
+                for sheet in workbook.sheets()
+            )
     except Exception as exc:
-        raise DocumentParseError("PPTX 解析失败。") from exc
+        raise DocumentParseError("XLS 解析失败。") from exc
 
 
 def parse_document(
@@ -179,18 +154,14 @@ def parse_document(
             text = _parse_csv(source)
         elif extension == ".json":
             text = _parse_json(source)
-        elif extension == ".pdf":
-            text = _parse_pdf(source)
-        elif extension == ".docx":
-            text = _parse_docx(source)
+        elif extension == ".xls":
+            text = _parse_xls(source)
         elif extension == ".xlsx":
             text = _parse_xlsx(source)
-        elif extension == ".pptx":
-            text = _parse_pptx(source)
         else:
             raise DocumentParseError("暂不支持该附件类型。", "unsupported_attachment_type")
     except DocumentParseError:
         raise
     except (OSError, UnicodeError) as exc:
         raise DocumentParseError("附件读取失败。") from exc
-    return _write_parts(output_dir, display_name, text, max_chars)
+    return write_document_parts(output_dir, display_name, text, max_chars)

@@ -43,7 +43,7 @@ async def database_fixture():
     control = create_async_engine(url)
     async with control.begin() as conn:
         await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-    engine = create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})
+    engine = create_async_engine(url, connect_args={"server_settings": {"search_path": f"{schema},public"}})
     database = SimpleNamespace(engine=engine)
     try:
         async with engine.begin() as conn:
@@ -397,7 +397,7 @@ def test_real_model_resolution_reuses_single_transaction_connection(tmp_path):
                 pool_size=1,
                 max_overflow=0,
                 pool_timeout=0.5,
-                connect_args={"server_settings": {"search_path": schema}},
+                connect_args={"server_settings": {"search_path": f"{schema},public"}},
             )
             try:
                 service = TaskService(

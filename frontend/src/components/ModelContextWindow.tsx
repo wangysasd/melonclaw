@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { App, Button, InputNumber, Modal } from "antd";
+import { App, Button, Checkbox, InputNumber } from "antd";
 
 import { updateModel } from "../api/client";
 import type { ManageableModel } from "../types/api";
@@ -12,41 +12,56 @@ export function ContextWindowInput({ value, onChange }: {
   onChange: (value: number | null) => void;
 }) {
   return <label className="provider-field">上下文窗口（tokens）
-    <InputNumber aria-label="上下文窗口（tokens）" value={value} min={1} max={MAX_CONTEXT_WINDOW}
-      precision={0} step={1000} onChange={onChange} style={{ width: "100%" }} />
+    <InputNumber<number | string> aria-label="上下文窗口（tokens）" value={value} min={1} max={MAX_CONTEXT_WINDOW}
+      precision={0} step={1000}
+      formatter={(value) => String(value ?? "").replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+      parser={(value) => (value ?? "").replace(/,/g, "")}
+      onChange={(value) => onChange(value === null ? null : Number(value))}
+      style={{ width: "100%" }} />
   </label>;
 }
 
-export function ModelContextWindowEditor({ model, userId, onChanged }: {
+export function ChatModelSettingsEditor({ model, userId, onCancel, onSaved }: {
   model: ManageableModel;
   userId: string;
-  onChanged: () => void;
+  onCancel: () => void;
+  onSaved: () => void;
 }) {
   const { message } = App.useApp();
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState<number | null>(model.context_window);
+  const [contextWindow, setContextWindow] = useState(model.context_window);
+  const [supportsImageInput, setSupportsImageInput] = useState(model.input_modalities.includes("image"));
   const [saving, setSaving] = useState(false);
+  const valid = contextWindow !== null && Number.isInteger(contextWindow)
+    && contextWindow > 0 && contextWindow <= MAX_CONTEXT_WINDOW;
   const save = async () => {
-    if (!value || value <= 0 || !Number.isInteger(value) || value > MAX_CONTEXT_WINDOW) return;
+    if (!valid || saving) return;
     setSaving(true);
     try {
-      await updateModel(model.model_key, { userId, contextWindow: value });
-      setOpen(false);
-      message.success("上下文窗口已更新");
-      onChanged();
+      await updateModel(model.model_key, { userId, contextWindow, supportsImageInput });
+      message.success("模型设置已更新");
+      onSaved();
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
     }
   };
-  return <>
-    <Button size="small" onClick={() => { setValue(model.context_window); setOpen(true); }}>上下文窗口</Button>
-    <Modal title={`${model.display_name} · 上下文窗口`} open={open} onCancel={() => setOpen(false)}
-      onOk={() => void save()} confirmLoading={saving} okButtonProps={{ disabled: !value || value <= 0 || !Number.isInteger(value) || value > MAX_CONTEXT_WINDOW }}
-      okText="保存" cancelText="取消">
-      <ContextWindowInput value={value} onChange={setValue} />
-      <p className="resource-hint">填写该模型实际支持的 token 窗口。压缩按系统配置比例触发；1M 表示 1,000,000 tokens。</p>
-    </Modal>
-  </>;
+
+  return (
+    <form className="chat-model-settings" onSubmit={(event) => {
+      event.preventDefault();
+      void save();
+    }}>
+      <div className="chat-model-settings-fields">
+        <ContextWindowInput value={contextWindow} onChange={setContextWindow} />
+        <Checkbox checked={supportsImageInput} onChange={(event) => setSupportsImageInput(event.target.checked)}>
+          支持图片输入
+        </Checkbox>
+      </div>
+      <div className="chat-model-actions">
+        <Button onClick={onCancel} disabled={saving}>取消</Button>
+        <Button type="primary" htmlType="submit" loading={saving} disabled={!valid}>保存</Button>
+      </div>
+    </form>
+  );
 }

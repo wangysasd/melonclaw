@@ -30,7 +30,7 @@ if ! sudo test -e /etc/melonclaw/melonclaw.env; then
 fi
 ```
 
-通过服务器编辑器填写外部配置；不要把实际凭据写进仓库或输出到日志。修改 `DATABASE_URL`、实际站点 Origin，并确认 data/workspace 为外部路径。在 `/opt/melonclaw/` 完成依赖安装后，以 `ubuntu` 账号安装模板并初始化全新数据库：
+通过服务器编辑器填写外部配置；不要把实际凭据写进仓库或输出到日志。修改 `DATABASE_URL`、实际站点 Origin，并确认 data/workspace 为外部路径。若本次部署包含知识库所需的 `vector(1024)` 向量列，须在 `db-init` 之前按 [数据库准备说明](../ops/PGVECTOR.md) 在目标库启用扩展；该脚本不建库，账号与库需先按准备指南创建。在 `/opt/melonclaw/` 完成依赖安装后，以 `ubuntu` 账号安装模板并初始化全新数据库：
 
 ```bash
 env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/melonclaw-resources --service-stopped install-builtins --source /opt/melonclaw/.data/skills/shared
@@ -121,3 +121,25 @@ curl -f http://127.0.0.1:8000/api/ready
 
 
 已有任务中心在本版本需停 Web 后运行 `uv run melonclaw-db-update`，执行 `20261015_task_reliability`，保留任务、结果、聊天和幂等键，仅删除独立通知字段/索引并调整回执响应与清理索引。Linux 标准部署会自动读取 `/etc/melonclaw/melonclaw.env`；非标准路径需设置 `MELONCLAW_ENV_FILE`。不要重建当前任务表；服务启动不自动升级。
+
+## 向量知识库首次上生产
+
+适用于首次把当前知识库结构接入生产。先确认发布提交包含后端、前端及依赖锁文件。已有用户和会话的库走 `melonclaw-db-update`；空库走 `melonclaw-db-init`。两条命令都不清库。已有知识库表与当前结构不一致时升级失败并回滚，不重建、不删表。
+
+1. 结束活动定时任务和资料处理，停止所有 Web 实例。记录旧提交，在同一停写窗口备份 PostgreSQL、data、workspaces 和外部配置。
+2. 按发版手册拉取发布提交、同步锁定依赖并重新构建前端。保持 Web 停止，完成空库初始化后再启动。
+3. 在 PostgreSQL 服务端准备 pgvector 并在目标生产库启用。远程或托管数据库由数据库管理员完成这一步。标准部署按 [pgvector 准备说明](../ops/PGVECTOR.md#3-已有部署升级生产) 检查目标库，确认支持 `vector(1024)`。
+4. 在 `/etc/melonclaw/melonclaw.env` 配置固定嵌入的 `KNOWLEDGE_EMBEDDING_API_KEY`、`KNOWLEDGE_EMBEDDING_URL`、`KNOWLEDGE_EMBEDDING_MODEL_NAME` 和 `KNOWLEDGE_EMBEDDING_DIMENSIONS=1024`。除 TXT 与 Markdown 外，知识库原件整份发往 DeepSeek 官方 OCR `https://api.deepseek.com/v1/tools/ocr`，凭据复用 `DEEPSEEK_API_KEY`。`KNOWLEDGE_OCR_TIMEOUT_SECONDS` 默认 180 秒，覆盖单次请求的上传和完整响应读取。保活换行不会延长时限。按成功识别页计费；客户端超时后，远端仍可能完成并计费。部署模板见 [ops/melonclaw.env.example](../ops/melonclaw.env.example)。环境文件中的 `KNOWLEDGE_OCR_API_KEY`、`KNOWLEDGE_OCR_URL`，以及更早的 `KNOWLEDGE_OCR_MODEL_NAME`、`KNOWLEDGE_OCR_MAX_OUTPUT_TOKENS` 可以删除。确保服务账号可写 `MELONCLAW_DATA_DIR`，并将其下的 `knowledge/` 纳入日常备份。
+5. 在发布目录以部署账号建表，成功后再启动单个 Web 实例。已有用户和会话时执行升级，不要执行 `melonclaw-db-init`：
+
+   ```bash
+   cd /opt/melonclaw
+   MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env .venv/bin/melonclaw-db-update
+   sudo systemctl start melonclaw
+   curl --fail --show-error http://127.0.0.1:8000/api/ready
+   ```
+
+   `20261117_knowledge` 创建当前知识库八张表和检索视图，不改已有业务表。重复执行会跳过。失败时保持 Web 停止。空库仍使用 `melonclaw-db-init`，它会建出同一套表并登记这条升级。
+
+6. 用可公开的测试资料建一个私库，上传 TXT 并等到可检索，分别用向量和关键词查找预期片段。再在普通聊天中选库提问，点击引用确认能打开原文，换未授权账户确认不能访问。需要支持扫描件时，再上传扫描 PDF 或图片验证真实 OCR。就绪探测通过后仍需完成这些验收。
+7. 如需回滚，先停服。旧代码与升级后数据库不兼容时，从同一停写窗口的备份恢复数据库及与其对应的文件，并重新构建旧版前端。恢复该备份会丢失备份之后的生产写入。

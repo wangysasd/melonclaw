@@ -41,6 +41,8 @@
 2. **服务启动既不建表也不升级**。`verify_schema` 只做校验；首次建库显式执行 `uv run melonclaw-db-init`，保留历史数据的结构变更显式执行 `uv run melonclaw-db-update`。
 3. **不要从 stdin 直接调用 pytest.main 跑全套**。macOS multiprocessing spawn 需要可重载的入口文件；需要注入测试数据库环境时，通过子进程执行 `scripts/check.sh` 或 `uv run pytest`，不把环境凭据打印出来。
 4. **lint 规则集写在 `pyproject.toml`**。不要在没有配置的情况下直接跑 `uvx ruff check`，不同 ruff 版本的默认集不同（0.16 的默认集包含 I / TRY / BLE）。
+5. **前端全量测试保持最多 2 个 worker**。限制在 `frontend/vitest.config.ts`，避免组件并发渲染争抢资源造成短时限用例不稳定；检查命令不变，不用放宽超时掩盖失败。
+6. **脚本成功不表示所有环境均已验证**。未安装前端依赖会跳过前端；未配置隔离数据库时，相应 pytest 用例也会跳过。交付须分别记录通过、失败、跳过和未运行，真实外部服务验收另列依赖与观察点。
 
 ## 改进优先级
 

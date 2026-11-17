@@ -31,3 +31,8 @@ Cookie 会话 → 当前有效用户 → users.tenant_id → 启用中的租户
 首次建库执行 `uv run melonclaw-db-init`，保留数据升级执行已登记的 `uv run melonclaw-db-update`；首次初始化后使用 `admin/admin` 登录；`uv run melonclaw-admin-password` 作为可选改密命令。单纯通过管理页面修改用户租户，不需要清库或清理工作区。
 
 测试见 tests/test_schema.py、tests/test_tenant_contract.py、tests/test_accounts_postgres.py。完整界面、API、运行及并发边界见[用户管理与开发登录](user-management-login.md)。
+
+
+### 知识库账户联动（2026-11-06）
+
+知识库不保存 tenant_id。共享范围见[共享范围设计](knowledge-base.md#共享范围设计)。换租户保留点名授权，不取消作业；「同租户」按所有者当前租户重新计算。删除用户前须转让或删除其拥有的知识库，并移除他的成员授权、取消他发起的作业。租户停用取消相关作业并立即拒绝访问，授权行保留。锁顺序为用户→库→文档→版本→job，各层按 ID 排序。

@@ -48,3 +48,14 @@ ROLLBACK;
 不要公开连接串或提交 `.env`。
 
 连接失败时，检查服务、地址、端口和密码。建表失败时，请管理员检查数据库归属和 `public` schema 权限。
+
+## 为知识库准备 pgvector（首次安装必读）
+
+知识库需要 `vector(1024)` 向量列。首次安装请按 [数据库准备说明](../ops/PGVECTOR.md) 的「首次安装」一节操作：**先**用上面的步骤创建账号和库，**再**安装扩展文件，**最后**运行脚本在现有库启用扩展，然后才能执行 `melonclaw-db-init`。生产升级顺序见该说明第 3 节。
+
+```bash
+bash ops/setup-pgvector.sh --check          # 只读体检
+bash ops/setup-pgvector.sh --apply          # 在现有应用库启用扩展
+```
+
+本机 Homebrew 尚未安装扩展文件时，可用 `bash ops/setup-pgvector.sh --apply --install` 一条完成。目标库名由脚本从应用配置自动解析，不需要另建隔离库，也不需要回填库名。脚本不建库、不删库、不改已有库数据，不输出连接串或凭据，也不执行数据库初始化或升级。

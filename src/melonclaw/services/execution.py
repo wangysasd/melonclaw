@@ -57,6 +57,11 @@ from melonclaw.services.execution_finalize import (
 )
 from melonclaw.services.execution_models import PreparedExecution
 from melonclaw.services.execution_trace import ExecutionTrace
+from melonclaw.services.knowledge_search import (
+    KnowledgeSearchService,
+    knowledge_ids,
+    knowledge_turn_notice,
+)
 from melonclaw.services.mcp_chat_config import parse_chat_mcp
 from melonclaw.services.preparation import prepare_context
 from melonclaw.services.result_index import extract_result_refs, message_result_refs
@@ -86,11 +91,13 @@ class ExecutionService:
         skill_id: str | None = None,
         attachment_ids: list[UUID] | None = None,
         capabilities: list[str] | None = None,
+        knowledge_base_ids: list[UUID] | None = None,
         *, preparation=None,
     ) -> PreparedExecution:
         """完成校验、幂等检查、抢锁和短事务消息落库后再返回流。"""
 
         storage = self.runtime.require_ready()
+        selected_knowledge = knowledge_ids(knowledge_base_ids or [])
         normalized_capabilities = normalize_capabilities(capabilities)
         env_content, env_draft = parse_environment_chat(content.strip(), user_id=user_id,
             conversation_id=str(conversation_id), request_id=request_id)
@@ -126,6 +133,7 @@ class ExecutionService:
                 existing,
                 skill_id=skill_id,
                 attachment_ids=normalized_attachment_ids,
+                knowledge_base_ids=selected_knowledge,
                 conversation=conversation,
                 project=project,
                 model=model,
@@ -156,11 +164,14 @@ class ExecutionService:
                     existing,
                     skill_id=skill_id,
                     attachment_ids=normalized_attachment_ids,
+                    knowledge_base_ids=selected_knowledge,
                     lock_connection=existing_lock,
                     conversation=conversation,
                     project=project,
                     model=stored_model,
                 )
+            if selected_knowledge:
+                await KnowledgeSearchService(storage, self.runtime.settings).validate_selection(context.user_id, selected_knowledge)
             agent = await self.runtime.agent_for_conversation(
                 conversation, project, model_id, normalized_capabilities, user_context=context
             )
@@ -207,6 +218,7 @@ class ExecutionService:
                 display_metadata = {"skill": pinned}
             display_metadata = display_metadata or {}
             display_metadata["skill_catalog"] = agent.melonclaw_skill_references
+            display_metadata["knowledge_base_ids"] = list(selected_knowledge)
             display_metadata.update(task_context)
             if normalized_capabilities:
                 # 能力随消息落库：恢复执行要沿用提问那一轮的同一份能力。
@@ -268,6 +280,7 @@ class ExecutionService:
         *,
         skill_id: str | None,
         attachment_ids: list[UUID],
+        knowledge_base_ids: tuple[str, ...] = (),
         lock_connection: AsyncConnection | None = None,
         model: ResolvedModel,
         conversation: dict[str, Any],
@@ -278,11 +291,12 @@ class ExecutionService:
             existing.content != content
             or self._stored_skill_id(existing.user_message) != skill_id
             or tuple(str(item) for item in attachment_ids) != existing.attachment_ids
+            or tuple(existing.user_message.get("display_metadata", {}).get("knowledge_base_ids", [])) != knowledge_base_ids
         ):
             if lock_connection is not None:
                 await storage.release_advisory_lock(lock_connection, conversation_id)
             raise RequestConflictError(
-                "相同 request_id 已存在，但消息正文、技能或附件选择与首次请求不同。"
+                "相同 request_id 已存在，但消息正文、技能、附件或知识库选择与首次请求不同。"
             )
         assistant = existing.assistant_message
         status = assistant["status"]
@@ -304,9 +318,10 @@ class ExecutionService:
                     latest.content != content
                     or self._stored_skill_id(latest.user_message) != skill_id
                     or tuple(str(item) for item in attachment_ids) != latest.attachment_ids
+                    or tuple(latest.user_message.get("display_metadata", {}).get("knowledge_base_ids", [])) != knowledge_base_ids
                 ):
                     raise RequestConflictError(
-                        "相同 request_id 已存在，但消息正文、技能或附件选择与首次请求不同。"
+                        "相同 request_id 已存在，但消息正文、技能、附件或知识库选择与首次请求不同。"
                     )
                 assistant = latest.assistant_message
                 status = assistant["status"]
@@ -439,6 +454,7 @@ class ExecutionService:
             user_message_id=UUID(pair.user_message["id"]),
             task_context={k: v for k, v in pair.user_message.get("display_metadata", {}).items() if k in {"task_history"}},
             content=pair.user_message["content"],
+            knowledge_base_ids=tuple(pair.user_message.get("display_metadata", {}).get("knowledge_base_ids", [])),
             environment_operation_id=pair.user_message.get("display_metadata", {}).get("environment_operation_id"),
             skill_id=skill_id,
             lock_connection=lock_connection,
@@ -524,6 +540,7 @@ class ExecutionService:
                 content=assistant["content"],
                 resuming=True,
                 user_message_id=UUID(request_record.user_message["id"]) if request_record else None,
+                knowledge_base_ids=tuple(request_record.user_message.get("display_metadata", {}).get("knowledge_base_ids", [])) if request_record else (),
                 environment_operation_id=request_record.user_message.get("display_metadata", {}).get("environment_operation_id") if request_record else None,
                 task_context={k: v for k, v in request_record.user_message.get("display_metadata", {}).items()
                               if k in {"task_history"}} if request_record else {},
@@ -623,7 +640,10 @@ class ExecutionService:
                 raise AgentExecutionError("执行 Agent 尚未初始化。")
 
             if agent_input is None:
-                messages: list[dict[str, str]] = []
+                described = await KnowledgeSearchService(
+                    self.runtime.require_ready(), self.runtime.settings,
+                ).describe_selection(execution.user_id, execution.knowledge_base_ids)
+                messages: list[dict[str, str]] = [{"role": "system", "content": knowledge_turn_notice(described)}]
                 if execution.skill_id:
                     pinned = next((item for item in agent.melonclaw_skill_references if item["id"] == execution.skill_id), None)
                     if pinned is None:
@@ -667,6 +687,7 @@ class ExecutionService:
                     model_id=execution.model.profile_id,
                     model_spec=execution.model.model_spec,
                     memory_enabled=True,
+                    knowledge_base_ids=execution.knowledge_base_ids,
                 ),
                 assistant_message_id=str(execution.assistant_message_id),
                 run_id=execution.run_id,

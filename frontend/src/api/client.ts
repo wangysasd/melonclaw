@@ -285,35 +285,37 @@ export function listMcp(
 }
 
 export function listManageableModels(
-  input: { userId: string },
+  input: { userId: string; purpose?: "chat" | "embedding" | "document_parser" },
   signal?: AbortSignal,
 ): Promise<{ items: ManageableModel[] }> {
   return apiRequest<{ items: ManageableModel[] }>("/api/models/manage", {
-    query: { user_id: input.userId },
+    query: { user_id: input.userId, purpose: input.purpose },
     signal,
   });
 }
 
 export function createModel(input: {
   userId: string;
-  modelKey: string;
   providerKey: string;
   scope: "global" | "user";
   displayName: string;
   modelName: string;
-  contextWindow?: number;
+  contextWindow?: number | null;
+  supportsImageInput?: boolean;
+  purpose?: "chat" | "embedding" | "document_parser";
   enabled?: boolean;
 }): Promise<{ ok: boolean }> {
   return apiRequest("/api/models", {
     method: "POST",
     body: {
       user_id: input.userId,
-      model_key: input.modelKey,
       provider_key: input.providerKey,
       scope: input.scope,
       display_name: input.displayName,
       model_name: input.modelName,
       context_window: input.contextWindow,
+      purpose: input.purpose,
+      supports_image_input: input.supportsImageInput,
       enabled: input.enabled ?? true,
     },
   });
@@ -327,6 +329,7 @@ export function updateModel(
     displayName?: string;
     modelName?: string;
     contextWindow?: number;
+    supportsImageInput?: boolean;
     /** 设为平台默认模型（仅管理员、global scope）。 */
     isDefault?: boolean;
   },
@@ -340,6 +343,7 @@ export function updateModel(
       model_name: input.modelName,
       context_window: input.contextWindow,
       is_default: input.isDefault,
+      supports_image_input: input.supportsImageInput,
     },
   });
 }
@@ -446,11 +450,11 @@ export function deleteProvider(
 /** 实时拉取供应商远端 /models 清单，不落库。 */
 export function fetchRemoteModels(
   providerKey: string,
-  input: { userId: string },
+  input: { userId: string; purpose?: "chat" | "embedding" | "document_parser" },
 ): Promise<{ items: { id: string; display_name: string }[] }> {
   return apiRequest<{ items: { id: string; display_name: string }[] }>(
     `/api/model-providers/${encodeURIComponent(providerKey)}/remote-models`,
-    { query: { user_id: input.userId } },
+    { query: { user_id: input.userId, purpose: input.purpose } },
   );
 }
 
@@ -677,6 +681,7 @@ export function uploadAttachment(
     userId: string;
     file: File;
     clientRequestId: string;
+    modelId?: string;
     onProgress?: (percent: number) => void;
   },
   signal?: AbortSignal,
@@ -685,6 +690,7 @@ export function uploadAttachment(
   form.append("file", input.file);
   form.append("user_id", input.userId);
   form.append("client_request_id", input.clientRequestId);
+  if (input.modelId) form.append("model_id", input.modelId);
   const url = "projectId" in target
     ? `${API_BASE_URL}/api/projects/${encodeURIComponent(target.projectId)}/attachments`
     : `${API_BASE_URL}/api/conversations/${encodeURIComponent(target.conversationId)}/attachments`;
@@ -703,7 +709,7 @@ export function uploadAttachment(
     request.upload.onprogress = (event) => {
       if (!input.onProgress || !event.lengthComputable || event.total <= 0) return;
       input.onProgress(
-        Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100))),
+        Math.min(100, Math.max(0, Math.floor((event.loaded / event.total) * 100))),
       );
     };
     request.onload = () => {
@@ -730,16 +736,18 @@ export function uploadAttachment(
   });
 }
 
-/** POST /api/attachments/{id}/parse：重置解析失败的 staged 附件并重新排队。 */
+/** 同步识别 OCR 附件，或重新排队本地解析。 */
 export function retryAttachmentParse(
   attachmentId: string,
-  input: AttachmentAccessInput,
+  input: AttachmentAccessInput & { modelId?: string },
+  signal?: AbortSignal,
 ): Promise<UploadedAttachment> {
   return apiRequest<UploadedAttachment>(
     `/api/attachments/${encodeURIComponent(attachmentId)}/parse`,
     {
       method: "POST",
-      query: attachmentAccessQuery(input),
+      query: { ...attachmentAccessQuery(input), model_id: input.modelId },
+      signal,
     },
   );
 }
@@ -771,9 +779,11 @@ export function deleteAttachment(
 export function attachmentContentUrl(
   attachmentId: string,
   input: AttachmentAccessInput,
+  preview = false,
 ): string {
   const params = new URLSearchParams({ user_id: input.userId });
   if (input.projectId) params.set("project_id", input.projectId);
   if (input.conversationId) params.set("conversation_id", input.conversationId);
+  if (preview) params.set("preview", "true");
   return `${API_BASE_URL}/api/attachments/${encodeURIComponent(attachmentId)}/content?${params.toString()}`;
 }

@@ -59,6 +59,7 @@ describe("agent run derivation", () => {
     expect(groupAgentSteps(completed.steps).map((group) => group.kind)).toEqual(["reasoning", "reasoning"]);
     expect(completed.finalAnswer).toBe("回答");
     view.rerender(<AgentExecution run={completed} />);
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
     expect(view.container.querySelectorAll("details.assistant-reasoning")).toHaveLength(2);
   });
 
@@ -81,6 +82,7 @@ describe("agent run derivation", () => {
       ],
     })] }));
     const { container } = render(<AgentExecution run={run} />);
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
     expect(container.querySelectorAll(".assistant-reasoning")).toHaveLength(1);
     expect(container.querySelector(".assistant-reasoning")?.textContent).toContain("先分析再确认");
   });
@@ -262,6 +264,7 @@ describe("agent step grouping", () => {
     const { container } = render(
       <AgentExecution run={buildAgentRun(assistant({ status: "completed", assistantSteps: steps }))} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
     expect(container.querySelectorAll(".agent-tool")).toHaveLength(2);
     expect(container.querySelectorAll(".agent-tool summary")[0].textContent).toContain("查看目录");
     expect(container.querySelectorAll(".agent-tool summary")[1].textContent).toContain("查找内容");
@@ -417,6 +420,7 @@ describe("agent execution panel", () => {
       ] },
     ] }));
     rerender(<AgentExecution run={finished} />);
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
     const parts = container.querySelectorAll<HTMLDetailsElement>("details.assistant-reasoning");
     expect(parts).toHaveLength(2);
     expect(Array.from(container.querySelector(".agent-timeline")!.children).map((node) => node.className)).toEqual([
@@ -439,6 +443,7 @@ describe("agent execution panel", () => {
     ] }));
     const { container } = render(<AgentExecution run={run} />);
     const panel = container.querySelector(".agent-execution")!;
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
     const reasoning = panel.querySelector("details.assistant-reasoning") as HTMLDetailsElement;
     expect(panel.children[0].className).toBe("agent-execution-head");
     expect(panel.children[1].className).toBe("agent-execution-body");
@@ -553,7 +558,8 @@ describe("agent execution panel", () => {
     const message = assistant({ status: "completed", content: "最终答复", assistantSteps: steps });
     const { container, rerender, unmount } = render(<AgentExecution run={buildAgentRun({ ...message, status: "streaming" })} />);
     rerender(<AgentExecution run={buildAgentRun(message)} />);
-    expect(screen.getByRole("button", { name: /完成/ }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: /完成/ }).getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
     const tools = container.querySelectorAll<HTMLDetailsElement>("details.agent-tool");
     expect(tools).toHaveLength(2);
     expect(Array.from(tools).map((tool) => tool.querySelector("summary")?.textContent)).toEqual([
@@ -570,10 +576,10 @@ describe("agent execution panel", () => {
     expect(container.querySelector(".agent-execution-body")).toBeNull();
     unmount();
     const history = render(<AgentExecution run={buildAgentRun(message)} />);
-    expect(history.container.querySelectorAll(".agent-tool")).toHaveLength(2);
+    expect(history.container.querySelectorAll(".agent-tool")).toHaveLength(0);
   });
 
-  it("keeps a completed subagent visible when there are no root tool steps", () => {
+  it("lets the user reveal a completed subagent when there are no root tool steps", () => {
     const { container } = render(<AgentExecution
       run={buildAgentRun(assistant({ status: "completed", content: "最终答复" }))}
       events={[
@@ -583,7 +589,8 @@ describe("agent execution panel", () => {
       ]}
       messageStatus="completed"
     />);
-    expect(screen.getByRole("button", { name: /完成/ }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: /完成/ }).getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: /完成/ }));
     const node = container.querySelector<HTMLDetailsElement>(".agent-subagent")!;
     expect(node.querySelector("summary")?.textContent).toContain("分析助手");
     expect(node.open).toBe(false);

@@ -17,6 +17,7 @@ from langchain_core.runnables.config import ensure_config, merge_configs, set_co
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.types import Overwrite
 
+from melonclaw.core.knowledge import KNOWLEDGE_TOOL_NAMES
 from melonclaw.core.task_policy import TaskExecutionError, TaskRunControl
 from melonclaw.core.tool_catalog import (
     FIND_TOOLS_NAME,
@@ -174,9 +175,18 @@ class ToolPoolMiddleware(AgentMiddleware):
             self.control.check()
         return selected, outcome
 
+    @staticmethod
+    def _knowledge_selected(request: ModelRequest) -> bool:
+        runtime = getattr(request, "runtime", None)
+        context = getattr(runtime, "context", None)
+        return bool(getattr(context, "knowledge_base_ids", ()))
+
     def filter_request(self, request: ModelRequest) -> ModelRequest:
         """摘要与主模型共用同一份 Checkpoint 可见工具规则。"""
         active = set(request.state["tool_pool"]["names"])
+        # 本轮选了库才把四个只读查询工具钉进可见列表；未选择时仍留在动态目录。
+        if self._knowledge_selected(request):
+            active.update(KNOWLEDGE_TOOL_NAMES)
         tools = [t for t in request.tools if isinstance(t, dict) or t.name not in self.catalog_names or t.name in active]
         return request.override(tools=tools)
 

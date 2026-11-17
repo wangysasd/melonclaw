@@ -55,6 +55,7 @@ from melonclaw.services.user_input_execution import (
     _is_expired,
 )
 from melonclaw.tool.user_input import (
+    ask_user,
     normalize_user_answer_batch,
     normalize_user_question_batch,
 )
@@ -245,6 +246,39 @@ def test_multi_select_answer_is_normalized_and_validated():
         answer_for(payload, {"type": "options", "option_ids": ["search", "search"]})
     with pytest.raises(ValueError, match="必须提交 option_ids"):
         answer_for(payload, {"type": "option", "option_id": "search"})
+
+
+def test_question_batch_accepts_card_level_custom_answer_default(monkeypatch):
+    captured: dict[str, Any] = {}
+
+    def _capture(payload):
+        captured["payload"] = payload
+        return {"type": "cancelled"}
+
+    monkeypatch.setattr("melonclaw.tool.user_input.interrupt", _capture)
+    options = [
+        {"id": "a", "label": "甲"},
+        {"id": "b", "label": "乙"},
+    ]
+    ask_user.func(
+        questions=[
+            {"question": "第一题", "options": options},
+            {
+                "question": "第二题",
+                "options": options,
+                "allow_custom_answer": False,
+            },
+        ],
+        allow_custom_answer=True,
+    )
+    questions = captured["payload"]["questions"]
+    assert questions[0]["allow_custom_answer"] is True
+    assert questions[1]["allow_custom_answer"] is False
+    with pytest.raises(ValueError, match="question、options"):
+        ask_user.func(
+            question="不要混用",
+            questions=[{"question": "第一题", "options": options}],
+        )
 
 
 def test_question_batch_requires_all_answers_and_resumes_once():

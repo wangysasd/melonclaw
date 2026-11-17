@@ -32,6 +32,7 @@ class PreparedExecution:
     user_message_id: UUID | None = None
     content: str = ""
     skill_id: str | None = None
+    knowledge_base_ids: tuple[str, ...] = ()
     environment_operation_id: str | None = None
     user_interaction_id: UUID | None = None
     resuming: bool = False

@@ -63,3 +63,19 @@ async def apply_schema_updates(database: Database) -> tuple[str, ...]:
             applied_now.append(update.update_id)
 
     return tuple(applied_now)
+
+
+async def record_initialized_schema(connection) -> None:
+    """首次空库直接创建当前schema后登记基线，不重放旧升级。"""
+    await connection.execute(text("""
+        CREATE TABLE IF NOT EXISTS melonclaw_schema_updates (
+            update_id VARCHAR(120) PRIMARY KEY,
+            description TEXT NOT NULL,
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """))
+    for step in UPDATES:
+        await connection.execute(text("""
+            INSERT INTO melonclaw_schema_updates(update_id,description) VALUES (:id,:description)
+            ON CONFLICT(update_id) DO NOTHING
+        """), {"id": step.update_id, "description": step.description})

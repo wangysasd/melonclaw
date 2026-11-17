@@ -143,7 +143,7 @@ def test_schema_update_rolls_back_earlier_steps_and_update_records(monkeypatch):
         async with control.begin() as connection:
             await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
         engine = create_async_engine(
-            url, connect_args={"server_settings": {"search_path": schema}}
+            url, connect_args={"server_settings": {"search_path": f"{schema},public"}}
         )
         try:
             async with engine.begin() as connection:
@@ -205,10 +205,10 @@ def test_account_guard_coordinates_distinct_repository_instances():
         async with control.begin() as connection:
             await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
         engine_a = create_async_engine(
-            url, connect_args={"server_settings": {"search_path": schema}}
+            url, connect_args={"server_settings": {"search_path": f"{schema},public"}}
         )
         engine_b = create_async_engine(
-            url, connect_args={"server_settings": {"search_path": schema}}
+            url, connect_args={"server_settings": {"search_path": f"{schema},public"}}
         )
         repository_a = BusinessRepository(SimpleNamespace(engine=engine_a))
         repository_b = BusinessRepository(SimpleNamespace(engine=engine_b))

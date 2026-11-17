@@ -45,6 +45,8 @@ def make_provider_row(**overrides):
 
 def make_row(**overrides):
     row = {
+        "purpose": "chat",
+        "id": "00000000-0000-0000-0000-000000000001",
         "model_key": "my-gpt",
         "provider_key": "my-gateway",
         "scope": "global",
@@ -324,6 +326,8 @@ class FakeStorage:
         return self.rows.get(model_key)
 
     async def create_model_row(self, **fields):
+        fields.setdefault("id", "00000000-0000-0000-0000-000000000001")
+        fields.setdefault("purpose", "chat")
         fields.setdefault("is_default", False)
         fields.setdefault("input_modalities", ["text"])
         self.rows[fields["model_key"]] = dict(fields, version=1)
@@ -342,7 +346,7 @@ class FakeStorage:
     async def delete_model_row(self, model_key):
         self.rows.pop(model_key, None)
 
-    async def list_visible_model_rows(self, user_id, *, include_disabled=False):
+    async def list_visible_model_rows(self, user_id, *, include_disabled=False, purpose="chat"):
         return [
             row
             for row in self.rows.values()
@@ -497,6 +501,18 @@ class ProviderPermissionMatrixTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ModelPermissionMatrixTests(unittest.IsolatedAsyncioTestCase):
+    async def test_create_without_model_key_generates_unique_keys(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload())
+        payload = make_payload(model_key=None, model_name="供应商/" + "m" * 100)
+        await service.create_model("admin-1", payload)
+        await service.create_model("admin-1", payload)
+        self.assertEqual(len(storage.rows), 2)
+        for key, row in storage.rows.items():
+            self.assertRegex(key, r"^[a-z0-9][a-z0-9_-]{0,63}$")
+            self.assertEqual(row["model_name"], payload.model_name)
+
     async def test_member_creates_user_scope(self):
         storage = FakeStorage()
         service = make_service(storage)
@@ -782,6 +798,34 @@ class PersonalProviderCreationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(storage.providers["my-gateway"]["enabled"])
         with self.assertRaisesRegex(ModelConfigError, "个人 API Key"):
             await service.create_model("member-2", make_payload(scope="user", model_key="other"))
+
+
+class ModelImageInputTests(unittest.IsolatedAsyncioTestCase):
+    async def test_image_capability_roundtrip(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload())
+        await service.create_model("admin-1", make_payload(supports_image_input=True))
+        row = storage.rows["my-gpt"]
+        provider = storage.providers["my-gateway"]
+        self.assertEqual(catalog_item(row, provider)["input_modalities"], ["text", "image"])
+        await service.update_model("admin-1", "my-gpt", display_name="改名")
+        self.assertIn("image", resolve_model_row(row, provider).input_modalities)
+        row["input_modalities"].append("file")
+        await service.update_model("admin-1", "my-gpt", supports_image_input=False)
+        self.assertEqual(model_public_dict(row, provider)["input_modalities"], ["text", "file"])
+        await service.update_model("admin-1", "my-gpt", supports_image_input=True)
+        self.assertIn("image", resolve_model_row(row, provider).input_modalities)
+
+    async def test_document_parser_retains_fixed_image_capability(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload())
+        payload = make_payload(purpose="document_parser", context_window=None)
+        await service.create_model("admin-1", payload)
+        with self.assertRaises(ModelConfigError):
+            await service.update_model("admin-1", "my-gpt", supports_image_input=False)
+        self.assertEqual(storage.rows["my-gpt"]["input_modalities"], ["text", "image"])
 
 
 class ModelContextWindowTests(unittest.IsolatedAsyncioTestCase):

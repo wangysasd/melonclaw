@@ -4,12 +4,13 @@ import { Modal } from "antd";
 import { Icon } from "./Icon";
 import {
   attachmentBadge,
-  attachmentKindOf,
   describeAttachmentLimits,
   extensionOf,
   formatBytes,
+  usesAttachmentOcr,
   validateAttachmentFile,
 } from "../lib/attachmentFiles";
+import { validatePdfPages } from "../lib/attachmentPdf";
 import { deleteAttachment, uploadAttachment } from "../api/client";
 import { createRequestId } from "../lib/requestId";
 import type { AttachmentCapabilities, AttachmentSummary } from "../types/api";
@@ -19,6 +20,8 @@ export type StagedAttachment = AttachmentSummary & {
   file: File;
   clientRequestId: string;
   uploading?: boolean;
+  checkingPdf?: boolean;
+  recognizesText?: boolean;
   uploadError?: string | null;
   progress?: number;
 };
@@ -33,6 +36,8 @@ export interface AttachmentDialogProps {
   userId: string;
   projectId: string | null;
   conversationId: string;
+  modelId?: string;
+  modelSupportsImage?: boolean;
   /** 输入区已确认的附件，用于合并计算数量与总大小上限。 */
   existingCount: number;
   existingTotalBytes: number;
@@ -41,10 +46,14 @@ export interface AttachmentDialogProps {
 }
 
 export function attachmentStatusText(item: StagedAttachment): string {
+  if (item.checkingPdf) return "正在检查页数…";
   if (item.uploading) {
+    if (item.progress === 100) return item.recognizesText ? "DeepSeek 识别中…" : "处理中…";
     return item.progress ? `上传中 ${item.progress}%` : "上传中…";
   }
   if (item.uploadError) return "上传失败";
+  if (item.parse_status === "failed") return "解析失败";
+  if (item.recognizesText && item.parse_status === "processed") return "已识别文字";
   return "已上传";
 }
 
@@ -63,6 +72,8 @@ export function AttachmentDialog({
   userId,
   projectId,
   conversationId,
+  modelId,
+  modelSupportsImage,
   existingCount,
   existingTotalBytes,
   onClose,
@@ -75,6 +86,8 @@ export function AttachmentDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const controllersRef = useRef(new Map<string, AbortController>());
   const dragDepthRef = useRef(0);
+  const openedSessionRef = useRef<number | null>(null);
+  const initialFilesSessionRef = useRef<number | null>(null);
   const access = projectId
     ? { userId, projectId }
     : { userId, conversationId };
@@ -92,44 +105,62 @@ export function AttachmentDialog({
   );
 
   const startUpload = (file: File, retry?: StagedAttachment) => {
+    const spec = capabilities.items.find((item) => item.extension === extensionOf(file.name));
+    if (!spec) return;
     const clientRequestId = retry?.clientRequestId ?? createRequestId();
     const temporaryId = `uploading-${clientRequestId}`;
     const placeholder: StagedAttachment = {
       attachment_id: temporaryId,
       file_name: file.name,
       media_type: file.type || "application/octet-stream",
-      kind: attachmentKindOf(extensionOf(file.name)),
+      kind: spec.kind,
       size_bytes: file.size,
       parse_status: "pending",
       file,
       clientRequestId,
       uploading: true,
+      checkingPdf: spec.kind === "pdf",
+      recognizesText: usesAttachmentOcr(spec, modelSupportsImage),
       progress: 0,
     };
     setItems((current) => retry ? current.map((item) => item.attachment_id === retry.attachment_id ? placeholder : item) : [...current, placeholder]);
     const controller = new AbortController();
     controllersRef.current.set(temporaryId, controller);
-    void uploadAttachment(
-      projectId ? { projectId } : { conversationId },
-      {
-        userId,
-        file,
-        clientRequestId,
-        onProgress: (percent) => {
-          setItems((current) =>
-            current.map((item) =>
-              item.attachment_id === temporaryId ? { ...item, progress: percent } : item,
-            ),
-          );
+    const upload = async () => {
+      if (spec.kind === "pdf") {
+        const error = await validatePdfPages(file, capabilities.pdf_max_pages, controller.signal);
+        if (error) throw new Error(error);
+        setItems((current) => current.map((item) =>
+          item.attachment_id === temporaryId ? { ...item, checkingPdf: false } : item,
+        ));
+      }
+      return uploadAttachment(
+        projectId ? { projectId } : { conversationId },
+        {
+          userId,
+          file,
+          clientRequestId,
+          modelId,
+          onProgress: (percent) => {
+            setItems((current) =>
+              current.map((item) =>
+                item.attachment_id === temporaryId ? { ...item, progress: percent } : item,
+              ),
+            );
+          },
         },
-      },
-      controller.signal,
-    )
+        controller.signal,
+      );
+    };
+    void upload()
       .then((uploaded) => {
         setItems((current) =>
           current.map((item) =>
             item.attachment_id === temporaryId
-              ? { ...uploaded, file, clientRequestId, uploading: false, progress: 100 }
+              ? {
+                  ...uploaded, file, clientRequestId, uploading: false, progress: 100,
+                  recognizesText: placeholder.recognizesText || (spec.kind === "image" && uploaded.kind === "document"),
+                }
               : item,
           ),
         );
@@ -140,7 +171,7 @@ export function AttachmentDialog({
         setItems((current) =>
           current.map((item) =>
             item.attachment_id === temporaryId
-              ? { ...item, uploading: false, uploadError: text }
+              ? { ...item, uploading: false, checkingPdf: false, uploadError: text }
               : item,
           ),
         );
@@ -163,6 +194,7 @@ export function AttachmentDialog({
       const error = validateAttachmentFile(file, capabilities, {
         currentCount: count,
         currentTotalBytes: totalBytes,
+        modelSupportsImage,
       });
       if (error) {
         lastError = error;
@@ -213,10 +245,16 @@ export function AttachmentDialog({
   // 每次打开都从空白开始；拖拽/粘贴带进来的文件在这里自动上传。
   useEffect(() => {
     if (!open) return;
-    resetLocal();
-    if (initialFiles && initialFiles.length > 0) addFiles(initialFiles);
+    if (openedSessionRef.current !== sessionId) {
+      openedSessionRef.current = sessionId;
+      resetLocal();
+    }
+    if (capabilities.items.length && initialFilesSessionRef.current !== sessionId) {
+      initialFilesSessionRef.current = sessionId;
+      if (initialFiles?.length) addFiles(initialFiles);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [open, sessionId, capabilities.items.length]);
 
   const handleCancel = () => {
     purgeStaged();
@@ -324,7 +362,7 @@ export function AttachmentDialog({
       {items.length > 0 ? (
         <div className="attachment-dialog-list" aria-label="待添加附件">
           {items.map((item) => {
-            const failed = Boolean(item.uploadError);
+            const failed = Boolean(item.uploadError) || item.parse_status === "failed";
             return (
               <div
                 className={`attachment-dialog-item ${failed ? "has-error" : ""}`}
@@ -343,8 +381,9 @@ export function AttachmentDialog({
                       {attachmentStatusText(item)}
                     </span>
                     <span>{formatBytes(item.size_bytes)}</span>
-                    {item.uploadError ? (
-                      <span className="attachment-dialog-error">{item.uploadError}</span>
+                    {item.first_frame_only ? <span>使用首帧</span> : null}
+                    {item.uploadError || item.parse_error_message ? (
+                      <span className="attachment-dialog-error">{item.uploadError || item.parse_error_message}</span>
                     ) : null}
                   </div>
                   {item.uploading && item.progress ? (
@@ -360,7 +399,7 @@ export function AttachmentDialog({
                     </span>
                   ) : null}
                 </div>
-                {failed ? <button type="button" className="attachment-dialog-remove" aria-label={`重试上传 ${item.file_name}`} onClick={() => startUpload(item.file, item)}><Icon name="refresh-cw" size={16} /></button> : null}
+                {item.uploadError ? <button type="button" className="attachment-dialog-remove" aria-label={`重试上传 ${item.file_name}`} onClick={() => startUpload(item.file, item)}><Icon name="refresh-cw" size={16} /></button> : null}
                 <button
                   type="button"
                   className="attachment-dialog-remove"

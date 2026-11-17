@@ -309,7 +309,7 @@ def test_checkpoint_cleanup_scope_retention_and_upgrade(monkeypatch, tmp_path):
                 kwargs={
                     "autocommit": True,
                     "row_factory": dict_row,
-                    "options": f"-c search_path={schema}",
+                    "options": f"-c search_path={schema},public",
                 },
             )
             await pool.open(wait=True)

@@ -91,6 +91,8 @@ def catalog_item(
 ) -> dict[str, Any]:
     """把 model_configs 行 + 供应商行转成模型目录条目，绝不携带 api_key。"""
 
+    if row["purpose"] != "chat":
+        raise ValueError("聊天目录只接受聊天模型。")
     source: MODEL_SOURCE = (
         "system" if row["scope"] == "global" else "custom"
     )
@@ -118,6 +120,12 @@ def resolve_model_row(
 ) -> ResolvedModel:
     """把可见且启用的 model_configs 行 + 供应商行解析成运行模型。"""
 
+    if row["purpose"] != "chat":
+        raise ValueError("所选模型不是聊天模型。")
+    return _resolve_generation_row(row, provider_row)
+
+
+def _resolve_generation_row(row, provider_row):
     if not row["enabled"]:
         raise ValueError("所选模型已被停用。")
     if row["scope"] == "global" and not provider_row["enabled"]:
@@ -144,3 +152,30 @@ def resolve_model_row(
         request_headers=dict(provider_row["request_headers"]),
         extra_config=dict(provider_row["extra_config"]),
     )
+
+
+@dataclass(frozen=True)
+class ResolvedKnowledgeModel:
+    """知识库用途不携带聊天上下文窗口；只接受数据库共享凭据。"""
+    id: str
+    purpose: str
+    model_name: str
+    base_url: str
+    api_key: str = field(repr=False)
+    request_headers: dict[str, str] = field(default_factory=dict, repr=False)
+    timeout: float = 30
+
+
+def resolve_knowledge_model_row(row, provider):
+    from melonclaw.core.knowledge import KnowledgeError
+    if row["purpose"] != "document_parser" or row["scope"] != "global":
+        raise KnowledgeError("仅支持全局知识库用途模型。")
+    if not row["enabled"] or not provider["enabled"] or not provider["api_key"]:
+        raise KnowledgeError("知识库模型已停用或未配置数据库共享 Key。")
+    if provider["provider_type"] != "openai_compatible":
+        raise KnowledgeError("知识库用途首版仅支持 OpenAI 兼容供应商。")
+    timeout = provider["extra_config"].get("timeout", 30)
+    if type(timeout) not in (float, int) or not 0 < timeout <= 120:
+        raise KnowledgeError("知识库模型超时必须为 0 到 120 秒之间的数值。")
+    return ResolvedKnowledgeModel(str(row["id"]), row["purpose"], row["model_name"],
+        str(provider["base_url"]), provider["api_key"], dict(provider["request_headers"]), timeout)

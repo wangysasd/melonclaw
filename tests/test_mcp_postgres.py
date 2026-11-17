@@ -19,12 +19,12 @@ from melonclaw.services.mcp_management import McpManagementService
 
 
 @pytest.mark.skipif(not os.getenv("MELONCLAW_TEST_DATABASE_URL"), reason="需要隔离验证数据库连接")
-def test_mcp_postgres_constraints_and_transactions(monkeypatch):
+def test_mcp_postgres_constraints_and_transactions():
     async def run():
         schema = "test_mcp_" + uuid4().hex
         engine = create_async_engine(
             normalize_async_database_url(os.environ["MELONCLAW_TEST_DATABASE_URL"]),
-            connect_args={"server_settings": {"search_path": schema}},
+            connect_args={"server_settings": {"search_path": f"{schema},public"}},
         )
         try:
             async with engine.begin() as connection:
@@ -51,6 +51,7 @@ def test_mcp_postgres_constraints_and_transactions(monkeypatch):
                     )
             repository = BusinessRepository(SimpleNamespace(engine=engine))
             manager = McpManagementService(SimpleNamespace(require_ready=lambda: repository, mcp_discovery=McpDiscoveryCoordinator()))
+            assert (await manager.list("admin"))["items"] == []
             config = dict(
                 slug="demo",
                 display_name="演示",
@@ -79,34 +80,6 @@ def test_mcp_postgres_constraints_and_transactions(monkeypatch):
             assert len(rows) == 1 and not rows[0]["effective_enabled"]
             await manager.add("alice", shared["id"], 2)
             assert (await manager.list("alice"))["items"][0]["effective_enabled"]
-            from melonclaw.repository import bootstrap
-
-            monkeypatch.setattr(
-                bootstrap,
-                "load_builtin_mcp_seed",
-                lambda: {
-                    "seed_test": {
-                        "transport": "http",
-                        "url": "https://example.com/mcp",
-                        "headers": {"X-Key": "${MCP_TEST_KEY}"},
-                    }
-                },
-            )
-            await bootstrap.seed_builtin_data(SimpleNamespace(engine=engine))
-            seed = next(
-                item
-                for item in (await manager.list("admin"))["items"]
-                if item["slug"] == "seed_test"
-            )
-            assert seed["enabled"] and seed["effective_enabled"]
-            await manager.global_state("admin", seed["id"], 1, False)
-            await bootstrap.seed_builtin_data(SimpleNamespace(engine=engine))
-            seed = next(
-                item
-                for item in (await manager.list("admin"))["items"]
-                if item["slug"] == "seed_test"
-            )
-            assert not seed["enabled"] and seed["version"] == 2
         finally:
             async with engine.begin() as connection:
                 await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))

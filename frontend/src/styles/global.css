@@ -252,6 +252,25 @@ body {
   gap: var(--space-2);
 }
 
+.manual-model-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--space-2);
+}
+
+.manual-model-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  align-self: end;
+  gap: var(--space-2);
+  min-height: var(--control-height-md);
+}
+
+.manual-model-create {
+  align-self: flex-start;
+}
+
 .resource-form-row select {
   flex: 1;
   padding: 6px var(--space-2);
@@ -309,6 +328,28 @@ body {
   border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.06);
   color: var(--muted);
+}
+
+.resource-badge.model-default-badge {
+  margin-inline-start: var(--space-1);
+  background: var(--brand-primary-active);
+  color: white;
+}
+
+.resource-badge.model-image-badge {
+  background: var(--status-success-bg);
+  color: var(--status-success);
+}
+
+.model-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.model-capabilities .resource-badge {
+  border-radius: 999px;
 }
 
 .resource-badge.is-global {
@@ -545,7 +586,7 @@ body {
 :is(.skill-delete-resource, .sidebar-delete-resource, .delete-confirm-resource) span, .skill-delete-note { color: var(--muted); }
 :is(.skill-delete-content, .sidebar-delete-content, .delete-confirm-content) p { margin: 0; line-height: var(--line-height-base); }
 :is(.skill-delete-modal, .sidebar-delete-modal, .delete-confirm-modal) .ant-modal-confirm-btns { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--line-light); }
-:is(.skill-delete-modal, .sidebar-delete-modal, .delete-confirm-modal) .ant-modal-confirm-btns .ant-btn { margin-inline-start: 0; min-height: 36px; padding-inline: var(--space-4); font-size: var(--text-md); }
+:is(.skill-delete-modal, .sidebar-delete-modal, .delete-confirm-modal) .ant-modal-confirm-btns .ant-btn { margin-inline-start: 0; min-height: var(--control-height-md); padding-inline: var(--space-4); font-size: var(--text-md); }
 
 .sidebar-delete-icon { display: grid; place-items: center; width: var(--control-height-lg); height: var(--control-height-lg); flex: 0 0 auto; border-radius: var(--radius-card); background: var(--panel); }
 
@@ -903,3 +944,51 @@ body {
 
 /* Native action buttons follow the same regular weight as Ant Design Button. */
 button { font-weight: var(--weight-regular); }
+
+.chat-model-row {
+  flex-wrap: wrap;
+}
+
+.chat-model-row .resource-copy {
+  overflow-wrap: anywhere;
+}
+
+.chat-model-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.chat-model-settings {
+  flex: 0 0 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--composer-surface);
+}
+
+.chat-model-settings-fields {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.chat-model-settings-fields .provider-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 128px);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-model-settings > .chat-model-actions {
+  margin-inline-start: auto;
+}

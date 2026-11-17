@@ -27,9 +27,9 @@ class InternetSearchInput(BaseModel):
     query: str = Field(
         min_length=1, max_length=128,
         description=(
-            "搜索查询词（1~128 个字符，不能为空白）。支持操作符："
-            "site:domain、-site:domain、\"精确短语\"、-排除词、"
-            "lang:zh,en、after:YYYY-MM-DD、before:YYYY-MM-DD。"
+            "搜索查询词（1~128 个字符，不能为空白）。支持操作符，可在同一个 query 中组合："
+            "site:domain、-site:domain、-排除词、-\"排除短语\"、\"精确短语\"、"
+            "lang:zh,en、after:YYYY-MM-DD 或 after:YYYY、before:YYYY-MM-DD 或 before:YYYY。"
         ),
     )
     count: int = Field(
@@ -38,7 +38,11 @@ class InternetSearchInput(BaseModel):
     )
     ori_question: str | None = Field(
         default=None, min_length=1, max_length=128,
-        description="可选：触发本次搜索的用户原始问题（1~128 个字符），有助于提升检索意图理解。",
+        description=(
+            "查询词经过改写，或包含 site:、-site:、-排除词、-\"排除短语\"、\"精确短语\"、"
+            "lang:、after:、before: 时，填入用户原问题的简短表述，不超过 128 个字符。"
+            "查询词已是用户原话时省略。"
+        ),
     )
     need_content: bool = Field(
         default=False,
@@ -240,8 +244,9 @@ def build_web_tools(api_key: str | None = None) -> list[BaseTool]:
             name="internet_search",
             description=(
                 "使用 DeepSeek 搜索引擎检索互联网公开网页，返回标题、链接、发布时间、"
-                "权威度、相关性分及摘要（summary）。支持 site:、-site:、"
-                "\"精确短语\"、lang:、after:、before: 等搜索语法，query 最长 128 字符。truncated_fields 标记被截断的字段；需全文时调用 web_fetch。"
+                "权威度、相关性分及摘要（summary）。支持 site:、-site:、-排除词、"
+                "-\"排除短语\"、\"精确短语\"、lang:、after:、before:，可组合使用，query 最长 128 字符。"
+                "truncated_fields 标记被截断的字段；需全文时调用 web_fetch。"
             ),
             args_schema=InternetSearchInput,
         ),

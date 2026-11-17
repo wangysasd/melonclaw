@@ -192,8 +192,8 @@ def test_real_agent_graph_requires_approval_and_injects_context(installation, de
 def test_zip_attachment_validation(tmp_path):
     path = tmp_path / "blob"
     path.write_bytes(make_zip({"SKILL.md": VALID_SKILL_MD.encode()}))
-    assert validate_attachment(path, "skill.zip", "application/zip")[2] == "archive"
-    assert validate_attachment(path, "skill.zip", "application/x-zip-compressed")[2] == "archive"
+    assert validate_attachment(path, "skill.zip", "application/zip").kind == "archive"
+    assert validate_attachment(path, "skill.zip", "application/x-zip-compressed").kind == "archive"
     for entries in ({"../escape": b"bad"}, {"/absolute": b"bad"}):
         path.write_bytes(make_zip(entries))
         with pytest.raises(AttachmentValidationError):

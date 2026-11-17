@@ -152,6 +152,8 @@ jeepney==0.9.0 ; sys_platform == 'linux'
     # via
     #   keyring
     #   secretstorage
+jieba==0.42.1
+    # via melonclaw
 jiter==0.16.0
     # via
     #   anthropic
@@ -192,6 +194,7 @@ langchain-core==1.5.3
     #   langchain-mcp-adapters
     #   langchain-openai
     #   langchain-quickjs
+    #   langchain-text-splitters
     #   langgraph
     #   langgraph-checkpoint
     #   langgraph-prebuilt
@@ -208,6 +211,8 @@ langchain-protocol==0.0.18
     #   langchain-core
     #   langgraph-sdk
 langchain-quickjs==0.3.5
+    # via melonclaw
+langchain-text-splitters==1.1.3
     # via melonclaw
 langfuse==5.0.2
     # via melonclaw
@@ -253,6 +258,8 @@ numpy==2.4.6 ; python_full_version < '3.12'
     # via pandas
 numpy==2.5.4 ; python_full_version >= '3.12'
     # via pandas
+olefile==0.47
+    # via melonclaw
 openai==2.53.0
     # via langchain-openai
 openapi-pydantic==0.5.1
@@ -530,6 +537,8 @@ websockets==15.0.1
     #   langsmith
 wrapt==2.5.1
     # via langfuse
+xlrd==2.0.2
+    # via melonclaw
 xlsxwriter==3.2.9
     # via python-pptx
 xxhash==3.8.1

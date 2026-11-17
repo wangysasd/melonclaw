@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { App as AntdApp, Button, Input, Modal, Select, Switch } from "antd";
+import { App as AntdApp, Button, Checkbox, Dropdown, Input, Modal, Select, Switch } from "antd";
 
 import {
+  apiRequest,
   createModel,
   createProvider,
   deleteModel,
@@ -16,7 +17,7 @@ import {
   updateProvider,
 } from "../api/client";
 import type { ManageableModel, ManageableProvider } from "../types/api";
-import { ContextWindowInput, DEFAULT_CONTEXT_WINDOW, ModelContextWindowEditor } from "./ModelContextWindow";
+import { ChatModelSettingsEditor, ContextWindowInput, DEFAULT_CONTEXT_WINDOW } from "./ModelContextWindow";
 import { Icon } from "./Icon";
 import { deleteConfirmation } from "./deleteConfirmation";
 import { getProviderAvatar } from "./providerIcons";
@@ -26,21 +27,14 @@ interface Notify {
   error: (content: string) => void;
 }
 
+type ModelPurpose = "chat" | "document_parser";
+
 interface ModelSectionProps {
+  purpose?: ModelPurpose;
   userId: string;
   isAdmin: boolean;
   notify: Notify;
   onChanged?: () => void;
-}
-
-/** 远端模型 id 转本地 model_key：小写 + 非法字符转连字符。 */
-function slugifyModelKey(remoteId: string): string {
-  const slug = remoteId
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  return slug || "model";
 }
 
 function parseJsonObject(value: string, label: string): Record<string, unknown> {
@@ -66,7 +60,7 @@ function parseProviderHeaders(value: string): Record<string, string> | undefined
  * - 点击卡片：admin 进供应商编辑弹窗，普通用户进“我的 Key”弹窗；
  * - 卡片 footer「管理模型」进模型管理弹窗（含远端拉取一键启用）。
  */
-export function ModelSection({ userId, isAdmin, notify, onChanged }: ModelSectionProps) {
+export function ModelSection({ userId, isAdmin, notify, onChanged, purpose = "chat" }: ModelSectionProps) {
   const { modal } = AntdApp.useApp();
   const [providers, setProviders] = useState<ManageableProvider[]>([]);
   const [models, setModels] = useState<ManageableModel[]>([]);
@@ -81,7 +75,7 @@ export function ModelSection({ userId, isAdmin, notify, onChanged }: ModelSectio
     try {
       const [providerData, modelData] = await Promise.all([
         listManageableProviders({ userId }),
-        listManageableModels({ userId }),
+        listManageableModels({ userId, purpose }),
       ]);
       setProviders(providerData.items);
       setModels(modelData.items);
@@ -90,7 +84,7 @@ export function ModelSection({ userId, isAdmin, notify, onChanged }: ModelSectio
     } finally {
       setLoading(false);
     }
-  }, [userId, notify]);
+  }, [userId, notify, purpose]);
 
   useEffect(() => {
     void reload();
@@ -189,6 +183,8 @@ export function ModelSection({ userId, isAdmin, notify, onChanged }: ModelSectio
         onChanged={() => void refreshAll()}
       /> : null}
       <ModelManageModal
+        key={purpose}
+        purpose={purpose}
         providerKey={managingKey}
         providers={providers}
         models={models}
@@ -665,6 +661,7 @@ function ProviderModal({
 /* ---------- 供应商内模型管理弹窗 ---------- */
 
 function ModelManageModal({
+  purpose,
   providerKey,
   providers,
   models,
@@ -674,6 +671,7 @@ function ModelManageModal({
   onClose,
   onChanged,
 }: {
+  purpose: ModelPurpose;
   providerKey: string | null;
   providers: ManageableProvider[];
   models: ManageableModel[];
@@ -684,7 +682,7 @@ function ModelManageModal({
   onChanged: () => void;
 }) {
   const provider = providers.find((item) => item.provider_key === providerKey) ?? null;
-  const canWrite = provider !== null && (isAdmin || provider.has_my_key);
+  const canWrite = provider !== null && (isAdmin || (purpose === "chat" && provider.has_my_key));
   const modelScope = isAdmin ? "global" : "user";
   const enabledModels = models.filter(
     (item) => item.provider_key === providerKey && item.enabled,
@@ -694,10 +692,19 @@ function ModelManageModal({
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteSearch, setRemoteSearch] = useState("");
   const [showManual, setShowManual] = useState(false);
-  const [manual, setManual] = useState({ modelKey: "", displayName: "", modelName: "", contextWindow: DEFAULT_CONTEXT_WINDOW as number | null });
+  const [manual, setManual] = useState({ displayName: "", modelName: "", supportsImageInput: true, contextWindow: DEFAULT_CONTEXT_WINDOW as number | null });
+  const { modal } = AntdApp.useApp();
+  const [editingModel, setEditingModel] = useState<ManageableModel | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editModelName, setEditModelName] = useState("");
+  const [editingChatModelKey, setEditingChatModelKey] = useState<string | null>(null);
+  const [remoteWithoutImageInput, setRemoteWithoutImageInput] = useState<Set<string>>(() => new Set());
   const [busyKey, setBusyKey] = useState("");
 
   useEffect(() => {
+    setEditingModel(null);
+    setEditingChatModelKey(null);
+    setRemoteWithoutImageInput(new Set());
     setRemote([]);
     setRemoteSearch("");
     setShowManual(false);
@@ -719,7 +726,7 @@ function ModelManageModal({
     if (!provider) return;
     setRemoteLoading(true);
     try {
-      const result = await fetchRemoteModels(provider.provider_key, { userId });
+      const result = await fetchRemoteModels(provider.provider_key, { userId, purpose });
       setRemote(result.items);
     } catch (error) {
       notify.error(error instanceof Error ? error.message : String(error));
@@ -733,20 +740,15 @@ function ModelManageModal({
     const key = `${provider.provider_key}:${item.id}`;
     setBusyKey(key);
     try {
-      const base = slugifyModelKey(item.id);
-      let modelKey = base;
-      let suffix = 2;
-      while (models.some((row) => row.model_key === modelKey)) {
-        modelKey = `${base}-${suffix}`;
-        suffix += 1;
-      }
       await createModel({
         userId,
-        modelKey,
         providerKey: provider.provider_key,
         scope: modelScope,
         displayName: item.display_name || item.id,
         modelName: item.id,
+        purpose,
+        contextWindow: purpose !== "document_parser" ? DEFAULT_CONTEXT_WINDOW : null,
+        supportsImageInput: purpose === "chat" ? !remoteWithoutImageInput.has(item.id) : undefined,
       });
       notify.success(`已添加 ${item.id}`);
       onChanged();
@@ -759,28 +761,35 @@ function ModelManageModal({
 
   const submitManual = () => {
     const contextWindow = manual.contextWindow;
-    if (!provider || !contextWindow || contextWindow <= 0) return;
+    if (!provider || (purpose !== "document_parser" && (!contextWindow || contextWindow <= 0))) return;
     void runAction(async () => {
       await createModel({
         userId,
-        modelKey: manual.modelKey.trim(),
         providerKey: provider.provider_key,
         scope: modelScope,
         displayName: manual.displayName.trim(),
         modelName: manual.modelName.trim(),
-        contextWindow,
+        purpose,
+        contextWindow: purpose !== "document_parser" ? contextWindow! : null,
+        supportsImageInput: purpose === "chat" ? manual.supportsImageInput : undefined,
       });
       setShowManual(false);
-      setManual({ modelKey: "", displayName: "", modelName: "", contextWindow: DEFAULT_CONTEXT_WINDOW as number | null });
+      setManual({ displayName: "", modelName: "", supportsImageInput: true, contextWindow: DEFAULT_CONTEXT_WINDOW as number | null });
     }, "已创建模型");
   };
 
+  const createManualButton = (
+    <Button className="manual-model-create" type="primary" onClick={submitManual} disabled={!manual.displayName.trim() || !manual.modelName.trim() || (purpose === "chat" && (!manual.contextWindow || manual.contextWindow <= 0))}>
+      创建
+    </Button>
+  );
   const remoteAddedIds = new Set(allModels.filter((item) => item.scope === modelScope).map((item) => item.model_name));
   const remoteFiltered = remote.filter((item) =>
     item.id.toLowerCase().includes(remoteSearch.trim().toLowerCase()),
   );
 
   return (
+    <>
     <Modal
       open={providerKey !== null}
       className="model-manage-modal"
@@ -792,55 +801,83 @@ function ModelManageModal({
       <h3 className="skill-group-title">已启用模型（{enabledModels.length}）</h3>
       <ul className="resource-list">
         {allModels.map((model) => {
+          const canEdit = model.scope === "global" ? isAdmin : model.created_by === userId;
+          const editing = editingChatModelKey === model.model_key;
+          const supportsImageInput = model.input_modalities.includes("image");
+          const setDefault = () => void runAction(
+            () => updateModel(model.model_key, { userId, isDefault: true }),
+            "已设为默认模型",
+          );
+          const confirmDelete = () => modal.confirm({
+            ...deleteConfirmation({ title: "删除模型？", name: model.display_name, metadata: model.model_name, icon: <Icon name="brain" size={20} />, description: "已绑定知识库的模型不能删除。" }),
+            onOk: async () => { await deleteModel(model.model_key, { userId }); onChanged(); },
+          });
+          const toggle = (
+            <Switch size="small" checked={model.enabled} aria-label={`启用 ${model.display_name}`}
+              onChange={(checked) => void runAction(
+                () => updateModel(model.model_key, { userId, enabled: checked }),
+                checked ? "已启用" : "已停用",
+              )}
+            />
+          );
           return (
-            <li key={model.model_key} className="resource-item">
+            <li key={model.model_key} className={purpose === "chat" ? "resource-item chat-model-row" : "resource-item"}>
               <span className="resource-copy">
                 <span className="resource-title">
                   {model.display_name}
-                  {model.is_default ? <span className="resource-badge">默认</span> : null}
+                  {model.is_default ? <span className="resource-badge model-default-badge">默认</span> : null}
                   {!model.enabled ? <span className="resource-warning">（已停用）</span> : null}
                 </span>
                 <span className="resource-description">
-                  {model.model_key} · {model.model_name} · 窗口 {model.context_window.toLocaleString()} tokens
+                  {model.model_name}
+                  {purpose === "document_parser" ? " · 文档解析" : null}
                 </span>
+                {purpose === "chat" ? (
+                  <span className="model-capabilities">
+                    <span className={supportsImageInput ? "resource-badge model-image-badge" : "resource-badge"}>
+                      {supportsImageInput ? "支持图片输入" : "不支持图片输入"}
+                    </span>
+                    <span className="resource-badge">
+                      上下文 {model.context_window == null ? "未设置" : `${model.context_window.toLocaleString()} tokens`}
+                    </span>
+                  </span>
+                ) : null}
               </span>
-              {(model.scope === "global" ? isAdmin : model.created_by === userId) ? (
-                <>
-                  <ModelContextWindowEditor model={model} userId={userId} onChanged={onChanged} />
-                  <Switch
-                    size="small"
-                    checked={model.enabled}
-                    onChange={(checked) =>
-                      void runAction(
-                        () => updateModel(model.model_key, { userId, enabled: checked }),
-                        checked ? "已启用" : "已停用",
-                      )
-                    }
-                  />
-                  {!model.is_default && model.enabled ? (
-                    <Button
-                      type="primary"
-                      size="small"
-                      onClick={() =>
-                        void runAction(
-                          () => updateModel(model.model_key, { userId, isDefault: true }),
-                          "已设为默认模型",
-                        )
-                      }
-                    >
-                      设为默认
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="small"
-                    danger
-                    onClick={() =>
-                      void runAction(() => deleteModel(model.model_key, { userId }), "已删除")
-                    }
-                  >
-                    删除
+              {canEdit && (purpose === "chat" ? (
+                <div className="chat-model-actions">
+                  <Button size="small" aria-expanded={editing} onClick={() => setEditingChatModelKey(editing ? null : model.model_key)}>
+                    编辑
                   </Button>
+                  {toggle}
+                  <Dropdown trigger={["click"]} menu={{ items: [
+                    { key: "default", label: "设为默认", disabled: model.is_default || !model.enabled, onClick: setDefault },
+                    { key: "delete", label: "删除模型", danger: true, onClick: confirmDelete },
+                  ] }}>
+                    <Button size="small" aria-label={`${model.display_name}的更多操作`} aria-haspopup="menu" title="更多操作">…</Button>
+                  </Dropdown>
+                </div>
+              ) : (
+                <>
+                  <Button size="small" onClick={() => { setEditingModel(model); setEditName(model.display_name); setEditModelName(model.model_name); }}>编辑</Button>
+                  <Button size="small" loading={busyKey === model.model_key} onClick={() => {
+                    setBusyKey(model.model_key);
+                    void runAction(() => apiRequest<{ summary: string }>(`/api/models/${encodeURIComponent(model.model_key)}/test-connection`, { method: "POST" }).then((r) => notify.success(r.summary)), "").finally(() => setBusyKey(""));
+                  }}>连接测试</Button>
+                  {toggle}
+                  {!model.is_default && model.enabled ? <Button type="primary" size="small" onClick={setDefault}>设为默认</Button> : null}
+                  <Button size="small" danger onClick={confirmDelete}>删除</Button>
                 </>
+              ))}
+              {canEdit && purpose === "chat" && editing ? (
+                <ChatModelSettingsEditor
+                  model={model}
+                  userId={userId}
+                  onCancel={() => setEditingChatModelKey(null)}
+                  onSaved={() => {
+                    setEditingChatModelKey((current) => current === model.model_key ? null : current);
+                    onChanged();
+                  }}
+                />
               ) : null}
             </li>
           );
@@ -875,27 +912,44 @@ function ModelManageModal({
 
       {showManual && canWrite ? (
         <div className="resource-form" style={{ marginTop: 8 }}>
-          <div className="resource-form-row">
-            <Input
-              placeholder="模型标识（如 glm-5-2，小写字母/数字/_/-）"
-              value={manual.modelKey}
-              onChange={(event) => setManual((c) => ({ ...c, modelKey: event.target.value }))}
-            />
-            <Input
-              placeholder="显示名称（如 GLM 5.2）"
-              value={manual.displayName}
-              onChange={(event) => setManual((c) => ({ ...c, displayName: event.target.value }))}
-            />
+          <div className="manual-model-fields">
+            <label className="provider-field">
+              模型名称
+              <Input
+                placeholder="用于显示的名称，如 DeepSeek-V4.1-Flash"
+                value={manual.displayName}
+                onChange={(event) => setManual((c) => ({ ...c, displayName: event.target.value }))}
+              />
+            </label>
+            <label className="provider-field">
+              模型 ID
+              <Input
+                placeholder="供应商 API 请求中 model 的值，如 deepseek-flash"
+                value={manual.modelName}
+                onChange={(event) => setManual((c) => ({ ...c, modelName: event.target.value }))}
+              />
+            </label>
+            {purpose === "chat" ? (
+              <>
+                <ContextWindowInput value={manual.contextWindow} onChange={(value) => {
+                  setManual((current) => ({ ...current, contextWindow: value }));
+                }} />
+                <div className="manual-model-actions">
+                  <Checkbox checked={manual.supportsImageInput} onChange={(event) => {
+                    const supportsImageInput = event.target.checked;
+                    setManual((current) => ({ ...current, supportsImageInput }));
+                  }}>支持图片输入</Checkbox>
+                  {createManualButton}
+                </div>
+              </>
+            ) : null}
           </div>
-          <Input
-            placeholder="远端模型名（如 zai-org/GLM-5.2）"
-            value={manual.modelName}
-            onChange={(event) => setManual((c) => ({ ...c, modelName: event.target.value }))}
-          />
-          <ContextWindowInput value={manual.contextWindow} onChange={(value) => setManual((current) => ({ ...current, contextWindow: value }))} />
-          <Button type="primary" onClick={submitManual} disabled={!manual.contextWindow || manual.contextWindow <= 0}>
-            创建
-          </Button>
+          {purpose === "document_parser" ? (
+            <>
+              <p className="resource-hint">使用 OpenAI 兼容图片识别接口；不设置聊天上下文窗口</p>
+              {createManualButton}
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -926,9 +980,22 @@ function ModelManageModal({
                     added ? (
                       <span className="resource-hint">已添加</span>
                     ) : (
-                      <Button type="primary" size="small" loading={busy} onClick={() => void addRemote(item)}>
-                        添加
-                      </Button>
+                      <>
+                        {purpose === "chat" ? (
+                          <Checkbox checked={!remoteWithoutImageInput.has(item.id)} disabled={busy} onChange={(event) => {
+                            const checked = event.target.checked;
+                            setRemoteWithoutImageInput((current) => {
+                              const next = new Set(current);
+                              if (checked) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            });
+                          }}>支持图片输入</Checkbox>
+                        ) : null}
+                        <Button type="primary" size="small" loading={busy} onClick={() => void addRemote(item)}>
+                          添加
+                        </Button>
+                      </>
                     )
                   ) : null}
                 </li>
@@ -938,6 +1005,21 @@ function ModelManageModal({
         </div>
       ) : null}
     </Modal>
+    <Modal
+      title="编辑知识库模型"
+      open={editingModel !== null}
+      onCancel={() => setEditingModel(null)}
+      onOk={() => void runAction(async () => {
+        if (!editingModel) return;
+        await updateModel(editingModel.model_key, { userId, displayName: editName, modelName: editModelName });
+        setEditingModel(null);
+      }, "已更新模型")}
+    >
+      <label>显示名称<Input value={editName} onChange={(e) => setEditName(e.target.value)} /></label>
+      <label>模型名称<Input value={editModelName} onChange={(e) => setEditModelName(e.target.value)} /></label>
+      <p className="resource-hint">已绑定的模型语义不能修改。供应商 Key 在既有供应商编辑中维护。</p>
+    </Modal>
+    </>
   );
 }
 

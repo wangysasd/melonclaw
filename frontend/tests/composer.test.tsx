@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 
 import { Composer } from "../src/components/Composer";
 import * as client from "../src/api/client";
+import { knowledgeApi } from "../src/api/knowledge";
 import type { AttachmentCapabilities, AttachmentSummary } from "../src/types/api";
 
 vi.mock("../src/api/client", () => ({
@@ -14,6 +15,12 @@ vi.mock("../src/api/client", () => ({
   uploadAttachment: vi.fn(),
   getAttachmentCapabilities: vi.fn(),
 }));
+vi.mock("../src/api/knowledge", async (load) => {
+  const actual = await load<typeof import("../src/api/knowledge")>();
+  return { ...actual, knowledgeApi: { ...actual.knowledgeApi, list: vi.fn().mockResolvedValue({ items: [
+    { id: "kb-1", name: "研究资料", role: "viewer", owner_user_id: "u1", description: "", status: "active", version: 1, chunk_config: { chunk_size: 800, chunk_overlap: 100 } },
+  ], total: 1 }) } };
+});
 
 // jsdom 里没有 antd <App> provider，useApp() 的 message 无法调用；这里替换成可断言的桩。
 vi.mock("antd", async (importOriginal) => {
@@ -41,6 +48,7 @@ const session = {
   status: { status: "ready" },
   projects: [{ id: "p", name: "项目" }],
   userId: "u1",
+  epoch: 1,
   projectId: "p1",
   conversationId: "c1",
   draftConversationId: null as string | null,
@@ -85,15 +93,15 @@ type UploadedAttachment = AttachmentSummary & { derived_size_bytes?: number };
 
 const capabilitiesPayload: AttachmentCapabilities = {
   items: [
-    { extension: ".png", media_type: "image/png", kind: "image" },
-    { extension: ".txt", media_type: "text/plain", kind: "text" },
+    { extension: ".png", media_type: "image/png", kind: "image", ocr: "text_model" },
+    { extension: ".txt", media_type: "text/plain", kind: "text", ocr: null },
   ],
   max_file_bytes: 10,
   max_total_bytes: 25,
   max_per_message: 2,
   workspace_max_bytes: 100,
   image_max_pixels: 100,
-  pdf_max_pages: 1,
+  pdf_max_pages: 1, ocr_max_file_bytes: 10, ocr_max_pages: 1000,
 };
 
 function uploadedAttachment(overrides: Partial<UploadedAttachment>): UploadedAttachment {
@@ -159,7 +167,7 @@ async function addViaDialog(files: File[]): Promise<void> {
   openFilesDialog();
   fireEvent.change(screen.getByLabelText("选择附件"), { target: { files } });
   await flush();
-  expect(screen.getAllByText("已上传")).toHaveLength(files.length);
+  expect(screen.getAllByText(/^(已上传|解析失败)$/)).toHaveLength(files.length);
   fireEvent.click(screen.getByRole("button", { name: "确认" }));
   await flush();
 }
@@ -173,7 +181,12 @@ beforeEach(() => {
   session.draftConversationId = null;
   session.ensureConversation.mockReset();
   session.userId = "u1";
+  session.epoch = 1;
 
+  vi.mocked(knowledgeApi.list).mockReset();
+  vi.mocked(knowledgeApi.list).mockResolvedValue({ items: [
+    { id: "kb-1", name: "研究资料", role: "viewer", owner_user_id: "u1", description: "", status: "active", version: 1, chunk_config: { chunk_size: 800, chunk_overlap: 100 } },
+  ], total: 1 });
   vi.mocked(client.getAttachmentCapabilities).mockReset();
   vi.mocked(client.getAttachmentCapabilities).mockResolvedValue(capabilitiesPayload);
   vi.mocked(client.uploadAttachment).mockReset();
@@ -242,7 +255,7 @@ describe("composer", () => {
     const view = await renderComposer({ value: "你好", onSend, disabled: false });
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
     expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith("你好");
+    expect(onSend).toHaveBeenCalledWith("你好", undefined, undefined, undefined, []);
     view.unmount();
   });
 
@@ -251,7 +264,34 @@ describe("composer", () => {
     const view = await renderComposer({ value: "", onSend, disabled: false });
     view.rerender(<Composer value="后来输入" onChange={vi.fn()} onSend={onSend} disabled={false} pendingInteraction={null} />);
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
-    expect(onSend).toHaveBeenCalledWith("后来输入");
+    expect(onSend).toHaveBeenCalledWith("后来输入", undefined, undefined, undefined, []);
+    view.unmount();
+  });
+
+  it("sends selected knowledge bases, clears them, and resets selection when conversation changes", async () => {
+    const onSend = vi.fn();
+    const view = await renderComposer({ value: "提问", onSend, disabled: false });
+    await waitFor(() => expect(knowledgeApi.list).toHaveBeenCalled());
+    const picker = screen.getByRole("button", { name: "本轮使用知识库" });
+    expect(knowledgeApi.list).toHaveBeenCalledWith(1, "", expect.any(AbortSignal), 100);
+    expect(picker.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(picker);
+    const option = await screen.findByRole("checkbox", { name: /研究资料/ });
+    fireEvent.click(option);
+    expect(option.getAttribute("aria-checked")).toBe("true");
+    expect(picker.textContent).toContain("已选 1");
+    expect(picker.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "清空选择" }));
+    expect(option.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(option);
+    fireEvent.keyDown(screen.getByRole("searchbox", { name: "搜索知识库" }), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("提问", undefined, undefined, undefined, ["kb-1"]);
+
+    session.conversationId = "c2";
+    session.epoch += 1;
+    view.rerender(<Composer value="提问" onChange={vi.fn()} onSend={onSend} disabled={false} pendingInteraction={null} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "本轮使用知识库" }).textContent).toContain("选择知识库"));
     view.unmount();
   });
 
@@ -302,6 +342,41 @@ describe("composer", () => {
     fireEvent.click(stopButton);
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onSend).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("keeps knowledge selection in the bottom toolbar before sending", async () => {
+    session.conversationId = null;
+    const view = await renderComposer();
+    expect(view.container.querySelector(".composer-project-bar")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "本轮使用知识库" }).closest(".composer-bottom-left")).not.toBeNull();
+    view.unmount();
+  });
+
+  it("attaches the queue to the active composer and keeps knowledge selection in its toolbar", async () => {
+    session.conversationId = "existing";
+    const view = await renderComposer({ queuePanel: <section aria-label="待发送消息">下一条</section> });
+    const panel = screen.getByRole("region", { name: "待发送消息" });
+    expect(panel.nextElementSibling).toBe(composerElement(view));
+    expect(view.container.querySelector(".composer-project-bar")).toBeNull();
+    expect(screen.getByRole("button", { name: "本轮使用知识库" }).closest(".composer-bottom-left")).not.toBeNull();
+    view.unmount();
+  });
+
+  it("switches from stop to enqueue when the user enters a draft", async () => {
+    const onSend = vi.fn();
+    const onStop = vi.fn();
+    const props = { onChange: vi.fn(), onSend, isRunning: true, queueEnabled: true, onStop, pendingInteraction: null };
+    const view = await renderComposer(props);
+    expect(screen.queryByRole("button", { name: "加入队列" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "停止生成" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+    view.rerender(<Composer {...props} value="next" />);
+    expect(screen.queryByRole("button", { name: "停止生成" })).toBeNull();
+    expect((screen.getByRole("button", { name: "加入队列" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onStop).toHaveBeenCalledTimes(1);
     view.unmount();
   });
 
@@ -572,14 +647,14 @@ describe("attachment send guards", () => {
     expect(onSend).not.toHaveBeenCalled();
     view.unmount();
   });
-  it("blocks ready images for a model without declared image support", async () => {
+  it("passes an unrecognized image to send preparation for a text model", async () => {
     vi.mocked(client.uploadAttachment).mockResolvedValue(uploadedAttachment({ kind: "image", parse_status: "not_required", file_name: "shot.png" }));
     const onSend = vi.fn();
     const view = await renderComposer({ value: "描述图片", onSend });
     await addViaDialog([makeFile("shot.png", 1, "image/png")]);
-    expect(screen.getByText(/当前模型不支持图片附件/)).toBeTruthy();
+    expect(screen.getByText("发送时识别文字")).toBeTruthy();
     fireEvent.keyDown(view.container.querySelector("textarea")!, { key: "Enter" });
-    expect(onSend).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledWith("描述图片", null, ["a1"], expect.any(Function), [], ["a1"], expect.any(Function));
     view.unmount();
   });
 });

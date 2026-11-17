@@ -28,6 +28,7 @@ dist/
 /deploy/
 /note/
 /todo.md
+/class.md
 
 # 本地导入的 CICC Skills，不纳入项目版本控制。
 /skills/cicc-*/
@@ -36,6 +37,7 @@ dist/
 
 # 本地编辑器与系统文件。
 .agents/
+.claude/
 .codex/
 .github/
 .codebuddy/
@@ -58,3 +60,9 @@ dist/
 
 # 本地生成的截图与验证产物
 /output/
+
+# 本地知识库验证素材（不提交）。
+/test_kb_materials/
+/tmp/
+/.workbuddypro/
+/.pytest-compat-check/

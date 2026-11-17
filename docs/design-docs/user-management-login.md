@@ -93,3 +93,8 @@ scripts/start.sh
 创建用户、本人修改密码和管理员修改密码均提交 password 与 confirm_password，前后端校验一致；无需旧密码。本人入口位于头像菜单，服务端仅使用会话当前用户，不接受目标用户 ID。修改成功撤销相关会话；本人返回登录页。开发切换与免密登录共用 profile=dev 条件，非 dev 接口返回 403。数据库升级脚本为 `20261006_account_management`，由 db-update 事务应用并记入 `melonclaw_schema_updates`。旧库执行 `uv run melonclaw-db-update` 后可保留现有用户、租户和业务数据；新库执行 db-init。
 
 验证结果：`scripts/check.sh` 全部通过（后端测试与 lint、前端 lint／类型检查／测试、文档链接与空白检查）；真实 PostgreSQL 独立临时 schema 生命周期测试通过（1 passed），未修改现有业务数据。
+
+
+### 知识库账户联动（2026-11-06）
+
+知识库不保存 tenant_id，唯一 owner 的当前 users.tenant_id 决定同租户共享范围。账户换租户保留点名授权，不批量取消作业，也不自动改变库暂停状态；访问和发布继续重验当前权限。删除用户前要求转让或逻辑删除其拥有的知识库，删除时移除相关成员授权并取消相关作业；用户/租户停用取消相关作业并保留授权，普通用户失去访问权，system/admin 仍可访问活动库。锁顺序为用户→库→文档→版本→job，各层按 ID 排序，复用 account_guard。见[知识库授权与账户变化](knowledge-base.md#授权与账户变化)。

@@ -22,11 +22,13 @@ from melonclaw.api.routes.chat import router as chat_router
 from melonclaw.api.routes.conversations import router as conversations_router
 from melonclaw.api.routes.environment import router as environment_router
 from melonclaw.api.routes.files import router as files_router
+from melonclaw.api.routes.knowledge import router as knowledge_router
 from melonclaw.api.routes.mcp import router as mcp_router
 from melonclaw.api.routes.models import router as models_router
 from melonclaw.api.routes.projects import router as projects_router
 from melonclaw.api.routes.results import router as results_router
 from melonclaw.api.routes.skills import router as skills_router
+from melonclaw.api.routes.speech import router as speech_router
 from melonclaw.api.routes.status import router as status_router
 from melonclaw.api.routes.tasks import router as tasks_router
 from melonclaw.api.routes.user_input import router as user_input_router
@@ -46,7 +48,6 @@ def create_app() -> FastAPI:
 
     application = FastAPI(
         debug=False,
-        dependencies=[Depends(require_session, scope="function")],
         title="MelonClaw",
         description="Deep Agents 学习项目的浏览器交互 API。",
         lifespan=lifespan,
@@ -57,7 +58,7 @@ def create_app() -> FastAPI:
             return JSONResponse({"error": "字段格式无效；名称最多 64 字符，密码需要 5～128 字符。"}, status_code=422)
         if request.url.path.startswith(("/api/tasks", "/api/task-runs")):
             return JSONResponse({"error": "任务字段格式无效，请检查名称、要求、模型和版本。"}, status_code=422)
-        if request.url.path.startswith(("/api/mcp", "/api/environment")):
+        if request.url.path.startswith(("/api/mcp", "/api/environment", "/api/knowledge", "/api/models", "/api/model-providers")):
             return JSONResponse({"error": "资源字段格式无效，请检查名称、值和版本。"}, status_code=422)
         if request.url.path.endswith("/messages"):
             return JSONResponse({"error": "消息字段格式无效，正文最多 12000 字符；请检查请求。"}, status_code=422)
@@ -91,21 +92,16 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=allowed_headers(),
     )
-    application.include_router(accounts_router)
-    application.include_router(status_router)
-    application.include_router(models_router)
-    application.include_router(skills_router)
-    application.include_router(mcp_router)
-    application.include_router(environment_router)
-    application.include_router(tasks_router)
-    application.include_router(projects_router)
-    application.include_router(attachments_router)
-    application.include_router(results_router)
-    application.include_router(files_router)
-    application.include_router(conversations_router)
-    application.include_router(chat_router)
-    application.include_router(approvals_router)
-    application.include_router(user_input_router)
+    session_dependency = [Depends(require_session, scope="function")]
+    for router in (
+        accounts_router, status_router, models_router, knowledge_router,
+        skills_router, mcp_router, environment_router, tasks_router,
+        projects_router, attachments_router, results_router, files_router,
+        conversations_router, chat_router, approvals_router, user_input_router,
+    ):
+        application.include_router(router, dependencies=session_dependency)
+    # 语音路由在读取上传和等待上游之前结束各自的身份校验事务。
+    application.include_router(speech_router)
     return application
 
 

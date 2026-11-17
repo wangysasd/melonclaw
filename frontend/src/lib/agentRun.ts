@@ -167,7 +167,7 @@ export function isRunForcedOpen(status: AgentRunStatus): boolean {
   return status === "running";
 }
 
-/** 状态决定的默认值；完成后的工具列表由展示组件保持展开，纯文字过程收起。 */
+/** 运行完成后默认收起执行过程。 */
 export function isRunDefaultOpen(status: AgentRunStatus): boolean {
   return status !== "completed";
 }

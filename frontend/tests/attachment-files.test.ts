@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   attachmentBadge,
-  attachmentKindOf,
   describeAttachmentLimits,
   extensionOf,
   formatBytes,
@@ -12,15 +11,15 @@ import type { AttachmentCapabilities } from "../src/types/api";
 
 const capabilities: AttachmentCapabilities = {
   items: [
-    { extension: ".png", media_type: "image/png", kind: "image" },
-    { extension: ".txt", media_type: "text/plain", kind: "text" },
+    { extension: ".png", media_type: "image/png", kind: "image", ocr: "text_model" },
+    { extension: ".txt", media_type: "text/plain", kind: "text", ocr: null },
   ],
   max_file_bytes: 100,
   max_total_bytes: 150,
   max_per_message: 2,
   workspace_max_bytes: 1000,
   image_max_pixels: 100,
-  pdf_max_pages: 1,
+  pdf_max_pages: 1, ocr_max_file_bytes: 100, ocr_max_pages: 1000,
 };
 
 function file(name: string, size: number, type = "application/octet-stream"): File {
@@ -53,11 +52,12 @@ describe("attachment file helpers", () => {
     expect(text).toContain("单条消息最多 2 个、合计不超过 25 MB");
   });
 
-  it("maps extensions to attachment kinds", () => {
-    expect(attachmentKindOf(".png")).toBe("image");
-    expect(attachmentKindOf(".pdf")).toBe("pdf");
-    expect(attachmentKindOf(".csv")).toBe("text");
-    expect(attachmentKindOf(".docx")).toBe("document");
+  it("applies the reported OCR byte limit only on the OCR route", () => {
+    const limits = { ...capabilities, ocr_max_file_bytes: 5 };
+    const image = file("plot.png", 6);
+    const current = { currentCount: 0, currentTotalBytes: 0 };
+    expect(validateAttachmentFile(image, limits, { ...current, modelSupportsImage: true })).toBeNull();
+    expect(validateAttachmentFile(image, limits, { ...current, modelSupportsImage: false })).toContain("5 B");
   });
 
   it("derives a short type badge", () => {
@@ -116,10 +116,9 @@ describe("attachment file helpers", () => {
 it("accepts ZIP only when advertised and identifies it as an archive", () => {
   const zipCapabilities: AttachmentCapabilities = {
     ...capabilities,
-    items: [{ extension: ".zip", media_type: "application/zip", kind: "archive" }],
+    items: [{ extension: ".zip", media_type: "application/zip", kind: "archive", ocr: null }],
   };
   const zip = file("skill.zip", 20, "application/zip");
   expect(validateAttachmentFile(zip, zipCapabilities, { currentCount: 0, currentTotalBytes: 0 })).toBeNull();
   expect(validateAttachmentFile(zip, capabilities, { currentCount: 0, currentTotalBytes: 0 })).not.toBeNull();
-  expect(attachmentKindOf(".zip")).toBe("archive");
 });

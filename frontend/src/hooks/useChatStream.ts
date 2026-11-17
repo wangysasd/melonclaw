@@ -13,7 +13,7 @@ import {
 } from "react";
 import { App as AntdApp } from "antd";
 
-import { apiRequest, ApiError, getConversationHistory } from "../api/client";
+import { apiRequest, ApiError, getConversationHistory, retryAttachmentParse } from "../api/client";
 import {
   sendApprovalStream,
   sendMessageStream,
@@ -606,16 +606,45 @@ interface SendContext {
   skillId: string | null;
   draft: string;
   attachmentIds: string[];
+  knowledgeBaseIds: string[];
   firstMessage?: boolean;
+  assistantMessageId?: string;
+  queued?: boolean;
   /** 本条流已消费到的 SSE 序号：只用于丢弃重复投递的帧。 */
   lastEventId?: number;
   onAccepted?: () => void;
 }
 
+interface QueuedMessage {
+  id: string;
+  content: string;
+  preview: string;
+  modelId: string;
+  skillId?: string | null;
+  attachmentIds: string[];
+  imageAttachmentIds: string[];
+  knowledgeBaseIds: string[];
+}
+
+interface ConversationQueue {
+  userId: string;
+  projectId: string;
+  items: QueuedMessage[];
+  blocked?: { reason: string; messageId?: string; attachmentPreparationFailed?: boolean };
+  sending?: string;
+  checking?: boolean;
+  ready?: boolean;
+}
+
 export interface ChatStreamHandle {
+  queue?: ConversationQueue;
+  moveQueued: (id: string, targetId: string) => void;
+  removeQueued: (id: string) => void;
+  sendQueued: () => Promise<void>;
   state: ChatState;
   /** 当前可见会话是否有 AI 输出在跑（左栏转圈与停止键的依据）。 */
   isRunning: boolean;
+  preparingAttachments: boolean;
   /** 正在跑输出的会话 ID（跨会话并发时多项）。 */
   runningConversationIds: string[];
   /** 显式取消当前可见会话的输出：abort 该会话流并乐观置 cancelled。 */
@@ -625,6 +654,10 @@ export interface ChatStreamHandle {
     skillId?: string | null,
     onAccepted?: () => void,
     attachmentIds?: string[],
+    knowledgeBaseIds?: string[],
+    onSubmitted?: () => void,
+    imageAttachmentIds?: string[],
+    onAttachmentsPrepared?: (attachments: AttachmentSummary[]) => void,
   ) => Promise<void>;
   submitUserInput: (answer: UserInputAnswer) => Promise<void>;
   submitApproval: (
@@ -654,12 +687,16 @@ export function useChatStream({
   const [state, dispatch] = useReducer(reducer, INITIAL_CHAT_STATE);
   const [historyRevision, bumpHistoryRevision] = useReducer((value: number) => value + 1, 0);
 
+  const queuesRef = useRef(new Map<string, ConversationQueue>());
+  const [, refreshQueue] = useReducer((version: number) => version + 1, 0);
+  const drainQueueRef = useRef<(conversationId: string) => void>(() => {});
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const chatStateRef = useRef(state);
   chatStateRef.current = state;
   /** 多会话并发：按 conversationId 各持一条 SSE 流，切会话不断开。 */
   const activeRunsRef = useRef(new Map<string, { controller: AbortController; context: SendContext }>());
+  const attachmentPreparationsRef = useRef(new Set<string>());
   /** 按会话缓存聊天态：后台会话的事件只写缓存，切回来直接恢复续播。 */
   const chatCacheRef = useRef(new Map<string, ChatState>());
   const historyControllerRef = useRef<AbortController | null>(null);
@@ -807,7 +844,7 @@ export function useChatStream({
           if (viewing) sessionRef.current.setRunStatus(event.phase);
           break;
         case "message_started":
-          if (viewing && context.epoch === (sessionRef.current.getCurrentContext?.() ?? sessionRef.current).epoch) context.onAccepted?.();
+          if (context.queued || (viewing && context.epoch === (sessionRef.current.getCurrentContext?.() ?? sessionRef.current).epoch)) context.onAccepted?.();
           context.onAccepted = undefined;
           if (context.firstMessage) {
             sessionRef.current.markConversationStarted(conversationId, context.projectId);
@@ -998,11 +1035,17 @@ export function useChatStream({
       const existing = activeRunsRef.current.get(context.conversationId);
       if (existing && !existing.controller.signal.aborted) return false;
       sessionRef.current.markConversationRunning?.(context.conversationId);
-      sessionRef.current.setBusy(true);
-      sessionRef.current.setRunStatus("starting");
+      if (matchesContext(context)) {
+        sessionRef.current.setBusy(true);
+        sessionRef.current.setRunStatus("starting");
+      }
       let started = false;
       let failed = false;
       let terminal = false;
+      let completed = false;
+      let waiting = false;
+      let assistantId = context.assistantMessageId;
+      let reason = "上一轮未正常完成";
       const controller = new AbortController();
       activeRunsRef.current.set(context.conversationId, { controller, context });
       sessionRef.current.attachStream(controller, context.conversationId);
@@ -1011,8 +1054,15 @@ export function useChatStream({
         await stream({
           signal: controller.signal,
           onEvent: (event, eventId) => {
-            if (event.type === "message_started") started = true;
-            if (event.type === "error") failed = true;
+            if (eventId !== undefined && context.lastEventId !== undefined && eventId <= context.lastEventId) return;
+            if (event.type === "message_started") {
+              started = true;
+              assistantId = event.message_id;
+            }
+            if (event.type === "message_status") assistantId = event.message_id;
+            if (event.type === "completed") completed = true;
+            if (event.type === "approval_required" || event.type === "user_input_required") waiting = true;
+            if (event.type === "error" || (event.type === "done" && event.terminal_reason === "transport_error")) failed = true;
             if (TERMINAL_HINT.has(event.type)) terminal = true;
             handleEvent(event, context, eventId);
           },
@@ -1022,6 +1072,8 @@ export function useChatStream({
         }
         return !failed;
       } catch (error) {
+        failed = true;
+        reason = "发送失败或连接已断开";
         if (error instanceof DOMException && error.name === "AbortError") {
           return false;
         }
@@ -1044,29 +1096,50 @@ export function useChatStream({
           activeRunsRef.current.delete(context.conversationId);
           sessionRef.current.attachStream(null, context.conversationId);
           sessionRef.current.markConversationIdle?.(context.conversationId);
+          const queue = queuesRef.current.get(context.conversationId);
+          if (queue && queue.userId === context.userId && (!waiting || failed || controller.signal.aborted)) {
+            if (!completed || failed || controller.signal.aborted) {
+              queue.blocked = {
+                reason: controller.signal.aborted ? "已停止接收回复" : reason,
+                messageId: !context.queued || started ? assistantId : undefined,
+              };
+              refreshQueue();
+            } else {
+              queue.ready = true;
+              queueMicrotask(() => drainQueueRef.current(context.conversationId));
+            }
+          }
         }
       }
     },
     [dispatchFor, flushTextDeltas, handleEvent, matchesContext, message],
   );
 
-  const sendMessage = useCallback(
+  const sendNow = useCallback(
     async (
       content: string,
       skillId: string | null = null,
       onAccepted?: () => void,
       attachmentIds: string[] = [],
+      knowledgeBaseIds: string[] = [],
+      target?: { conversationId: string; queue: ConversationQueue; modelId: string },
+      onSubmitted?: () => void,
+      imageAttachmentIds: string[] = [],
+      onAttachmentsPrepared?: (attachments: AttachmentSummary[]) => void,
     ) => {
       const snapshot = sessionRef.current;
       const cleanText = content.trim();
       const displayText = environmentChatDisplay(mcpChatDisplay(cleanText));
-      const pendingQuestion = chatStateRef.current.userQuestion;
+      const startingConversationId = target?.conversationId ?? snapshot.conversationId;
+      const pendingQuestion = target
+        ? chatCacheRef.current.get(target.conversationId)?.userQuestion
+        : chatStateRef.current.userQuestion;
       const canReplaceExpiredQuestion = Boolean(
         pendingQuestion && isUserQuestionExpired(pendingQuestion.expires_at),
       );
       // 并发会话可同时跑：只看当前可见会话是否有流，不看全局 busy。
-      const visibleRun = snapshot.conversationId
-        ? activeRunsRef.current.get(snapshot.conversationId)
+      const visibleRun = startingConversationId
+        ? activeRunsRef.current.get(startingConversationId)
         : undefined;
       const visibleRunning = Boolean(
         visibleRun && !visibleRun.controller.signal.aborted,
@@ -1074,33 +1147,76 @@ export function useChatStream({
       if (
         (!cleanText && attachmentIds.length === 0) ||
         (visibleRunning && !canReplaceExpiredQuestion) ||
-        snapshot.conversationCreating
+        (!target && snapshot.conversationCreating)
       ) return;
       if (!snapshot.contextReady || snapshot.status?.status !== "ready") {
         message.error("服务仍在准备中，请稍候再发送。");
         return;
       }
       const startUserId = snapshot.userId;
-      const startProjectId = snapshot.projectId;
-      const startModelId = snapshot.selectedModelId || "";
-      const startingConversationId = snapshot.conversationId;
+      const startProjectId = target?.queue.projectId ?? snapshot.projectId;
+      const startModelId = target?.modelId ?? (snapshot.selectedModelId || "");
+      const startModel = snapshot.modelOptions?.find((model) => model.available && model.id === startModelId);
+      const preparationKey = JSON.stringify([startUserId, startProjectId, startingConversationId]);
+      if (attachmentPreparationsRef.current.has(preparationKey)) return;
+      if (imageAttachmentIds.length > 0 && startModel && !startModel.input_modalities?.includes("image")) {
+        const preparations = attachmentPreparationsRef.current;
+        preparations.add(preparationKey);
+        refreshQueue();
+        try {
+          const results = await Promise.allSettled(imageAttachmentIds.map((id) => retryAttachmentParse(id, {
+            userId: startUserId,
+            projectId: startProjectId || null,
+            conversationId: startProjectId ? null : startingConversationId,
+            modelId: startModelId,
+          })));
+          onAttachmentsPrepared?.(results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []));
+          for (const result of results) {
+            if (result.status === "rejected") throw result.reason;
+            if (result.value.parse_status !== "processed") {
+              throw new Error(result.value.parse_error_message ?? (
+                result.value.parse_status === "processing" ? "图片正在识别，请稍候再发送。" : "图片文字识别失败，请重新解析。"
+              ));
+            }
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : "图片文字识别失败，请重试。";
+          if (target) target.queue.blocked = { reason, attachmentPreparationFailed: true };
+          if (sessionRef.current.userId === startUserId) message.error(reason);
+          return;
+        } finally {
+          preparations.delete(preparationKey);
+          refreshQueue();
+        }
+        const current = sessionRef.current.getCurrentContext?.() ?? sessionRef.current;
+        if (current.userId !== startUserId || (!target && current.epoch !== snapshot.epoch)) return;
+      }
       const localSubmissionId = startingConversationId ? null : `local:${createRequestId()}`;
       if (localSubmissionId) {
         snapshot.markConversationSubmitted(localSubmissionId, startProjectId, displayText, true);
       }
+      onSubmitted?.();
       let conversationId = startingConversationId;
+      let creationEpoch = snapshot.epoch;
       if (!conversationId) {
-        const conversation = await snapshot.ensureConversation();
+        const creating = snapshot.ensureConversation();
+        creationEpoch = (sessionRef.current.getCurrentContext?.() ?? sessionRef.current).epoch;
+        const conversation = await creating;
         conversationId = conversation?.id ?? null;
       }
       const current = sessionRef.current.getCurrentContext?.() ?? sessionRef.current;
       if (
         !conversationId ||
-        conversationId !== current.conversationId ||
         startUserId !== current.userId ||
-        startProjectId !== current.projectId
+        (target
+          ? target.queue.userId !== current.userId || queuesRef.current.get(conversationId) !== target.queue
+          : conversationId !== current.conversationId || startProjectId !== current.projectId)
       ) {
         if (localSubmissionId) sessionRef.current.cancelConversationSubmission(localSubmissionId);
+        if (!conversationId && !current.conversationId && current.epoch === creationEpoch &&
+          current.userId === startUserId && current.projectId === startProjectId) {
+          dispatch({ type: "streamFailed", message: displayText });
+        }
         return;
       }
       if (localSubmissionId) {
@@ -1110,12 +1226,14 @@ export function useChatStream({
         epoch: current.epoch,
         conversationId,
         userId: current.userId,
-        projectId: current.projectId,
+        projectId: startProjectId,
         modelId: startModelId,
         skillId,
-        draft: displayText,
+        draft: target ? "" : displayText,
         attachmentIds,
-        firstMessage: current.draftConversationId === conversationId,
+        knowledgeBaseIds: [...knowledgeBaseIds],
+        queued: Boolean(target),
+        firstMessage: !target && current.draftConversationId === conversationId,
         onAccepted,
       };
       if (!startingConversationId) {
@@ -1129,7 +1247,7 @@ export function useChatStream({
         `optimistic-assistant-${requestId}`,
       ];
       // 新会话历史与首次发送可能并发；迟到的历史不能覆盖本次乐观消息。
-      historyControllerRef.current?.abort();
+      if (matchesContext(context)) historyControllerRef.current?.abort();
       dispatchFor(conversationId, {
         type: "optimistic",
         conversationId,
@@ -1166,7 +1284,7 @@ export function useChatStream({
       if (context.firstMessage && !localSubmissionId) {
         sessionRef.current.markConversationSubmitted(conversationId, context.projectId, displayText);
       }
-      scroll.scrollToBottom(true);
+      if (matchesContext(context)) scroll.scrollToBottom(true);
       await runStream(
         (handlers) =>
           sendMessageStream(
@@ -1178,6 +1296,7 @@ export function useChatStream({
               modelId: context.modelId || null,
               skillId: context.skillId,
               attachmentIds: context.attachmentIds,
+              knowledgeBaseIds: context.knowledgeBaseIds,
             },
             handlers,
           ),
@@ -1185,8 +1304,133 @@ export function useChatStream({
         optimisticIds,
       );
     },
-    [dispatchFor, message, runStream, scroll],
+    [dispatchFor, matchesContext, message, runStream, scroll],
   );
+
+  const drainQueue = useCallback((conversationId: string) => {
+    const queue = queuesRef.current.get(conversationId);
+    const item = queue?.items[0];
+    if (!queue || !item || queue.blocked || queue.sending || queue.checking ||
+      activeRunsRef.current.has(conversationId) || queue.userId !== sessionRef.current.userId) return;
+    queue.ready = false;
+    queue.sending = item.id;
+    refreshQueue();
+    let accepted = false;
+    void sendNow(item.content, item.skillId, () => {
+      accepted = true;
+      queue.items = queue.items.filter((entry) => entry.id !== item.id);
+      refreshQueue();
+    }, item.attachmentIds, item.knowledgeBaseIds, { conversationId, queue, modelId: item.modelId },
+    undefined, item.imageAttachmentIds)
+      .finally(() => {
+        queue.sending = undefined;
+        if (!accepted && !queue.blocked) {
+          queue.blocked = { reason: "队首消息未确认发送" };
+        }
+        refreshQueue();
+        if (queue.ready) drainQueueRef.current(conversationId);
+      });
+  }, [sendNow]);
+  drainQueueRef.current = drainQueue;
+
+  const sendMessage = useCallback<ChatStreamHandle["sendMessage"]>(async (
+    content, skillId, onAccepted, attachmentIds = [], knowledgeBaseIds = [], onSubmitted,
+    imageAttachmentIds = [], onAttachmentsPrepared,
+  ) => {
+    const snapshot = sessionRef.current;
+    const conversationId = snapshot.conversationId;
+    const run = conversationId ? activeRunsRef.current.get(conversationId) : undefined;
+    let queue = conversationId ? queuesRef.current.get(conversationId) : undefined;
+    if (queue?.userId !== snapshot.userId) queue = undefined;
+    const chat = chatStateRef.current.conversationId === conversationId
+      ? chatStateRef.current : chatCacheRef.current.get(conversationId ?? "");
+    const question = chat?.userQuestion;
+    const waiting = Boolean(chat?.approval || (question && !isUserQuestionExpired(question.expires_at)));
+    if (!conversationId || (!queue?.items.length && !queue?.blocked && !waiting &&
+      (!run || (question && isUserQuestionExpired(question.expires_at))))) {
+      return sendNow(
+        content, skillId, onAccepted, attachmentIds, knowledgeBaseIds,
+        undefined, onSubmitted, imageAttachmentIds, onAttachmentsPrepared,
+      );
+    }
+    if (!content.trim() && attachmentIds.length === 0) return;
+    if (!queue) {
+      queue = { userId: snapshot.userId, projectId: snapshot.projectId, items: [] };
+      queuesRef.current.set(conversationId, queue);
+    }
+    queue.items.push({
+      id: createRequestId(), content, preview: environmentChatDisplay(mcpChatDisplay(content)),
+      modelId: snapshot.modelOptions?.find((model) => model.available && model.id === snapshot.selectedModelId)?.id
+        ?? snapshot.modelOptions?.find((model) => model.available)?.id ?? "",
+      skillId,
+      attachmentIds: [...attachmentIds], knowledgeBaseIds: [...knowledgeBaseIds],
+      imageAttachmentIds: [...imageAttachmentIds],
+    });
+    onSubmitted?.();
+    onAccepted?.();
+    refreshQueue();
+  }, [sendNow]);
+
+  const moveQueued = useCallback((id: string, targetId: string) => {
+    const current = sessionRef.current;
+    const queue = queuesRef.current.get(current.conversationId ?? "");
+    if (!queue || queue.userId !== current.userId || id === targetId ||
+      queue.sending === id || queue.sending === targetId) return;
+    const from = queue.items.findIndex((item) => item.id === id);
+    const to = queue.items.findIndex((item) => item.id === targetId);
+    if (from < 0 || to < 0) return;
+    const [item] = queue.items.splice(from, 1);
+    queue.items.splice(to, 0, item);
+    refreshQueue();
+  }, []);
+
+  const removeQueued = useCallback((id: string) => {
+    const current = sessionRef.current;
+    const queue = queuesRef.current.get(current.conversationId ?? "");
+    if (!queue || queue.userId !== current.userId || queue.sending === id) return;
+    queue.items = queue.items.filter((item) => item.id !== id);
+    if (!queue.items.length && queue.blocked?.attachmentPreparationFailed) queue.blocked = undefined;
+    refreshQueue();
+  }, []);
+
+  const sendQueued = useCallback(async () => {
+    const current = sessionRef.current;
+    const conversationId = current.conversationId;
+    const queue = queuesRef.current.get(conversationId ?? "");
+    if (!conversationId || !queue?.blocked || queue.userId !== current.userId ||
+      queue.checking || queue.sending || activeRunsRef.current.has(conversationId)) return;
+    const { messageId, attachmentPreparationFailed } = queue.blocked;
+    if (!messageId && !(attachmentPreparationFailed && queue.items.length)) return;
+    queue.checking = true;
+    refreshQueue();
+    try {
+      const history = await getConversationHistory({ conversationId, userId: current.userId, limit: 100 });
+      const latest = sessionRef.current.getCurrentContext?.() ?? sessionRef.current;
+      if (latest.epoch !== current.epoch || latest.conversationId !== conversationId ||
+        latest.userId !== current.userId || queuesRef.current.get(conversationId) !== queue) return;
+      const previous = history.items.find((item) => item.id === messageId);
+      const hasUnfinishedReply = history.items.some((item) =>
+        item.role === "assistant" && !item.display_metadata?.task_run && !isTerminalStatus(item.status),
+      );
+      if (history.pending_approval || history.pending_interaction || hasUnfinishedReply ||
+        (messageId && (!previous || !isTerminalStatus(previous.status)))) {
+        message.info("尚未确认上一轮结束，待发送消息已保留。");
+        return;
+      }
+      queue.blocked = undefined;
+    } catch {
+      message.error("暂时无法确认上一轮状态，请稍后再试。");
+    } finally {
+      queue.checking = false;
+      refreshQueue();
+    }
+    drainQueue(conversationId);
+  }, [drainQueue, message]);
+
+  useEffect(() => {
+    const queues = queuesRef.current;
+    return () => queues.clear();
+  }, [session.userId]);
 
   const submitApproval = useCallback(
     async (
@@ -1218,9 +1462,11 @@ export function useChatStream({
         userId: snapshot.userId,
         projectId: snapshot.projectId,
         modelId: snapshot.selectedModelId || "",
+        assistantMessageId,
         skillId: null,
         draft: "",
         attachmentIds: [],
+        knowledgeBaseIds: [],
       };
       const succeeded = await runStream(
         (handlers) =>
@@ -1273,9 +1519,11 @@ export function useChatStream({
         userId: snapshot.userId,
         projectId: snapshot.projectId,
         modelId: snapshot.selectedModelId || "",
+        assistantMessageId: question.assistant_message_id,
         skillId: null,
         draft: "",
         attachmentIds: [],
+        knowledgeBaseIds: [],
       };
       const succeeded = await runStream(
         (handlers) =>
@@ -1482,6 +1730,12 @@ export function useChatStream({
     const run = activeRunsRef.current.get(conversationId);
     if (!run || run.controller.signal.aborted) return false;
     flushTextDeltas(conversationId);
+    const queue = queuesRef.current.get(conversationId) ?? {
+      userId: run.context.userId, projectId: run.context.projectId, items: [],
+    };
+    queue.blocked = { reason: "已停止接收回复" };
+    queuesRef.current.set(conversationId, queue);
+    refreshQueue();
     run.controller.abort();
     // abort 后流静默结束：本地先显式收尾，避免卡在 streaming。
     const prev = chatStateRef.current.conversationId === conversationId
@@ -1520,21 +1774,27 @@ export function useChatStream({
     state.conversationId && runningConversationIds.includes(state.conversationId),
   );
 
-  const handle = useMemo<ChatStreamHandle>(
-    () => ({
-      state,
-      isRunning,
-      runningConversationIds,
-      stopCurrent,
-      sendMessage,
-      submitApproval,
-      submitUserInput,
-      clearRestoreDraft: () => dispatch({ type: "draftRestored" }),
-      reloadHistory,
-      loadMessage,
-    }),
-    [state, isRunning, runningConversationIds, stopCurrent, reloadHistory, loadMessage, sendMessage, submitApproval, submitUserInput],
-  );
+  const selectedQueue = session.conversationId ? queuesRef.current.get(session.conversationId) : undefined;
+  const visibleQueue = selectedQueue?.userId === session.userId ? selectedQueue : undefined;
+  const handle: ChatStreamHandle = {
+    state,
+    queue: visibleQueue,
+    moveQueued,
+    removeQueued,
+    sendQueued,
+    isRunning,
+    preparingAttachments: attachmentPreparationsRef.current.has(
+      JSON.stringify([session.userId, session.projectId, session.conversationId]),
+    ),
+    runningConversationIds,
+    stopCurrent,
+    sendMessage,
+    submitApproval,
+    submitUserInput,
+    clearRestoreDraft: () => dispatch({ type: "draftRestored" }),
+    reloadHistory,
+    loadMessage,
+  };
 
   return handle;
 }

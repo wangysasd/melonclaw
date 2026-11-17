@@ -21,11 +21,11 @@ output/         把 LangGraph 消息流投影成有序 assistant steps 与 SSE �
 ```
 
 附件采用独立的两阶段数据流：浏览器先向 `api/routes/attachments.py` 上传到当前
-Project 或普通 Conversation 的受控 `.attachments/` 目录，`services/attachments.py` 完成校验和后台解析；
-发送消息时只提交附件 ID，由 `repository/attachments.py` 在消息事务中绑定。文档由
-`parsers/` 生成派生 Markdown，图片由注入式 hydration middleware 在模型出站前转换为
-标准 image content block；出站图片经 `services/attachment_images.py` 按文件版本缓存并
-等比缩放，已失效的附件在 hydration 阶段降级为提示而不是让整轮执行失败。
+Project 或普通 Conversation 的受控 `.attachments/` 目录。需要识别的文件在上传请求中等待 DeepSeek OCR。
+本地文本和表格通过解析子进程生成派生 Markdown。按模型能力分流的图片可通过原附件 ID 补 OCR。
+发送消息时提交附件 ID，由 `repository/attachments.py` 在消息事务中绑定，并记录本轮使用 OCR 正文的图片 ID。
+hydration 按绑定的表示提供受控 Markdown 路径、图片块或 ZIP 引用。出站图片按文件版本缓存并等比缩放，
+已失效的附件以可见提示交给模型。 [聊天附件处理](design-docs/chat-attachment-processing.md)
 
 消息准备先检查幂等键并取得会话锁，再构建新运行的 Agent；已结束请求直接回放
 业务消息快照。无论有无附件，user/assistant 消息对都由同一事务写入。v3 事件
@@ -119,7 +119,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 配置与环境变量 | `core/config.py` 的 `Settings` / `load_settings()` | 新增环境变量在这里解析，不要在各模块直接读 `os.environ`（`MELONCLAW_*` 风格） |
 | 模型与能力 | `core/model_catalog.py` 的 `ResolvedModel` + 目录条目转换；模型目录以 `model_providers` + `model_configs` 两张表为唯一事实来源（供应商持有 base_url/api_key/模型列表端点，模型经 `provider_key` 引用供应商；db-init 只写无凭据、未启用的供应商模板，不创建模型），runtime 按 user_id 查可见行并联查供应商行 | 请求只能提交目录模型 ID（`custom:` 前缀），不接受前端传任意模型名；`model_providers.api_key` 只写不回读，模型停用或缺少有效 Key 时不可用，全局模型另受供应商开关控制；模型／供应商／Key 写入统一发布内存资源版本，下一次准备时旧 Agent 缓存失效；DB 无可用行时返回空选择并提示配置；Agent 构建必须显式接收数据库解析后的模型 |
 | 模型实例 | `core/chat_model.py` 的 `build_chat_model()` | 所有 provider（含 custom）统一经此构造 |
-| MCP 服务定义 | `services/mcp.py` 的运行时装配（数据来自 `mcp_servers` 表）；根目录 `mcp.json` 只是 db-init 的内置种子 | 无 MCP 时必须能正常启动；user scope 仅 http/sse 且禁止 `${VAR}`，global scope 允许 stdio 与 `${VAR}`（管理员发布） |
+| MCP 服务定义 | `services/mcp.py` 的运行时装配（配置通过 Web 页面写入 `mcp_servers` 表） | 无 MCP 时必须能正常启动；user scope 仅 http/sse 且禁止 `${VAR}`，global scope 允许 stdio 与 `${VAR}`（管理员发布） |
 | 长期记忆 | `memory/` 的 `MemoryService` | 写入必须经过它的固定工具与审计，不直接写 Store |
 | HITL 与副作用工具 | `core/hitl.py` 的审批清单 + `FilesystemPermission`；用户问题由 `core/user_input.py` 的 `interrupt()` 进入同一 Checkpoint | write_file、edit_file、delete 免逐次审批，仍受 FilesystemPermission 路径规则限制；固定工具审批保留 Skill 安装、MCP 测试和安装、环境变量确认；Shell 沿用受信任本地开发免审批例外；缺少关键用户决策时 Agent 可暂停等待回答；审批恢复必须绑定当前 `approval_batch_id` 与 `assistant_message_id`；用户问题的唯一出口是一次真正的 `Command(resume=...)`，答案可以是选项/文本，也可以是 `{"type": "cancelled"}`（用户跳过或 TTL 过期后由 `services/user_input_execution.py` 代答），只改 `user_interactions` 状态不会解除 Checkpoint 挂起；答案已收但本轮没跑完时账本会被标成 `recovery_required` 并且**禁止自动重放**（不知道副作用执行到哪一步），此时历史表现为失败，唯一的解锁入口是用户发新消息——那时服务层会先代答取消、把 Checkpoint 叫醒收尾 |
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
@@ -190,7 +190,7 @@ DeepSeek / MiniMax 都通过 `ChatOpenAI` 适配。`deepagents` 会把 `ChatOpen
 
 `metadata.create_all` 只建缺失对象，从不 ALTER 已有表。保留数据升级必须显式维护版本化脚本；完成升级后由 `verify_schema` 对 `BUSINESS_TABLES` 逐表比对当前列。**业务表和资源表都必须登记在 `database/constants.py` 的 `BUSINESS_TABLES`**：漏登记会让漂移延迟到其他数据库操作才暴露。新数据库仍直接按 `schema.py` 创建。
 
-清库会丢掉两类“看起来在代码里、实际只在数据库里”的东西：**结构**从 `schema.py` 创建；**索引类数据**由 db-init 从磁盘或仓库种子重建（内置 MCP 来自 `mcp.json`，Skill 索引来自 `data_root/skills/`）。新增任何“DB 只是投影”的资源时，都要同时给出重建入口。重大变更选择清库时，要明确数据影响并由操作者执行清理；init 本身不得删除数据库内容。
+清库会丢掉两类“看起来在代码里、实际只在数据库里”的东西：**结构**从 `schema.py` 创建；**索引类数据**由 db-init 从磁盘或仓库种子重建（Skill 索引来自 `data_root/skills/`）。MCP 配置由 Web 页面写入数据库，清库后需要重新配置。新增任何“DB 只是投影”的资源时，都要同时给出重建入口。重大变更选择清库时，要明确数据影响并由操作者执行清理；init 本身不得删除数据库内容。
 
 若重建数据库是为了改变用户的租户映射，先备份需要保留的文件，并清理 `MELONCLAW_WORKSPACE_DIR` 指向的旧工作区（未配置时为 `~/.melonclaw/workspaces`），再初始化数据库。建表命令不会清理工作区；沿用旧目录会留下与新数据库无对应记录的文件。工作区路径中的 UUID 和目录层级不是租户安全边界。
 
@@ -290,6 +290,12 @@ ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，
 
 `tool/deepseek.py` 统一搜索/抓取的严格响应协议、同步异步传输、进程内按接口节流与有限重试；`search.py` 和 `task_search.py` 分别负责聊天和后台输出与权限边界。凭据只经 `core/config.py` 注入，工具不读取环境变量；异常结构不当作无结果，截断显式标记。后台不开放 Fetch。设计与并发/取消限制见[联网工具](design-docs/deepseek-web-tools.md)。
 
+`POST /api/speech/transcribe` 只做语音转写代理：浏览器上传整段 WAV，`services/speech.py` 用同一把 `DEEPSEEK_API_KEY` 转发到 DeepSeek ASR，不进入 Agent、审批或代码解释器。音频不落库。见[聊天语音输入](design-docs/speech-input.md)。
+
+`POST /api/speech/synthesize` 只做朗读代理：页面提交当前用户可见会话中的一条助手消息，服务端只读取该消息已保存的正文，用同一把 `DEEPSEEK_API_KEY` 向 DeepSeek 语音合成换取 PCM 流。这个入口停在 `api/routes/speech.py` 和 `services/speech.py`，不进入 Agent、审批或代码解释器，也不新增表或环境变量。见[朗读助手回复](design-docs/speech-read-aloud.md)。
+
+语音路由使用 `api/auth.py` 的 Cookie 和来源校验，并将身份共享锁限制在身份与会话归属检查。ASR 在鉴权后按实际收到的字节限制 multipart 上传。两个接口等待 DeepSeek 时均已释放身份共享锁。
+
 
 ### 环境变量与准备阶段（2026-10-18）
 
@@ -302,3 +308,45 @@ ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，
 SSE 事件拉取与源迭代器关闭显式复用每条流独立的 Context，避免心跳拉取任务切换导致 Langfuse ContextVar token 跨上下文复位；调用方不继承流内监控状态。工具发现的“下一次模型调用”发生于同一用户请求内，MCP 清单仅描述 MCP，不代表内置联网工具是否可用。
 
 普通聊天的 `internet_search` 与 `web_fetch` 在 Agent 组装入口排除出动态候选目录，因此始终可见且不占会话工具池名额；主/子 Agent 共用规则，主 Agent 的 PTC 保留原只读白名单。后台搜索仍受授权控制，不开放 Fetch。
+
+
+### 知识库当前契约
+
+知识库支持资料导入、向量/关键词/混合检索及聊天引用；普通聊天固定混合，管理页保留单路对照。嵌入由根 `.env` 固定；OCR 使用 `DEEPSEEK_API_KEY`，地址写在 `core/knowledge_ocr.py`。同库一次处理一份资料，其他库可以并行。本轮选库后三个只读查询工具直接可用。
+
+### 知识库引用与流程收敛（2026-11-10）
+
+完整来源由内置只读工具生成；`output/knowledge_sources.py` 在展示预览截断前，从完整工具结果提取、校验受控版本 URL 并脱敏。根 Agent 的 `assistant_tool_result.result.knowledge_sources` 随 `assistant_steps` 保存、回放；子 Agent 的 `subagent_tool_result.knowledge_sources` 随已有展示事件保存。前端使用这些结构化字段构建白名单，不从预览正文扫描链接。来源元数据仅含标签、状态及版本化 URL，不包含原文、模型凭据或任意工具载荷；打开引用仍重新校验库权限。无 schema 变更，旧历史不回填，也不增加旧预览解析分支。
+
+账户变更取消作业时按实际受影响的库统一检查流程释放，包括用户在共享库发起的作业；继续用 `execution_exited` 保证实际退出前不解锁。文档列表使用按文档关联的两次有界最新作业查询，复用既有文档/时间/ID 索引，不将全部作业历史搬到应用内筛选。当前边界见[执行、文件与恢复](design-docs/knowledge-base.md#执行文件与恢复)，历史验证见[审查修复记录](exec-plans/completed/2026-11-10-knowledge-review-fixes.md)。
+
+### 知识库数据库结构（2026-11-06）
+
+初始化 schema 直接包含知识库八张表和 `knowledge_search_chunks` 普通视图，不提供早期开发结构的保留数据升级。字段与约束见 [知识库设计](design-docs/knowledge-base.md)。知识库管理与模型用途配置已接入现有仓储、服务、Cookie API 和前端；PDF、Word、PowerPoint、图片、TXT/Markdown 导入、固定 OCR、分块嵌入与原子发布已实现。知识库嵌入由开发固定工厂提供，OCR 读取开发侧 .env，不读取用户目录默认，也不保存解析模型引用。初始化不创建默认模型或凭据。检索与普通聊天引用已实现，边界见下文。
+
+先安装 PostgreSQL 的 pgvector 扩展包（见 [部署说明](../ops/PGVECTOR.md)）；扩展尚未启用时脚本执行 `CREATE EXTENSION IF NOT EXISTS vector`，若数据库账号无权限，需数据库管理员预先安装扩展。固定向量维度 1024。空库执行 `uv run melonclaw-db-init`。已有业务库执行 `uv run melonclaw-db-update`，步骤 `20261117_knowledge` 创建当前八张表和检索视图，不改已有业务表。已有知识库表与当前结构不一致时升级失败并回滚。命令本身不清库，服务启动不会自动建表或升级。
+
+
+知识库管理：`api/routes/knowledge.py → services/knowledge.py → repository/knowledge.py` 复用 BusinessRepository，不新增包或资源表。core/model_catalog.py 保留模型用途隔离；知识库建库不解析用户目录中的文档解析默认，也没有 parser_model_id 字段。知识库模型由开发维护，固定 OCR 与导入链路见[文档导入](design-docs/knowledge-base.md#文档导入)。建库绑定与模型/供应商更新通过事务级 catalog 锁串行化，资源更新沿原 resource_change 提交—发布边界失效。账户换租户保留知识库点名授权。删除用户或停用租户仍通过 account_guard 和用户→库→文档→版本→job 锁顺序取消相关作业；删除用户同时移除其成员授权。知识库事件同事务提交。知识库成员角色为查看者和编辑者。库设置与成员管理归所有者及系统管理员，转让后原所有者成为编辑者。共享范围记在 `knowledge_bases.share_scope`。知识库不开放嵌入或解析模型连接测试；聊天模型连接测试仍走既有模型管理入口。见[管理实现与边界](design-docs/knowledge-base.md#授权与账户变化)。
+
+
+### 开发侧固定嵌入入口
+
+`core/knowledge_embedding.py` 是唯一嵌入实例工厂，模型、端点、维度与 Key 均取自 config 的环境配置副本；float 编码、16 条批次、60 秒超时和零重试保持不变，显式构造 trust_env=False 的同步/异步 HTTP 客户端。`core/config.py` 仅从 KNOWLEDGE_EMBEDDING_API_KEY 取得开发凭据；历史独立 demo 已删除，运行与验证均使用包内实现。聊天仍走 model_catalog；知识库解析不读取用户目录默认，固定 OCR 由 core/knowledge_ocr.py 提供；固定嵌入不读取数据库或访问者 Key。
+
+`repository/knowledge_embedding.py` 首次建库时登记稳定 UUID 的系统引用，保留八表和 embedding_model_id 外键。登记经原 resource_change 提交—发布边界，重复建库仅验证复用，不写配置或推进资源版本；语义冲突明确报错，不覆盖记录。模型/供应商管理入口隐藏并拒绝嵌入配置（包括 admin），聊天模型仍按 purpose=chat 隔离。建库 API 不接受 embedding_model_id，响应也不返回该内部字段。后续向量处理必须检查固定引用，不能忽略历史库绑定。这一段只说明固定嵌入引用本身不新增表；导入执行器见后文。
+
+嵌入四项部署值统一由 config 从根 .env 读取：KNOWLEDGE_EMBEDDING_API_KEY、KNOWLEDGE_EMBEDDING_URL、KNOWLEDGE_EMBEDDING_MODEL_NAME、KNOWLEDGE_EMBEDDING_DIMENSIONS；工厂与内部引用通过显式 settings 参数复用同一副本，无具体配置值默认回退。向量列维度保留结构校验，具体模型名只要求非空；不自动转换既有引用或向量空间。
+
+### 知识库导入执行边界
+
+`api/routes/knowledge.py → services/knowledge_documents.py → repository/knowledge_documents.py` 登记受控原件和幂等作业；`services/knowledge_executor.py` 在 Web 生命周期持有单实例数据库会话锁，按数据库队列领取。同一个库和同一份文档不并行；同一个人的其他库可以同时处理。导入受全局并发上限约束。`services/knowledge_processing.py` 协调无凭据的独立解析进程、固定 OCR、LangChain 分块与嵌入；`storage/knowledge.py` 管理 UUID 路径，`parsers/knowledge_worker.py` 不导入应用配置。OCR 入口 `core/knowledge_ocr.py` 只消费 Settings，无 SDK 或目录配置回退。所有部署值从 core/config.py 读取，不读取 demo 环境。向量由 repository 参数化 CAST 写入八表，正文/chunks/有效指针/job/事件同事务发布；网络调用不持事务锁。锁连接失效取消本地任务，不重连；取消后协程和子进程实际退出前不释放占用。失败或未发布版本不暴露为可用版本。详见[当前导入契约](design-docs/knowledge-base.md#文档导入)。
+
+### 知识库检索与聊天边界
+
+查询入口为 `api/routes/knowledge.py → services/knowledge_query.py`，由 knowledge_search 查询原文候选。服务使用显式异步查询编排和统一固定向量工厂，不缓存身份/检索结果；SQL在有效版本视图上强制租户、库、嵌入空间与当前ACL，网络后及返回前重验。混合模式并行调用两路独立仓储事务，按 chunk_id 以 RRF(k=60) 融合排名，每路与融合候选均最多60条；向量阈值不作用于RRF。分支20秒、整体45秒，只有向量服务故障/超时可显式降级到关键词，权限、配置、版本和关键词执行失败不降级。普通聊天 `tool/knowledge.py` 仅依赖 Protocol 与 core 输入/异常，provider由 ChatService 注入 ChatRuntime，再传 core/agent 装配；身份、每轮显式库选择和每库查询计数字典通过 AgentContext，不能闭包绑定到缓存Agent。每库允许3次初始/子问题查询与2次补查，多库独立；恢复执行使用新的有界计数，不重放旧工具。执行准备把选择ID写入用户消息metadata并纳入幂等校验，恢复沿用本轮选择，权限不快照放行。本轮已经选择知识库时，普通主/子 Agent 直接看到三个只读查询工具；未选择时这些工具留在动态目录，不能代替输入区选择。工具不进入 PTC 或无人值守任务。搜索工具不暴露mode；打开原文可按原chunk_ids读取同revision的合并上下文，单区间8000、单次合计16000字符，引用按实际范围生成。来源链接由服务生成结构化ID，UI只展示受控纯文本。详情见[混合检索与按需补证](design-docs/knowledge-base.md#混合检索与按需补证)。
+
+
+### 知识库整文件 OCR 与本地文本读取
+
+知识库导入白名单独立于聊天附件。TXT 与 Markdown 由无网络的 `parsers/knowledge_worker.py` 本地读取。PDF、Word（DOC、DOCX）、PowerPoint（PPT、PPTX）和 PNG、JPEG、WebP、GIF、BMP、TIFF 由 `core/knowledge_ocr.py` 整份提交到 `https://api.deepseek.com/v1/tools/ocr`。凭据使用 `Settings.deepseek_api_key`，超时由 `KNOWLEDGE_OCR_TIMEOUT_SECONDS` 读入 Settings。导入配方不保存 OCR 地址或 Key。图片的 `purpose` 为 `rich_layout_recognition`，文档为 `text_recognition`。索引用剥离版面标记后的正文，`source_locator` 只记录页码和 `method=ocr`。不保留本地 Office 结构定位，也不接受 XLSX。原件会发往 DeepSeek，按成功页计费；客户端超时后远端仍可能完成并计费。详见[现行导入契约](design-docs/knowledge-base.md#文档导入)。无新横切入口、工具或数据库结构。

@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from melonclaw.api.dependencies import get_chat_service
 from melonclaw.api.errors import error_response
@@ -41,6 +41,7 @@ async def upload_attachment(
     file: UploadFile = File(...),
     user_id: str | None = Form(None),
     client_request_id: str | None = Form(None),
+    model_id: str | None = Form(None),
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
@@ -52,6 +53,7 @@ async def upload_attachment(
             resolved_user,
             file,
             client_request_id=client_request_id,
+            model_id=model_id,
         )
         return JSONResponse(result, status_code=201)
     except Exception as exc:  # noqa: BLE001 - 统一返回脱敏错误
@@ -65,6 +67,7 @@ async def upload_conversation_attachment(
     file: UploadFile = File(...),
     user_id: str | None = Form(None),
     client_request_id: str | None = Form(None),
+    model_id: str | None = Form(None),
 ) -> JSONResponse:
     """上传到普通会话的独立工作区；项目会话使用项目上传入口。"""
 
@@ -79,6 +82,7 @@ async def upload_conversation_attachment(
             file,
             client_request_id=client_request_id,
             conversation_id=conversation_id,
+            model_id=model_id,
         )
         return JSONResponse(result, status_code=201)
     except Exception as exc:  # noqa: BLE001 - 统一返回脱敏错误
@@ -116,12 +120,21 @@ async def attachment_content(
     user_id: str | None = None,
     project_id: UUID | None = None,
     conversation_id: UUID | None = None,
-) -> FileResponse | JSONResponse:
+    preview: bool = False,
+) -> Response:
     manager = get_chat_service(request)
     if not manager.ready:
         return JSONResponse(await manager.status(), status_code=503)
     try:
         resolved_user = resolve_request_user_id(request, user_id)
+        if preview:
+            content, media_type = await manager.attachments.image_preview(
+                attachment_id,
+                resolved_user,
+                project_id=project_id,
+                conversation_id=conversation_id,
+            )
+            return Response(content, media_type=media_type, headers=_CONTENT_SECURITY_HEADERS)
         path, metadata = await manager.attachments.content_path(
             attachment_id,
             resolved_user,
@@ -145,8 +158,9 @@ async def retry_attachment_parse(
     user_id: str | None = None,
     project_id: UUID | None = None,
     conversation_id: UUID | None = None,
+    model_id: str | None = None,
 ) -> JSONResponse:
-    """重置解析失败的 staged 附件并重新排队；已在解析中时幂等返回当前状态。"""
+    """同步识别 OCR 附件，或重新排队本地文档。"""
 
     manager = get_chat_service(request)
     if not manager.ready:
@@ -158,6 +172,7 @@ async def retry_attachment_parse(
             resolved_user,
             project_id=project_id,
             conversation_id=conversation_id,
+            model_id=model_id,
         )
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001 - 统一返回脱敏错误

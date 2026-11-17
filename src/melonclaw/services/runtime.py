@@ -73,6 +73,7 @@ class ChatRuntime(ModelResolutionMixin):
     environment_provider: Any | None = None
     task_history_provider: Any | None = None
     task_configuration_provider: Any | None = None
+    knowledge_provider: Any | None = None
     workspace_agents: dict[Any, Any] | None = None
     agent_build_locks: dict[Any, _AgentBuildLock] = field(default_factory=dict)
     mcp_discovery: McpDiscoveryCoordinator = field(default_factory=McpDiscoveryCoordinator)
@@ -429,6 +430,7 @@ class ChatRuntime(ModelResolutionMixin):
                         environment_provider=self.environment_provider,
                         task_history_provider=self.task_history_provider,
                         task_configuration_provider=self.task_configuration_provider,
+                        knowledge_provider=self.knowledge_provider,
                         client_capabilities=capabilities, mcp_servers=mcp_servers,
                         mcp_tool_allowlists=mcp_allowlists, skill_dirs=skill_dirs,
                         environment=environment,

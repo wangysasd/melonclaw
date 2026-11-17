@@ -57,6 +57,8 @@ class ModelResolutionMixin:
             if pair is None:
                 raise ValueError("所选模型不存在或当前不可用。")
             row, provider_row = pair
+            if row["purpose"] != "chat":
+                raise ValueError("所选模型不是聊天模型。")
             if row["scope"] != "global" and row["created_by"] != user_id:
                 raise ValueError("所选模型不存在或当前不可用。")
             effective = await self._model_api_key(row, provider_row, user_id, connection=connection)

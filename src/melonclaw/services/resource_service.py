@@ -19,16 +19,19 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
 from melonclaw.core.config import provider_env_key
+from melonclaw.core.knowledge_embedding import EMBEDDING_PROVIDER_KEY
 from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW, MAX_CONTEXT_WINDOW
 from melonclaw.services.provider_config import ModelConfigError, validate_provider_advanced
 from melonclaw.services.skill_content import check_requirements, preview_content
 from melonclaw.services.skill_import import MAX_ARCHIVE_ENTRIES, MAX_ARCHIVE_TOTAL_BYTES
 from melonclaw.services.skill_index import reindex_skills_from_disk
 from melonclaw.services.skill_operations import SkillOperations
+from melonclaw.services.skill_remote import PublicDownloadTransport, validate_download_url
 from melonclaw.services.skill_state import evaluate_skills
 from melonclaw.services.skills import SAFE_DIRECTORY_RE
 
@@ -134,19 +137,21 @@ def provider_public_dict(
 class ModelConfigPayload:
     """创建自定义模型的请求载荷。"""
 
-    model_key: str
+    model_key: str | None
     provider_key: str
     scope: str
     display_name: str
     model_name: str
-    context_window: int = DEFAULT_CONTEXT_WINDOW
+    context_window: int | None = DEFAULT_CONTEXT_WINDOW
     enabled: bool = True
+    purpose: str = "chat"
+    supports_image_input: bool | None = None
 
 
 def validate_model_payload(payload: ModelConfigPayload) -> None:
     """校验模型名称与上下文窗口；连接与凭据归属供应商。"""
 
-    if not MODEL_KEY_RE.fullmatch(payload.model_key):
+    if payload.model_key is not None and not MODEL_KEY_RE.fullmatch(payload.model_key):
         raise ModelConfigError(
             "模型标识只能包含小写字母、数字、下划线和连字符。"
         )
@@ -154,7 +159,16 @@ def validate_model_payload(payload: ModelConfigPayload) -> None:
         raise ModelConfigError("供应商标识不能为空。")
     if not payload.display_name.strip():
         raise ModelConfigError("模型显示名称不能为空。")
-    validate_context_window(payload.context_window)
+    if payload.purpose == "embedding":
+        raise ModelConfigError("内部服务不提供用户配置。")
+    if payload.purpose not in {"chat", "document_parser"}:
+        raise ModelConfigError("模型用途无效。")
+    if payload.supports_image_input is not None and payload.purpose != "chat":
+        raise ModelConfigError("仅聊天模型可配置图片输入能力。")
+    if payload.purpose == "chat":
+        validate_context_window(payload.context_window)
+    elif payload.scope != "global" or payload.context_window is not None:
+        raise ModelConfigError("知识库模型仅支持全局配置，且不设置聊天上下文窗口。")
     if not payload.model_name.strip():
         raise ModelConfigError("模型名称不能为空。")
 
@@ -178,7 +192,9 @@ def model_public_dict(row: dict[str, Any], provider_row: dict[str, Any]) -> dict
         "enabled": bool(row["enabled"]),
         "is_default": bool(row["is_default"]),
         "input_modalities": [str(item) for item in row["input_modalities"]],
-        "context_window": int(row["context_window"]),
+        "context_window": row["context_window"],
+        "purpose": row["purpose"],
+        "id": str(row["id"]),
         "created_by": row["created_by"],
     }
 
@@ -409,6 +425,8 @@ class ResourceService:
         my_keys = await self.storage.list_user_provider_keys(user_id)
         items = []
         for row in rows:
+            if row["provider_key"] == EMBEDDING_PROVIDER_KEY:
+                continue
             models = await self.storage.list_models_of_provider(
                 str(row["provider_key"])
             )
@@ -417,6 +435,7 @@ class ResourceService:
                 1
                 for item in models
                 if item.get("enabled")
+                and item["purpose"] != "embedding"
                 and (
                     item.get("scope") == "global"
                     or item.get("created_by") == user_id
@@ -444,6 +463,8 @@ class ResourceService:
     ) -> None:
         role = await self._role(user_id)
         self._require_admin(role)
+        if payload.provider_key == EMBEDDING_PROVIDER_KEY:
+            raise ResourcePermissionError("内部服务不提供用户配置。")
         if payload.scope != "global":
             raise ModelConfigError("供应商只能创建为全局共享。")
         validate_provider_payload(payload)
@@ -469,6 +490,8 @@ class ResourceService:
         self, user_id: str, provider_key: str, role: str
     ) -> dict[str, Any]:
         self._require_admin(role)
+        if provider_key == EMBEDDING_PROVIDER_KEY:
+            raise ResourcePermissionError("内部服务不提供用户配置。")
         row = await self.storage.get_provider_row(provider_key)
         if row is None:
             raise ResourceNotFoundError(f"供应商 {provider_key!r} 不存在。")
@@ -538,6 +561,8 @@ class ResourceService:
     ) -> None:
         """普通用户在共享供应商上覆盖自己的 Key；admin 的共享 Key 不受影响。"""
 
+        if provider_key == EMBEDDING_PROVIDER_KEY:
+            raise ResourcePermissionError("内部服务不提供用户配置。")
         await self._role(user_id)
         provider = await self.storage.get_provider_row(provider_key)
         if provider is None:
@@ -552,11 +577,13 @@ class ResourceService:
     async def delete_user_provider_key(
         self, user_id: str, provider_key: str
     ) -> None:
+        if provider_key == EMBEDDING_PROVIDER_KEY:
+            raise ResourcePermissionError("内部服务不提供用户配置。")
         await self._role(user_id)
         await self.storage.delete_user_provider_key(provider_key, user_id)
 
     async def fetch_remote_models(
-        self, user_id: str, provider_key: str
+        self, user_id: str, provider_key: str, purpose: str = "chat"
     ) -> dict[str, Any]:
         """按供应商配置实时拉取远端模型列表，不落库。
 
@@ -564,6 +591,10 @@ class ResourceService:
         不受供应商全局启停影响。写操作仍在模型管理接口。
         """
 
+        if purpose == "embedding":
+            raise ResourcePermissionError("内部服务不提供用户配置。")
+        if provider_key == EMBEDDING_PROVIDER_KEY:
+            raise ResourcePermissionError("内部服务不提供用户配置。")
         role = await self._role(user_id)
         provider = await self.storage.get_provider_row(provider_key)
         if provider is None:
@@ -571,7 +602,14 @@ class ResourceService:
         endpoint = provider["models_endpoint"]
         if not endpoint:
             raise ModelConfigError("该供应商未配置模型列表端点。")
-        if role in {"admin", "owner"}:
+        if purpose != "chat":
+            self._require_admin(role)
+            if purpose not in {"document_parser"}:
+                raise ModelConfigError("模型用途无效。")
+            api_key = provider["api_key"]
+            if not provider["enabled"] or not api_key:
+                raise ModelConfigError("请先启用供应商并配置数据库共享 Key。")
+        elif role in {"admin", "owner"}:
             api_key = await self.storage.effective_provider_api_key(provider, user_id)
         else:
             personal = await self.storage.get_user_provider_key(provider_key, user_id)
@@ -581,7 +619,7 @@ class ResourceService:
         headers = dict(provider["request_headers"])
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        return await self._request_remote_models(endpoint, headers)
+        return await self._request_remote_models(endpoint, headers, knowledge=True) if purpose != "chat" else await self._request_remote_models(endpoint, headers)
 
     async def test_provider_connection(
         self,
@@ -596,6 +634,8 @@ class ResourceService:
     ) -> dict[str, int]:
         """测试表单中的供应商 /models 端点，不保存配置或凭据。"""
 
+        if provider_key == EMBEDDING_PROVIDER_KEY:
+            raise ResourcePermissionError("内部服务不提供用户配置。")
         self._require_admin(await self._role(user_id))
         validate_provider_advanced(api_key_env, request_headers, None)
         normalized_base_url = base_url.strip()
@@ -636,10 +676,18 @@ class ResourceService:
         return {"model_count": len(result["items"])}
 
     async def _request_remote_models(
-        self, endpoint: str, headers: dict[str, str]
+        self, endpoint: str, headers: dict[str, str], *, knowledge: bool = False
     ) -> dict[str, Any]:
+        options = {"timeout": 30.0}
+        if knowledge:
+            try:
+                validate_download_url(endpoint)
+            except ValueError:
+                raise ModelConfigError("知识库模型列表需要无凭据的公网 HTTPS 443 端点。") from None
+            options.update(trust_env=False, follow_redirects=False,
+                transport=PublicDownloadTransport(limits=httpx.Limits(max_keepalive_connections=0)))
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(**options) as client:
                 response = await client.get(endpoint, headers=headers)
         except httpx.HTTPError as exc:
             raise ModelConfigError("拉取远端模型失败，请检查网络和端点配置。") from exc
@@ -674,10 +722,12 @@ class ResourceService:
 
     # ---- 自定义模型管理（两级 scope：admin 配全局共享，用户配私有） ----
 
-    async def list_models(self, user_id: str) -> dict[str, Any]:
+    async def list_models(self, user_id: str, purpose: str = "chat") -> dict[str, Any]:
         await self._role(user_id)
+        if purpose == "embedding":
+            raise ResourcePermissionError("内部服务不提供用户配置。")
         rows = await self.storage.list_visible_model_rows(
-            user_id, include_disabled=True
+            user_id, include_disabled=True, purpose=purpose
         )
         items = []
         for row in rows:
@@ -689,6 +739,8 @@ class ResourceService:
 
     async def create_model(self, user_id: str, payload: ModelConfigPayload) -> None:
         role = await self._role(user_id)
+        if payload.purpose == "embedding" or payload.provider_key == EMBEDDING_PROVIDER_KEY:
+            raise ResourcePermissionError("内部服务不提供用户配置。")
         if payload.scope == "global":
             self._require_admin(role)
         elif payload.scope != "user":
@@ -705,16 +757,25 @@ class ResourceService:
             )
             if not personal:
                 raise ModelConfigError("请先配置个人 API Key，再添加自定义模型。")
-        if await self.storage.get_model_row(payload.model_key) is not None:
-            raise ModelConfigError(f"模型 {payload.model_key!r} 已存在。")
+        model_key = payload.model_key
+        if model_key is None:
+            prefix = re.sub(r"[^a-z0-9]+", "-", payload.model_name.lower()).strip("-")[:31]
+            model_key = f"{prefix.rstrip('-') or 'model'}-{uuid4().hex}"
+        if await self.storage.get_model_row(model_key) is not None:
+            raise ModelConfigError(f"模型 {model_key!r} 已存在。")
+        input_modalities = ["text"]
+        if payload.purpose == "document_parser" or payload.supports_image_input:
+            input_modalities.append("image")
         await self.storage.create_model_row(
-            model_key=payload.model_key,
+            model_key=model_key,
             provider_key=payload.provider_key,
             scope=payload.scope,
             source_type="manual",
             display_name=payload.display_name,
             model_name=payload.model_name,
             context_window=payload.context_window,
+            purpose=payload.purpose,
+            input_modalities=input_modalities,
             created_by=user_id,
             enabled=payload.enabled,
         )
@@ -725,6 +786,8 @@ class ResourceService:
         row = await self.storage.get_model_row(model_key)
         if row is None:
             raise ResourceNotFoundError(f"模型 {model_key!r} 不存在。")
+        if row["purpose"] == "embedding" or row["provider_key"] == EMBEDDING_PROVIDER_KEY:
+            raise ResourcePermissionError("内部服务不提供用户配置。")
         if row["scope"] == "global":
             self._require_admin(role)
         elif row["created_by"] != user_id:
@@ -741,6 +804,7 @@ class ResourceService:
         model_name: str | None = None,
         context_window: int | None = None,
         is_default: bool | None = None,
+        supports_image_input: bool | None = None,
     ) -> None:
         """更新模型配置；连接与凭据的变更走供应商管理。
 
@@ -748,13 +812,14 @@ class ResourceService:
         """
 
         role = await self._role(user_id)
-        await self._require_model_row(user_id, model_key, role)
+        row = await self._require_model_row(user_id, model_key, role)
+        if row["purpose"] not in {"chat"} and context_window is not None:
+            raise ModelConfigError("知识库模型不设置聊天上下文窗口。")
         if context_window is not None:
             validate_context_window(context_window)
         if is_default is not None:
             if not is_default:
                 raise ModelConfigError("不支持取消默认模型，请把默认切换给其他模型。")
-            await self.storage.set_default_model(model_key)
         fields: dict[str, Any] = {}
         if enabled is not None:
             fields["enabled"] = enabled
@@ -768,8 +833,19 @@ class ResourceService:
             fields["model_name"] = model_name.strip()
         if context_window is not None:
             fields["context_window"] = context_window
+        if supports_image_input is not None:
+            if row["purpose"] != "chat":
+                raise ModelConfigError("仅聊天模型可配置图片输入能力。")
+            modalities = [item for item in row["input_modalities"] if item != "image"]
+            if supports_image_input:
+                modalities.append("image")
+            fields["input_modalities"] = modalities
+        if is_default and fields:
+            fields["is_default"] = True
         if fields:
             await self.storage.update_model_row(model_key, **fields)
+        elif is_default:
+            await self.storage.set_default_model(model_key)
 
     async def delete_model(self, user_id: str, model_key: str) -> None:
         role = await self._role(user_id)

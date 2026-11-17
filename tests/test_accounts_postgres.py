@@ -35,7 +35,7 @@ def test_real_account_lifecycle(monkeypatch):
         control = create_async_engine(url)
         async with control.begin() as conn:
             await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-        engine = create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})
+        engine = create_async_engine(url, connect_args={"server_settings": {"search_path": f"{schema},public"}})
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(metadata.create_all)

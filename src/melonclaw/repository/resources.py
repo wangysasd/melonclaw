@@ -18,8 +18,10 @@ from sqlalchemy import and_, delete, func, insert, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from melonclaw.core.config import provider_env_key
+from melonclaw.core.knowledge import KnowledgeConflict
 from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW
 from melonclaw.database.schema import (
+    KNOWLEDGE_TABLES,
     model_configs,
     model_providers,
     provider_user_keys,
@@ -61,6 +63,10 @@ def _skill_row(
 
 
 class ResourceRepositoryMixin:
+    async def _model_catalog_lock(self, connection):
+        # 建库绑定与模型/供应商修改共用事务锁，引用检查和绑定不可交错。
+        await connection.execute(text("SELECT pg_advisory_xact_lock(hashtext(current_schema()), hashtext('model-catalog-binding'))"))
+
     async def list_visible_skill_rows(
         self, user_id: str, *, include_disabled: bool = False
     ) -> list[dict[str, Any]]:
@@ -335,6 +341,18 @@ class ResourceRepositoryMixin:
         # 任何字段更新都视为配置变更：版本自推进，Agent 缓存键随之失效。
         fields["version"] = model_providers.c.version + 1
         async with self.engine.begin() as connection:
+            await self._model_catalog_lock(connection)
+            old = (await connection.execute(select(model_providers).where(
+                model_providers.c.provider_key == provider_key).with_for_update())).mappings().one()
+            bound = await self._knowledge_provider_bound(connection, provider_key)
+            if bound:
+                for key in ("provider_type", "base_url", "request_headers", "extra_config"):
+                    before, after = old[key], fields.get(key, old[key])
+                    if key == "extra_config":
+                        before = {k: v for k, v in before.items() if k != "timeout"}
+                        after = {k: v for k, v in after.items() if k != "timeout"}
+                    if after != before:
+                        raise KnowledgeConflict("供应商已被知识库绑定，不能修改语义端点、请求头或扩展参数；请新建供应商。")
             await connection.execute(
                 update(model_providers)
                 .where(model_providers.c.provider_key == provider_key)
@@ -441,11 +459,12 @@ class ResourceRepositoryMixin:
     # ---- 自定义模型 ----
 
     async def list_visible_model_rows(
-        self, user_id: str, *, include_disabled: bool = False
+        self, user_id: str, *, include_disabled: bool = False, purpose: str = "chat"
     ) -> list[dict[str, Any]]:
         """返回某用户可用的自定义模型行（global + 自己的 user scope）。"""
 
         query = select(model_configs).where(
+            model_configs.c.purpose == purpose,
             (model_configs.c.scope == "global")
             | (model_configs.c.created_by == user_id)
         )
@@ -496,7 +515,7 @@ class ResourceRepositoryMixin:
     async def get_system_default_model_key(self, *, connection=None) -> str | None:
         """只取管理员设置的全局默认；启用和凭据由统一模型解析验证。"""
         query = select(model_configs.c.model_key).where(
-            model_configs.c.scope == "global", model_configs.c.is_default.is_(True)
+            model_configs.c.scope == "global", model_configs.c.purpose == "chat", model_configs.c.is_default.is_(True)
         )
         if connection is None:
             async with self.engine.connect() as borrowed:
@@ -517,7 +536,8 @@ class ResourceRepositoryMixin:
         enabled: bool = True,
         is_default: bool = False,
         input_modalities: list[str] | None = None,
-        context_window: int = DEFAULT_CONTEXT_WINDOW,
+        context_window: int | None = DEFAULT_CONTEXT_WINDOW,
+        purpose: str = "chat",
     ) -> dict[str, Any]:
         timestamp = _now()
         row = {
@@ -528,6 +548,7 @@ class ResourceRepositoryMixin:
             "source_type": source_type,
             "display_name": display_name,
             "model_name": model_name,
+            "purpose": purpose,
             "enabled": enabled,
             "is_default": is_default,
             "input_modalities": list(input_modalities or ["text"]),
@@ -550,12 +571,13 @@ class ResourceRepositoryMixin:
         """
 
         async with self.engine.begin() as connection:
+            await self._model_catalog_lock(connection)
             # 串行化默认切换，避免同一归属下并发设置撞唯一索引。
             await connection.execute(select(model_configs.c.model_key).with_for_update())
             target = (await connection.execute(
                 select(model_configs).where(model_configs.c.model_key == model_key)
             )).mappings().one()
-            scope_filter = model_configs.c.scope == target["scope"]
+            scope_filter = and_(model_configs.c.scope == target["scope"], model_configs.c.purpose == target["purpose"])
             if target["scope"] == "user":
                 scope_filter = and_(scope_filter, model_configs.c.created_by == target["created_by"])
             await connection.execute(
@@ -567,26 +589,45 @@ class ResourceRepositoryMixin:
                 .values(is_default=True, updated_at=_now())
             )
 
+    async def _knowledge_provider_bound(self, conn, provider_key):
+        kb = KNOWLEDGE_TABLES[0]
+        model_ids = select(model_configs.c.id).where(model_configs.c.provider_key == provider_key)
+        return await conn.scalar(select(kb.c.id).where(kb.c.embedding_model_id.in_(model_ids)).limit(1))
+
+    async def _knowledge_model_bound(self, conn, model_id):
+        kb = KNOWLEDGE_TABLES[0]
+        return await conn.scalar(select(kb.c.id).where(kb.c.embedding_model_id == model_id).limit(1))
+
+    async def _lock_model_config(self, conn, model_key):
+        await self._model_catalog_lock(conn)
+        provider = await conn.scalar(select(model_configs.c.provider_key).where(model_configs.c.model_key == model_key))
+        await conn.execute(select(model_providers.c.provider_key).where(model_providers.c.provider_key == provider).with_for_update())
+        return (await conn.execute(select(model_configs).where(model_configs.c.model_key == model_key).with_for_update())).mappings().one()
+
     @resource_change(row="get_model_row", key="model_key")
     async def update_model_row(self, model_key: str, **fields: Any) -> None:
-        fields["updated_at"] = _now()
-        # 任何字段更新都视为配置变更：版本自推进，Agent 缓存键随之失效。
-        fields["version"] = model_configs.c.version + 1
         async with self.engine.begin() as connection:
-            await connection.execute(
-                update(model_configs)
-                .where(model_configs.c.model_key == model_key)
-                .values(**fields)
-            )
+            old = await self._lock_model_config(connection, model_key)
+            if await self._knowledge_model_bound(connection, old["id"]):
+                for key in ("model_name", "provider_key", "purpose", "scope", "input_modalities"):
+                    if key in fields and fields[key] != old[key]:
+                        raise KnowledgeConflict("模型已被知识库绑定，不能原地修改语义配置；请新建模型和知识库。")
+            if fields.get("is_default"):
+                predicate = and_(model_configs.c.scope == old["scope"], model_configs.c.purpose == old["purpose"])
+                if old["scope"] == "user":
+                    predicate = and_(predicate, model_configs.c.created_by == old["created_by"])
+                await connection.execute(update(model_configs).where(predicate).values(is_default=False))
+            fields["updated_at"] = _now()
+            fields["version"] = model_configs.c.version + 1
+            await connection.execute(update(model_configs).where(model_configs.c.model_key == model_key).values(**fields))
 
     @resource_change(row="get_model_row", key="model_key")
     async def delete_model_row(self, model_key: str) -> None:
         async with self.engine.begin() as connection:
-            await connection.execute(
-                delete(model_configs).where(
-                    model_configs.c.model_key == model_key
-                )
-            )
+            old = await self._lock_model_config(connection, model_key)
+            if await self._knowledge_model_bound(connection, old["id"]):
+                raise KnowledgeConflict("模型已被知识库绑定，请停用；不能直接删除。")
+            await connection.execute(delete(model_configs).where(model_configs.c.model_key == model_key))
 
     async def models_revision(self) -> str:
         """模型与供应商任一张表变更都会推进版本戳，Agent 缓存随之失效。"""

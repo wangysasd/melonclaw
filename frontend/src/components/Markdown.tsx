@@ -9,6 +9,7 @@ import { useArtifacts } from "./ArtifactContext";
 import { ResultAsset } from "./ResultAsset";
 import { MarkdownTable } from "./ResultTable";
 import { ResultCitationScope, useResultScope } from "./ResultContext";
+import { useKnowledgeCitation, useKnowledgeSourceAllow } from "./KnowledgeCitationProvider";
 
 const CodeHighlighter = lazy(() => import("@ant-design/x/es/code-highlighter"));
 const MathMarkdown = lazy(() => import("./MathMarkdown"));
@@ -94,6 +95,8 @@ function MarkdownImage({ src, alt }: ComponentProps & { src?: unknown }) {
 function MarkdownLink({ children, href }: LinkProps) {
   const scope = useResultScope();
   const artifacts = useArtifacts();
+  const knowledgeCitation = useKnowledgeCitation();
+  const allowedSources = useKnowledgeSourceAllow();
   const value = String(href ?? "");
   const match = /^#source-([A-Za-z0-9_-]{1,40})$/.exec(value);
   const safe = safeHref(href);
@@ -108,7 +111,9 @@ function MarkdownLink({ children, href }: LinkProps) {
     if (target instanceof HTMLDetailsElement) target.open = true;
     target?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }}>{children}</a>;
-  return safe ? <a href={safe} target={safe.startsWith("#") ? undefined : "_blank"} rel="noreferrer noopener">{children}</a> : <span>{children}</span>;
+  return safe ? <a href={safe} target={safe.startsWith("#") ? undefined : "_blank"} rel="noreferrer noopener" onClick={(event) => {
+    if (knowledgeCitation?.openFromHref(value, allowedSources)) event.preventDefault();
+  }}>{children}</a> : <span>{children}</span>;
 }
 type LinkProps = ComponentProps & { href?: unknown };
 

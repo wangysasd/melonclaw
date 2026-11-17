@@ -40,6 +40,7 @@ async def send_message(
             skill_id=payload.skill_id,
             attachment_ids=payload.attachment_ids,
             capabilities=payload.capabilities,
+            knowledge_base_ids=payload.knowledge_base_ids,
             user_context=request.state.user,
         )
         execution.preparation_duration_ms = int((perf_counter() - preparation_started) * 1000)

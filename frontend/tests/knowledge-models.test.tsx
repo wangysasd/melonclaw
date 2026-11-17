@@ -1,0 +1,32 @@
+import { App, ConfigProvider } from "antd";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import zhCN from "antd/locale/zh_CN";
+import { ModelSection } from "../src/components/ModelProviders";
+import { apiRequest, createModel, listManageableModels, listManageableProviders, updateModel } from "../src/api/client";
+vi.mock("../src/api/client", async (load) => ({ ...await load<typeof import("../src/api/client")>(), listManageableModels: vi.fn(), listManageableProviders: vi.fn(), createModel: vi.fn(), updateModel: vi.fn(), apiRequest: vi.fn() }));
+const notify = { success: vi.fn(), error: vi.fn() };
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(listManageableProviders).mockResolvedValue({ items: [{ provider_key: "provider", display_name: "测试供应商", scope: "global", source_type: "manual", provider_type: "openai_compatible", api_key_env: "", has_request_headers: false, extra_config: {}, base_url: "https://example.com/v1", models_endpoint: null, enabled: true, has_api_key: true, has_my_key: false, effective_has_key: true, enabled_models_count: 1, created_by: "admin" }] });
+  vi.mocked(listManageableModels).mockResolvedValue({ items: [] });
+});
+afterEach(cleanup);
+it("edits, switches defaults, disables and tests the selected purpose model", async () => {
+  vi.mocked(listManageableModels).mockResolvedValue({ items: [{ id: "parser-uuid", purpose: "document_parser", model_key: "parser", provider_key: "provider", provider_display_name: "测试供应商", scope: "global", source_type: "manual", display_name: "文档模型", model_name: "parser-v1", enabled: true, is_default: false, input_modalities: ["text", "image"], context_window: null, created_by: "admin" }] });
+  vi.mocked(apiRequest).mockResolvedValue({ summary: "固定测试成功" });
+  render(<ConfigProvider locale={zhCN}><App><ModelSection userId="admin" isAdmin notify={notify} purpose="document_parser" /></App></ConfigProvider>);
+  await screen.findByText("测试供应商");
+  fireEvent.click(screen.getByRole("button", { name: /管理模型/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "连接测试" }));
+  await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("/api/models/parser/test-connection", { method: "POST" }));
+  expect(notify.success).toHaveBeenCalledWith("固定测试成功");
+  fireEvent.click(screen.getByRole("button", { name: "设为默认" }));
+  await waitFor(() => expect(updateModel).toHaveBeenCalledWith("parser", { userId: "admin", isDefault: true }));
+  fireEvent.click(screen.getByRole("switch"));
+  await waitFor(() => expect(updateModel).toHaveBeenCalledWith("parser", { userId: "admin", enabled: false }));
+  fireEvent.click(screen.getByRole("button", { name: /编\s*辑/ }));
+  fireEvent.change(screen.getByLabelText("显示名称"), { target: { value: "新名称" } });
+  fireEvent.click(screen.getByRole("button", { name: /确\s*定/ }));
+  await waitFor(() => expect(updateModel).toHaveBeenCalledWith("parser", { userId: "admin", displayName: "新名称", modelName: "parser-v1" }));
+});
