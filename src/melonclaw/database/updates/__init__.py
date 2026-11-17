@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from melonclaw.database.updates.account_management import upgrade as account_management
 from melonclaw.database.updates.environment import upgrade as environment
 from melonclaw.database.updates.knowledge import upgrade as knowledge
+from melonclaw.database.updates.model_purpose import upgrade as model_purpose
+from melonclaw.database.updates.parser_model import upgrade as parser_model
 from melonclaw.database.updates.task_center import upgrade as task_center
 from melonclaw.database.updates.task_reliability import upgrade as task_reliability
 
@@ -31,4 +33,6 @@ UPDATES = (
     SchemaUpdate("20261015_task_reliability", "移除任务通知与操作回执保留策略", task_reliability),
     SchemaUpdate("20261017_environment", "环境变量资源与聊天审批操作", environment),
     SchemaUpdate("20261117_knowledge", "知识库八张表与检索视图", knowledge),
+    SchemaUpdate("20261117_model_purpose", "已有模型补上用途并调整默认索引", model_purpose),
+    SchemaUpdate("20261117_parser_model", "知识库补上与本地一致的解析模型列", parser_model),
 )

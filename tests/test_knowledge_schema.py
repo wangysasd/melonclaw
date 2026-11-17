@@ -13,10 +13,16 @@ from melonclaw.database.schema import KNOWLEDGE_TABLES, metadata
 def test_knowledge_update_is_registered_after_environment():
     from melonclaw.database.updates import UPDATES
     from melonclaw.database.updates.knowledge import upgrade
+    from melonclaw.database.updates.model_purpose import upgrade as model_purpose
+    from melonclaw.database.updates.parser_model import upgrade as parser_model
 
     ids = [item.update_id for item in UPDATES]
     assert ids.index("20261117_knowledge") == ids.index("20261017_environment") + 1
+    assert ids.index("20261117_model_purpose") == ids.index("20261117_knowledge") + 1
+    assert ids.index("20261117_parser_model") == ids.index("20261117_model_purpose") + 1
     assert UPDATES[ids.index("20261117_knowledge")].upgrade is upgrade
+    assert UPDATES[ids.index("20261117_model_purpose")].upgrade is model_purpose
+    assert UPDATES[ids.index("20261117_parser_model")].upgrade is parser_model
 
 
 def test_knowledge_ddl_has_fixed_vector_and_cyclic_foreign_key():

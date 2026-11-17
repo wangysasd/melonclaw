@@ -327,7 +327,7 @@ SSE 事件拉取与源迭代器关闭显式复用每条流独立的 Context，�
 先安装 PostgreSQL 的 pgvector 扩展包（见 [部署说明](../ops/PGVECTOR.md)）；扩展尚未启用时脚本执行 `CREATE EXTENSION IF NOT EXISTS vector`，若数据库账号无权限，需数据库管理员预先安装扩展。固定向量维度 1024。空库执行 `uv run melonclaw-db-init`。已有业务库执行 `uv run melonclaw-db-update`，步骤 `20261117_knowledge` 创建当前八张表和检索视图，不改已有业务表。已有知识库表与当前结构不一致时升级失败并回滚。命令本身不清库，服务启动不会自动建表或升级。
 
 
-知识库管理：`api/routes/knowledge.py → services/knowledge.py → repository/knowledge.py` 复用 BusinessRepository，不新增包或资源表。core/model_catalog.py 保留模型用途隔离；知识库建库不解析用户目录中的文档解析默认，也没有 parser_model_id 字段。知识库模型由开发维护，固定 OCR 与导入链路见[文档导入](design-docs/knowledge-base.md#文档导入)。建库绑定与模型/供应商更新通过事务级 catalog 锁串行化，资源更新沿原 resource_change 提交—发布边界失效。账户换租户保留知识库点名授权。删除用户或停用租户仍通过 account_guard 和用户→库→文档→版本→job 锁顺序取消相关作业；删除用户同时移除其成员授权。知识库事件同事务提交。知识库成员角色为查看者和编辑者。库设置与成员管理归所有者及系统管理员，转让后原所有者成为编辑者。共享范围记在 `knowledge_bases.share_scope`。知识库不开放嵌入或解析模型连接测试；聊天模型连接测试仍走既有模型管理入口。见[管理实现与边界](design-docs/knowledge-base.md#授权与账户变化)。
+知识库管理：`api/routes/knowledge.py → services/knowledge.py → repository/knowledge.py` 复用 BusinessRepository，不新增包或资源表。core/model_catalog.py 保留模型用途隔离；知识库建库不解析用户目录中的文档解析默认，`parser_model_id` 保留为可空外键且保持为空。知识库模型由开发维护，固定 OCR 与导入链路见[文档导入](design-docs/knowledge-base.md#文档导入)。建库绑定与模型/供应商更新通过事务级 catalog 锁串行化，资源更新沿原 resource_change 提交—发布边界失效。账户换租户保留知识库点名授权。删除用户或停用租户仍通过 account_guard 和用户→库→文档→版本→job 锁顺序取消相关作业；删除用户同时移除其成员授权。知识库事件同事务提交。知识库成员角色为查看者和编辑者。库设置与成员管理归所有者及系统管理员，转让后原所有者成为编辑者。共享范围记在 `knowledge_bases.share_scope`。知识库不开放嵌入或解析模型连接测试；聊天模型连接测试仍走既有模型管理入口。见[管理实现与边界](design-docs/knowledge-base.md#授权与账户变化)。
 
 
 ### 开发侧固定嵌入入口

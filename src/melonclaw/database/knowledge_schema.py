@@ -62,6 +62,7 @@ def register_knowledge_tables(metadata):
         col("status", String(16), server_default="active"),
         col("share_scope", String(16), server_default="selected"),
         ref("embedding_model_id", "model_configs.id"),
+        ref("parser_model_id", "model_configs.id", nullable=True),
         col("knowledge_mode", String(16), server_default="vector"),
         uid("active_pipeline_job_id", nullable=True),
         col("chunk_config", JSONB(none_as_null=True)), col("version", Integer, server_default="1"),
@@ -149,6 +150,7 @@ def register_knowledge_tables(metadata):
         check("target_type IN ('base','member','document','revision','job') AND length(target_id) > 0", "event_target"))
     for t, suffix, cols in [
         (bases,"owner",["owner_user_id","status"]), (bases,"embedding_model",["embedding_model_id"]),
+        (bases,"parser_model",["parser_model_id"]),
         (members,"user",["user_id","kb_id"]),
         (chunks,"revision",["kb_id","revision_id"]), (texts,"revision",["kb_id","revision_id"]),
         (jobs,"queue",["status","created_at","id"]), (jobs,"list",["kb_id","created_at","id"]),
