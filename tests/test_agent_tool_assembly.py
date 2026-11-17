@@ -404,3 +404,64 @@ def test_todo_switch_overrides_codex_profile_in_main_and_child(monkeypatch, tmp_
             assert {scope for scope, _ in bindings} == {'main', 'child'}
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("delegate", [False, True])
+def test_knowledge_tools_follow_each_turn_context_in_main_and_child(monkeypatch, tmp_path, delegate):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from uuid import uuid4
+
+    from melonclaw.core.agent import AgentContext
+    from melonclaw.services.knowledge_search import ChatKnowledgeProvider
+
+    kb = str(uuid4())
+    calls = []
+    class Provider(ChatKnowledgeProvider):
+        async def search(self, context, kb_id, values):
+            calls.append((context.user_id, context.knowledge_base_ids))
+            await self.selected(context, kb_id)
+            return {"items": [{"content": "2026年收入42亿元", "source_url": "/source"}]}
+
+    provider = Provider(SimpleNamespace())
+    first_visibility = []
+    class Model(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self.bind(visible_names={item.name for item in tools})
+
+        async def _agenerate(self, messages, *, visible_names, **kwargs):
+            user = next(m for m in reversed(messages) if isinstance(m, HumanMessage))
+            results = [m for m in messages[messages.index(user)+1:] if isinstance(m, ToolMessage)]
+            if not results:
+                first_visibility.append("search_knowledge" in visible_names)
+            if results and results[-1].name in {"task", "search_knowledge"}:
+                message = AIMessage(content=results[-1].content)
+            elif delegate and user.content == "委派查询":
+                message = AIMessage(content="", tool_calls=[{"name": "task", "id": "delegate", "args": {
+                    "description": "查收入", "subagent_type": "general-purpose"}}])
+            elif "search_knowledge" not in visible_names:
+                message = AIMessage(content="", tool_calls=[{"name": "find_tools", "id": "discover", "args": {
+                    "tool_names": ["search_knowledge"]}}])
+            else:
+                message = AIMessage(content="", tool_calls=[{"name": "search_knowledge", "id": "query", "args": {
+                    "kb_id": kb, "query": "收入"}}])
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+    monkeypatch.setattr(agent_module, "build_chat_model", lambda *args, **kwargs: Model(responses=[]))
+    monkeypatch.setattr(agent_module, "build_agent_tools", AsyncMock(return_value=[]))
+    async def run():
+        settings = Settings(workspace_root=tmp_path, data_root=tmp_path / "data", agent_usage_enabled=False)
+        resolved = ResolvedModel(profile_id="offline", display_name="offline", source="custom",
+            adapter_type="openai", provider="offline", model_name="offline", base_url=None, api_key="offline-placeholder")
+        agent = await build_research_agent(settings, workspace_dir=tmp_path / "workspace", model=resolved,
+            checkpointer=InMemorySaver(), knowledge_provider=provider, runtime_backend=StateBackend())
+        config = {"configurable": {"thread_id": "knowledge-context"}}
+        for index, selection in enumerate([(kb,), ()]):
+            result = await agent.ainvoke({"messages": [HumanMessage(id=f"user-{index}", content="委派查询" if delegate else "查收入")]},
+                config, context=AgentContext(user_id="alice", tenant_id="team", tenant_name="团队", knowledge_base_ids=selection))
+            output = result["messages"][-1].content
+            assert ("42亿元" in output) if selection else ("本轮输入区" in output)
+        assert calls == [("alice", (kb,)), ("alice", ())]
+        if not delegate:
+            assert first_visibility == [True, False]
+    asyncio.run(run())

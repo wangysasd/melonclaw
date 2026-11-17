@@ -41,6 +41,7 @@ export function sendMessageStream(
       model_id: input.modelId ?? null,
       skill_id: input.skillId ?? null,
       attachment_ids: input.attachmentIds ?? [],
+      knowledge_base_ids: input.knowledgeBaseIds ?? [],
       capabilities: CLIENT_CAPABILITIES,
     },
     handlers,

@@ -27,8 +27,9 @@ def _message_role(message: Any) -> str | None:
 class AttachmentHydrationMiddleware(AgentMiddleware):
     """只改写发往模型的消息副本，不向图状态写入 base64。"""
 
-    def __init__(self, provider: AttachmentHydrationProvider) -> None:
+    def __init__(self, provider: AttachmentHydrationProvider, *, model_supports_image: bool) -> None:
         self.provider = provider
+        self.model_supports_image = model_supports_image
 
     async def awrap_model_call(self, request: ModelRequest, handler: Callable[..., Awaitable[Any]]) -> Any:
         messages = list(request.messages)
@@ -54,7 +55,12 @@ class AttachmentHydrationMiddleware(AgentMiddleware):
         media_blocks: list[dict[str, Any]] = []
         for attachment in attachments:
             name = str(attachment.get("file_name") or "附件")
+            if attachment.get("first_frame_only"):
+                name += "（使用首帧）"
             if attachment.get("type") == "image":
+                if not self.model_supports_image:
+                    index_lines.append(f"- {name}：当前模型无法读取该图片。")
+                    continue
                 media_blocks.append(
                     {
                         # 所有当前模型都经 ChatOpenAI 的 OpenAI-compatible

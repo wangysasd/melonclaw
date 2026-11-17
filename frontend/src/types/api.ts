@@ -209,6 +209,8 @@ export interface ManageableProvider {
 
 /** GET /api/models/manage 返回的可管理自定义模型；连接与凭据归供应商。 */
 export interface ManageableModel {
+  id: string;
+  purpose: "chat" | "embedding" | "document_parser";
   model_key: string;
   /** 归属的模型供应商。 */
   provider_key: string;
@@ -223,7 +225,7 @@ export interface ManageableModel {
   /** 是否为默认模型（全局至多一个，每个用户的个人模型至多一个）。 */
   is_default: boolean;
   input_modalities: string[];
-  context_window: number;
+  context_window: number | null;
   created_by: string;
 }
 
@@ -287,12 +289,21 @@ export type AssistantToolStatus =
   | "waiting"
   | "unknown";
 
+export interface KnowledgeSourceCard {
+  title?: string;
+  heading?: string;
+  kind?: string;
+  source_url: string;
+  listed?: boolean;
+}
+
 export interface AssistantToolCall {
   call_id: string;
   name: string;
   batch_index: number;
   args_preview?: string;
   result_preview?: string;
+  knowledge_sources?: KnowledgeSourceCard[];
   status: AssistantToolStatus;
   error?: string;
   /** epoch 毫秒；服务端只在真实观测到调用/结果时写入，缺失表示没有可靠耗时。 */
@@ -319,6 +330,7 @@ export interface AssistantStep {
 /** 历史重放的子代理轨迹事件，结构同 SSE 事件（见 StreamEvent）。 */
 export interface DisplayEvent {
   type: string;
+  knowledge_sources?: KnowledgeSourceCard[];
   [key: string]: unknown;
 }
 
@@ -352,6 +364,8 @@ export interface AttachmentSummary {
   size_bytes: number;
   parse_status: "not_required" | "pending" | "processing" | "processed" | "failed";
   parse_error_code?: string | null;
+  parse_error_message?: string;
+  first_frame_only?: boolean;
   status?: "staged" | "attached" | "expired" | "deleted";
   sha256?: string;
   expires_at?: string | null;
@@ -362,6 +376,7 @@ export interface AttachmentTypeSpec {
   extension: string;
   media_type: string;
   kind: AttachmentSummary["kind"];
+  ocr: "always" | "text_model" | null;
 }
 
 /**
@@ -371,6 +386,8 @@ export interface AttachmentTypeSpec {
 export interface AttachmentCapabilities {
   items: AttachmentTypeSpec[];
   max_file_bytes: number;
+  ocr_max_file_bytes: number;
+  ocr_max_pages: number;
   max_total_bytes: number;
   max_per_message: number;
   workspace_max_bytes: number;
@@ -501,6 +518,8 @@ export interface SendMessageInput {
   attachmentIds?: string[];
   modelId?: string | null;
   skillId?: string | null;
+  /** 本轮显式选择的可读知识库；不从历史消息恢复。 */
+  knowledgeBaseIds?: string[];
 }
 
 export interface SendApprovalInput {
@@ -626,6 +645,7 @@ export type StreamEvent =
       name?: string;
       status?: string;
       content?: string;
+      knowledge_sources?: KnowledgeSourceCard[];
     }
   | { type: "subagent_completed"; subagent_id: string; status?: string }
   | { type: "subagent_failed"; subagent_id: string; error?: string; status?: string }

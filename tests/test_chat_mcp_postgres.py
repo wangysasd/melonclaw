@@ -24,7 +24,7 @@ def test_chat_mcp_install_transaction_and_race():
     async def run():
         schema = "test_chat_mcp_" + uuid4().hex
         engine = create_async_engine(normalize_async_database_url(os.environ["MELONCLAW_TEST_DATABASE_URL"]),
-                                     connect_args={"server_settings": {"search_path": schema}})
+                                     connect_args={"server_settings": {"search_path": f"{schema},public"}})
         try:
             async with engine.begin() as connection:
                 await connection.execute(text(f'CREATE SCHEMA "{schema}"'))

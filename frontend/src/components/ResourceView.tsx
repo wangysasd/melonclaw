@@ -84,6 +84,7 @@ export function ResourceView({ onClose, onTrySkill, initialTab = "skills", onTab
             ),
             children: (
               <ModelSection
+                purpose="chat"
                 userId={userId}
                 isAdmin={isAdmin}
                 onChanged={() => void session.refreshModels()}

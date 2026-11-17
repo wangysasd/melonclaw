@@ -19,7 +19,6 @@ from melonclaw.database import (
 )
 from melonclaw.repository import (
     BusinessRepository,
-    seed_builtin_data,
     seed_demo_data,
     seed_provider_data,
 )
@@ -38,7 +37,6 @@ async def initialize_database() -> None:
         await database.create_schema()
         await seed_demo_data(database)
         await seed_provider_data(database)
-        await seed_builtin_data(database)
         artifacts = await BusinessRepository(database).rebuild_artifacts(extract_result_refs)
         print(f"会话产物索引重建完成：{artifacts} 项交付。")
         # 索引重建必须排在种子用户之后：用户 Skill 行的 created_by 有外键约束。

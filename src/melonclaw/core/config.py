@@ -1,4 +1,4 @@
-"""应用运行配置；模型与凭据由数据库配置提供。"""
+"""应用运行配置；聊天/解析模型由数据库提供，固定嵌入凭据由开发侧提供。"""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def _ratio_setting(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class Settings:
-    """应用运行配置，不包含模型连接或模型凭据。"""
+    """应用运行配置；聊天配置只来自数据库，固定嵌入凭据由开发侧提供。"""
 
     workspace_root: Path
     assistant_name: str = "MelonClaw"
@@ -87,6 +87,18 @@ class Settings:
     data_root: Path = field(default_factory=_create_data_root)
     database_url: str = field(default="", repr=False)
     deepseek_api_key: str = field(default="", repr=False)
+    knowledge_embedding_api_key: str = field(default="", repr=False)
+    knowledge_embedding_url: str = ""
+    knowledge_embedding_model_name: str = ""
+    knowledge_embedding_dimensions: int = 0
+    knowledge_max_file_bytes: int = 52428800
+    knowledge_max_pdf_pages: int = 100
+    knowledge_max_chars: int = 2000000
+    knowledge_concurrency: int = 2
+    knowledge_parse_timeout_seconds: int = 120
+    knowledge_job_timeout_seconds: int = 3600
+    knowledge_ocr_timeout_seconds: int = 180
+    knowledge_vector_min_score: float = 0.4
     attachment_max_file_bytes: int = 20 * 1024 * 1024
     attachment_max_per_message: int = 10
     attachment_max_total_bytes: int = 50 * 1024 * 1024
@@ -184,6 +196,18 @@ def load_settings() -> Settings:
         profile=os.getenv("profile", ""),
         database_url=os.getenv("DATABASE_URL", ""),
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
+        knowledge_embedding_api_key=os.getenv("KNOWLEDGE_EMBEDDING_API_KEY", "").strip(),
+        knowledge_embedding_url=os.getenv("KNOWLEDGE_EMBEDDING_URL", "").strip(),
+        knowledge_embedding_model_name=os.getenv("KNOWLEDGE_EMBEDDING_MODEL_NAME", "").strip(),
+        knowledge_embedding_dimensions=_int_setting("KNOWLEDGE_EMBEDDING_DIMENSIONS", 0, minimum=0),
+        knowledge_max_file_bytes=_int_setting("KNOWLEDGE_MAX_FILE_BYTES", 52428800),
+        knowledge_max_pdf_pages=_int_setting("KNOWLEDGE_MAX_PDF_PAGES", 100),
+        knowledge_max_chars=_int_setting("KNOWLEDGE_MAX_CHARS", 2000000),
+        knowledge_concurrency=_int_setting("KNOWLEDGE_CONCURRENCY", 2),
+        knowledge_parse_timeout_seconds=_int_setting("KNOWLEDGE_PARSE_TIMEOUT_SECONDS", 120),
+        knowledge_job_timeout_seconds=_int_setting("KNOWLEDGE_JOB_TIMEOUT_SECONDS", 3600),
+        knowledge_ocr_timeout_seconds=_int_setting("KNOWLEDGE_OCR_TIMEOUT_SECONDS", 180),
+        knowledge_vector_min_score=_ratio_setting("KNOWLEDGE_VECTOR_MIN_SCORE", 0.4),
         langfuse_enabled=_bool_setting("LANGFUSE_TRACING_ENABLED", False),
         langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY", "").strip(),
         langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY", "").strip(),

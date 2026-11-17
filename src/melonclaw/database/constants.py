@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 BUSINESS_TABLES = (
+    "knowledge_bases", "knowledge_members", "knowledge_documents",
+    "knowledge_document_revisions", "knowledge_document_texts", "knowledge_chunks",
+    "knowledge_jobs", "knowledge_events",
     "tasks", "task_runs", "task_operations",
     "tenants",
     "users",

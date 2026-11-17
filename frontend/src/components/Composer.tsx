@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -15,13 +17,18 @@ import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { ModelPicker } from "./ModelPicker";
 import { PlusMenu } from "./PlusMenu";
+import { KnowledgePicker } from "./KnowledgePicker";
 import { ProjectPicker } from "./ProjectPicker";
 import { SkillPicker } from "./SkillPicker";
 import { SkillLogo } from "./SkillLogo";
+import { VoiceButton } from "./VoiceButton";
+import { VoiceSpectrum } from "./VoiceSpectrum";
 import { environmentChatDisplay } from "../lib/environmentChat";
 import { findSkillTrigger, type SkillTrigger } from "../lib/skillTrigger";
 import { attachmentBadge, formatBytes } from "../lib/attachmentFiles";
 import { useAttachmentCapabilities } from "../hooks/useAttachmentCapabilities";
+import { useNarrowViewport, useVoiceInput } from "../hooks/useVoiceInput";
+import { knowledgeApi, type KnowledgeBase } from "../api/knowledge";
 import { useSession } from "../state/session";
 import {
   attachmentContentUrl,
@@ -38,6 +45,10 @@ const PARSE_POLL_INITIAL_MS = 1000;
 const PARSE_POLL_MAX_MS = 5000;
 
 export interface ComposerProps {
+  active?: boolean;
+  queuePanel?: ReactNode;
+  queueEnabled?: boolean;
+  hasQueuedMessages?: boolean;
   /** 从 Skill 管理页的“尝试”入口带入新会话的初始 Skill。 */
   initialSkill?: SkillOption | null;
   onInitialSkillApplied?: () => void;
@@ -48,11 +59,15 @@ export interface ComposerProps {
     skillId?: string | null,
     attachmentIds?: string[],
     onAccepted?: () => void,
+    knowledgeBaseIds?: string[],
+    imageAttachmentIds?: string[],
+    onAttachmentsPrepared?: (attachments: AttachmentSummary[]) => void,
   ) => void;
   disabled: boolean;
   pendingInteraction: "question" | "approval" | null;
   /** 当前会话是否有 AI 输出在跑：跑时发送键变方形停止键。 */
   isRunning?: boolean;
+  preparingAttachments?: boolean;
   /** 显式取消当前会话输出；只在停止模式下调用。 */
   onStop?: () => void;
   onOpenProjectDialog?: () => void;
@@ -70,11 +85,14 @@ type ComposerAttachment = AttachmentSummary & {
   statusCheckFailed?: boolean;
 };
 
-function isReady(attachment: ComposerAttachment): boolean {
+function isReady(attachment: ComposerAttachment, modelSupportsImage: boolean): boolean {
+  if (attachment.kind === "image" && modelSupportsImage) return true;
   if (attachment.parseTimedOut) return false;
-  return (attachment.kind === "image" || attachment.kind === "archive")
-    ? attachment.parse_status === "not_required"
-    : attachment.parse_status === "processed";
+  if (attachment.kind === "archive") return attachment.parse_status === "not_required";
+  if (attachment.kind === "image") {
+    return attachment.parse_status === "not_required" || attachment.parse_status === "processed";
+  }
+  return attachment.parse_status === "processed";
 }
 
 function isPolling(attachment: ComposerAttachment): boolean {
@@ -85,10 +103,12 @@ function isPolling(attachment: ComposerAttachment): boolean {
   );
 }
 
-function statusText(attachment: ComposerAttachment): string {
+function statusText(attachment: ComposerAttachment, modelSupportsImage: boolean): string {
+  if (attachment.kind === "image" && modelSupportsImage) return formatBytes(attachment.size_bytes);
   if (attachment.parseTimedOut) return "解析超时";
   if (attachment.statusCheckFailed) return "连接中断，正在重新查询解析状态…";
-  if (attachment.parse_status === "failed") return "解析失败";
+  if (attachment.parse_status === "failed") return attachment.parse_error_message ?? "解析失败";
+  if (attachment.kind === "image" && attachment.parse_status === "not_required") return "发送时识别文字";
   if (attachment.parse_status === "processed" || attachment.parse_status === "not_required") {
     return formatBytes(attachment.size_bytes);
   }
@@ -97,6 +117,7 @@ function statusText(attachment: ComposerAttachment): string {
 
 /** Sender 仅负责输入展示；模型快照与发送恢复仍由现有聊天流管理。 */
 export function Composer({
+  active = true,
   initialSkill = null,
   onInitialSkillApplied,
   value,
@@ -105,7 +126,11 @@ export function Composer({
   disabled,
   pendingInteraction,
   isRunning,
+  preparingAttachments = false,
   onStop,
+  queuePanel,
+  queueEnabled = false,
+  hasQueuedMessages = false,
   onOpenProjectDialog,
   onOpenModelSettings,
 }: ComposerProps) {
@@ -119,6 +144,9 @@ export function Composer({
   );
   const { message } = AntdApp.useApp();
   const senderRef = useRef<SenderRef>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const skillPrefixRef = useRef<HTMLDivElement>(null);
   const composingRef = useRef(false);
@@ -128,6 +156,61 @@ export function Composer({
   const [selectedSkill, setSelectedSkill] = useState<SkillOption | null>(null);
   const [skillPrefixWidth, setSkillPrefixWidth] = useState(0);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const knowledgeBasesRef = useRef<KnowledgeBase[]>([]);
+  const knowledgeListRequestRef = useRef<AbortController | null>(null);
+  const [knowledgeBasesLoading, setKnowledgeBasesLoading] = useState(false);
+  const [knowledgeBasesError, setKnowledgeBasesError] = useState("");
+  const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
+  const selectedKnowledgeBaseIdsRef = useRef<string[]>([]);
+  const selectionContextKey = `${session.epoch ?? 0}:${session.userId ?? ""}:${session.conversationId ?? "new"}:${session.projectId ?? ""}`;
+  const [selectionContextKeyState, setSelectionContextKeyState] = useState(selectionContextKey);
+  const activeKnowledgeBaseIds = selectionContextKeyState === selectionContextKey ? selectedKnowledgeBaseIds : [];
+  const knowledgeIdentityKey = `${session.epoch ?? 0}:${session.userId ?? ""}`;
+  const [knowledgeIdentityKeyState, setKnowledgeIdentityKeyState] = useState(knowledgeIdentityKey);
+
+  const loadKnowledgeBases = useCallback(async (search: string) => {
+    if (!session.userId) return;
+    knowledgeListRequestRef.current?.abort();
+    const controller = new AbortController();
+    knowledgeListRequestRef.current = controller;
+    setKnowledgeBasesLoading(true);
+    setKnowledgeBasesError("");
+    try {
+      const result = await knowledgeApi.list(1, search.slice(0, 255), controller.signal, 100);
+      if (controller.signal.aborted) return;
+      const selected = knowledgeBasesRef.current.filter((base) => selectedKnowledgeBaseIdsRef.current.includes(base.id));
+      const merged = [...selected, ...result.items.filter((base) => !selected.some((item) => item.id === base.id))];
+      knowledgeBasesRef.current = merged;
+      setKnowledgeBases(merged);
+      setKnowledgeIdentityKeyState(knowledgeIdentityKey);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setKnowledgeBasesError(error instanceof Error ? error.message : "知识库列表加载失败。");
+      }
+    } finally {
+      if (!controller.signal.aborted) setKnowledgeBasesLoading(false);
+    }
+  }, [knowledgeIdentityKey, session.userId]);
+
+  useEffect(() => {
+    knowledgeBasesRef.current = [];
+    setKnowledgeBases([]);
+    setKnowledgeIdentityKeyState(knowledgeIdentityKey);
+    void loadKnowledgeBases("");
+    return () => knowledgeListRequestRef.current?.abort();
+  }, [knowledgeIdentityKey, loadKnowledgeBases]);
+
+  useEffect(() => {
+    setSelectionContextKeyState(selectionContextKey);
+    selectedKnowledgeBaseIdsRef.current = [];
+    setSelectedKnowledgeBaseIds([]);
+  }, [selectionContextKey]);
+  const availableKnowledgeBases = knowledgeIdentityKeyState === knowledgeIdentityKey ? knowledgeBases : [];
+  const updateSelectedKnowledgeBaseIds = (ids: string[]) => {
+    selectedKnowledgeBaseIdsRef.current = ids;
+    setSelectedKnowledgeBaseIds(ids);
+  };
   useEffect(() => {
     const checkDraft = (event: Event) => {
       if (value.trim() || attachments.length) event.preventDefault();
@@ -144,7 +227,9 @@ export function Composer({
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const dragDepthRef = useRef(0);
   const notifiedParseFailureRef = useRef(new Set<string>());
-  const capabilities = useAttachmentCapabilities();
+  const capabilities = useAttachmentCapabilities(
+    session.contextReady && session.status?.status === "ready", dialogSessionId,
+  );
 
   useEffect(() => {
     attachmentsRef.current = attachments;
@@ -324,12 +409,39 @@ export function Composer({
     );
   }, [filteredSkills.length]);
 
+  const insertTranscript = useCallback((transcript: string) => {
+    const input = senderRef.current?.inputElement as HTMLTextAreaElement | undefined;
+    const current = valueRef.current;
+    const saved = selectionRef.current;
+    selectionRef.current = null;
+    const start = saved?.start ?? input?.selectionStart ?? current.length;
+    const end = saved?.end ?? input?.selectionEnd ?? start;
+    onChange(current.slice(0, start) + transcript + current.slice(end));
+    window.requestAnimationFrame(() => {
+      input?.focus({ preventScroll: true });
+      const position = start + transcript.length;
+      input?.setSelectionRange(position, position);
+    });
+  }, [onChange]);
+  const notifyVoice = useCallback((kind: "error" | "info" | "warning", text: string) => {
+    message[kind](text);
+  }, [message]);
+  const voice = useVoiceInput({
+    active,
+    contextKey: selectionContextKey,
+    onText: insertTranscript,
+    notify: notifyVoice,
+  });
+  useLayoutEffect(() => {
+    selectionRef.current = null;
+  }, [active, selectionContextKey]);
+  const narrow = useNarrowViewport();
+
   let placeholder = "聊点儿什么，输入/调用技能工具。";
-  // 停止模式：当前会话正在输出且非等待确认，发送键变方形停止键，可点取消。
-  // waiting（审批/问题卡）时仍是等待确认，不进停止模式。
   const running = isRunning ?? session.busy;
   const waiting = pendingInteraction !== null;
-  const stopMode = running && !waiting && !session.conversationCreating;
+  const stopMode = running && !waiting && !session.conversationCreating &&
+    (!queueEnabled || (!value.trim() && attachments.length === 0));
   if (!session.contextReady) {
     placeholder = "正在准备工作区…";
   } else if (session.conversationCreating) {
@@ -339,7 +451,7 @@ export function Composer({
       ? "请先回答上方问题，也可以先写下一条消息…"
       : "请先确认上方操作，也可以先写下一条消息…";
   } else if (running) {
-    placeholder = "助手正在回复，可以先写下一条消息…";
+    placeholder = "助手正在回复，可以继续提交消息…";
   }
 
   const canUse =
@@ -353,30 +465,22 @@ export function Composer({
     modelOptions.find((item) => item.id === session.selectedModelId && item.available)?.id
     || modelOptions.find((item) => item.available)?.id || "";
   const selectedModel = modelOptions.find((item) => item.id === selectedModelId);
-  const hasUnsupportedImage = attachments.some(
-    (attachment) => attachment.kind === "image" &&
-      !(selectedModel?.input_modalities ?? []).includes("image"),
+  const modelSupportsImage = Boolean(selectedModel?.input_modalities?.includes("image"));
+  const readyAttachments = attachments.length > 0 && attachments.every((item) => isReady(item, modelSupportsImage));
+  const hasParseFailure = attachments.some((item) =>
+    !isReady(item, modelSupportsImage) && (item.parse_status === "failed" || item.parseTimedOut),
   );
-  const readyAttachments = attachments.length > 0 && attachments.every(isReady) && !hasUnsupportedImage;
-  const sendDisabled = stopMode
-    ? false
-    : (!selectedModel?.available || inputDisabled || disabled || running || waiting || session.conversationCreating || (attachments.length > 0 && !readyAttachments) || (!value.trim() && !readyAttachments));
-  const sendLabel = stopMode
-    ? "停止生成"
-    : session.conversationCreating
-      ? "准备中"
-      : waiting
-        ? pendingInteraction === "question" ? "等待回答" : "等待确认"
-        : running
-          ? "处理中"
-          : "发送";
-  const sendIcon = stopMode
-    ? "square"
-    : session.conversationCreating || running
-      ? "loader-circle"
-      : waiting
-        ? "shield-check"
-        : "arrow-up";
+  const queueMode = queueEnabled && (running || waiting || hasQueuedMessages);
+  const sendDisabled = preparingAttachments || !selectedModel?.available || inputDisabled || disabled ||
+    ((running || waiting) && !queueMode) || session.conversationCreating ||
+    (attachments.length > 0 && !readyAttachments) || (!value.trim() && !readyAttachments) ||
+    voice.status !== "idle";
+  const sendLabel = preparingAttachments ? "正在识别图片文字"
+    : queueMode ? "加入队列"
+    : session.conversationCreating ? "准备中"
+    : waiting ? (pendingInteraction === "question" ? "等待回答" : "等待确认")
+    : "发送";
+  const sendIcon = session.conversationCreating || preparingAttachments ? "loader-circle" : "arrow-up";
 
   /** 打开附件弹窗；带 files 表示由输入区的拖拽/粘贴进入，弹窗会立刻上传。 */
   const openAttachmentDialog = async (files: File[] = []) => {
@@ -394,34 +498,29 @@ export function Composer({
   };
 
   const submit = () => {
-    // 停止模式下回车不发送：只能点按钮显式取消，避免误触。
-    if (stopMode) return;
-    if (sendDisabled || composingRef.current || submittingRef.current) return;
+    if (voice.status !== "idle" || sendDisabled || composingRef.current || submittingRef.current) return;
     submittingRef.current = true;
     try {
       const ids = attachments.map((attachment) => attachment.attachment_id);
       if (ids.length === 0) {
-        if (selectedSkill) onSend(value, selectedSkill.id);
-        else onSend(value);
-      } else if (selectedSkill) {
-        onSend(value, selectedSkill.id, ids, () => setAttachments([]));
+        onSend(value, selectedSkill?.id, undefined, undefined, activeKnowledgeBaseIds);
       } else {
-        onSend(value, null, ids, () => setAttachments([]));
+        const images = attachments.filter((item) => item.kind === "image" && item.parse_status !== "processed");
+        onSend(value, selectedSkill?.id ?? null, ids,
+          () => setAttachments((current) => current.filter((item) => !ids.includes(item.attachment_id))),
+          activeKnowledgeBaseIds, images.map((item) => item.attachment_id), (prepared) => {
+            const byId = new Map(prepared.map((item) => [item.attachment_id, item]));
+            setAttachments((current) => current.map((item) => {
+              const update = byId.get(item.attachment_id);
+              return update ? { ...item, ...update, parseTimedOut: false, statusCheckFailed: false } : item;
+            }));
+          });
       }
     } finally {
       if (environmentChatDisplay(value) !== value) onChange("");
       setSelectedSkill(null);
       queueMicrotask(() => { submittingRef.current = false; });
     }
-  };
-
-  /** 发送键点击：停止模式下显式取消，否则走正常发送。 */
-  const handleSendButton = () => {
-    if (stopMode) {
-      onStop?.();
-      return;
-    }
-    submit();
   };
 
   const handleDialogConfirm = (items: StagedAttachment[]) => {
@@ -445,7 +544,7 @@ export function Composer({
     setAttachments((current) =>
       current.map((item) =>
         item.attachment_id === attachment.attachment_id
-          ? { ...item, parse_status: "pending", parse_error_code: null, parseTimedOut: false }
+          ? { ...item, parse_status: "pending", parse_error_code: null, parse_error_message: undefined, parseTimedOut: false }
           : item,
       ),
     );
@@ -453,6 +552,13 @@ export function Composer({
       userId: session.userId,
       projectId: session.projectId || null,
       conversationId: session.projectId ? null : session.conversationId,
+      ...(attachment.kind === "image" ? { modelId: selectedModelId } : {}),
+    }).then((updated) => {
+      setAttachments((current) => current.map((item) =>
+        item.attachment_id === attachment.attachment_id
+          ? { ...item, ...updated, parseTimedOut: false, statusCheckFailed: false }
+          : item,
+      ));
     }).catch((error: unknown) => {
       const text = error instanceof Error ? error.message : "重新解析失败，请稍后重试。";
       message.error(text);
@@ -529,12 +635,25 @@ export function Composer({
     });
   };
 
+  const showSetupBar = !running && !session.conversationCreating &&
+    (!session.conversationId || session.draftConversationId === session.conversationId);
+  const knowledgePicker = (
+    <KnowledgePicker key={selectionContextKey} bases={availableKnowledgeBases} selectedIds={activeKnowledgeBaseIds}
+      loading={knowledgeBasesLoading} error={knowledgeBasesError}
+      onSearch={(query) => { void loadKnowledgeBases(query); }} onChange={updateSelectedKnowledgeBaseIds} />
+  );
+
   return (
     <div className="composer-wrap">
-      <ProjectPicker onOpenProjectDialog={onOpenProjectDialog} />
+      {showSetupBar ? (
+        <div className="composer-project-bar">
+          <ProjectPicker onOpenProjectDialog={onOpenProjectDialog} />
+        </div>
+      ) : null}
+      {queuePanel}
       <div
         ref={composerRef}
-        className={`composer ${dragging ? "is-dragging" : ""}`}
+        className={`composer ${dragging ? "is-dragging" : ""} ${voice.status === "recording" ? "is-voice-recording" : ""}`}
         onCompositionStartCapture={() => { composingRef.current = true; }}
         onCompositionEndCapture={() => { composingRef.current = false; }}
         onDragEnter={handleDragEnter}
@@ -570,12 +689,8 @@ export function Composer({
         {attachments.length > 0 ? (
           <div className="composer-attachments" aria-label="当前消息附件">
             {attachments.map((attachment) => {
-              const url = attachmentContentUrl(attachment.attachment_id, {
-                userId: session.userId,
-                projectId: session.projectId || null,
-                conversationId: session.projectId ? null : session.conversationId,
-              });
-              const failed = attachment.parse_status === "failed" || attachment.parseTimedOut;
+              const failed = !isReady(attachment, modelSupportsImage) &&
+                (attachment.parse_status === "failed" || attachment.parseTimedOut);
               return (
                 <div className={`composer-attachment ${failed ? "has-error" : ""}`} key={attachment.attachment_id}>
                   {attachment.kind === "image" ? (
@@ -585,7 +700,9 @@ export function Composer({
                       aria-label={`预览 ${attachment.file_name}`}
                       onClick={() => setPreview(attachment)}
                     >
-                      <img className="composer-attachment-preview" src={url} alt="" />
+                      <img className="composer-attachment-preview" src={
+                        attachmentContentUrl(attachment.attachment_id, attachmentAccess, attachment.media_type === "image/tiff")
+                      } alt="" />
                     </button>
                   ) : (
                     <span className="attachment-file-icon" aria-hidden="true">
@@ -595,9 +712,11 @@ export function Composer({
                   )}
                   <span className="composer-attachment-body">
                     <span className="composer-attachment-name" title={attachment.file_name}>{attachment.file_name}</span>
-                    <span className="composer-attachment-status">{statusText(attachment)}</span>
+                    <span className="composer-attachment-status">
+                      {statusText(attachment, modelSupportsImage)}{attachment.first_frame_only ? " · 使用首帧" : ""}
+                    </span>
                   </span>
-                  {attachment.parse_status === "failed" || attachment.parseTimedOut ? (
+                  {failed ? (
                     <button type="button" onClick={() => retryParse(attachment)}>重新解析</button>
                   ) : null}
                   <button
@@ -626,7 +745,7 @@ export function Composer({
           aria-label="输入内容"
           aria-describedby="composer-hint"
           disabled={inputDisabled}
-          loading={running || session.conversationCreating}
+          loading={session.conversationCreating || (running && !queueEnabled)}
           onChange={(nextValue, event) => {
             onChange(nextValue);
             updateSkillTrigger(
@@ -639,7 +758,9 @@ export function Composer({
           submitType="enter"
           autoSize={{ minRows: 1, maxRows: 6 }}
           prefix={
-            selectedSkill ? (
+            voice.status === "recording" && narrow ? (
+              <VoiceSpectrum getAnalyser={voice.getAnalyser} />
+            ) : selectedSkill ? (
               <div
                 ref={skillPrefixRef}
                 className="selected-skill"
@@ -717,6 +838,8 @@ export function Composer({
                 >
                   <Icon name="plus" size={18} />
                 </button>
+
+                {knowledgePicker}
               </div>
               <div className="composer-bottom-right">
                 <ModelPicker
@@ -725,13 +848,35 @@ export function Composer({
                     onChange={(modelId) => session.selectModel?.(modelId)}
                     onAddCustomModel={onOpenModelSettings}
                 />
-                <button
+                <span className="voice-controls">
+                  <VoiceButton
+                    status={voice.status}
+                    disabled={!voice.available}
+                    seconds={voice.seconds}
+                    onPointerDown={() => {
+                      if (voice.status !== "idle") return;
+                      const input = senderRef.current?.inputElement as HTMLTextAreaElement | undefined;
+                      const current = valueRef.current;
+                      selectionRef.current = {
+                        start: input?.selectionStart ?? current.length,
+                        end: input?.selectionEnd ?? current.length,
+                      };
+                    }}
+                    onClick={() => { void voice.toggle(); }}
+                  />
+                </span>
+                {stopMode ? (
+                  <button className="send-button" type="button" onClick={onStop} aria-label="停止生成" title="停止生成">
+                    <Icon name="square" size={18} />
+                  </button>
+                ) : null}
+                {!stopMode ? <button
                   className="send-button"
                   type="button"
-                  onClick={handleSendButton}
+                  onClick={submit}
                   disabled={sendDisabled}
                   aria-label={sendLabel}
-                  aria-busy={running || session.conversationCreating}
+                  aria-busy={session.conversationCreating}
                   title={sendLabel}
                 >
                   <Icon
@@ -739,14 +884,15 @@ export function Composer({
                     size={18}
                     className={sendIcon === "loader-circle" ? "send-arrow mc-icon-spin" : "send-arrow"}
                   />
-                </button>
+                </button> : null}
               </div>
             </div>
           }
         />
       </div>
-      {hasUnsupportedImage ? <div className="composer-attachment-warning" role="alert">当前模型不支持图片附件，请切换支持图片的模型或移除图片后再发送。</div> : null}
-      {attachments.some((item) => item.parse_status === "failed" || item.parseTimedOut) ? <div className="composer-attachment-warning" role="alert">附件解析失败或超时，请点击附件旁的重试按钮，或移除附件后再发送。</div> : attachments.some(isPolling) ? <div className="composer-attachment-warning" role="status">附件尚未完成解析，完成后才能发送。文字草稿会保留。</div> : null}
+      {preparingAttachments ? <div className="composer-attachment-warning" role="status">正在使用 DeepSeek 识别图片文字…</div>
+        : hasParseFailure ? <div className="composer-attachment-warning" role="alert">附件解析失败或超时，请重新解析或移除附件后再发送。</div>
+        : attachments.some((item) => !isReady(item, modelSupportsImage) && isPolling(item)) ? <div className="composer-attachment-warning" role="status">附件尚未完成解析，完成后才能发送。文字草稿会保留。</div> : null}
       <div className="composer-meta">
         <div className="composer-hint" id="composer-hint">
           <Icon name="message-circle" size={16} /> Enter 发送 · Shift + Enter 换行 · 支持拖拽或粘贴附件
@@ -755,11 +901,7 @@ export function Composer({
       </div>
       {preview ? (
         <ImageLightbox
-          src={attachmentContentUrl(preview.attachment_id, {
-            userId: session.userId,
-            projectId: session.projectId || null,
-            conversationId: session.projectId ? null : session.conversationId,
-          })}
+          src={attachmentContentUrl(preview.attachment_id, attachmentAccess, preview.media_type === "image/tiff")}
           alt={preview.file_name}
           onClose={() => setPreview(null)}
         />
@@ -772,6 +914,8 @@ export function Composer({
         userId={session.userId}
         projectId={session.projectId || null}
         conversationId={session.conversationId ?? ""}
+        modelId={selectedModel?.id}
+        modelSupportsImage={selectedModel ? modelSupportsImage : undefined}
         existingCount={attachments.length}
         existingTotalBytes={attachments.reduce((sum, item) => sum + item.size_bytes, 0)}
         onClose={() => setDialogOpen(false)}

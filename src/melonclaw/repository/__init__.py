@@ -1,7 +1,6 @@
 """业务仓储领域的统一入口。"""
 
 from melonclaw.repository.bootstrap import (
-    seed_builtin_data,
     seed_demo_data,
     seed_provider_data,
 )
@@ -59,7 +58,6 @@ __all__ = [
     "UserContext",
     "decode_conversation_cursor",
     "encode_conversation_cursor",
-    "seed_builtin_data",
     "seed_demo_data",
     "seed_provider_data",
 ]

@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import os
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from sqlalchemy.exc import IntegrityError
 
+from melonclaw.core.config import Settings
+from melonclaw.core.knowledge_ocr import OCR_MAX_PAGES, SAFE_MESSAGES, OcrPageError
 from melonclaw.parsers.documents import DocumentParseError
 from melonclaw.parsers.validation import (
     SUPPORTED_TYPES,
     AttachmentValidationError,
+    ValidatedAttachment,
     validate_attachment,
 )
 from melonclaw.parsers.worker import ParserTimeoutError, parse_document_isolated
@@ -26,6 +31,12 @@ from melonclaw.repository import (
     BusinessRepository,
 )
 from melonclaw.services.attachment_images import OutboundImageEncoder
+from melonclaw.services.attachment_ocr import (
+    ocr_file_limit,
+    ocr_pdf_page_limit,
+    parse_attachment_ocr,
+    requires_document_ocr,
+)
 from melonclaw.services.conversations import ConversationService
 from melonclaw.services.runtime import ChatRuntime
 from melonclaw.storage import LocalAttachmentStorage
@@ -55,8 +66,14 @@ class AttachmentService:
         if settings is None or storage is None:
             return
         self._parse_semaphore = asyncio.Semaphore(settings.attachment_parse_concurrency)
+        interrupted = []
         for item in await storage.list_attachment_parse_queue():
-            self.schedule_parse(UUID(item["attachment_id"]))
+            if item["kind"] == "image" or requires_document_ocr(item["original_name"], item["kind"]):
+                interrupted.append(item["id"])
+            else:
+                self.schedule_parse(item["id"])
+        if interrupted:
+            await storage.interrupt_attachment_parses(interrupted)
         try:
             await self.cleanup_expired()
         except Exception:
@@ -82,6 +99,7 @@ class AttachmentService:
         client_request_id: str | None = None,
         *,
         conversation_id: UUID | None = None,
+        model_id: str | None = None,
     ) -> dict[str, Any]:
         settings = self._settings()
         storage = self._repository()
@@ -103,6 +121,10 @@ class AttachmentService:
             if conversation is None or conversation["project_id"] is not None:
                 raise AttachmentNotFoundError()
             workspace = self.runtime.conversation_workspace_dir(conversation_id)
+        spec = SUPPORTED_TYPES.get(Path(upload.filename or "").suffix.lower())
+        max_file_bytes = min(settings.attachment_max_file_bytes, settings.attachment_max_total_bytes)
+        if spec and spec.ocr_required:
+            max_file_bytes = ocr_file_limit(settings)
         local = LocalAttachmentStorage(workspace)
         descriptor, candidate = local.create_temp_file()
         size = 0
@@ -114,35 +136,14 @@ class AttachmentService:
                     if not chunk:
                         break
                     size += len(chunk)
-                    if size > settings.attachment_max_file_bytes:
+                    if size > max_file_bytes:
                         raise AttachmentError(
                             "单个附件大小超过限制。", "attachment_file_too_large", 413
                         )
                     digest.update(chunk)
                     handle.write(chunk)
-            try:
-                name, media_type, kind = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        validate_attachment,
-                        candidate,
-                        upload.filename,
-                        upload.content_type,
-                        image_max_pixels=settings.attachment_image_max_pixels,
-                        pdf_max_pages=settings.attachment_pdf_max_pages,
-                        archive_max_entries=settings.attachment_archive_max_entries,
-                        archive_max_uncompressed_bytes=settings.attachment_archive_max_uncompressed_bytes,
-                        archive_max_entry_bytes=settings.attachment_archive_max_entry_bytes,
-                        archive_max_compression_ratio=settings.attachment_archive_max_compression_ratio,
-                    ),
-                    timeout=settings.attachment_validation_timeout_seconds,
-                )
-            except asyncio.TimeoutError as exc:
-                raise AttachmentError(
-                    "附件校验超时，请重试。", "attachment_validation_timeout", 422
-                ) from exc
-            except AttachmentValidationError as exc:
-                raise AttachmentError(str(exc), exc.error_code, exc.status_code) from exc
-            fingerprint = (digest.hexdigest(), size, kind, media_type)
+            attachment = await self._validate_source(candidate, upload.filename, upload.content_type)
+            fingerprint = (digest.hexdigest(), size, attachment.kind, attachment.media_type)
             request_id = self._client_request_id(client_request_id)
             if request_id is not None:
                 existing = await storage.find_attachment_upload(
@@ -150,18 +151,23 @@ class AttachmentService:
                 )
                 if existing is not None:
                     self._compare_fingerprint(existing, fingerprint)
-                    return existing
+                    return self._attachment_response(existing, local)
+            needs_ocr = requires_document_ocr(attachment.name, attachment.kind) or (
+                attachment.kind == "image" and await self._is_text_model(context.user_id, model_id)
+            )
+            if needs_ocr and size > ocr_file_limit(settings):
+                raise AttachmentError(SAFE_MESSAGES["ocr_file_too_large"], "ocr_file_too_large", 413)
             attachment_id = uuid4()
-            local.publish_original(attachment_id, candidate)
             try:
+                local.publish_original(attachment_id, candidate, first_frame_only=attachment.first_frame_only)
                 created = await storage.create_attachment(
                     attachment_id=attachment_id,
                     user_id=context.user_id,
                     project_id=project_id,
                     owner_conversation_id=conversation_id,
-                    original_name=name,
-                    media_type=media_type,
-                    kind=kind,
+                    original_name=attachment.name,
+                    media_type=attachment.media_type,
+                    kind=attachment.kind,
                     size_bytes=size,
                     sha256=digest.hexdigest(),
                     client_request_id=request_id,
@@ -179,13 +185,15 @@ class AttachmentService:
                 if existing is None:
                     raise AttachmentError("附件登记失败。", "attachment_storage_error", 503)
                 self._compare_fingerprint(existing, fingerprint)
-                return existing
+                return self._attachment_response(existing, local)
             except Exception:
                 local.remove_attachment(attachment_id)
                 raise
-            if created["parse_status"] != "not_required":
-                self.schedule_parse(UUID(created["attachment_id"]))
-            return created
+            if needs_ocr:
+                return await self._recognize(attachment_id, local, attachment)
+            if created["parse_status"] == "pending":
+                self.schedule_parse(attachment_id)
+            return self._attachment_response(created, local)
         finally:
             if candidate.exists():
                 candidate.unlink()
@@ -208,7 +216,13 @@ class AttachmentService:
         )
         if result is None:
             raise AttachmentNotFoundError()
-        return result
+        local = None
+        if result["media_type"] in {"image/gif", "image/webp"}:
+            workspace = await self._workspace_for_record({
+                "project_id": project_id, "owner_conversation_id": conversation_id, "user_id": context.user_id,
+            })
+            local = LocalAttachmentStorage(workspace)
+        return self._attachment_response(result, local)
 
     async def content_path(
         self,
@@ -229,6 +243,25 @@ class AttachmentService:
         if not path.is_file():
             raise AttachmentNotFoundError()
         return path, record
+
+    async def image_preview(
+        self,
+        attachment_id: UUID,
+        user_id: str,
+        *,
+        project_id: UUID | None = None,
+        conversation_id: UUID | None = None,
+    ) -> tuple[bytes, str]:
+        path, record = await self.content_path(
+            attachment_id, user_id, project_id=project_id, conversation_id=conversation_id,
+        )
+        if record["kind"] != "image":
+            raise AttachmentNotFoundError()
+        try:
+            encoded, media_type = await self._image_encoder_instance().encode(attachment_id, path, record["media_type"])
+        except Exception:
+            raise AttachmentError("无法预览图片。", "attachment_preview_failed", 422) from None
+        return base64.b64decode(encoded), media_type
 
     async def delete(
         self,
@@ -296,37 +329,84 @@ class AttachmentService:
             # 清理循环异常退出后由服务重启恢复；真实部署可在此接入指标/告警。
             return
 
-    async def _parse_one(self, attachment_id: UUID) -> None:
+    async def _validate_source(
+        self, source: Path, name: str | None, media_type: str | None,
+    ) -> ValidatedAttachment:
+        settings = self._settings()
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    validate_attachment, source, name, media_type,
+                    image_max_pixels=settings.attachment_image_max_pixels,
+                    pdf_max_pages=ocr_pdf_page_limit(settings),
+                    ocr_max_pages=OCR_MAX_PAGES,
+                    archive_max_entries=settings.attachment_archive_max_entries,
+                    archive_max_uncompressed_bytes=settings.attachment_archive_max_uncompressed_bytes,
+                    archive_max_entry_bytes=settings.attachment_archive_max_entry_bytes,
+                    archive_max_compression_ratio=settings.attachment_archive_max_compression_ratio,
+                ),
+                timeout=settings.attachment_validation_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise AttachmentError("附件校验超时，请重试。", "attachment_validation_timeout", 422) from exc
+        except AttachmentValidationError as exc:
+            raise AttachmentError(str(exc), exc.error_code, exc.status_code) from exc
+
+    async def _is_text_model(self, user_id: str, model_id: str | None) -> bool:
+        if not model_id:
+            return False
+        model = await self.runtime.resolve_model(user_id, model_id)
+        return "image" not in model.input_modalities
+
+    async def _recognize(
+        self, attachment_id: UUID, local: LocalAttachmentStorage,
+        attachment: ValidatedAttachment | None = None,
+    ) -> dict[str, Any]:
+        await self._parse_one(attachment_id, on_request=True, attachment=attachment)
+        return await self._current_attachment(attachment_id, local)
+
+    async def _current_attachment(
+        self, attachment_id: UUID, local: LocalAttachmentStorage,
+    ) -> dict[str, Any]:
+        result = await self._repository().get_attachment(attachment_id)
+        if result is None or result["status"] in {"deleted", "expired"}:
+            raise AttachmentNotFoundError()
+        return self._attachment_response(result, local)
+
+    async def _parse_one(
+        self, attachment_id: UUID, *, on_request: bool = False,
+        attachment: ValidatedAttachment | None = None,
+    ) -> None:
         settings = self._settings()
         storage = self._repository()
-        claim = await storage.claim_attachment_parse(
+        attempt_id = str(uuid4())
+        record = await storage.claim_attachment_parse(
             attachment_id,
-            self.runtime.worker_id,
+            attempt_id,
             lease_seconds=settings.attachment_parse_lease_seconds,
             max_attempts=settings.attachment_parse_max_attempts,
+            on_request=on_request,
         )
-        if claim is None:
-            return
-        record = await storage.get_attachment_record(attachment_id)
         if record is None:
             return
-        try:
-            workspace = await self._workspace_for_record(record)
-        except AttachmentNotFoundError:
-            await storage.fail_attachment_parse(
-                attachment_id, self.runtime.worker_id, "workspace_not_found"
-            )
-            return
-        local = LocalAttachmentStorage(workspace)
-        source = local.original_path(attachment_id)
-        temp_dir = local.create_parse_temp_dir(attachment_id)
         semaphore = self._parse_semaphore or asyncio.Semaphore(1)
         lease_task = asyncio.create_task(
-            self._renew_parse_lease(attachment_id, settings.attachment_parse_lease_seconds)
+            self._renew_parse_lease(attachment_id, attempt_id, settings.attachment_parse_lease_seconds)
         )
+        temp_dir = None
         try:
-            async with semaphore:
-                try:
+            local = LocalAttachmentStorage(await self._workspace_for_record(record))
+            source = local.original_path(attachment_id)
+            temp_dir = local.create_parse_temp_dir(attachment_id)
+            timeout = settings.attachment_parse_timeout_seconds if on_request else None
+            async with asyncio.timeout(timeout), semaphore:
+                if on_request:
+                    if attachment is None:
+                        attachment = await self._validate_source(
+                            source, record["original_name"], record["media_type"],
+                        )
+                    await parse_attachment_ocr(settings, source, temp_dir, attachment)
+                else:
                     await parse_document_isolated(
                         source,
                         temp_dir,
@@ -334,46 +414,46 @@ class AttachmentService:
                         timeout_seconds=settings.attachment_parse_timeout_seconds,
                         original_name=str(record["original_name"]),
                     )
-                except ParserTimeoutError:
-                    await storage.fail_attachment_parse(
-                        attachment_id, self.runtime.worker_id, "attachment_parse_timeout"
-                    )
-                    return
-                except DocumentParseError as exc:
-                    await storage.fail_attachment_parse(
-                        attachment_id, self.runtime.worker_id, exc.error_code
-                    )
-                    return
                 derived_size = sum(
                     item.stat().st_size for item in temp_dir.rglob("*") if item.is_file()
                 )
-                local.publish_derived(attachment_id, temp_dir)
                 published = await storage.complete_attachment_parse(
                     attachment_id,
-                    self.runtime.worker_id,
+                    attempt_id,
+                    project_id=record["project_id"],
+                    owner_conversation_id=record["owner_conversation_id"],
                     derived_size_bytes=derived_size,
                     workspace_max_bytes=settings.attachment_project_max_bytes,
+                    publish_derived=partial(local.publish_derived, attachment_id, temp_dir),
                 )
                 if not published:
-                    local.remove_path(local.derived_dir(attachment_id))
+                    await storage.fail_attachment_parse(attachment_id, attempt_id, "attachment_parse_interrupted")
+        except asyncio.CancelledError:
+            if on_request:
+                await storage.fail_attachment_parse(attachment_id, attempt_id, "attachment_parse_interrupted")
+            raise
+        except OcrPageError as exc:
+            await storage.fail_attachment_parse(attachment_id, attempt_id, exc.category)
+        except (DocumentParseError, AttachmentError) as exc:
+            await storage.fail_attachment_parse(attachment_id, attempt_id, exc.error_code)
+        except (ParserTimeoutError, TimeoutError):
+            await storage.fail_attachment_parse(attachment_id, attempt_id, "attachment_parse_timeout")
         except Exception:
-            await storage.fail_attachment_parse(
-                attachment_id, self.runtime.worker_id, "attachment_parse_failed"
-            )
+            await storage.fail_attachment_parse(attachment_id, attempt_id, "attachment_parse_failed")
         finally:
             lease_task.cancel()
             await asyncio.gather(lease_task, return_exceptions=True)
-            if temp_dir.exists():
+            if temp_dir is not None and temp_dir.exists():
                 local.remove_path(temp_dir)
 
-    async def _renew_parse_lease(self, attachment_id: UUID, lease_seconds: int) -> None:
+    async def _renew_parse_lease(self, attachment_id: UUID, attempt_id: str, lease_seconds: int) -> None:
         interval = max(1, lease_seconds // 2)
         try:
             while True:
                 await asyncio.sleep(interval)
                 if not await self._repository().renew_attachment_parse_lease(
                     attachment_id,
-                    self.runtime.worker_id,
+                    attempt_id,
                     lease_seconds=lease_seconds,
                 ):
                     return
@@ -415,12 +495,16 @@ class AttachmentService:
                 "type": "archive", "file_name": record["original_name"],
                 "attachment_id": str(record["id"]),
             }
-        if record["kind"] != "image":
+        first_frame_only = local.first_frame_only(record["id"])
+        if record["kind"] != "image" or record.get("use_ocr"):
+            if record["parse_status"] != "processed" or not (local.derived_dir(record["id"]) / "index.md").is_file():
+                return self._unavailable_block(record)
             return {
                 "type": "document",
                 "attachment_id": str(record["id"]),
                 "file_name": record["original_name"],
                 "path": f"/.attachments/{record['id']}/derived/index.md",
+                "first_frame_only": first_frame_only,
             }
         path = local.original_path(record["id"])
         if not path.is_file():
@@ -438,6 +522,7 @@ class AttachmentService:
             "base64": encoded,
             "mime_type": media_type,
             "file_name": record["original_name"],
+            "first_frame_only": first_frame_only,
         }
 
     @staticmethod
@@ -457,15 +542,18 @@ class AttachmentService:
                     "extension": spec.extension,
                     "media_type": spec.media_type,
                     "kind": spec.kind,
+                    "ocr": "always" if spec.ocr_required else "text_model" if spec.kind == "image" else None,
                 }
                 for spec in SUPPORTED_TYPES.values()
             ],
-            "max_file_bytes": settings.attachment_max_file_bytes,
+            "max_file_bytes": min(settings.attachment_max_file_bytes, settings.attachment_max_total_bytes),
+            "ocr_max_file_bytes": ocr_file_limit(settings),
             "max_total_bytes": settings.attachment_max_total_bytes,
             "max_per_message": settings.attachment_max_per_message,
             "workspace_max_bytes": settings.attachment_project_max_bytes,
             "image_max_pixels": settings.attachment_image_max_pixels,
-            "pdf_max_pages": settings.attachment_pdf_max_pages,
+            "pdf_max_pages": ocr_pdf_page_limit(settings),
+            "ocr_max_pages": OCR_MAX_PAGES,
         }
 
     async def retry_parse(
@@ -475,13 +563,21 @@ class AttachmentService:
         *,
         project_id: UUID | None = None,
         conversation_id: UUID | None = None,
+        model_id: str | None = None,
     ) -> dict[str, Any]:
-        """重置可重试的失败解析并重新排队；已在解析中的直接返回当前状态。"""
+        """同步识别 OCR 附件，或重置本地解析。"""
 
         context = await self.conversations.resolve_user(user_id)
-        await self._scoped_record(
+        record = await self._scoped_record(
             attachment_id, context.user_id, project_id, conversation_id
         )
+        local = LocalAttachmentStorage(await self._workspace_for_record(record))
+        if requires_document_ocr(record["original_name"], record["kind"]):
+            return await self._recognize(attachment_id, local)
+        if record["kind"] == "image":
+            if await self._is_text_model(context.user_id, model_id):
+                return await self._recognize(attachment_id, local)
+            return await self._current_attachment(attachment_id, local)
         result = await self._repository().reset_attachment_parse(
             attachment_id, context.user_id
         )
@@ -489,7 +585,21 @@ class AttachmentService:
             raise AttachmentNotFoundError()
         if result["parse_status"] == "pending":
             self.schedule_parse(attachment_id)
-        return result
+        return self._attachment_response(result, local)
+
+    @staticmethod
+    def _attachment_response(
+        result: dict[str, Any], local: LocalAttachmentStorage | None,
+    ) -> dict[str, Any]:
+        response = {**result}
+        if local is not None and result["media_type"] in {"image/webp", "image/gif"}:
+            response["first_frame_only"] = local.first_frame_only(result["attachment_id"])
+        code = result.get("parse_error_code")
+        if code in SAFE_MESSAGES:
+            response["parse_error_message"] = SAFE_MESSAGES[code]
+        elif code == "attachment_parse_interrupted":
+            response["parse_error_message"] = "附件识别已中断，请重新解析。"
+        return response
 
     def _image_encoder_instance(self) -> OutboundImageEncoder:
         if self._image_encoder is None:
@@ -501,7 +611,7 @@ class AttachmentService:
             )
         return self._image_encoder
 
-    def _settings(self):
+    def _settings(self) -> Settings:
         if self.runtime.settings is None:
             raise RuntimeError("运行配置尚未加载。")
         return self.runtime.settings

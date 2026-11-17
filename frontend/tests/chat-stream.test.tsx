@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionContextValue } from "../src/state/session";
 import type { ConversationHistory, StreamEvent } from "../src/types/api";
 import { INITIAL_CHAT_STATE, reducer, useChatStream } from "../src/hooks/useChatStream";
-import { ApiError, apiRequest, getConversationHistory } from "../src/api/client";
+import { ApiError, apiRequest, getConversationHistory, retryAttachmentParse } from "../src/api/client";
 import { sendApprovalStream, sendMessageStream } from "../src/api/stream";
 
-const mocks = vi.hoisted(() => ({ session: {} as SessionContextValue, message: { error: vi.fn() } }));
+const mocks = vi.hoisted(() => ({ session: {} as SessionContextValue, message: { error: vi.fn(), info: vi.fn() } }));
 vi.mock("../src/state/session", () => ({ useSession: () => mocks.session }));
 vi.mock("antd", () => ({ App: { useApp: () => ({ message: mocks.message }) } }));
-vi.mock("../src/api/client", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/api/client")>(), getConversationHistory: vi.fn(), apiRequest: vi.fn() }));
+vi.mock("../src/api/client", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/api/client")>(), getConversationHistory: vi.fn(), apiRequest: vi.fn(), retryAttachmentParse: vi.fn() }));
 vi.mock("../src/api/stream", () => ({ sendMessageStream: vi.fn(), sendApprovalStream: vi.fn(), sendUserInputStream: vi.fn() }));
 const scroll = { isNearBottom: () => true, scrollToBottom: vi.fn() };
 const emptyHistory: ConversationHistory = { conversation: { id: "c1", title: "Test" }, items: [], pending_approval: null };
@@ -42,6 +42,169 @@ beforeEach(() => {
 });
 
 describe("chat run lifecycle", () => {
+  it("retains the draft when an image cannot be prepared for the selected text model", async () => {
+    const ocr = deferred<Awaited<ReturnType<typeof retryAttachmentParse>>>();
+    vi.mocked(retryAttachmentParse).mockReturnValueOnce(ocr.promise);
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    const submitted = vi.fn();
+    const attachmentsPrepared = vi.fn();
+    let sending!: Promise<void>;
+    act(() => {
+      sending = result.current.sendMessage("请读图片", null, undefined, ["image"], [], submitted, ["image"], attachmentsPrepared);
+    });
+    expect(retryAttachmentParse).toHaveBeenCalledWith("image", expect.objectContaining({ modelId: "custom:deepseek-flash" }));
+    expect(result.current.preparingAttachments).toBe(true);
+    await act(async () => {
+      ocr.resolve({
+        attachment_id: "image", kind: "image", file_name: "image.png", media_type: "image/png",
+        size_bytes: 5, parse_status: "failed", parse_error_message: "没有识别到可用文字。",
+      });
+      await sending;
+    });
+    expect(result.current.preparingAttachments).toBe(false);
+    expect(mocks.message.error).toHaveBeenCalledWith("没有识别到可用文字。");
+    expect(attachmentsPrepared).toHaveBeenCalledWith([
+      expect.objectContaining({ attachment_id: "image", parse_status: "failed" }),
+    ]);
+    expect(submitted).not.toHaveBeenCalled();
+    expect(sendMessageStream).not.toHaveBeenCalled();
+  });
+
+  it("can retry a queued image when preparation failed before starting a message", async () => {
+    const firstReply = deferred<void>();
+    const image = { attachment_id: "image", kind: "image", file_name: "image.png", media_type: "image/png", size_bytes: 5 } as const;
+    vi.mocked(retryAttachmentParse)
+      .mockResolvedValueOnce({ ...image, parse_status: "failed", parse_error_message: "OCR 服务繁忙，请稍后重试。" })
+      .mockResolvedValueOnce({ ...image, parse_status: "processed" });
+    vi.mocked(sendMessageStream)
+      .mockImplementationOnce(async (_id, _input, { onEvent }) => {
+        onEvent({ type: "message_started", conversation_id: "c1", request_id: "r1", user_message_id: "u1", message_id: "a1" });
+        await firstReply.promise;
+        onEvent({ type: "completed", message_id: "a1", content: "A", assistant_steps: [] });
+      })
+      .mockImplementationOnce(async (_id, _input, { onEvent }) => {
+        onEvent({ type: "message_started", conversation_id: "c1", request_id: "r2", user_message_id: "u2", message_id: "a2" });
+        onEvent({ type: "completed", message_id: "a2", content: "B", assistant_steps: [] });
+      });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let first!: Promise<void>;
+    act(() => { first = result.current.sendMessage("A"); });
+    await act(() => result.current.sendMessage("B", null, undefined, ["image"], [], undefined, ["image"]));
+    await act(async () => { firstReply.resolve(); await first; });
+    expect(result.current.queue?.blocked).toEqual({
+      reason: "OCR 服务繁忙，请稍后重试。", attachmentPreparationFailed: true,
+    });
+    expect(result.current.queue?.items[0]?.attachmentIds).toEqual(["image"]);
+    expect(sendMessageStream).toHaveBeenCalledTimes(1);
+    await act(() => result.current.sendQueued());
+    expect(retryAttachmentParse).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(sendMessageStream).mock.calls.map(([, input]) => input.content)).toEqual(["A", "B"]);
+    expect(result.current.queue?.items).toEqual([]);
+  });
+
+  it("acknowledges local submission before the stream and restores a rejected draft", async () => {
+    const response = deferred<void>();
+    vi.mocked(sendMessageStream).mockImplementationOnce(() => response.promise.then(() => {
+      throw new ApiError(400, "请求被拒绝");
+    }));
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    const submitted = vi.fn();
+    const accepted = vi.fn();
+    let sending!: Promise<void>;
+    act(() => { sending = result.current.sendMessage("原草稿", null, accepted, [], [], submitted); });
+    expect(submitted).toHaveBeenCalledTimes(1);
+    expect(accepted).not.toHaveBeenCalled();
+    await act(async () => { response.resolve(); await sending; });
+    expect(result.current.state.restoreDraft).toBe("原草稿");
+  });
+
+  it("dispatches queued messages once in order, including after switching conversations", async () => {
+    const finish: (() => void)[] = [];
+    vi.mocked(sendMessageStream).mockImplementation(async (conversationId, input, { onEvent }) => {
+      const id = input.content;
+      onEvent({ type: "message_started", conversation_id: conversationId, request_id: id, user_message_id: `u-${id}`, message_id: id });
+      await new Promise<void>((resolve) => finish.push(resolve));
+      onEvent({ type: "completed", message_id: id, content: id, assistant_steps: [] });
+    });
+    const { result, rerender } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let first!: Promise<void>;
+    act(() => { first = result.current.sendMessage("A"); });
+    await act(async () => {
+      await result.current.sendMessage("B", "skill", undefined, ["file"], ["kb"]);
+      await result.current.sendMessage("C");
+    });
+    expect(result.current.queue?.items.map((item) => item.content)).toEqual(["B", "C"]);
+    expect(sendMessageStream).toHaveBeenCalledTimes(1);
+    const [second, third] = result.current.queue!.items;
+    act(() => result.current.moveQueued(third.id, second.id));
+    expect(result.current.queue?.items.map((item) => item.content)).toEqual(["C", "B"]);
+    mocks.session = { ...mocks.session, conversationId: "c2", selectedModelId: "other", epoch: 2 };
+    rerender();
+    expect(result.current.queue).toBeUndefined();
+    await act(async () => { finish[0](); await first; });
+    await act(async () => { finish[1](); });
+    expect(vi.mocked(sendMessageStream).mock.calls[2].slice(0, 2)).toEqual([
+      "c1", expect.objectContaining({ content: "B", modelId: "custom:deepseek-flash", skillId: "skill", attachmentIds: ["file"], knowledgeBaseIds: ["kb"] }),
+    ]);
+    expect(vi.mocked(sendMessageStream).mock.calls.map(([id, input]) => [id, input.content])).toEqual([
+      ["c1", "A"], ["c1", "C"], ["c1", "B"],
+    ]);
+    await act(async () => { finish[2](); });
+  });
+
+  it("waits for the original round to finish after approval", async () => {
+    vi.mocked(sendMessageStream).mockImplementationOnce(async (_id, _input, { onEvent }) => {
+      onEvent({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: "u1", message_id: "a1" });
+      onEvent({ type: "approval_required", request: {
+        approval_batch_id: "batch", assistant_message_id: "a1",
+        interrupts: [{ id: "approval", actions: [] }],
+      } });
+    }).mockImplementationOnce(async (_id, _input, { onEvent }) => {
+      onEvent({ type: "message_started", conversation_id: "c1", request_id: "r2", user_message_id: "u2", message_id: "a2" });
+      onEvent({ type: "completed", message_id: "a2", content: "B", assistant_steps: [] });
+    });
+    vi.mocked(sendApprovalStream).mockImplementationOnce(async (_id, _input, { onEvent }) => {
+      onEvent({ type: "completed", message_id: "a1", content: "A", assistant_steps: [] });
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    await act(() => result.current.sendMessage("A"));
+    await act(() => result.current.sendMessage("B"));
+    expect(sendMessageStream).toHaveBeenCalledTimes(1);
+    await act(() => result.current.submitApproval([]));
+    expect(vi.mocked(sendMessageStream).mock.calls.map(([, input]) => input.content)).toEqual(["A", "B"]);
+  });
+
+  it("keeps the queue after stopping even if a completion frame arrives", async () => {
+    const gate = deferred<void>();
+    vi.mocked(sendMessageStream).mockImplementation(async (_id, _input, { onEvent }) => {
+      onEvent({ type: "message_started", conversation_id: "c1", request_id: "r", user_message_id: "u1", message_id: "a1" });
+      await gate.promise;
+      onEvent({ type: "completed", message_id: "a1", content: "finished", assistant_steps: [] });
+    });
+    const { result } = renderHook(() => useChatStream({ scroll }));
+    await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+    let first!: Promise<void>;
+    act(() => { first = result.current.sendMessage("A"); });
+    await act(() => result.current.sendMessage("B"));
+    act(() => { result.current.stopCurrent(); });
+    await act(async () => { gate.resolve(); await first; });
+    expect(sendMessageStream).toHaveBeenCalledTimes(1);
+    expect(result.current.queue?.blocked?.messageId).toBe("a1");
+    expect(result.current.queue?.items[0].content).toBe("B");
+    const assistant = { id: "a1", role: "assistant", content: "finished", assistant_steps: [], artifacts: [] };
+    vi.mocked(getConversationHistory).mockResolvedValueOnce({ ...emptyHistory, items: [{ ...assistant, status: "pending" }] });
+    await act(() => result.current.sendQueued());
+    expect(sendMessageStream).toHaveBeenCalledTimes(1);
+    vi.mocked(getConversationHistory).mockResolvedValueOnce({ ...emptyHistory, items: [{ ...assistant, status: "completed" }] });
+    await act(() => result.current.sendQueued());
+    expect(vi.mocked(sendMessageStream).mock.calls.map(([, input]) => input.content)).toEqual(["A", "B"]);
+  });
+
   it("starts syncing a task created during chat without reloading history", async () => {
     Object.defineProperty(document, "hidden", { configurable: true, value: false });
     const { result, rerender, unmount } = renderHook(() => useChatStream({ scroll }));
@@ -690,6 +853,20 @@ it("refreshes the current user's skills after the install tool returns", async (
   await act(async () => { await Promise.resolve(); });
   await act(() => result.current.sendMessage("安装 Skill"));
   expect(mocks.session.refreshSkills).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the selected knowledge bases on the send context and streams them with the request", async () => {
+  let received: Parameters<typeof sendMessageStream>[1] | undefined;
+  vi.mocked(sendMessageStream).mockImplementation(async (_id, input, { onEvent }) => {
+    received = input;
+    onEvent({ type: "message_started", conversation_id: "c1", request_id: "r1", user_message_id: "u1", message_id: "a1" });
+    onEvent({ type: "completed", message_id: "a1", content: "有来源", assistant_steps: [] });
+    onEvent({ type: "done", terminal_reason: "completed" });
+  });
+  const { result } = renderHook(() => useChatStream({ scroll }));
+  await waitFor(() => expect(result.current.state.historyLoading).toBe(false));
+  await act(async () => { await result.current.sendMessage("查询资料", null, undefined, [], ["kb-a", "kb-b"]); });
+  expect(received?.knowledgeBaseIds).toEqual(["kb-a", "kb-b"]);
 });
 
 

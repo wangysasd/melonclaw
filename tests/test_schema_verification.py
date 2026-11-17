@@ -1,6 +1,7 @@
 """verify_schema 的结构漂移校验：业务表（含资源表）必须与 schema.py 一致。"""
 
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from melonclaw.database.constants import BUSINESS_TABLES
 from melonclaw.database.errors import DatabaseSchemaError
@@ -89,7 +90,9 @@ def without_column(table_name: str, column_name: str) -> list[tuple[str, str]]:
 
 class SchemaVerificationTests(unittest.IsolatedAsyncioTestCase):
     async def test_consistent_schema_passes(self):
-        await make_database().verify_schema(require_checkpointer=False)
+        with patch("melonclaw.database.schema_validation.verify_model_purpose", new_callable=AsyncMock) as verify:
+            await make_database().verify_schema(require_checkpointer=False)
+            verify.assert_awaited_once()
 
     async def test_missing_column_is_reported(self):
         database = make_database(

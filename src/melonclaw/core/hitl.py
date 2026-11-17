@@ -21,6 +21,7 @@ from melonclaw.tool.user_input import (
 
 # write_file / edit_file / delete 免逐次审批，仍受文件路径与权限规则约束。
 # 此清单由主 Agent 与通用子 Agent 共用，不扩大 Interpreter/PTC 能力。
+# knowledge 查询工具每次重验当前用户、本轮选择与ACL，只读且限长，免审批；不进入PTC。
 SENSITIVE_TOOL_INTERRUPTS: dict[str, InterruptOnConfig] = {}
 SENSITIVE_TOOL_INTERRUPTS["confirm_skill_install"] = InterruptOnConfig(
     allowed_decisions=["approve", "reject"],

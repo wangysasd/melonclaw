@@ -44,6 +44,10 @@ def validate_provider_advanced(
         if len(json.dumps(request_headers)) > 16384:
             raise ModelConfigError("请求头 JSON 过大。")
     if extra_config is not None:
+        if "timeout" in extra_config:
+            timeout = extra_config["timeout"]
+            if type(timeout) not in (int, float) or not 0 < timeout <= 120:
+                raise ModelConfigError("超时必须为 0 到 120 秒之间的数值。")
         try:
             protocol_options(extra_config)
         except ValueError as exc:

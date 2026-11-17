@@ -22,7 +22,7 @@ USER_INPUT_ANSWER_CANCELLED = "cancelled"
 USER_INPUT_CANCELLED_TEXT = "用户跳过了这个问题，请自行决定后续步骤。"
 
 _MAX_QUESTION_LENGTH = 2_000
-_MAX_QUESTION_COUNT = 6
+_MAX_QUESTION_COUNT = 10
 _MAX_OPTION_COUNT = 6
 _MAX_OPTION_LABEL_LENGTH = 120
 _MAX_OPTION_DESCRIPTION_LENGTH = 500
@@ -141,6 +141,34 @@ def _normalize_question(
         "allow_custom_answer": allow_custom_answer,
         "multi_select": multi_select,
     }
+
+
+def _apply_question_defaults(
+    questions: list[dict[str, Any]],
+    *,
+    allow_custom_answer: bool,
+    multi_select: bool,
+) -> list[dict[str, Any]]:
+    """把卡片级开关填进尚未声明该字段的题目。
+
+    模型经常在多题调用外再带上单题默认参数。显式 false 不覆盖题目自己的声明；
+    只有 true 才写入缺失字段。
+    """
+
+    if not allow_custom_answer and not multi_select:
+        return questions
+    prepared: list[dict[str, Any]] = []
+    for item in questions:
+        if not isinstance(item, dict):
+            prepared.append(item)
+            continue
+        merged = dict(item)
+        if allow_custom_answer and "allow_custom_answer" not in merged:
+            merged["allow_custom_answer"] = True
+        if multi_select and "multi_select" not in merged:
+            merged["multi_select"] = True
+        prepared.append(merged)
+    return prepared
 
 
 def normalize_user_question_batch(
@@ -322,7 +350,9 @@ def ask_user(
     仅当缺少会显著改变结果的关键信息、存在多个合理方案，或 Skill 明确要求
     用户选择时使用。信息充分时自行决策，不要把普通流程确认变成提问。
     已启用的外部 MCP 工具无需逐次审批，不要用本工具请求批准 MCP 调用。
-    需要多个相互独立的信息时，一次传入 questions，不要连续调用多次 ask_user。
+    需要多个相互独立的信息时，一次传入 questions（最多 10 题），不要连续调用多次 ask_user。
+    此时不要再传 question 或 options。allow_custom_answer 与 multi_select 若为 true，
+    只作为未单独声明这两个字段的题目的默认值。
     questions 示例：[{"question": "部署环境？", "options": [{"id": "staging", "label": "测试"}, {"id": "prod", "label": "生产"}]}]。
     选项 id 必须唯一，最多 200 字符，可用字母、数字、下划线、短横线和冒号；
     选择模型时原样使用模型目录 ID（例如 custom:deepseek-flash），不要删除前缀。
@@ -332,14 +362,15 @@ def ask_user(
     """
 
     if questions is not None:
-        if (
-            question is not None
-            or options is not None
-            or allow_custom_answer
-            or multi_select
-        ):
-            raise ValueError("questions 不能和单问题参数同时使用。")
-        payload = normalize_user_question_batch(questions)
+        if question is not None or options is not None:
+            raise ValueError("questions 不能和 question、options 同时使用。")
+        payload = normalize_user_question_batch(
+            _apply_question_defaults(
+                questions,
+                allow_custom_answer=allow_custom_answer,
+                multi_select=multi_select,
+            )
+        )
     else:
         if question is None:
             raise ValueError("单问题模式必须提供 question。")

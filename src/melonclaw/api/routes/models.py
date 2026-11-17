@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from melonclaw.api.dependencies import get_chat_service
-from melonclaw.api.errors import error_response
+from melonclaw.api.errors import error_response as business_error_response
 from melonclaw.api.schemas import (
     ModelConfigCreateRequest,
     ModelConfigUpdateRequest,
@@ -18,6 +20,13 @@ from melonclaw.api.schemas import (
 from melonclaw.services.resource_service import ModelConfigPayload, ProviderConfigPayload
 
 router = APIRouter()
+
+
+def error_response(exc):
+    # 驱动错误可能包含 UPDATE 绑定参数（包括 Key），不回显原异常。
+    if isinstance(exc, (ValueError, LookupError, PermissionError)):
+        return business_error_response(exc)
+    return JSONResponse({"error": "模型配置操作失败，请检查数据库升级与服务状态。"}, status_code=503)
 
 
 @router.get("/api/models")
@@ -38,12 +47,13 @@ async def list_models(
 async def list_manageable_models(
     request: Request,
     user_id: str,
+    purpose: Literal["chat", "embedding", "document_parser"] = "chat",
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
         return JSONResponse(await manager.status(), status_code=503)
     try:
-        return JSONResponse(await manager.manageable_models(user_id))
+        return JSONResponse(await manager.resources.list_models(user_id, purpose=purpose))
     except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
         return error_response(exc)
 
@@ -66,6 +76,8 @@ async def create_model(
                 display_name=body.display_name,
                 model_name=body.model_name,
                 context_window=body.context_window,
+                purpose=body.purpose,
+                supports_image_input=body.supports_image_input,
                 enabled=body.enabled,
             ),
         )
@@ -92,6 +104,7 @@ async def update_model(
             model_name=body.model_name,
             context_window=body.context_window,
             is_default=body.is_default,
+            supports_image_input=body.supports_image_input,
         )
         return JSONResponse({"ok": True})
     except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
@@ -214,12 +227,13 @@ async def fetch_provider_remote_models(
     request: Request,
     provider_key: str,
     user_id: str,
+    purpose: Literal["chat", "embedding", "document_parser"] = "chat",
 ) -> JSONResponse:
     manager = get_chat_service(request)
     if not manager.ready:
         return JSONResponse(await manager.status(), status_code=503)
     try:
-        return JSONResponse(await manager.fetch_remote_models(user_id, provider_key))
+        return JSONResponse(await manager.fetch_remote_models(user_id, provider_key, purpose=purpose))
     except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
         return error_response(exc)
 
@@ -272,3 +286,10 @@ async def delete_model(
         return JSONResponse({"ok": True})
     except Exception as exc:  # noqa: BLE001 - 统一返回安全错误
         return error_response(exc)
+
+
+@router.post("/api/models/{model_key}/test-connection")
+async def test_knowledge_model(request: Request, model_key: str):
+    from melonclaw.api.routes.knowledge import respond, storage
+    from melonclaw.services.knowledge_models import test_model_connection
+    return await respond(test_model_connection(storage(request), request.state.user.user_id, model_key))

@@ -14,7 +14,11 @@ from PIL import Image
 
 from melonclaw.core.config import Settings
 from melonclaw.parsers.documents import parse_document
-from melonclaw.parsers.validation import AttachmentValidationError, validate_attachment
+from melonclaw.parsers.validation import (
+    AttachmentValidationError,
+    ValidatedAttachment,
+    validate_attachment,
+)
 from melonclaw.parsers.worker import parse_document_isolated
 from melonclaw.services import attachment_images
 from melonclaw.services.attachment_images import OutboundImageEncoder
@@ -31,7 +35,7 @@ class AttachmentParserTests(unittest.TestCase):
 
             self.assertEqual(
                 validate_attachment(image_path, "image.png", "image/png"),
-                ("image.png", "image/png", "image"),
+                ValidatedAttachment("image.png", "image/png", "image", page_count=1),
             )
             with self.assertRaises(AttachmentValidationError) as context:
                 validate_attachment(image_path, "image.jpg", "image/jpeg")
@@ -100,7 +104,7 @@ class AttachmentValidationFrontLoadTests(unittest.TestCase):
             source.write_text('{"a": 1}', encoding="utf-8")
             self.assertEqual(
                 validate_attachment(source, "data.json", "application/json"),
-                ("data.json", "application/json", "text"),
+                ValidatedAttachment("data.json", "application/json", "text"),
             )
 
     def test_rejects_non_utf8_text(self):

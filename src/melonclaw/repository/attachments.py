@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -69,6 +69,17 @@ def _scope_condition(project_id: UUID | None, conversation_id: UUID | None):
     if conversation_id is not None:
         return chat_attachments.c.owner_conversation_id == conversation_id
     raise ValueError("附件必须属于项目或普通会话。")
+
+
+def _require_parsed_attachment(row: Any) -> None:
+    status = row["parse_status"]
+    if status == "processed":
+        return
+    if status == "not_required" and row["kind"] == "image":
+        raise AttachmentStateError("图片尚未识别文字。", "attachment_ocr_required")
+    if status in {"pending", "processing"}:
+        raise AttachmentStateError("附件仍在解析，请稍候再发送。", "attachment_parsing_in_progress")
+    raise AttachmentStateError("附件解析失败，请重新解析。", "attachment_parse_failed")
 
 
 class AttachmentRepositoryMixin:
@@ -274,26 +285,37 @@ class AttachmentRepositoryMixin:
 
     async def attachment_records_for_message(self, message_id: UUID) -> list[dict[str, Any]]:
         query = (
-            select(chat_attachments)
+            select(chat_attachments, chat_messages.c.display_metadata["ocr_attachment_ids"].label("ocr_ids"))
             .join(
                 chat_message_attachments,
                 chat_message_attachments.c.attachment_id == chat_attachments.c.id,
             )
+            .join(chat_messages, chat_message_attachments.c.message_id == chat_messages.c.id)
             .where(chat_message_attachments.c.message_id == message_id)
             .order_by(chat_message_attachments.c.ordinal.asc())
         )
         async with self.engine.connect() as connection:
             rows = (await connection.execute(query)).mappings().all()
-        return [dict(row) for row in rows]
+        return [dict(row, use_ocr=str(row["id"]) in (row["ocr_ids"] or [])) for row in rows]
 
     async def list_attachment_parse_queue(self) -> list[dict[str, Any]]:
-        query = select(chat_attachments.c.id.label("attachment_id")).where(
-            chat_attachments.c.status == "staged",
+        query = select(chat_attachments.c.id, chat_attachments.c.kind, chat_attachments.c.original_name).where(
+            chat_attachments.c.status.in_(["staged", "attached"]),
             chat_attachments.c.parse_status.in_(["pending", "processing"]),
         )
         async with self.engine.connect() as connection:
             rows = (await connection.execute(query)).mappings().all()
         return [dict(row) for row in rows]
+
+    async def interrupt_attachment_parses(self, attachment_ids: Sequence[UUID]) -> None:
+        async with self.engine.begin() as connection:
+            await connection.execute(
+                update(chat_attachments).where(
+                    chat_attachments.c.id.in_(attachment_ids),
+                    chat_attachments.c.parse_status.in_(["pending", "processing"]),
+                ).values(parse_status="failed", parse_error_code="attachment_parse_interrupted",
+                         parse_worker_id=None, parse_lease_expires_at=None, updated_at=_now())
+            )
 
     async def list_attachments_for_messages(
         self,
@@ -364,13 +386,7 @@ class AttachmentRepositoryMixin:
         attachment_id: UUID,
         user_id: str,
     ) -> dict[str, Any] | None:
-        """把可重试的失败解析重置为 ``pending``，返回最新状态或 ``None``。
-
-        - ``failed``：清空错误码与重试计数，等待后台重新 claim。
-        - ``pending`` / ``processing``：已在队列里，原样返回，接口保持幂等。
-        - ``processed`` / ``not_required``：无需重新解析，抛出业务错误。
-        - ``deleted`` / ``expired`` / 非 staged：按不可用处理。
-        """
+        """重置已失败的本地解析，由原后台队列领取。"""
 
         now = _now()
         async with self.engine.begin() as connection:
@@ -462,6 +478,7 @@ class AttachmentRepositoryMixin:
         *,
         lease_seconds: int,
         max_attempts: int,
+        on_request: bool = False,
     ) -> dict[str, Any] | None:
         now = _now()
         async with self.engine.begin() as connection:
@@ -471,16 +488,25 @@ class AttachmentRepositoryMixin:
                 .with_for_update()
             )
             row = result.mappings().first()
-            if row is None or row["status"] != "staged":
+            if row is None or row["status"] not in ("staged", "attached"):
+                return None
+            if row["expires_at"] is not None and row["expires_at"] <= now:
+                return None
+            if row["status"] == "attached" and not (on_request and row["kind"] == "image"):
                 return None
             eligible = row["parse_status"] == "pending" or (
                 row["parse_status"] == "processing"
                 and row["parse_lease_expires_at"] is not None
                 and row["parse_lease_expires_at"] < now
             )
-            if not eligible:
+            retry = on_request and (
+                row["parse_status"] == "failed"
+                or (row["kind"] == "image" and row["parse_status"] == "not_required")
+                or (eligible and row["parse_status"] == "processing")
+            )
+            if not (eligible or retry):
                 return None
-            attempts = int(row["parse_attempts"])
+            attempts = 0 if retry else int(row["parse_attempts"])
             if attempts >= max_attempts:
                 await connection.execute(
                     update(chat_attachments)
@@ -499,6 +525,7 @@ class AttachmentRepositoryMixin:
                 .where(chat_attachments.c.id == attachment_id)
                 .values(
                     parse_status="processing",
+                    parse_error_code=None,
                     parse_worker_id=worker_id,
                     parse_lease_expires_at=now + timedelta(seconds=lease_seconds),
                     parse_attempts=attempts + 1,
@@ -507,36 +534,34 @@ class AttachmentRepositoryMixin:
                 .returning(chat_attachments)
             )
             claimed_row = claimed.mappings().first()
-        return _attachment_dict(claimed_row) if claimed_row else None
+        return dict(claimed_row) if claimed_row else None
 
     async def complete_attachment_parse(
         self,
         attachment_id: UUID,
         worker_id: str,
         *,
+        project_id: UUID | None,
+        owner_conversation_id: UUID | None,
         derived_size_bytes: int,
         workspace_max_bytes: int,
+        publish_derived: Callable[[], Any],
     ) -> bool:
         async with self.engine.begin() as connection:
+            await self._lock_attachment_scope(connection, project_id, owner_conversation_id)
             result = await connection.execute(
                 select(chat_attachments)
                 .where(chat_attachments.c.id == attachment_id)
                 .with_for_update()
             )
             row = result.mappings().first()
-            if row is None or row["status"] != "staged" or row["parse_status"] != "processing" or row["parse_worker_id"] != worker_id:
+            if (
+                row is None or row["status"] not in ("staged", "attached")
+                or row["parse_status"] != "processing" or row["parse_worker_id"] != worker_id
+                or row["parse_lease_expires_at"] is None or row["parse_lease_expires_at"] <= _now()
+                or (row["project_id"], row["owner_conversation_id"]) != (project_id, owner_conversation_id)
+            ):
                 return False
-            project_id = (
-                UUID(str(row["project_id"])) if row["project_id"] is not None else None
-            )
-            owner_conversation_id = (
-                UUID(str(row["owner_conversation_id"]))
-                if row["owner_conversation_id"] is not None
-                else None
-            )
-            await self._lock_attachment_scope(
-                connection, project_id, owner_conversation_id
-            )
             total = await connection.scalar(
                 select(
                     func.coalesce(
@@ -567,6 +592,7 @@ class AttachmentRepositoryMixin:
                     )
                 )
                 return False
+            publish_derived()
             await connection.execute(
                 update(chat_attachments)
                 .where(chat_attachments.c.id == attachment_id)
@@ -621,7 +647,7 @@ class AttachmentRepositoryMixin:
                 .where(
                     and_(
                         chat_attachments.c.id == attachment_id,
-                        chat_attachments.c.status == "staged",
+                        chat_attachments.c.status.in_(["staged", "attached"]),
                         chat_attachments.c.parse_status == "processing",
                         chat_attachments.c.parse_worker_id == worker_id,
                     )
@@ -703,6 +729,7 @@ class AttachmentRepositoryMixin:
             )
             first_seq = int(max_seq or 0) + 1
             total_bytes = 0
+            ocr_image_ids: list[str] = []
             for attachment_id in attachment_ids:
                 row = by_id.get(attachment_id)
                 valid_scope = (
@@ -725,26 +752,13 @@ class AttachmentRepositoryMixin:
                     raise AttachmentNotFoundError()
                 if row["status"] not in {"staged", "attached"}:
                     raise AttachmentNotFoundError()
-                if row["kind"] == "image":
-                    if row["parse_status"] != "not_required":
-                        raise AttachmentStateError("图片附件状态无效。", "attachment_parse_failed")
-                    if not model_supports_image:
-                        raise AttachmentStateError(
-                            "当前模型不支持多模态图片输入。", "model_image_unsupported"
-                        )
-                elif row["kind"] == "archive":
+                if row["kind"] == "archive":
                     if row["parse_status"] != "not_required":
                         raise AttachmentStateError("ZIP 附件状态无效。", "attachment_parse_failed")
-                elif row["parse_status"] != "processed":
-                    if row["parse_status"] in {"pending", "processing"}:
-                        raise AttachmentStateError(
-                            "附件仍在解析，请稍候再发送。", "attachment_parsing_in_progress"
-                        )
-                    if row["parse_status"] == "failed":
-                        raise AttachmentStateError(
-                            "附件解析失败，请删除后重新上传。", "attachment_parse_failed"
-                        )
-                    raise AttachmentStateError("附件解析状态无效。", "attachment_parse_failed")
+                elif row["kind"] != "image" or not model_supports_image:
+                    _require_parsed_attachment(row)
+                    if row["kind"] == "image":
+                        ocr_image_ids.append(str(attachment_id))
                 total_bytes += int(row["size_bytes"])
             if total_bytes > max_total_bytes:
                 raise AttachmentStateError("单条消息附件总大小超过限制。", "message_attachment_too_large")
@@ -752,6 +766,9 @@ class AttachmentRepositoryMixin:
                 str(by_id[attachment_ids[0]]["original_name"]) if attachment_ids else "附件消息"
             )
             title = _conversation_title(title_source) or "附件消息"
+            user_metadata = {**(user_display_metadata or {})}
+            if ocr_image_ids:
+                user_metadata["ocr_attachment_ids"] = ocr_image_ids
             inserted = await connection.execute(
                 insert(chat_messages).returning(chat_messages),
                 [
@@ -763,7 +780,7 @@ class AttachmentRepositoryMixin:
                         "role": "user",
                         "content": content,
                         "status": "completed",
-                        "display_metadata": user_display_metadata or {},
+                        "display_metadata": user_metadata,
                         "error_code": None,
                         "model_id": None,
                         "model_provider": None,

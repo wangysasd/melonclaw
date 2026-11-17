@@ -12,6 +12,11 @@ from melonclaw.repository.artifacts import ArtifactRepositoryMixin
 from melonclaw.repository.attachments import AttachmentRepositoryMixin
 from melonclaw.repository.conversations import ConversationRepositoryMixin
 from melonclaw.repository.environment import EnvironmentRepositoryMixin
+from melonclaw.repository.knowledge import KnowledgeRepositoryMixin
+from melonclaw.repository.knowledge_documents import KnowledgeDocumentsRepositoryMixin
+from melonclaw.repository.knowledge_embedding import KnowledgeEmbeddingRepositoryMixin
+from melonclaw.repository.knowledge_query import KnowledgeQueryRepositoryMixin
+from melonclaw.repository.knowledge_search import KnowledgeSearchRepositoryMixin
 from melonclaw.repository.locks import ConcurrencyMixin
 from melonclaw.repository.mcp import McpRepositoryMixin
 from melonclaw.repository.mcp_install import McpInstallRepositoryMixin
@@ -24,6 +29,11 @@ from melonclaw.repository.users import UserRepositoryMixin
 
 
 class BusinessRepository(
+    KnowledgeQueryRepositoryMixin,
+    KnowledgeRepositoryMixin,
+    KnowledgeDocumentsRepositoryMixin,
+    KnowledgeEmbeddingRepositoryMixin,
+    KnowledgeSearchRepositoryMixin,
     AccountRepositoryMixin,
     EnvironmentRepositoryMixin,
     UserRepositoryMixin,

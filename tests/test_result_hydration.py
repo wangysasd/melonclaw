@@ -18,7 +18,8 @@ def test_image_and_document_refs_have_real_ids_in_outbound_index():
         message = HumanMessage(content="分析这些附件", id="message-id")
         request = SimpleNamespace(messages=[message], override=lambda **kwargs: SimpleNamespace(**kwargs))
         handler = AsyncMock(return_value="ok")
-        assert await AttachmentHydrationMiddleware(provider).awrap_model_call(request, handler) == "ok"
+        middleware = AttachmentHydrationMiddleware(provider, model_supports_image=True)
+        assert await middleware.awrap_model_call(request, handler) == "ok"
         sent = handler.call_args.args[0].messages[0]
         assert "attachment_id=image-id" in sent.content[0]["text"]
         assert "attachment_id=document-id" in sent.content[0]["text"]

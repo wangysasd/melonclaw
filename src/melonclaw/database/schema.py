@@ -23,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
-from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW
+from melonclaw.database.knowledge_schema import register_knowledge_tables
 
 metadata = MetaData()
 
@@ -530,14 +530,17 @@ model_configs = Table(
         nullable=False,
     ),
     Column("scope", String(16), nullable=False),
+    Column("purpose", String(24), nullable=False, server_default="chat"),
+    CheckConstraint("purpose IN ('chat','embedding','document_parser') AND (purpose = 'chat' OR scope = 'global')", name="ck_model_configs_purpose"),
     Column("source_type", String(16), nullable=False),
     Column("display_name", String(120), nullable=False),
     Column("model_name", String(160), nullable=False),
     Column("enabled", Boolean, nullable=False, server_default="true"),
     # 默认模型：全局至多一个，每个用户的个人模型至多一个。
     Column("is_default", Boolean, nullable=False, server_default="false"),
-    Column("context_window", Integer, nullable=False, server_default=str(DEFAULT_CONTEXT_WINDOW)),
-    CheckConstraint("context_window > 0", name="ck_model_configs_context_window"),
+    Column("context_window", Integer, nullable=True),
+    CheckConstraint("(purpose IN ('chat') AND context_window IS NOT NULL AND context_window > 0) OR (purpose IN ('embedding','document_parser') AND context_window IS NULL)", name="ck_model_configs_context_window"),
+    CheckConstraint("purpose <> 'embedding' OR length(btrim(model_name)) > 0", name="ck_model_configs_embedding"),
     # 模型接受的输入形态（["text"] / ["text", "image"]），目录与运行时共用。
     Column("input_modalities", JSONB, nullable=False, server_default='["text"]'),
     Column(
@@ -563,13 +566,13 @@ model_configs = Table(
     # 全局默认唯一，个人默认按创建者唯一。
     Index(
         "ux_model_configs_is_default",
-        "is_default",
+        "purpose",
         unique=True,
         postgresql_where=text("is_default IS TRUE AND scope = 'global'"),
     ),
     Index(
         "ux_model_configs_user_default",
-        "created_by",
+        "created_by", "purpose",
         unique=True,
         postgresql_where=text("is_default IS TRUE AND scope = 'user'"),
     ),
@@ -746,3 +749,9 @@ environment_operations = Table(
                     name="ck_environment_operation_status"),
     Index("ix_environment_operations_expiry", "expires_at"),
 )
+
+
+# 独立模块维护知识库定义，仍注册在同一业务 metadata 中。
+
+
+KNOWLEDGE_TABLES = register_knowledge_tables(metadata)

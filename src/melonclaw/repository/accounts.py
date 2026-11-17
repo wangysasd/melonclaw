@@ -102,6 +102,7 @@ class AccountRepositoryMixin:
                     if old["tenant_id"] != values["tenant_id"]:
                         await self._account_idle(conn, [user_id])
                         await self._pause_account_tasks(conn, [user_id], "tenant_changed")
+                        await self.knowledge_account_change(conn, user_id)
                     await conn.execute(update(users).where(users.c.user_id == user_id).values(**values))
         except IntegrityError as exc:
             raise ValueError("用户 ID 已存在，不能重复使用。") from exc
@@ -109,6 +110,7 @@ class AccountRepositoryMixin:
     async def delete_account_user(self, user_id):
         async with self.account_guard(exclusive=True) as conn:
             await self._account_idle(conn, [user_id])
+            await self.knowledge_account_change(conn, user_id, deleting=True)
             await self._pause_account_tasks(conn, [user_id], "user_deleted")
             result = await conn.execute(update(users).where(
                 users.c.user_id == user_id, users.c.tenant_status == "active",
@@ -146,7 +148,8 @@ class AccountRepositoryMixin:
                         ))).scalars().all()
                         await self._account_idle(conn, ids)
                         await self._pause_account_tasks(conn, ids, "tenant_disabled")
-                        for user_id in ids:
+                        for user_id in sorted(ids):
+                            await self.knowledge_account_change(conn, user_id, suspending=True)
                             await self._revoke_user_sessions(conn, user_id)
                     result = await conn.execute(update(tenants).where(
                         tenants.c.tenant_id == tenant_id,

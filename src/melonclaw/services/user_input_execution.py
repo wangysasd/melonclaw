@@ -269,6 +269,7 @@ class UserInputExecutionService:
                     user_interaction_id=interaction_id,
                     resuming=True,
                     user_message_id=UUID(request_record.user_message["id"]) if request_record else None,
+                    knowledge_base_ids=tuple(request_record.user_message.get("display_metadata", {}).get("knowledge_base_ids", [])) if request_record else (),
                     environment_operation_id=request_record.user_message.get("display_metadata", {}).get("environment_operation_id") if request_record else None,
                     task_context={k: v for k, v in request_record.user_message.get("display_metadata", {}).items()
                                   if k in {"task_history"}} if request_record else {},

@@ -6,7 +6,7 @@ hydration 会在一次 Agent run 的每次模型调用中执行；工具循环�
 1. 按 ``(attachment_id, 文件 mtime, 文件大小)`` 缓存 base64 结果，避免重复读盘
    和编码；文件一旦被替换，指纹变化会自然失效旧缓存。
 2. 对最长边超过上限的图片做等比缩放，控制每次出站请求的图片体积和 token 成本；
-   本来就小于上限的图片保持原始字节，不做重编码以免损失画质。
+   小于上限的 PNG 和 JPEG 保持原始字节，其他格式以 PNG 输出。
 """
 
 from __future__ import annotations
@@ -18,9 +18,10 @@ from io import BytesIO
 from pathlib import Path
 from uuid import UUID
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 _LANCZOS = Image.Resampling.LANCZOS
+_NATIVE_MEDIA_TYPES = {"image/png", "image/jpeg"}
 
 
 class OutboundImageEncoder:
@@ -76,6 +77,8 @@ def _encode_image(
     jpeg_quality: int,
 ) -> tuple[bytes, str]:
     with Image.open(source) as image:
+        if media_type not in _NATIVE_MEDIA_TYPES:
+            return _frame_png(image, max_edge), "image/png"
         image.load()
         width, height = image.size
         longest = max(width, height)
@@ -99,4 +102,20 @@ def _encode_image(
         return buffer.getvalue(), "image/jpeg"
 
 
-__all__ = ["OutboundImageEncoder"]
+def _frame_png(image: Image.Image, max_edge: int | None = None) -> bytes:
+    frame = ImageOps.exif_transpose(image)
+    if max_edge is not None:
+        frame.thumbnail((max_edge, max_edge), _LANCZOS)
+    if frame.mode not in {"1", "L", "LA", "P", "RGB", "RGBA", "I;16"}:
+        frame = frame.convert("RGBA")
+    buffer = BytesIO()
+    frame.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
+def first_frame_png(source: Path) -> bytes:
+    with Image.open(source) as image:
+        return _frame_png(image)
+
+
+__all__ = ["OutboundImageEncoder", "first_frame_png"]

@@ -41,7 +41,7 @@ async def chat_runtime(storage, tmp_path, tracing):
             "autocommit": True,
             "prepare_threshold": 0,
             "row_factory": dict_row,
-            "options": f"-c search_path={schema}",
+            "options": f"-c search_path={schema},public",
         },
     )
     await pool.open(wait=True)

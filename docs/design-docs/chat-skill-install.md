@@ -9,7 +9,7 @@
 
 ## 方案与实现位置
 
-- `.data/skills/shared/melonclaw-tutorial/`：入口及 Skill、MCP、模型、排障参考。通过既有 `skill_index` 初始化，内置新增行默认启用，不覆盖已有开关和个人偏好。自定义数据根需部署这份目录到相应 shared 目录。
+- `.data/skills/shared/melonclaw-tutorial/`：入口及对话、知识库、Skill、MCP、模型、排障参考。通过既有 `skill_index` 初始化，内置新增行默认启用，不覆盖已有开关和个人偏好。自定义数据根需部署这份目录到相应 shared 目录。
 - `tool/skill_install.py`：两个工具及 provider 协议；`ToolRuntime[Any]` 隐式注入上下文，模型 schema 无 user_id、tenant_id、conversation_id 或本地路径。
 - `services/skill_install.py`：聊天适配器校验用户租户、会话与项目归属，附件只接受服务端映射的 ID；调用 `ChatService` 已有 prepare 门面及 `SkillImportService.confirm`，不回环请求 HTTP、不直接写 SQL。
 - `core/agent.py`、`services/runtime.py`、`services/execution.py`：注入 provider 和当前 conversation_id；两个工具常驻主模型目录，不受 MCP 动态筛选遗漏影响。未加入 PTC。

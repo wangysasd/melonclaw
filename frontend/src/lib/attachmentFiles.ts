@@ -1,4 +1,4 @@
-import type { AttachmentCapabilities, AttachmentSummary } from "../types/api";
+import type { AttachmentCapabilities, AttachmentTypeSpec } from "../types/api";
 
 /** 附件上传前预校验与展示用的纯函数。 */
 
@@ -15,6 +15,10 @@ export function formatBytes(value: number): string {
   return `${Number.isInteger(megabytes) ? megabytes : megabytes.toFixed(1)} MB`;
 }
 
+export function usesAttachmentOcr(spec: AttachmentTypeSpec | undefined, modelSupportsImage?: boolean): boolean {
+  return spec?.ocr === "always" || (spec?.ocr === "text_model" && modelSupportsImage === false);
+}
+
 /**
  * 上传前预校验：返回错误文案，通过时返回 null。
  * 只做快速失败，服务端仍会做权威校验。
@@ -22,10 +26,12 @@ export function formatBytes(value: number): string {
 export function validateAttachmentFile(
   file: File,
   capabilities: AttachmentCapabilities,
-  options: { currentCount: number; currentTotalBytes: number },
+  options: { currentCount: number; currentTotalBytes: number; modelSupportsImage?: boolean },
 ): string | null {
   const extension = extensionOf(file.name);
-  if (!capabilities.items.some((item) => item.extension === extension)) {
+  if (!capabilities.items.length) return "附件格式和限制暂未加载，请稍后重试。";
+  const spec = capabilities.items.find((item) => item.extension === extension);
+  if (!spec) {
     return extension
       ? `暂不支持 ${extension} 类型的附件。`
       : "附件必须有可识别的扩展名。";
@@ -33,8 +39,10 @@ export function validateAttachmentFile(
   if (file.size <= 0) {
     return `${file.name} 是空文件，无法上传。`;
   }
-  if (file.size > capabilities.max_file_bytes) {
-    return `${file.name} 超过单个附件上限 ${formatBytes(capabilities.max_file_bytes)}。`;
+  const maxFileBytes = usesAttachmentOcr(spec, options.modelSupportsImage)
+    ? capabilities.ocr_max_file_bytes : capabilities.max_file_bytes;
+  if (file.size > maxFileBytes) {
+    return `${file.name} 超过单个附件上限 ${formatBytes(maxFileBytes)}。`;
   }
   if (options.currentCount + 1 > capabilities.max_per_message) {
     return `单条消息最多添加 ${capabilities.max_per_message} 个附件。`;
@@ -55,29 +63,15 @@ export function attachmentBadge(name: string): string {
 export function describeAttachmentLimits(
   capabilities: AttachmentCapabilities,
 ): string {
+  if (!capabilities.items.length) return "正在读取附件格式和限制…";
   const extensions = capabilities.items
     .map((item) => item.extension.replace(".", "").toUpperCase())
     .join(" / ");
   return [
     `支持 ${extensions}`,
-    `单个文件不超过 ${formatBytes(capabilities.max_file_bytes)}`,
+    `单个文件不超过 ${formatBytes(capabilities.max_file_bytes)}` +
+      (capabilities.ocr_max_file_bytes < capabilities.max_file_bytes ? `，OCR 附件不超过 ${formatBytes(capabilities.ocr_max_file_bytes)}` : ""),
+    `PDF 最多 ${capabilities.pdf_max_pages} 页`,
     `单条消息最多 ${capabilities.max_per_message} 个、合计不超过 ${formatBytes(capabilities.max_total_bytes)}`,
   ].join("；") + "。";
-}
-
-export function attachmentKindOf(extension: string): AttachmentSummary["kind"] {
-  if (extension === ".jpg" || extension === ".jpeg" || extension === ".png") {
-    return "image";
-  }
-  if (extension === ".pdf") return "pdf";
-  if (extension === ".zip") return "archive";
-  if (
-    extension === ".txt" ||
-    extension === ".md" ||
-    extension === ".csv" ||
-    extension === ".json"
-  ) {
-    return "text";
-  }
-  return "document";
 }

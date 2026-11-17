@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW, MAX_CONTEXT_WINDOW
 
@@ -58,6 +58,7 @@ class MessageRequest(BaseModel):
     # 客户端能力协商：未声明 user_input_v1 的客户端不会拿到 ask_user 工具，
     # 避免旧前端收到一张渲染不出来的问题卡片。未知能力一律忽略。
     capabilities: list[str] = Field(default_factory=list, max_length=32)
+    knowledge_base_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
 
 class ApprovalRequest(BaseModel):
@@ -159,13 +160,24 @@ class ModelConfigCreateRequest(BaseModel):
     """新建模型；连接与凭据归属供应商，模型保存名称和上下文窗口。"""
 
     user_id: str = Field(min_length=1, max_length=64)
-    model_key: str = Field(min_length=1, max_length=64)
+    model_key: str | None = Field(default=None, min_length=1, max_length=64)
     provider_key: str = Field(min_length=1, max_length=64)
     scope: Literal["global", "user"]
     display_name: str = Field(min_length=1, max_length=120)
     model_name: str = Field(min_length=1, max_length=160)
-    context_window: int = Field(default=DEFAULT_CONTEXT_WINDOW, strict=True, gt=0, le=MAX_CONTEXT_WINDOW)
+    purpose: Literal["chat", "embedding", "document_parser"] = "chat"
+    context_window: int | None = Field(default=None, strict=True, gt=0, le=MAX_CONTEXT_WINDOW)
     enabled: bool = True
+    supports_image_input: bool | None = Field(default=None, strict=True)
+
+    @model_validator(mode="after")
+    def purpose_fields(self):
+        if self.purpose in {"chat"}:
+            if self.context_window is None:
+                self.context_window = DEFAULT_CONTEXT_WINDOW
+        elif self.scope != "global" or self.context_window is not None:
+            raise ValueError("知识库用途仅允许 global 且无聊天上下文窗口。")
+        return self
 
 
 class ModelConfigUpdateRequest(BaseModel):
@@ -181,6 +193,7 @@ class ModelConfigUpdateRequest(BaseModel):
     model_name: str | None = Field(default=None, min_length=1, max_length=160)
     context_window: int | None = Field(default=None, strict=True, gt=0, le=MAX_CONTEXT_WINDOW)
     is_default: bool | None = None
+    supports_image_input: bool | None = Field(default=None, strict=True)
 
 
 class SkillRemoteInstallRequest(BaseModel):

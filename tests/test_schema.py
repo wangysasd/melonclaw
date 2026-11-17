@@ -203,6 +203,6 @@ def test_personal_default_index_is_scoped_to_creator():
     indexes = {index.name: index for index in model_configs.indexes}
     personal = indexes["ux_model_configs_user_default"]
     assert personal.unique
-    assert [column.name for column in personal.columns] == ["created_by"]
+    assert [column.name for column in personal.columns] == ["created_by", "purpose"]
     assert "scope = 'user'" in str(personal.dialect_options["postgresql"]["where"])
     assert "scope = 'global'" in str(indexes["ux_model_configs_is_default"].dialect_options["postgresql"]["where"])

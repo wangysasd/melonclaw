@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,7 @@ from melonclaw.core.model_catalog import (
 from melonclaw.core.prompts import (
     DATA_RETRY_GUIDANCE,
     FILE_EXECUTION_GUIDANCE,
+    KNOWLEDGE_GUIDANCE,
     MCP_EXECUTION_GUIDANCE,
     build_system_prompt,
 )
@@ -48,6 +49,7 @@ from melonclaw.middleware.tool_name_guard import ToolNameGuardMiddleware
 from melonclaw.middleware.tool_selection import ToolPoolMiddleware
 from melonclaw.middleware.usage_observation import UsageObservationMiddleware
 from melonclaw.tool.environment import build_environment_tools
+from melonclaw.tool.knowledge import build_knowledge_tools
 from melonclaw.tool.mcp_install import McpInstallProvider, build_mcp_install_tools
 from melonclaw.tool.skill_install import SkillInstallProvider, build_skill_install_tools
 from melonclaw.tool.task_configuration import build_task_configuration_tool
@@ -81,6 +83,8 @@ class AgentContext:
     model_spec: str = ""
     memory_enabled: bool = False
     memory_admin: bool = False
+    knowledge_base_ids: tuple[str, ...] = ()
+    knowledge_search_counts: dict[str, int] = field(default_factory=dict)
 
 
 def _format_tool_summary(tools: list[object]) -> str:
@@ -143,6 +147,7 @@ async def build_research_agent(
     environment_provider: Any | None = None,
     environment: dict[str, str] | None = None,
     task_configuration_provider: Any | None = None,
+    knowledge_provider: Any | None = None,
     client_capabilities: object = None,
     mcp_servers: dict[str, dict[str, Any]] | None = None,
     mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
@@ -167,7 +172,7 @@ async def build_research_agent(
     if unattended is not None:
         if any((runtime_backend, memory_service, attachment_hydration_provider,
                 skill_install_provider, mcp_install_provider, task_history_provider,
-                task_configuration_provider, environment_provider, environment, client_capabilities,
+                task_configuration_provider, knowledge_provider, environment_provider, environment, client_capabilities,
                 mcp_servers, mcp_tool_allowlists, skill_dirs)):
             raise ValueError("无人值守执行不能混入普通聊天的能力或工作区挂载。")
         return await build_unattended_agent(
@@ -194,6 +199,8 @@ async def build_research_agent(
         tools.append(build_task_history_tool(task_history_provider))
     if task_configuration_provider is not None:
         tools.append(build_task_configuration_tool(task_configuration_provider))
+    if knowledge_provider is not None:
+        tools.extend(build_knowledge_tools(knowledge_provider))
     resolved_mcp_servers = mcp_servers or {}
     user_input_enabled = supports_user_input(client_capabilities)
     tools.append(build_tool_discovery(settings.tool_selection_max_requests))
@@ -253,7 +260,9 @@ async def build_research_agent(
         middleware.insert(0, MemoryScopeMiddleware(memory_service))
         print("已启用 Global/Tenant/User Memory（Store 持久化，主 Agent 受控工具）")
     if attachment_hydration_provider is not None:
-        middleware.insert(0, AttachmentHydrationMiddleware(attachment_hydration_provider))
+        middleware.insert(0, AttachmentHydrationMiddleware(
+            attachment_hydration_provider, model_supports_image="image" in model.input_modalities,
+        ))
 
     if task_history_provider is not None:
         middleware.insert(0, TaskContextMiddleware(task_history_provider))
@@ -287,6 +296,7 @@ async def build_research_agent(
                 f"\n{MCP_EXECUTION_GUIDANCE}"
                 f"\n{FILE_EXECUTION_GUIDANCE}"
                 f"\n{DATA_RETRY_GUIDANCE}"
+                f"\n{KNOWLEDGE_GUIDANCE}"
             ),
         }],
         backend=backend,

@@ -24,6 +24,7 @@ from melonclaw.output.formatting import (
     _preview,
     sanitize_text,
 )
+from melonclaw.output.knowledge_sources import knowledge_tool_metadata
 from melonclaw.output.model_activity import model_text_with_activity
 
 DISPLAY_EVENT_TYPES = frozenset(
@@ -277,6 +278,7 @@ async def _consume_tool_call(
                 status="failed" if call.error else "completed",
                 error=str(call.error) if call.error else None,
                 duration_ms=int((perf_counter() - started) * 1000),
+                **(knowledge_tool_metadata(name, getattr(call, "output", None)) if not call.error else {}),
             )
         if result_event is not None:
             await output.put(result_event)
@@ -335,6 +337,7 @@ async def _consume_tool_call(
             "name": name,
             "content": sanitize_text(str(content)),
             "status": "failed" if call.error else "completed",
+            **(knowledge_tool_metadata(name, getattr(call, "output", None)) if not call.error else {}),
             **fields,
         }
     )

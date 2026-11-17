@@ -12,9 +12,23 @@ from melonclaw.tool.deepseek import DEEPSEEK_SEARCH_URL, request_json_async, val
 
 class TaskSearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, strict=True)
-    query: str = Field(min_length=1, max_length=128)
+    query: str = Field(
+        min_length=1, max_length=128,
+        description=(
+            "搜索查询词（1~128 个字符，不能为空白）。支持操作符，可在同一个 query 中组合："
+            "site:domain、-site:domain、-排除词、-\"排除短语\"、\"精确短语\"、"
+            "lang:zh,en、after:YYYY-MM-DD 或 after:YYYY、before:YYYY-MM-DD 或 before:YYYY。"
+        ),
+    )
     count: int = Field(default=5, ge=1, le=10)
-    ori_question: str | None = Field(default=None, min_length=1, max_length=128)
+    ori_question: str | None = Field(
+        default=None, min_length=1, max_length=128,
+        description=(
+            "查询词经过改写，或包含 site:、-site:、-排除词、-\"排除短语\"、\"精确短语\"、"
+            "lang:、after:、before: 时，填入用户原问题的简短表述，不超过 128 个字符。"
+            "查询词已是用户原话时省略。"
+        ),
+    )
 
 
 def build_task_search_tool(api_key: str):

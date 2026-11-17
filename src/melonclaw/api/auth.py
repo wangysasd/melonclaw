@@ -1,6 +1,8 @@
 """统一 Cookie 身份边界，覆盖 JSON、上传、下载和 SSE。"""
 from __future__ import annotations
 
+from collections.abc import Iterable
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from time import perf_counter
 from urllib.parse import urlsplit
@@ -44,18 +46,30 @@ async def require_session(request: Request):
     if request.url.path in PUBLIC_PATHS:
         yield
         return
-    service = accounts(request)
     # 管理变更自己获取独占锁，不能与本请求共享锁互相等待。
     if request.url.path.startswith(("/api/admin/", "/api/auth/")):
-        await authenticate(request, service)
+        await authenticate(request, accounts(request))
         yield
     else:
-        async with service.storage.account_guard():
-            await authenticate(request, service)
+        async with account_session(request):
             yield
 
 
-async def authenticate(request, service):
+@asynccontextmanager
+async def account_session(request: Request, *, check_body: bool = True):
+    """身份与业务归属校验共用锁，不把外部 I/O 放在这个作用域内。"""
+    service = accounts(request)
+    async with service.storage.account_guard():
+        await authenticate(request, service, check_body=check_body)
+        yield
+
+
+def assert_request_user(provided: Iterable[object], user_id: str) -> None:
+    if any(value != user_id for value in provided):
+        raise HTTPException(409, "当前用户已变化，请刷新页面。")
+
+
+async def authenticate(request, service, *, check_body: bool = True):
     context = await service.session(request.cookies.get(COOKIE, ""))
     if context is None:
         raise HTTPException(401, "请先登录。")
@@ -71,7 +85,7 @@ async def authenticate(request, service):
         return
     # 请求 user_id 仅作页面上下文断言，绝不能覆盖 Cookie 身份。
     provided = list(request.query_params.getlist("user_id"))
-    content_type = request.headers.get("content-type", "")
+    content_type = request.headers.get("content-type", "") if check_body else ""
     if "application/json" in content_type:
         try:
             body = await request.json()
@@ -82,5 +96,4 @@ async def authenticate(request, service):
     elif "multipart/form-data" in content_type:
         form = await request.form()
         provided.extend(form.getlist("user_id"))
-    if any(value != context.user_id for value in provided):
-        raise HTTPException(409, "当前用户已变化，请刷新页面。")
+    assert_request_user(provided, context.user_id)

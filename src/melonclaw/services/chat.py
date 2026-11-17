@@ -33,6 +33,7 @@ from melonclaw.services.errors import (
     RequestInProgressError,
 )
 from melonclaw.services.execution import ExecutionService, PreparedExecution
+from melonclaw.services.knowledge_search import ChatKnowledgeProvider
 from melonclaw.services.mcp_install import ChatMcpInstallService
 from melonclaw.services.preparation import prepare_context
 from melonclaw.services.resource_service import (
@@ -80,6 +81,7 @@ class ChatService:
         self.runtime.environment_provider = ChatEnvironmentService(self)
         self.runtime.task_history_provider = TaskChatService(self.runtime)
         self.runtime.task_configuration_provider = TaskConfigurationService(self.runtime)
+        self.runtime.knowledge_provider = ChatKnowledgeProvider(self.runtime)
 
     @property
     def resources(self) -> ResourceService:
@@ -316,6 +318,7 @@ class ChatService:
         model_name: str | None = None,
         context_window: int | None = None,
         is_default: bool | None = None,
+        supports_image_input: bool | None = None,
     ) -> None:
         await self.conversations.resolve_user(user_id)
         await self.resources.update_model(
@@ -326,6 +329,7 @@ class ChatService:
             model_name=model_name,
             context_window=context_window,
             is_default=is_default,
+            supports_image_input=supports_image_input,
         )
 
     async def manageable_providers(self, user_id: str) -> dict[str, Any]:
@@ -385,10 +389,10 @@ class ChatService:
         await self.resources.delete_user_provider_key(user_id, provider_key)
 
     async def fetch_remote_models(
-        self, user_id: str, provider_key: str
+        self, user_id: str, provider_key: str, purpose: str = "chat"
     ) -> dict[str, Any]:
         await self.conversations.resolve_user(user_id)
-        return await self.resources.fetch_remote_models(user_id, provider_key)
+        return await self.resources.fetch_remote_models(user_id, provider_key, purpose=purpose)
 
     async def test_provider_connection(
         self,
@@ -511,6 +515,7 @@ class ChatService:
         skill_id: str | None = None,
         attachment_ids: list[UUID] | None = None,
         capabilities: list[str] | None = None,
+        knowledge_base_ids: list[UUID] | None = None,
         *, user_context=None,
     ) -> PreparedExecution:
         preparation = await prepare_context(self.conversations, conversation_id, user_id, user_context)
@@ -523,7 +528,7 @@ class ChatService:
             model_id=model_id,
             skill_id=skill_id,
             attachment_ids=attachment_ids,
-            capabilities=capabilities, preparation=preparation,
+            capabilities=capabilities, knowledge_base_ids=knowledge_base_ids, preparation=preparation,
         )
 
     async def _release_stale_user_interaction(

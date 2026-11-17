@@ -328,7 +328,7 @@ def test_real_model_and_identity_resolution_with_one_connection(tmp_path):
                 schema = await conn.scalar(text("SELECT current_schema()"))
             engine = create_async_engine(os.environ["MELONCLAW_TEST_DATABASE_URL"],
                 pool_size=1, max_overflow=0, pool_timeout=0.5,
-                connect_args={"server_settings": {"search_path": schema}})
+                connect_args={"server_settings": {"search_path": f"{schema},public"}})
             try:
                 storage = BusinessRepository(SimpleNamespace(engine=engine))
                 runtime = ChatRuntime(settings=settings_for(tmp_path), storage=storage,

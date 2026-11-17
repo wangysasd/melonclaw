@@ -15,6 +15,16 @@
 - 所有模型走 `openai_compatible` 适配器，纯 chat；不含 embedding/rerank 能力与多 base_url。
 - 初始化 23 家供应商模板，全部停用、无 Key、无环境变量引用；不写 model_configs。供应商模板按 `INSERT ... ON CONFLICT DO NOTHING` 补录，不覆盖配置。
 
+手动添加和远端候选添加均由服务端生成内部 `model_key`。调用创建 API 时也可省略 `model_key`。
+
+### 聊天模型图片输入
+
+手动添加、从远端候选添加和已有聊天模型的行内「编辑」区均提供「支持图片输入」。Web 手动添加与远端候选默认勾选，可按供应商实际能力取消。API 创建时省略该字段仍默认为文本输入。
+
+`POST /api/models` 和 `PATCH /api/models/{model_key}` 接受可选布尔字段 `supports_image_input`。新建时写入 `["text"]` 或 `["text", "image"]`。更新时只添加或移除 `image`，省略字段时保留已有能力。权限沿用全局模型和个人模型编辑规则，文档解析模型继续使用固定图片输入能力。
+
+管理列表和聊天目录通过 `input_modalities` 回显能力，聊天输入区、后端执行检查和模型适配器使用同一字段。更新沿用模型版本和资源缓存失效链路，无数据库迁移。
+
 ### 解析链路
 
 - `GET /api/models` 返回当前用户可见的模型行（global + 自己的 user scope）转换的目录；未配置 api_key 的模型 `available=false`，不进选择器可用项。没有可用模型时 default_model_id 为空，不补造目录条目。

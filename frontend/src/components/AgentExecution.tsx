@@ -121,15 +121,12 @@ export function ExecutionHeader({
   );
 }
 
-/** 当前活动计时放在聊天正文下方，更新只影响这一行。 */
-export function ExecutionActivityTiming({ run }: { run: AgentRun }) {
-  const activity = run.timings ? [...run.timings.activities].reverse().find((item) => item.status === "started") : undefined;
-  const activeTool = run.steps.find((step): step is ToolCallStep => step.type === "tool_call" && step.status === "running" && step.startedAt !== undefined);
-  const activityTime = useElapsedMs(activeTool?.startedAt ?? activity?.receivedAt ?? null, run.status === "running" && (!!activity || !!activeTool));
-  if (run.status !== "running" || (!activity && !activeTool)) return null;
-  return <div className="agent-activity-timing" role="status">
-    本次{activeTool ? "工具执行" : activity?.kind === "selection" ? "工具选择" : "模型请求"} {formatDuration(activityTime)}
-  </div>;
+/** 整轮计时放在聊天正文下方，更新只影响这一行。 */
+export function ExecutionElapsedTiming({ run }: { run: AgentRun }) {
+  const elapsed = useElapsedMs(run.startedAt, run.status === "running");
+  const duration = formatDuration(elapsed);
+  if (duration === null) return null;
+  return <div className="agent-activity-timing" role="status">已耗时 {duration}</div>;
 }
 
 function AssistantProgressItem({ step }: { step: AssistantProgressStep }) {
@@ -258,13 +255,10 @@ export function AgentExecution({
   const stage = currentRunStage(run, timelineEvents, waitingFor);
   const plan = confirmedTaskPlan(run.steps);
   // null = 用户还没手动操作过，按状态默认值；有值后不再被 rerender 或重复完成事件覆盖。
-  const [override, setOverride] = useState<boolean | null>(null);
+  const [override, setOverride] = useState<{ status: AgentRun["status"]; open: boolean } | null>(null);
   const forcedOpen = isRunForcedOpen(run.status);
   const hasTimeline = run.steps.length > 0 || timelineEvents.length > 0;
-  const hasTools = run.steps.some((step) => step.type === "tool_call") || timelineEvents.length > 0;
-  const hasReasoning = run.steps.some((step) => step.type === "assistant_progress" && step.contentKind === "reasoning");
-  // 有工具或可读思考时，完成后默认展示时间线；各思考框仍独立折叠。
-  const open = forcedOpen ? true : override ?? (hasTools || hasReasoning || isRunDefaultOpen(run.status));
+  const open = forcedOpen || (override?.status === run.status ? override.open : isRunDefaultOpen(run.status));
   // 纯文字回复保留状态与真实总耗时；没有观测信息时不造空区域。
   const hasContent =
     hasTimeline || run.durationMs !== null
@@ -281,7 +275,7 @@ export function AgentExecution({
         plan={plan}
         open={open}
         disabled={forcedOpen || !hasTimeline}
-        onToggle={() => setOverride(!open)}
+        onToggle={() => setOverride({ status: run.status, open: !open })}
       />
       {open && hasTimeline ? (
         <div className="agent-execution-body">

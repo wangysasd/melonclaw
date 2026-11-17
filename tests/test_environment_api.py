@@ -28,7 +28,7 @@ async def environment_api():
     schema = "test_environment_api_" + uuid4().hex
     engine = create_async_engine(
         normalize_async_database_url(os.environ["MELONCLAW_TEST_DATABASE_URL"]),
-        connect_args={"server_settings": {"search_path": schema}},
+        connect_args={"server_settings": {"search_path": f"{schema},public"}},
     )
     try:
         async with engine.begin() as conn:

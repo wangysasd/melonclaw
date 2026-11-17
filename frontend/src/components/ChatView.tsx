@@ -1,5 +1,5 @@
 import { useAssistantName } from "../state/assistantName";
-import { Spin } from "antd";
+import { Spin, Tooltip } from "antd";
 import Bubble from "@ant-design/x/es/bubble";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
@@ -10,23 +10,27 @@ import { ApprovalPanel } from "./ApprovalPanel";
 import { UserQuestionPanel } from "./UserQuestionPanel";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
+import { KnowledgeCitationProvider, KnowledgeSourceAllow, useKnowledgeCitation } from "./KnowledgeCitationProvider";
+import { knowledgeSourceLabel, messageKnowledgeSources } from "../lib/knowledgeSources";
 import { MessageUsage } from "./MessageUsage";
 import { ResultProvider } from "./ResultContext";
 import { ArtifactWorkspace, ArtifactTrigger, MessageArtifactCards } from "./ArtifactWorkspace";
 import { FailureNotice } from "./FailureNotice";
+import { ReadAloudControls } from "./ReadAloudControls";
 import { StoppedRunNotice } from "./StoppedRunNotice";
 import { useUnreadChat } from "../hooks/useUnreadChat";
-import { AgentExecution, ExecutionActivityTiming } from "./AgentExecution";
+import { AgentExecution, ExecutionElapsedTiming } from "./AgentExecution";
 import { useChatStream, type ChatMessage } from "../hooks/useChatStream";
 import { buildAgentRun, isTerminalRun } from "../lib/agentRun";
 import { attachmentBadge } from "../lib/attachmentFiles";
 import { environmentChatDisplay } from "../lib/environmentChat";
 import { copyText } from "../lib/clipboard";
+import { canReadAloud, stopReadAloud } from "../lib/readAloud";
 import { avatarStyle, formatMessageTime, userInitials } from "../lib/format";
 import { useUserQuestionExpired } from "../lib/userQuestionExpiry";
 import { useSession } from "../state/session";
 import { attachmentContentUrl } from "../api/client";
-import type { PendingApproval, SkillOption, UserQuestionRequest } from "../types/api";
+import type { AttachmentSummary, PendingApproval, SkillOption, UserQuestionRequest } from "../types/api";
 
 /** 审批面板重挂载 key：interrupt ID 组合变化时重置面板内部表单状态。 */
 function approvalKey(approval: PendingApproval): string {
@@ -167,11 +171,14 @@ function MessageAttachments({
     <>
       <div className="message-attachments" aria-label="消息附件">
         {attachments.map((attachment) => {
-          const url = attachmentContentUrl(attachment.attachment_id, {
+          const access = {
             userId,
             projectId: projectId || null,
             conversationId: projectId ? null : conversationId,
-          });
+          };
+          const url = attachmentContentUrl(attachment.attachment_id, access);
+          const previewUrl = attachment.media_type === "image/tiff"
+            ? attachmentContentUrl(attachment.attachment_id, access, true) : url;
           const isImage = attachment.kind === "image";
           return (
             <div className="message-attachment" key={attachment.attachment_id}>
@@ -180,9 +187,9 @@ function MessageAttachments({
                   type="button"
                   className="message-attachment-thumb"
                   aria-label={`预览 ${attachment.file_name}`}
-                  onClick={() => setPreview({ url, name: attachment.file_name })}
+                  onClick={() => setPreview({ url: previewUrl, name: attachment.file_name })}
                 >
-                  <img src={url} alt={attachment.file_name} />
+                  <img src={previewUrl} alt={attachment.file_name} />
                 </button>
               ) : (
                 <span className="attachment-file-icon" aria-hidden="true">
@@ -192,7 +199,7 @@ function MessageAttachments({
               )}
               <div className="message-attachment-info">
                 <a href={url} target="_blank" rel="noreferrer" download={attachment.file_name}>{attachment.file_name}</a>
-                <span>{attachment.parse_status === "failed" ? "解析失败" : isImage ? "图片" : "文档"}</span>
+                <span>{isImage ? "图片" : attachment.parse_status === "failed" ? "解析失败" : "文档"}</span>
               </div>
             </div>
           );
@@ -233,11 +240,24 @@ function CopyButton({ message }: { message: ChatMessage }) {
   );
 }
 
-function MessageFooter({ message }: { message: ChatMessage }) {
-  if (message.role === "user" || !message.content || message.status === "streaming") return null;
+function MessageFooter({
+  message,
+  conversationId,
+  userId,
+}: {
+  message: ChatMessage;
+  conversationId: string | null;
+  userId: string;
+}) {
+  const copyable = message.role !== "user" && Boolean(message.content) && message.status !== "streaming";
+  const readable = canReadAloud(message) && Boolean(conversationId);
+  if (!copyable && !readable) return null;
   return (
     <div className="message-actions">
-      <CopyButton message={message} />
+      {copyable ? <CopyButton message={message} /> : null}
+      {readable ? (
+        <ReadAloudControls message={message} conversationId={conversationId ?? ""} userId={userId} />
+      ) : null}
     </div>
   );
 }
@@ -262,6 +282,11 @@ const MessageBubble = memo(function MessageBubble({
   projectId: string;
 }) {
   const assistantName = useAssistantName();
+  const citation = useKnowledgeCitation();
+  const sources = useMemo(
+    () => message.role === "assistant" ? messageKnowledgeSources(message, window.location.origin) : null,
+    [message],
+  );
   const metaLabel = message.role === "user" ? userName : assistantName;
   const metaDetail =
     message.role === "user"
@@ -318,6 +343,7 @@ const MessageBubble = memo(function MessageBubble({
           projectId={projectId}
           conversationId={conversationId}
         />
+        <KnowledgeSourceAllow allow={message.role === "assistant" && sources?.enforce ? sources.keys : null}>
         <div className="message-body">
           {run?.status === "running" && run.liveAnswer ? <span className="assistant-live-label">生成中</span> : null}
           {message.role === "user" || displayContent ? (
@@ -330,12 +356,18 @@ const MessageBubble = memo(function MessageBubble({
             />
           ) : null}
         </div>
-        {run ? <ExecutionActivityTiming run={run} /> : null}
+        {sources?.listed.length ? <ul className="knowledge-answer-sources" aria-label="知识库来源">
+          {sources.listed.map((card) => <li key={card.source_url}>
+            <button type="button" onClick={() => citation?.openFromHref(card.source_url)}>{knowledgeSourceLabel(card)}</button>
+          </li>)}
+        </ul> : null}
+        </KnowledgeSourceAllow>
+        {run ? <ExecutionElapsedTiming run={run} /> : null}
         {message.role === "assistant" && message.status === "completed" ? <MessageArtifactCards artifacts={message.artifacts} /> : null}
         {run && message.status !== "streaming" ? <FailureNotice message={message} run={run} onSync={onSync} syncDisabled={syncDisabled} /> : null}
         {message.status === "cancelled" && run ? <StoppedRunNotice run={run} events={message.events} onSync={onSync} syncDisabled={syncDisabled} /> : null}
         {run && isTerminalRun(run.status) ? <MessageUsage events={message.events} /> : null}
-        <MessageFooter message={message} />
+        <MessageFooter message={message} conversationId={conversationId} userId={userId} />
       </div>
     </article>
     </ResultProvider>
@@ -395,15 +427,20 @@ export function ChatView({
     [],
   );
 
+  const [queueDrag, setQueueDrag] = useState<{ source: string; target?: string } | null>(null);
   const chat = useChatStream({ scroll, active });
   const chatContextKey = `${session.userId}:${session.projectId}:${session.conversationId ?? "new"}`;
+  useEffect(() => () => {
+    stopReadAloud();
+  }, [chatContextKey]);
+  useEffect(() => {
+    if (!active) stopReadAloud();
+  }, [active]);
   const unread = useUnreadChat(chat.state.messages, chatContextKey, awayFromBottom, chat.state.historyLoading);
   const userQuestionExpired = useUserQuestionExpired(
     chat.state.userQuestion?.expires_at,
   );
-  const expiredQuestionCanStartNewMessage = Boolean(
-    chat.state.userQuestion && userQuestionExpired,
-  );
+
   useEffect(() => () => {
     if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
   }, []);
@@ -416,7 +453,7 @@ export function ChatView({
     setDraft("");
     chat.clearRestoreDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat.state.conversationId, session.conversationId, session.draftConversationId]);
+  }, [chatContextKey]);
   useEffect(() => {
     setAwayFromBottom(false);
     readingPosition.current = 0;
@@ -435,9 +472,8 @@ export function ChatView({
   // 失败回滚：仅当输入框为空时回填草稿（对齐旧 restoreDraft）。
   useEffect(() => {
     if (!chat.state.restoreDraft) return;
-    if (draft === "") {
-      setDraft(chat.state.restoreDraft);
-    }
+    const failedDraft = chat.state.restoreDraft;
+    setDraft((current) => current || failedDraft);
     chat.clearRestoreDraft();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.state.restoreDraft]);
@@ -447,15 +483,20 @@ export function ChatView({
     skillId?: string | null,
     attachmentIds?: string[],
     onAccepted?: () => void,
+    knowledgeBaseIds?: string[],
+    imageAttachmentIds?: string[],
+    onAttachmentsPrepared?: (attachments: AttachmentSummary[]) => void,
   ) => {
+    stopReadAloud();
     void chat.sendMessage(
       value,
       skillId,
-      () => {
-        setDraft((current) => current === value ? "" : current);
-        onAccepted?.();
-      },
+      onAccepted,
       attachmentIds,
+      knowledgeBaseIds,
+      () => setDraft((current) => current === value ? "" : current),
+      imageAttachmentIds,
+      onAttachmentsPrepared,
     );
   };
 
@@ -480,6 +521,7 @@ export function ChatView({
   const topbarTitle = projectName ? `${projectName}/${conversationTitle}` : conversationTitle;
 
   return (
+    <KnowledgeCitationProvider>
     <ArtifactWorkspace key={`${session.userId}:${session.conversationId ?? "new"}:${conversationProjectId ?? ""}`} userId={session.userId} conversationId={session.conversationId} projectId={conversationProjectId ?? null} projectName={projectName} messages={chatMatchesSelection ? chat.state.messages : []} onLocateMessage={chat.loadMessage}>
     <div className="chat-view">
       <header className="topbar">
@@ -585,6 +627,77 @@ export function ChatView({
       ) : null}
 
       <Composer
+        active={active}
+        queuePanel={chat.queue && (chat.queue.items.length > 0 || chat.queue.blocked) ? (
+          <section className="chat-send-queue" aria-label="待发送消息">
+            {chat.queue.blocked ? (
+              <div className="chat-send-queue-row">
+                <span role="status">{chat.queue.blocked.reason}{chat.queue.items.length ? "，待发送消息已保留" : ""}</span>
+                {chat.queue.blocked.messageId || (chat.queue.blocked.attachmentPreparationFailed && chat.queue.items.length) ? (
+                  <button type="button" disabled={chat.queue.checking || chat.isRunning} onClick={() => void chat.sendQueued()}>
+                    {chat.queue.blocked.attachmentPreparationFailed
+                      ? "重新识别并发送"
+                      : chat.queue.items.length ? "核实并发送" : "核实上一轮"}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <ol>
+              {chat.queue.items.map((item, index, items) => (
+                <li
+                  className={`chat-send-queue-row${queueDrag?.target === item.id ? " is-drop-target" : ""}`}
+                  key={item.id}
+                  onDragOver={(event) => {
+                    if (!queueDrag || queueDrag.source === item.id || chat.queue?.sending === item.id) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    if (queueDrag.target !== item.id) setQueueDrag({ source: queueDrag.source, target: item.id });
+                  }}
+                  onDrop={(event) => {
+                    if (!queueDrag) return;
+                    event.preventDefault();
+                    chat.moveQueued(queueDrag.source, item.id);
+                    setQueueDrag(null);
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="chat-send-queue-handle"
+                    aria-label={`调整第 ${index + 1} 条待发送消息的顺序`}
+                    title="拖动排序，或按上下方向键移动"
+                    disabled={items.length < 2 || chat.queue?.sending === item.id}
+                    draggable={items.length > 1 && chat.queue?.sending !== item.id}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", item.id);
+                      setQueueDrag({ source: item.id });
+                    }}
+                    onDragEnd={() => setQueueDrag(null)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                      event.preventDefault();
+                      const target = items[index + (event.key === "ArrowUp" ? -1 : 1)];
+                      if (target) chat.moveQueued(item.id, target.id);
+                    }}
+                  >
+                    <span aria-hidden="true">⠿</span>
+                  </button>
+                  <Tooltip
+                    title={item.preview}
+                    placement="top"
+                    styles={{ container: { fontSize: "var(--text-md)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }}
+                  >
+                    <span>{item.preview || `${item.attachmentIds.length} 个附件`}</span>
+                  </Tooltip>
+                  {item.preview ? <button type="button" onClick={() => void copyText(item.preview).catch(() => undefined)}>复制</button> : null}
+                  <button type="button" disabled={chat.queue?.sending === item.id} aria-label="移除待发送消息" title="移除" onClick={() => chat.removeQueued(item.id)}><Icon name="trash-2" size={14} /></button>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
+        queueEnabled={Boolean(session.conversationId)}
+        hasQueuedMessages={Boolean(chat.queue?.items.length || chat.queue?.blocked)}
         onOpenProjectDialog={onOpenProjectDialog}
         onOpenModelSettings={onOpenModelSettings}
         initialSkill={initialSkill}
@@ -593,18 +706,17 @@ export function ChatView({
         onChange={setDraft}
         onSend={handleSend}
         isRunning={chat.isRunning}
-        onStop={() => chat.stopCurrent()}
+        preparingAttachments={chat.preparingAttachments}
+        onStop={() => {
+          stopReadAloud();
+          chat.stopCurrent();
+        }}
         pendingInteraction={chat.state.userQuestion && !userQuestionExpired ? "question" : chat.state.approval ? "approval" : null}
-        disabled={
-          session.conversationCreating ||
-          chat.state.historyLoading ||
-          Boolean(chat.state.approval) ||
-          Boolean(chat.state.userQuestion && !userQuestionExpired) ||
-          ((chat.isRunning || Boolean(chat.state.error)) &&
-            !expiredQuestionCanStartNewMessage)
-        }
+        disabled={session.conversationCreating || chat.state.historyLoading ||
+          (Boolean(chat.state.error) && !chat.queue?.blocked)}
       />
     </div>
     </ArtifactWorkspace>
+    </KnowledgeCitationProvider>
   );
 }
