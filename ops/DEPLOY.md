@@ -13,7 +13,7 @@
 | Skill 数据目录 | `/var/lib/melonclaw/data/` |
 | 工作区目录 | `/var/lib/melonclaw/workspaces/` |
 | 应用服务名称 | `melonclaw`（Web 内置任务调度） |
-| 网站地址 | `https://melonclaw.cn` |
+| 网站地址 | `https://melonclaw.cn`（HTTP `http://melonclaw.cn` 301 到 HTTPS） |
 
 本手册由英文版翻译而来，沿用 [ASD-STE100](https://www.asd-ste100.org/STE_faq.html) 的简明写作原则。
 使用短句、主动表达和直接指令。
@@ -217,13 +217,14 @@ Nginx 从 `/opt/melonclaw/frontend/dist/` 读取新文件。
     如果服务仍在启动，稍等后重新检查。
     确认返回 `{"ready":true}`。
 
-19. 检查公网 HTTPS 连接。
+19. 检查公网 HTTP 重定向和 HTTPS 连接。
 
     ```bash
+    curl -sI http://melonclaw.cn | head
     curl -fsS https://melonclaw.cn/api/ready
     ```
 
-    确认返回 `{"ready":true}`。
+    HTTP 应返回 301，Location 指向 `https://melonclaw.cn`。HTTPS 确认返回 `{"ready":true}`。
 
 20. 完成第 5 节的功能检查。
 
@@ -241,8 +242,8 @@ Nginx 从 `/opt/melonclaw/frontend/dist/` 读取新文件。
 就绪接口正常不代表全部业务功能正常。
 
 不要用仓库模板覆盖当前 Nginx 站点文件。
-Certbot 已在当前站点中加入 HTTPS 配置。
-如果本次需要修改 Nginx，保留证书配置。
+仓库 `ops/nginx/melonclaw.conf` 只是 HTTP 引导配置；生产站点由 certbot 写成 80 重定向、443 提供 SPA 与 `/api/`。
+如果本次需要修改 Nginx，保留 `server_name melonclaw.cn`、Let's Encrypt 证书路径和 HTTP 301。
 重新加载前，检查配置。
 
 ```bash

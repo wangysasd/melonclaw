@@ -1,6 +1,6 @@
 # Linux 服务器部署
 
-本次 Ubuntu 从拉代码到 HTTPS 的完整操作、每步作用和验收记录见 [首次上线流程](first-deployment.md)。
+生产域名为 `melonclaw.cn`，公网入口同时提供 HTTP 和 HTTPS（HTTP 301 到 HTTPS）。本次 Ubuntu 从拉代码到 HTTPS 的完整操作、每步作用和验收记录见 [首次上线流程](first-deployment.md)。
 
 ## 目录与归属
 
@@ -37,7 +37,7 @@ env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/mel
 env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/melonclaw-db-init
 ```
 
-安装 [Web systemd 服务](../ops/systemd/melonclaw.service)、[Nginx 示例](../ops/nginx/melonclaw.conf) 和 [日志轮转配置](../ops/melonclaw.logrotate)。Nginx 配置中的域名、请求体上限与实际附件限制同步；示例只包含 HTTP，实际远程站点需配置 HTTPS 或在上游终止 TLS，并让 `MELONCLAW_ALLOWED_ORIGINS` 与浏览器访问地址一致。
+安装 [Web systemd 服务](../ops/systemd/melonclaw.service)、[Nginx 示例](../ops/nginx/melonclaw.conf) 和 [日志轮转配置](../ops/melonclaw.logrotate)。Nginx 配置中的域名、请求体上限与实际附件限制同步。仓库示例以 `server_name melonclaw.cn` 在 80 端口托管 `frontend/dist`，并把 `/api/` 反代到本机 8000。公网站点同时开放 80 和 443：先按该 HTTP 配置启用，再用 Let's Encrypt（`certbot --nginx -d melonclaw.cn --redirect`）在 443 终止 TLS，并把 HTTP 整站 301 到 HTTPS。`MELONCLAW_ALLOWED_ORIGINS` 填 `https://melonclaw.cn`，与浏览器 Origin 一致。不要用仓库 HTTP 模板覆盖已由 certbot 改写的站点文件。完整签发与验收见 [首次上线流程](first-deployment.md) 第 7–9 节。
 
 ```bash
 sudo install -m 0644 ops/systemd/melonclaw.service /etc/systemd/system/melonclaw.service

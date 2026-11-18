@@ -16,7 +16,7 @@
 | `/run/melonclaw/` | systemd 管理的临时运行目录 |
 | PostgreSQL | 用户、会话、资源索引、Checkpoint、长期 Memory |
 
-访问链路为：浏览器 HTTPS → Nginx → 前端静态文件，或 `/api/` 反向代理 → 本机后端 8000 → PostgreSQL／持久目录。用户数据独立于代码，后续 git pull 不应覆盖数据目录。
+访问链路为：浏览器访问 `http://melonclaw.cn` 时 Nginx 301 到 HTTPS；`https://melonclaw.cn` 由 Nginx 提供前端静态文件，或将 `/api/` 反向代理到本机后端 8000，再访问 PostgreSQL／持久目录。用户数据独立于代码，后续 git pull 不应覆盖数据目录。
 
 ## 2. 取得仓库代码与 GitHub 访问权限
 
@@ -166,7 +166,7 @@ sudo cp /opt/melonclaw/ops/nginx/melonclaw.conf \
 sudo nano /etc/nginx/sites-available/melonclaw
 ```
 
-将 `server_name` 改为 `melonclaw.cn`；模板的网页根为 `/opt/melonclaw/frontend/dist`，`/api/` 转发到 `127.0.0.1:8000`。关闭代理缓冲让聊天 SSE 增量及时显示。
+模板已使用 `server_name melonclaw.cn`。核对网页根为 `/opt/melonclaw/frontend/dist`，`/api/` 转发到 `127.0.0.1:8000`，并关闭代理缓冲让聊天 SSE 增量及时显示。不要把 `server_name` 改成公网 IP；证书校验与浏览器访问都依赖该域名。
 
 `/etc/nginx/sites-available/melonclaw` 是配置文件，不能 cd 进去。启用链接只针对 Nginx 站点文件，与代码目录无软链接的方案不冲突：
 
@@ -180,7 +180,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
   -H 'Host: melonclaw.cn' http://127.0.0.1/
 ```
 
-`nginx -t` 检查配置，成功才 reload；Host 请求头用于在本机选中域名站点。本次分别得到 ready=true 和 HTTP 200，证明反向代理与静态首页都可访问。此时还只有 HTTP，不应把它当 HTTPS 上线完成。
+`nginx -t` 检查配置，成功才 reload；Host 请求头用于在本机选中域名站点。本次分别得到 ready=true 和 HTTP 200，证明反向代理与静态首页都可访问。此时还只有 HTTP，不应把它当 HTTPS 上线完成。若现网站点仍是 `listen 80` 且 `server_name` 为公网 IP，先改回本模板的域名后再申请证书，不要继续用 IP 作为站点名。
 
 ## 8. 配置 DNS 和网络入口
 
@@ -204,16 +204,17 @@ sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d melonclaw.cn --redirect
 ```
 
-Certbot 验证域名控制权、申请证书并修改 Nginx 配置；`--redirect` 将 HTTP 重定向到 HTTPS。按提示填写邮箱和同意条款。
+Certbot 验证域名控制权、申请证书并修改 Nginx 配置；`--redirect` 将 HTTP 重定向到 HTTPS。按提示填写邮箱和同意条款。这是生产站点的目标形态：80 与 443 都监听 `melonclaw.cn`，HTTP 可达并 301 到 HTTPS，HTTPS 继续提供同一套 SPA 与 `/api/` 反代。
 
 本次 Certbot 显示签发和部署成功，证书位于 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem`，私钥为同目录 `privkey.pem`，当次证书有效期至 2027-01-05，并设置了自动续期任务。这个日期仅是本次记录，续期后会变化；私钥不得泄露。
 
+公网 HTTP 应返回 301 并指向 `https://melonclaw.cn`；HTTPS 提供站点与 `/api/`。再检查续期链路。本次对话未提供这些命令的执行结果，仍应完成。浏览器已经展示 HTTPS 登录页。之后不要再直接 cp 仓库 HTTP 模板覆盖现有站点，否则可能丢失 Certbot 添加的 HTTPS 配置。
+
 ```bash
+curl -sI http://melonclaw.cn | head
 curl -fsS https://melonclaw.cn/api/ready
 sudo certbot renew --dry-run
 ```
-
-这两条用于验证公网 HTTPS API 和续期链路；本次对话未提供执行结果，仍应完成。浏览器已经展示 HTTPS 登录页。之后不要再直接 cp 仓库 HTTP 模板覆盖现有站点，否则可能丢失 Certbot 添加的 HTTPS 配置。
 
 ## 10. 使用验收和当前结论
 
@@ -225,7 +226,7 @@ sudo certbot renew --dry-run
 - 配置模型后正常聊天，验证 SSE 流式回复。
 - 上传附件、生成和下载文件；重启后历史记录、文件和 Skill 可用。
 - Memory 写入／读取、会话恢复的真实业务验收。
-- HTTPS API 检查、证书续期 dry-run、日志轮转和服务器重启后的自动启动验证。
+- 公网 HTTP 301、HTTPS API 检查、证书续期 dry-run、日志轮转和服务器重启后的自动启动验证。
 - 修复 npm audit 报告的依赖漏洞，配置数据库及文件的异机备份并验证恢复。
 
 所以基础访问链路已部署成功，不能把“看到登录页”当作全部生产验收完成。当前 LocalShellBackend 没有安全沙箱，ubuntu 同时部署和运行意味着应用 Shell 具有该账号的文件权限，面向不可信用户开放仍需解决执行隔离与授权边界。
