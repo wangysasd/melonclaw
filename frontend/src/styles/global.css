@@ -629,7 +629,7 @@ body {
   color: var(--muted);
 }
 
-/* ---------- 模型供应商卡片（学 Yuxi） ---------- */
+/* ---------- 模型供应商卡片 ---------- */
 
 .provider-avatar {
   display: inline-flex;

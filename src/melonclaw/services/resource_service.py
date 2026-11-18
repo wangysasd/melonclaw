@@ -109,7 +109,7 @@ def provider_public_dict(
     - ``has_api_key``：admin 配的共享 Key 有无；
     - ``has_my_key``：当前用户覆盖的 Key 有无；
     - ``effective_has_key``：两者任一有即 True，前端据此判断可用性；
-    - ``enabled_models_count``：该供应商下已启用模型数（Yuxi 卡片 footer 用）。
+    - ``enabled_models_count``：该供应商下已启用模型数（卡片 footer 用）。
     """
 
     has_shared = bool(row["api_key"] or provider_env_key(row["api_key_env"]))
@@ -448,7 +448,7 @@ class ResourceService:
                     has_my_key=str(row["provider_key"]) in my_keys,
                 )
             )
-        # 已启用优先，其次凭证缺失沉底（学 Yuxi 排序）。
+        # 已启用优先，其次凭证缺失沉底。
         items.sort(
             key=lambda item: (
                 not item["enabled"],

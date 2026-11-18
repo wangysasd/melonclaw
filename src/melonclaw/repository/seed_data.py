@@ -31,7 +31,7 @@ USER_SEEDS: tuple[dict[str, str], ...] = (ADMIN_USER_SEED,)
 # ---------------------------------------------------------------------------
 
 # 初始化只写供应商模板，不读取任何模型凭据、不创建模型。
-# 清单照搬 Yuxi builtin（23 家）但只留 chat 所需字段：不含 embedding/rerank
+# 清单为 23 家内置供应商，只保留 chat 所需字段：不含 embedding/rerank
 # 能力与多 base_url；纯 openai_compatible。
 PROVIDER_SEEDS: tuple[dict[str, Any], ...] = (
     {

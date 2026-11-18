@@ -1,9 +1,8 @@
 /**
- * 供应商 logo 映射：从 Yuxi `web/src/utils/modelIcon.js` 抽取。
+ * 供应商 logo 映射：使用 lobehub `icons-static-svg` 的 14 个 SVG。
  *
- * Yuxi 运行时外链 `registry.npmmirror.com/@lobehub/icons-static-svg` 的 SVG；
- * 这里把用到的 14 个文件 vendor 到 `public/assets/provider-logos/`，
- * 背景色/缩放/滤镜沿用 Yuxi 的 `avatar()` 参数，避免运行时依赖外网。
+ * 文件 vendor 到 `public/assets/provider-logos/`，避免运行时依赖外网；
+ * 背景色/缩放/滤镜按映射参数处理。
  * 单色图标（currentColor 画的）用白色滤镜压在深色底上；`*-color` 彩色图标不过滤镜。
  */
 

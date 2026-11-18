@@ -13,7 +13,7 @@
 | Skill 数据目录 | `/var/lib/melonclaw/data/` |
 | 工作区目录 | `/var/lib/melonclaw/workspaces/` |
 | 应用服务名称 | `melonclaw`（Web 内置任务调度） |
-| 网站地址 | `https://melonclaw.cn` |
+| 网站地址 | `https://melonclaw.cn`（HTTP `http://melonclaw.cn` 301 到 HTTPS） |
 
 本手册由英文版翻译而来，沿用 [ASD-STE100](https://www.asd-ste100.org/STE_faq.html) 的简明写作原则。
 使用短句、主动表达和直接指令。
@@ -217,13 +217,14 @@ Nginx 从 `/opt/melonclaw/frontend/dist/` 读取新文件。
     如果服务仍在启动，稍等后重新检查。
     确认返回 `{"ready":true}`。
 
-19. 检查公网 HTTPS 连接。
+19. 检查公网 HTTP 重定向和 HTTPS 连接。
 
     ```bash
+    curl -sI http://melonclaw.cn | head
     curl -fsS https://melonclaw.cn/api/ready
     ```
 
-    确认返回 `{"ready":true}`。
+    HTTP 应返回 301，Location 指向 `https://melonclaw.cn`。HTTPS 确认返回 `{"ready":true}`。
 
 20. 完成第 5 节的功能检查。
 
@@ -240,12 +241,17 @@ Nginx 从 `/opt/melonclaw/frontend/dist/` 读取新文件。
 浏览器缓存未更新时，Windows 使用 Ctrl+Shift+R，macOS 使用 Command+Shift+R 强制刷新。
 就绪接口正常不代表全部业务功能正常。
 
-不要用仓库模板覆盖当前 Nginx 站点文件。
-Certbot 已在当前站点中加入 HTTPS 配置。
-如果本次需要修改 Nginx，保留证书配置。
+本次如果修改了 Nginx，安装仓库中的站点配置。
+该配置使 `http://melonclaw.cn` 返回 301，并在 `https://melonclaw.cn` 提供网页和 `/api/`。
+证书路径为 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem` 与同目录 `privkey.pem`。
+安装前确认这两份证书文件存在。
 重新加载前，检查配置。
 
 ```bash
+sudo install -m 0644 ops/nginx/melonclaw.conf \
+  /etc/nginx/sites-available/melonclaw
+sudo ln -sfn /etc/nginx/sites-available/melonclaw \
+  /etc/nginx/sites-enabled/melonclaw
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
