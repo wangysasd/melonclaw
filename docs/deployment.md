@@ -1,6 +1,6 @@
 # Linux 服务器部署
 
-生产域名为 `melonclaw.cn`，公网入口同时提供 HTTP 和 HTTPS（HTTP 301 到 HTTPS）。本次 Ubuntu 从拉代码到 HTTPS 的完整操作、每步作用和验收记录见 [首次上线流程](first-deployment.md)。
+生产服务器已绑定域名 `melonclaw.cn`。用户打开 `http://melonclaw.cn` 或 `https://melonclaw.cn` 都进入网站：80 端口把请求 301 到同一路径的 HTTPS，443 端口提供页面和 `/api/`。Ubuntu 从拉代码到 HTTPS 的完整操作、每步作用和验收记录见 [首次上线流程](first-deployment.md)。
 
 ## 目录与归属
 
@@ -37,16 +37,21 @@ env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/mel
 env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/melonclaw-db-init
 ```
 
-安装 [Web systemd 服务](../ops/systemd/melonclaw.service)、[Nginx 示例](../ops/nginx/melonclaw.conf) 和 [日志轮转配置](../ops/melonclaw.logrotate)。Nginx 配置中的域名、请求体上限与实际附件限制同步。仓库示例以 `server_name melonclaw.cn` 在 80 端口托管 `frontend/dist`，并把 `/api/` 反代到本机 8000。公网站点同时开放 80 和 443：先按该 HTTP 配置启用，再用 Let's Encrypt（`certbot --nginx -d melonclaw.cn --redirect`）在 443 终止 TLS，并把 HTTP 整站 301 到 HTTPS。`MELONCLAW_ALLOWED_ORIGINS` 填 `https://melonclaw.cn`，与浏览器 Origin 一致。不要用仓库 HTTP 模板覆盖已由 certbot 改写的站点文件。完整签发与验收见 [首次上线流程](first-deployment.md) 第 7–9 节。
+安装 [Web systemd 服务](../ops/systemd/melonclaw.service)、[Nginx 站点](../ops/nginx/melonclaw.conf) 和 [日志轮转配置](../ops/melonclaw.logrotate)。Nginx 配置中的域名、请求体上限与实际附件限制同步。站点 `server_name` 为 `melonclaw.cn`：80 端口返回 301，443 端口用 Let's Encrypt 证书托管 `frontend/dist`，并把 `/api/` 反代到本机 8000。`/.well-known/acme-challenge/` 留在 80 端口，供证书续期校验。`MELONCLAW_ALLOWED_ORIGINS` 填 `https://melonclaw.cn`，与浏览器最终访问的 Origin 一致。证书文件为 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem` 与同目录 `privkey.pem`；这两份文件存在后再安装站点，否则 `nginx -t` 失败。尚无证书时，先确认 80 端口空闲，执行 `sudo certbot certonly --standalone -d melonclaw.cn`，再安装下面的站点。续期沿用服务器上已有的 certbot 定时任务。站点内容以仓库配置为准；续期若改写了站点文件，重新安装该文件并 reload。完整签发与验收见 [首次上线流程](first-deployment.md) 第 7–9 节。
 
 ```bash
+sudo install -m 0644 ops/nginx/melonclaw.conf /etc/nginx/sites-available/melonclaw
+sudo ln -sfn /etc/nginx/sites-available/melonclaw /etc/nginx/sites-enabled/melonclaw
+sudo nginx -t && sudo systemctl reload nginx
 sudo install -m 0644 ops/systemd/melonclaw.service /etc/systemd/system/melonclaw.service
 sudo install -m 0644 ops/melonclaw.logrotate /etc/logrotate.d/melonclaw
 sudo systemctl daemon-reload
 sudo systemctl enable --now melonclaw
+curl -sI http://melonclaw.cn | head
+curl -fsS https://melonclaw.cn/api/ready
 ```
 
-Nginx 站点目录因发行版不同，按该机约定安装示例并运行 `nginx -t` 后 reload。健康检查为 `/api/ready`。systemd 负责进程，不需要自行写 PID；文件日志采用 copytruncate 轮转，轮转瞬间有小量日志损失窗口，不把它当审计存储。
+HTTP 响应为 301，`Location` 指向 `https://melonclaw.cn/`。HTTPS 就绪接口返回 `{"ready":true}`。云安全组入站放行 TCP 80 和 443；后端只绑定 `127.0.0.1:8000`，不对公网开放。健康检查为 `/api/ready`。systemd 负责进程，不需要自行写 PID；文件日志采用 copytruncate 轮转，轮转瞬间有小量日志损失窗口，不把它当审计存储。
 
 ## 已有部署迁移
 
@@ -72,7 +77,7 @@ uv run melonclaw-resources --service-stopped migrate --source <旧工作区根> 
 
 ## 当前验证边界
 
-本机已执行文件迁移、数据库相对路径及 Skill 正文核对；2026-10-07 远程 Ubuntu 已确认 systemd 后端运行、本机 Nginx API／首页可访问、证书签发部署成功及 HTTPS 登录页可见。证书续期测试、日志轮转和完整业务场景仍需验收，详见 [首次上线记录](first-deployment.md#10-使用验收和当前结论)。目录分离不提供多用户 Shell 隔离：当前 LocalShellBackend 不是安全沙箱，共享远程部署仍需解决身份、执行隔离和授权边界后再开放给不可信用户。
+本机已执行文件迁移、数据库相对路径及 Skill 正文核对；2026-10-07 远程 Ubuntu 已确认 systemd 后端运行、本机 Nginx API／首页可访问、证书签发部署成功及 HTTPS 登录页可见。仓库中的 Nginx 配置现已同时包含 HTTP 301 和 HTTPS 站点；生产机安装该文件并 reload 后，再用公网 HTTP 301 与 HTTPS `/api/ready` 验收。证书续期测试、日志轮转和完整业务场景仍需验收，详见 [首次上线记录](first-deployment.md#10-使用验收和当前结论)。目录分离不提供多用户 Shell 隔离：当前 LocalShellBackend 不是安全沙箱，共享远程部署仍需解决身份、执行隔离和授权边界后再开放给不可信用户。
 
 ## 已按旧账号准备目录时
 

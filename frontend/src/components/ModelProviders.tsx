@@ -54,7 +54,7 @@ function parseProviderHeaders(value: string): Record<string, string> | undefined
 }
 
 /**
- * 模型供应商区（学 Yuxi）：先配供应商，再进供应商配模型。
+ * 模型供应商区：先配供应商，再进供应商配模型。
  * - 顶栏：搜索 + 新增供应商（仅 admin）+ 刷新；
  * - 分组：已启用大卡 / 未启用小卡；
  * - 点击卡片：admin 进供应商编辑弹窗，普通用户进“我的 Key”弹窗；

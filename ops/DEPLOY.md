@@ -241,12 +241,17 @@ Nginx 从 `/opt/melonclaw/frontend/dist/` 读取新文件。
 浏览器缓存未更新时，Windows 使用 Ctrl+Shift+R，macOS 使用 Command+Shift+R 强制刷新。
 就绪接口正常不代表全部业务功能正常。
 
-不要用仓库模板覆盖当前 Nginx 站点文件。
-仓库 `ops/nginx/melonclaw.conf` 只是 HTTP 引导配置；生产站点由 certbot 写成 80 重定向、443 提供 SPA 与 `/api/`。
-如果本次需要修改 Nginx，保留 `server_name melonclaw.cn`、Let's Encrypt 证书路径和 HTTP 301。
+本次如果修改了 Nginx，安装仓库中的站点配置。
+该配置使 `http://melonclaw.cn` 返回 301，并在 `https://melonclaw.cn` 提供网页和 `/api/`。
+证书路径为 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem` 与同目录 `privkey.pem`。
+安装前确认这两份证书文件存在。
 重新加载前，检查配置。
 
 ```bash
+sudo install -m 0644 ops/nginx/melonclaw.conf \
+  /etc/nginx/sites-available/melonclaw
+sudo ln -sfn /etc/nginx/sites-available/melonclaw \
+  /etc/nginx/sites-enabled/melonclaw
 sudo nginx -t && sudo systemctl reload nginx
 ```
 

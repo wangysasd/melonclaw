@@ -16,7 +16,7 @@
 | `/run/melonclaw/` | systemd 管理的临时运行目录 |
 | PostgreSQL | 用户、会话、资源索引、Checkpoint、长期 Memory |
 
-访问链路为：浏览器访问 `http://melonclaw.cn` 时 Nginx 301 到 HTTPS；`https://melonclaw.cn` 由 Nginx 提供前端静态文件，或将 `/api/` 反向代理到本机后端 8000，再访问 PostgreSQL／持久目录。用户数据独立于代码，后续 git pull 不应覆盖数据目录。
+访问链路为：生产服务器已绑定 `melonclaw.cn`。浏览器访问 `http://melonclaw.cn` 时 Nginx 301 到同一路径的 HTTPS；`https://melonclaw.cn` 由 Nginx 提供前端静态文件，或将 `/api/` 反向代理到本机后端 8000，再访问 PostgreSQL／持久目录。用户数据独立于代码，后续 git pull 不应覆盖数据目录。
 
 ## 2. 取得仓库代码与 GitHub 访问权限
 
@@ -158,29 +158,24 @@ curl -fsS http://127.0.0.1:8000/api/ready
 
 ## 7. 配置 Nginx 提供网页和代理 API
 
-本次 Nginx 已安装，版本为 Ubuntu nginx/1.24.0，最初只启用了 default 站点。首次新增应用站点：
+本次 Nginx 已安装，版本为 Ubuntu nginx/1.24.0，最初只启用了 default 站点。2026-10-07 首次安装时，仓库文件只监听 80 并直接返回页面，本机检查得到 ready=true 和 HTTP 200。2026-11-18 起，`ops/nginx/melonclaw.conf` 同时包含 HTTP 301 和 HTTPS 站点，按当前文件安装后，用户通过 `http://melonclaw.cn` 与 `https://melonclaw.cn` 访问同一网站。
 
-```bash
-sudo cp /opt/melonclaw/ops/nginx/melonclaw.conf \
-  /etc/nginx/sites-available/melonclaw
-sudo nano /etc/nginx/sites-available/melonclaw
-```
-
-模板已使用 `server_name melonclaw.cn`。核对网页根为 `/opt/melonclaw/frontend/dist`，`/api/` 转发到 `127.0.0.1:8000`，并关闭代理缓冲让聊天 SSE 增量及时显示。不要把 `server_name` 改成公网 IP；证书校验与浏览器访问都依赖该域名。
+证书文件就绪后安装站点。`server_name` 保持 `melonclaw.cn`，网页根为 `/opt/melonclaw/frontend/dist`，`/api/` 转发到 `127.0.0.1:8000`，并关闭代理缓冲让聊天 SSE 增量及时显示。证书校验与浏览器访问都使用该域名。
 
 `/etc/nginx/sites-available/melonclaw` 是配置文件，不能 cd 进去。启用链接只针对 Nginx 站点文件，与代码目录无软链接的方案不冲突：
 
 ```bash
+sudo install -m 0644 /opt/melonclaw/ops/nginx/melonclaw.conf \
+  /etc/nginx/sites-available/melonclaw
 sudo ln -sfn /etc/nginx/sites-available/melonclaw \
   /etc/nginx/sites-enabled/melonclaw
 sudo nginx -t && sudo systemctl reload nginx
 
-curl -fsS -H 'Host: melonclaw.cn' http://127.0.0.1/api/ready
-curl -s -o /dev/null -w '%{http_code}\n' \
-  -H 'Host: melonclaw.cn' http://127.0.0.1/
+curl -sI -H 'Host: melonclaw.cn' http://127.0.0.1/ | head
+curl -fsS --resolve melonclaw.cn:443:127.0.0.1 https://melonclaw.cn/api/ready
 ```
 
-`nginx -t` 检查配置，成功才 reload；Host 请求头用于在本机选中域名站点。本次分别得到 ready=true 和 HTTP 200，证明反向代理与静态首页都可访问。此时还只有 HTTP，不应把它当 HTTPS 上线完成。若现网站点仍是 `listen 80` 且 `server_name` 为公网 IP，先改回本模板的域名后再申请证书，不要继续用 IP 作为站点名。
+`nginx -t` 检查配置，成功才 reload。本机 HTTP 应返回 301，`Location` 指向 `https://melonclaw.cn/`。带 `--resolve` 的 HTTPS 请求走本机 443，并按域名校验证书，就绪接口返回 `{"ready":true}`。现网站点若仍把 `server_name` 设为公网 IP，或只监听 80 并直接提供页面，用当前仓库文件替换后再 reload。
 
 ## 8. 配置 DNS 和网络入口
 
@@ -197,18 +192,16 @@ sudo ufw status
 
 ## 9. 申请并启用 HTTPS
 
-DNS 和公网 80 已可达后：
+2026-10-07 在 DNS 和公网 80 可达后执行了：
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d melonclaw.cn --redirect
 ```
 
-Certbot 验证域名控制权、申请证书并修改 Nginx 配置；`--redirect` 将 HTTP 重定向到 HTTPS。按提示填写邮箱和同意条款。这是生产站点的目标形态：80 与 443 都监听 `melonclaw.cn`，HTTP 可达并 301 到 HTTPS，HTTPS 继续提供同一套 SPA 与 `/api/` 反代。
+当次 Certbot 验证域名控制权、申请证书并改写了当时的 Nginx 配置。签发和部署成功，证书位于 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem`，私钥为同目录 `privkey.pem`，当次证书有效期至 2027-01-05，并设置了自动续期任务。这个日期仅是本次记录，续期后会变化；私钥不得泄露。浏览器已经展示 HTTPS 登录页。
 
-本次 Certbot 显示签发和部署成功，证书位于 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem`，私钥为同目录 `privkey.pem`，当次证书有效期至 2027-01-05，并设置了自动续期任务。这个日期仅是本次记录，续期后会变化；私钥不得泄露。
-
-公网 HTTP 应返回 301 并指向 `https://melonclaw.cn`；HTTPS 提供站点与 `/api/`。再检查续期链路。本次对话未提供这些命令的执行结果，仍应完成。浏览器已经展示 HTTPS 登录页。之后不要再直接 cp 仓库 HTTP 模板覆盖现有站点，否则可能丢失 Certbot 添加的 HTTPS 配置。
+当前仓库配置直接引用上述证书，并自己完成 80 端口 301 与 443 端口站点。生产机安装第 7 节的文件后，公网 HTTP 返回 301 并指向 `https://melonclaw.cn`，HTTPS 提供站点与 `/api/`。证书文件缺失时，先确认 80 端口空闲，再执行 `sudo certbot certonly --standalone -d melonclaw.cn`，然后安装仓库站点。续期继续使用已有 certbot 定时任务；80 端口保留 `/.well-known/acme-challenge/`。续期若改写站点文件，重新安装仓库配置并 reload。
 
 ```bash
 curl -sI http://melonclaw.cn | head
@@ -233,7 +226,7 @@ sudo certbot renew --dry-run
 
 ## 11. 以后升级与排障
 
-以后不重复执行首次建库或覆盖 Nginx 站点。升级前记录提交、停服并备份数据库和外部文件；git pull 后同步依赖和构建，按需 db-update，再启动并验收。详细流程及回滚限制见 [部署目录与维护说明](deployment.md)。
+以后不重复执行首次建库。Nginx 有变更时，安装仓库中的站点配置并 reload；该文件已包含 HTTP 301 和 HTTPS 站点。升级前记录提交、停服并备份数据库和外部文件；git pull 后同步依赖和构建，按需 db-update，再启动并验收。详细流程及回滚限制见 [部署目录与维护说明](deployment.md)。
 
 常用命令：
 

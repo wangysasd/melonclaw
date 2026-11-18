@@ -4,7 +4,7 @@
 
 ## 背景与目标
 
-工具审批解决“这个副作用操作能不能执行”，但不能解决“任务有多个合理路径时用户想要哪一条”。本能力让主 Agent 在缺少关键偏好、存在多个无法自动取舍的方案，或 Skill 明确要求选择时，主动向用户提问；用户回答后，Agent 从原来的 LangGraph Checkpoint 继续执行。它对应隔壁 Yuxi 的 `ask_user_question` 能力；MelonClaw 内部采用更短的 `ask_user` 工具名。
+工具审批解决“这个副作用操作能不能执行”，但不能解决“任务有多个合理路径时用户想要哪一条”。本能力让主 Agent 在缺少关键偏好、存在多个无法自动取舍的方案，或 Skill 明确要求选择时，主动向用户提问；用户回答后，Agent 从原来的 LangGraph Checkpoint 继续执行。MelonClaw 内部采用 `ask_user` 工具名。
 
 ## 方案概览
 

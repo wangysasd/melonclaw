@@ -107,23 +107,6 @@ system 租户的 admin 可以查看、检索和下载所有未删除的活动知
 - 首版接入 OCR：扫描 PDF 与图片走知识库专用文档解析配置，原件内容外发 SiliconFlow 已经用户确认；模型、调用粒度与坐标映射按 15.1 的 D11 结论固定，多页覆盖与版面映射仍属未验证项。
 - 首版只有普通聊天，而且每一轮都要显式重传所选库。后台任务不自动获得知识库。
 
-## 2. 从 Yuxi 学到什么
-
-### 2.1 核对依据
-
-调研对象是同级 Yuxi 项目的本地工作树，读取时 HEAD 为 `bd07ab4`。下面使用 Yuxi 仓库相对路径说明依据，不将另一仓库的本机路径写入本项目配置。
-
-| Yuxi 来源 | 核对到的设计事实 | 在 MelonClaw 中的处理 |
-|---|---|---|
-| `docs/mechanisms/knowledge-base.md`、`backend/package/yuxi/knowledge/manager.py` | 管理链路与 Agent 消费链路分开，由 Manager 选择 executor | 保留管理/消费分工，首版只实现 PostgreSQL 检索，不建立多 executor 框架 |
-| `backend/server/routers/knowledge_router.py` | 创建、原件上传等管理入口要求管理员；读取/管理还校验库权限 | 改为所有有效用户可创建，所有文档写入口按库角色授权 |
-| `backend/package/yuxi/permissions/resource_permission.py` | 共享区分 read/manage，并结合用户、部门、全局范围和角色上限；创建者直接具有 manage | 借鉴集中授权；改为明确库成员角色，不引入当前项目没有的部门树 |
-| `backend/package/yuxi/knowledge/base.py`、`backend/package/yuxi/knowledge/implementations/milvus.py` | 上传、解析、索引分阶段，状态条件更新防并发；chunk 存 PG、向量存 Milvus，失败需要补偿 | 保留阶段与条件抢占；正文和向量同存 PG，完整新版本准备好后再发布 |
-| `backend/package/yuxi/storage/postgres/models_knowledge.py` | 库、文件、chunk 分层，记录正文与位置 | 保留分层，增加不可变文档版本与有效版本指针 |
-| `backend/package/yuxi/agents/toolkits/kbs/tools.py`、`backend/package/yuxi/agents/backends/knowledge_base_backend.py` | 用户可见库与 Agent 选择求交；通过检索、文件搜索、分段原文工具消费；运行上下文保存可见库快照 | 保留选择范围和原文回看；每次实际调用重验权限，快照不作为授权凭证 |
-
-Yuxi 的原件、向量与可选图谱分别依赖 MinIO、Milvus、Neo4j，还使用运行配置缓存。MelonClaw 首版的业务规模尚未确认，建议从 PostgreSQL 与外部数据目录起步，以减少部署组件和跨存储一致性处理。以上是基于本地实现的取舍，不代表对 Yuxi 所有部署形态的判断。
-
 ## 3. 总体架构
 
 ```mermaid
@@ -579,7 +562,7 @@ docx、xlsx、pptx 复用现有解析器的抽取结果，再交给 Splitter；�
 
 ### 13.4 本轮验证记录
 
-前轮已核对 Yuxi 的权限解析、管理入口、运行时可见库、索引状态与存储模型，并对照 MelonClaw 的架构、数据库模型目录、账户/租户、解析器、provider 注入、资源失效和 UI 约定；补充核对了官方 Loader、Splitter、Embeddings、Retriever 文档及第 3.3 节固定源码基线中的 PGVectorStore 行为。SiliconFlow 官方接口文档与一次性真实账号连通性探针记录见 15.5、15.6。
+前轮已核对同类方案的权限解析、管理入口、运行时可见库、索引状态与存储模型，并对照 MelonClaw 的架构、数据库模型目录、账户/租户、解析器、provider 注入、资源失效和 UI 约定；补充核对了官方 Loader、Splitter、Embeddings、Retriever 文档及第 3.3 节固定源码基线中的 PGVectorStore 行为。SiliconFlow 官方接口文档与一次性真实账号连通性探针记录见 15.5、15.6。
 
 
 ## 14. 已经定下的边界
