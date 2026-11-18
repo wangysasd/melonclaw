@@ -631,6 +631,4 @@ def events_from_snapshot(message_id: str, steps: list[dict[str, Any]]) -> list[d
     return events
 
 
-AssistantStepProjector = AssistantStepAccumulator
-
-__all__ = ["AssistantStepAccumulator", "AssistantStepProjector", "events_from_snapshot"]
+__all__ = ["AssistantStepAccumulator", "events_from_snapshot"]

@@ -123,13 +123,11 @@ async def user_candidates(request: Request, search: str = Query("", max_length=6
 
 @router.get("/api/knowledge-bases/{kb_id}")
 async def detail_base(request: Request, kb_id: UUID):
-    async def load():
-        row = await storage(request).knowledge_detail(request.state.user.user_id, kb_id)
-        row["published_document_count"] = await storage(request).knowledge_published_document_count(
-            request.state.user.user_id, kb_id)
-        return row
-
-    return await respond(load())
+    return await respond(
+        KnowledgeService(storage(request), get_chat_service(request).runtime.settings).detail(
+            request.state.user.user_id, kb_id
+        )
+    )
 
 
 @router.patch("/api/knowledge-bases/{kb_id}")

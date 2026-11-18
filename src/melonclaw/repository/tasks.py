@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import and_, case, func, insert, null, or_, select, text, tuple_, update
@@ -23,14 +23,11 @@ from melonclaw.database.schema import (
     tenants,
     users,
 )
+from melonclaw.repository.mappers import _now
 from melonclaw.repository.models import UserContext
 from melonclaw.repository.task_delivery import append_run, sync_run
 
 ACTIVE = ("queued", "running")
-
-
-def now():
-    return datetime.now(UTC)
 
 
 def json_value(value):
@@ -179,7 +176,7 @@ class TaskTransaction:
         from melonclaw.repository.task_history import capture_history
 
         snapshot = dict(snapshot) | {"history": await capture_history(self.conn, self.user.user_id, task["conversation_id"])}
-        run_id, timestamp = uuid4(), now()
+        run_id, timestamp = uuid4(), _now()
         row = (
             (
                 await self.conn.execute(
@@ -229,9 +226,9 @@ class TaskTransaction:
     async def cancel(self, run):
         if run["status"] not in ACTIVE:
             return run
-        values = {"cancel_requested_at": run["cancel_requested_at"] or now()}
+        values = {"cancel_requested_at": run["cancel_requested_at"] or _now()}
         if run["status"] == "queued":
-            values.update(status="cancelled", finished_at=now(), result_is_partial=True)
+            values.update(status="cancelled", finished_at=_now(), result_is_partial=True)
         updated = dict((await self.conn.execute(
             update(task_runs).where(task_runs.c.id == run["id"]).values(**values).returning(task_runs)
         )).mappings().one())
@@ -245,7 +242,7 @@ class TaskTransaction:
                 task_runs.c.task_id == task["id"],
                 task_runs.c.status == "queued",
             )
-            .values(status="cancelled", finished_at=now(), result_is_partial=True).returning(task_runs)
+            .values(status="cancelled", finished_at=_now(), result_is_partial=True).returning(task_runs)
         )
         for run in cancelled.mappings():
             await sync_run(self.conn, dict(run))
@@ -258,7 +255,7 @@ class TaskTransaction:
                         status="archived",
                         version=task["version"] + 1,
                         next_run_at=None,
-                        updated_at=now(),
+                        updated_at=_now(),
                     )
                     .returning(tasks)
                 )
@@ -336,7 +333,7 @@ class TaskRepository:
                         idempotency_key=key,
                         request_digest=digest,
                         response=json_value(tx.result),
-                        created_at=now(),
+                        created_at=_now(),
                     )
                 )
 

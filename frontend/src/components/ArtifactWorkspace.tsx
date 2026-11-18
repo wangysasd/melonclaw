@@ -1,7 +1,7 @@
 import { Dropdown, Segmented } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { conversationArtifacts, fetchResultBlob, resultFileMetadata, resultFileUrl, type ConversationArtifact, type ResultFileMetadata } from "../api/results";
-import type { ChatMessage } from "../hooks/useChatStream";
+import type { ChatMessage } from "../state/chatStream";
 import { assetKey, type AssetRef } from "../lib/resultBlocks";
 import { fileLocation, fileRefKey, fileRefPath, type FileLocation, type FileRef } from "../lib/workspaceFiles";
 import { downloadBlob } from "../lib/resultExport";

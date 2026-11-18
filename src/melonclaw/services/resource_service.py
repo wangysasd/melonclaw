@@ -36,7 +36,6 @@ from melonclaw.services.skill_state import evaluate_skills
 from melonclaw.services.skills import SAFE_DIRECTORY_RE
 
 ADMIN_ROLES = frozenset({"admin", "owner"})
-MCP_TRANSPORTS = ("http", "sse", "stdio")
 
 MODEL_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
@@ -487,7 +486,7 @@ class ResourceService:
         )
 
     async def _require_provider_row(
-        self, user_id: str, provider_key: str, role: str
+        self, provider_key: str, role: str
     ) -> dict[str, Any]:
         self._require_admin(role)
         if provider_key == EMBEDDING_PROVIDER_KEY:
@@ -514,7 +513,7 @@ class ResourceService:
         """更新供应商配置；``api_key=None`` 表示不改动已存密钥。"""
 
         role = await self._role(user_id)
-        await self._require_provider_row(user_id, provider_key, role)
+        await self._require_provider_row(provider_key, role)
         fields: dict[str, Any] = {}
         validate_provider_advanced(api_key_env, request_headers, extra_config)
         for key, value in (("api_key_env", api_key_env), ("request_headers", request_headers), ("extra_config", extra_config)):
@@ -546,7 +545,7 @@ class ResourceService:
 
     async def delete_provider(self, user_id: str, provider_key: str) -> None:
         role = await self._role(user_id)
-        row = await self._require_provider_row(user_id, provider_key, role)
+        row = await self._require_provider_row(provider_key, role)
         if row["source_type"] == "system":
             raise ModelConfigError("平台内置供应商不能删除，只能停用或修改。")
         models = await self.storage.list_models_of_provider(provider_key)
@@ -855,7 +854,6 @@ class ResourceService:
 
 __all__ = [
     "ADMIN_ROLES",
-    "MCP_TRANSPORTS",
     "ModelConfigError",
     "ModelConfigPayload",
     "model_public_dict",

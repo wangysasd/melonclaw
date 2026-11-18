@@ -4,7 +4,7 @@ import { AgentExecution } from "../src/components/AgentExecution";
 import { StoppedRunNotice } from "../src/components/StoppedRunNotice";
 import { buildAgentRun } from "../src/lib/agentRun";
 import { confirmedTaskPlan, currentRunStage, stoppedRunSummary } from "../src/lib/runActivity";
-import { INITIAL_CHAT_STATE, reducer, type ChatMessage } from "../src/hooks/useChatStream";
+import { INITIAL_CHAT_STATE, reducer, type ChatMessage } from "../src/state/chatStream";
 import type { AssistantToolCall, DisplayEvent } from "../src/types/api";
 
 function message(tools: AssistantToolCall[] = [], patch: Partial<ChatMessage> = {}): ChatMessage {

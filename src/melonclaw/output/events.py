@@ -352,7 +352,7 @@ async def _consume_scope(
     tasks = [
         asyncio.create_task(_consume_messages(handle, scope, output)),
         asyncio.create_task(_consume_tool_calls(handle, scope, output)),
-        asyncio.create_task(_consume_subagents(handle, scope, output)),
+        asyncio.create_task(_consume_subagents(handle, output)),
         asyncio.create_task(_consume_run_phases(handle, output, child=True)),
     ]
     errors: list[BaseException] = []
@@ -380,7 +380,6 @@ async def _consume_scope(
 
 async def _consume_subagents(
     scope_stream: Any,
-    parent_scope: dict[str, Any] | None,
     output: asyncio.Queue[dict[str, Any] | BaseException | object],
 ) -> None:
     """发现并递归消费当前命名空间直接启动的子 Agent。"""
@@ -449,7 +448,7 @@ async def _iter_v3_research_events(
     root_tasks = [
         asyncio.create_task(_consume_messages(stream, None, queue, projector)),
         asyncio.create_task(_consume_tool_calls(stream, None, queue, projector)),
-        asyncio.create_task(_consume_subagents(stream, None, queue)),
+        asyncio.create_task(_consume_subagents(stream, queue)),
         asyncio.create_task(_consume_run_phases(stream, queue)),
     ]
 

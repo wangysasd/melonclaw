@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage } from "./useChatStream";
+import type { ChatMessage } from "../state/chatStream";
 
 function hasMessageUpdate(previous: ChatMessage[], next: ChatMessage[]) {
   const known = new Map(previous.map((message) => [message.id, message]));

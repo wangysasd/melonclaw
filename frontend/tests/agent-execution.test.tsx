@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentExecution } from "../src/components/AgentExecution";
-import { INITIAL_CHAT_STATE, reducer, type ChatMessage } from "../src/hooks/useChatStream";
+import { INITIAL_CHAT_STATE, reducer, type ChatMessage } from "../src/state/chatStream";
 import {
   buildAgentRun,
   formatDuration,

@@ -13,7 +13,7 @@ from melonclaw.api.app import create_app
 from melonclaw.api.mcp_schemas import McpCreateRequest
 from melonclaw.core.mcp_credentials import decode_credentials
 from melonclaw.repository.mcp import McpConflictError
-from melonclaw.services.mcp import mcp_snapshot_revision, resolve_user_mcp_servers
+from melonclaw.services.mcp import resolve_user_mcp_servers
 from melonclaw.services.mcp_discovery import McpDiscoveryCoordinator
 from melonclaw.services.mcp_management import McpManagementService, McpNotFoundError
 
@@ -123,7 +123,7 @@ def test_credentials_plaintext_storage_write_only_api_and_version():
     asyncio.run(run())
 
 
-def test_snapshot_delete_and_preference_invalidate_and_empty_allowlist():
+def test_empty_allowlist_reaches_runtime_selection():
     async def run():
         manager, storage = service()
         saved = await manager.create("alice", payload(tool_allowlist=[]))
@@ -131,10 +131,6 @@ def test_snapshot_delete_and_preference_invalidate_and_empty_allowlist():
         rows = await storage.list_visible_mcp_rows("alice")
         _, allowlists = resolve_user_mcp_servers(rows)
         assert allowlists == {"demo": ()}
-        before = mcp_snapshot_revision(rows)
-        assert before != mcp_snapshot_revision([])
-        rows[0]["user_enabled"] = False
-        assert before != mcp_snapshot_revision(rows)
 
     asyncio.run(run())
 

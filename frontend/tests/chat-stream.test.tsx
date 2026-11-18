@@ -2,7 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionContextValue } from "../src/state/session";
 import type { ConversationHistory, StreamEvent } from "../src/types/api";
-import { INITIAL_CHAT_STATE, reducer, useChatStream } from "../src/hooks/useChatStream";
+import { useChatStream } from "../src/hooks/useChatStream";
+import { INITIAL_CHAT_STATE, reducer } from "../src/state/chatStream";
 import { ApiError, apiRequest, getConversationHistory, retryAttachmentParse } from "../src/api/client";
 import { sendApprovalStream, sendMessageStream } from "../src/api/stream";
 

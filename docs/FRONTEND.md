@@ -28,8 +28,8 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 | 目录 | 职责 |
 |---|---|
 | `src/api/` | HTTP 与 SSE 客户端：`client.ts`（JSON 请求封装与错误归一化）、`stream.ts`（fetch + ReadableStream 手动解析 SSE 帧） |
-| `src/state/` | 会话级全局状态（`session.tsx`）：用户、Project、Conversation、当前流、`epoch` 失效机制；用户资料含唯一租户信息，不维护独立租户选择状态 |
-| `src/hooks/` | 流式消息 reducer 与副作用：`useChatStream.ts` 处理 optimistic 消息、增量文本、审批、断线重同步；`useRunClock.ts` 提供只在运行期开启的运行级计时 |
+| `src/state/` | `sessionState.ts` 归约用户、Project、Conversation 与 `epoch`；`session.tsx` 只做请求和副作用。`chatStream.ts` 归约普通聊天消息。用户资料含唯一租户信息，不维护独立租户选择状态 |
+| `src/hooks/` | 流式副作用：`useChatStream.ts` 处理 optimistic 发送、SSE、审批与断线重同步，状态变更调用 `chatStream.ts`；`useRunClock.ts` 提供只在运行期开启的运行级计时 |
 | `src/components/` | 展示与交互组件（Composer、ChatView、`AgentExecution` 执行过程区域、ToolTimeline 子 Agent 任务卡、审批卡、用户问题卡、技能选择等） |
 | `src/types/` | 与后端契约对应的类型：`api.ts` 里的 `Message`、`SendMessageInput`、`StreamEvent` 判别联合 |
 | `src/styles/` | 分文件维护的样式：`global.css`、`sidebar.css`、`chat.css` |

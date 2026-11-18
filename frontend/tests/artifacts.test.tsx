@@ -4,7 +4,7 @@ import { ArtifactWorkspace, ArtifactTrigger, MessageArtifactCards } from "../src
 import { Markdown } from "../src/components/Markdown";
 import { ResultProvider } from "../src/components/ResultContext";
 import { assetKey, markdownAssetRef } from "../src/lib/resultBlocks";
-import type { ChatMessage } from "../src/hooks/useChatStream";
+import type { ChatMessage } from "../src/state/chatStream";
 import type { AssetRef } from "../src/lib/resultBlocks";
 import type { FileRef } from "../src/lib/workspaceFiles";
 import { WorkspaceFileBrowser } from "../src/components/WorkspaceFileBrowser";

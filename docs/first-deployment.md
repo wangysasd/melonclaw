@@ -169,13 +169,14 @@ sudo install -m 0644 /opt/melonclaw/ops/nginx/melonclaw.conf \
   /etc/nginx/sites-available/melonclaw
 sudo ln -sfn /etc/nginx/sites-available/melonclaw \
   /etc/nginx/sites-enabled/melonclaw
+sudo rm -f /etc/nginx/sites-enabled/default   # 移除默认站点，否则 IP 或未匹配 Host 会命中欢迎页
 sudo nginx -t && sudo systemctl reload nginx
 
 curl -sI -H 'Host: melonclaw.cn' http://127.0.0.1/ | head
 curl -fsS --resolve melonclaw.cn:443:127.0.0.1 https://melonclaw.cn/api/ready
 ```
 
-`nginx -t` 检查配置，成功才 reload。本机 HTTP 应返回 301，`Location` 指向 `https://melonclaw.cn/`。带 `--resolve` 的 HTTPS 请求走本机 443，并按域名校验证书，就绪接口返回 `{"ready":true}`。现网站点若仍把 `server_name` 设为公网 IP，或只监听 80 并直接提供页面，用当前仓库文件替换后再 reload。
+`nginx -t` 检查配置，成功才 reload。本机 HTTP 应返回 301，`Location` 指向 `https://melonclaw.cn/`。带 `--resolve` 的 HTTPS 请求走本机 443，并按域名校验证书，就绪接口返回 `{"ready":true}`。2026-11-18 发现：只新增 melonclaw 链接而保留 `sites-enabled/default` 时，用 IP 或未匹配 Host 访问会命中 Ubuntu 默认站点，显示 “Welcome to nginx!”；安装时一并删除 default 软链接即可，只删链接，`sites-available/default` 配置文件保留。现网站点若仍把 `server_name` 设为公网 IP，或只监听 80 并直接提供页面，用当前仓库文件替换后再 reload。
 
 ## 8. 配置 DNS 和网络入口
 

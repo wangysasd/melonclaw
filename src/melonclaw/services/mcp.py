@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import re
 from urllib.parse import urlsplit
 
-from melonclaw.core.mcp_config import expand_env_placeholders, row_to_client_config
+from melonclaw.core.mcp_config import (
+    MCP_TRANSPORTS,
+    expand_env_placeholders,
+    row_to_client_config,
+)
 from melonclaw.core.mcp_credentials import decode_credentials
 
 MCP_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -20,7 +22,7 @@ class McpConfigError(ValueError):
 
 
 def validate_mcp_payload(*, scope, transport, url, command, env, headers, args=None, allow_missing_url=False):
-    if transport not in ("http", "sse", "stdio"):
+    if transport not in MCP_TRANSPORTS:
         raise McpConfigError("不支持的 MCP 连接类型。")
     if scope == "user" and transport == "stdio":
         raise McpConfigError("个人 MCP 仅支持 HTTP/SSE，stdio 仅限管理员。")
@@ -68,11 +70,6 @@ def selected_mcp_rows(rows: list[dict]) -> list[dict]:
         if row["slug"] not in selected or row["scope"] == "user":
             selected[row["slug"]] = row
     return [row for row in selected.values() if row["enabled"] and row["user_enabled"] is not False]
-
-
-def mcp_snapshot_revision(rows: list[dict]) -> str:
-    payload = sorted((str(row["id"]), row["version"], row["user_enabled"]) for row in rows)
-    return hashlib.sha256(json.dumps(payload).encode()).hexdigest()
 
 
 def resolved_mcp_config(row: dict) -> dict:

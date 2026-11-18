@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { useUnreadChat } from "../src/hooks/useUnreadChat";
-import type { ChatMessage } from "../src/hooks/useChatStream";
+import type { ChatMessage } from "../src/state/chatStream";
 
 const message: ChatMessage = { id: "a", role: "assistant", content: "", status: "streaming", markdown: false, events: [], assistantSteps: [], phases: [] };
 

@@ -116,7 +116,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 
 | 关注点 | 唯一入口 | 说明 |
 |---|---|---|
-| 配置与环境变量 | `core/config.py` 的 `Settings` / `load_settings()` | 新增环境变量在这里解析，不要在各模块直接读 `os.environ`（`MELONCLAW_*` 风格） |
+| 配置与环境变量 | `core/config.py` 的 `Settings` / `load_settings()`；Web 监听地址由同文件 `web_bind()` 解析 | 新增环境变量在这里解析，不要在各模块直接读 `os.environ`（`MELONCLAW_*` 风格）。`MELONCLAW_HOST` / `MELONCLAW_PORT` 只服务进程绑定，不进入 Settings，也不创建数据目录 |
 | 模型与能力 | `core/model_catalog.py` 的 `ResolvedModel` + 目录条目转换；模型目录以 `model_providers` + `model_configs` 两张表为唯一事实来源（供应商持有 base_url/api_key/模型列表端点，模型经 `provider_key` 引用供应商；db-init 只写无凭据、未启用的供应商模板，不创建模型），runtime 按 user_id 查可见行并联查供应商行 | 请求只能提交目录模型 ID（`custom:` 前缀），不接受前端传任意模型名；`model_providers.api_key` 只写不回读，模型停用或缺少有效 Key 时不可用，全局模型另受供应商开关控制；模型／供应商／Key 写入统一发布内存资源版本，下一次准备时旧 Agent 缓存失效；DB 无可用行时返回空选择并提示配置；Agent 构建必须显式接收数据库解析后的模型 |
 | 模型实例 | `core/chat_model.py` 的 `build_chat_model()` | 所有 provider（含 custom）统一经此构造 |
 | MCP 服务定义 | `services/mcp.py` 的运行时装配（配置通过 Web 页面写入 `mcp_servers` 表） | 无 MCP 时必须能正常启动；user scope 仅 http/sse 且禁止 `${VAR}`，global scope 允许 stdio 与 `${VAR}`（管理员发布） |

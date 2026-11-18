@@ -16,7 +16,6 @@ from melonclaw.api.app import create_app
 from melonclaw.api.routes.knowledge import CreateBase, UpdateBase
 from melonclaw.core.knowledge import ChunkConfig, KnowledgeDenied, require_role
 from melonclaw.core.model_catalog import resolve_knowledge_model_row, resolve_model_row
-from melonclaw.database.errors import DatabaseSchemaError
 from melonclaw.repository.knowledge import visible_query
 from melonclaw.services.knowledge import KnowledgeService
 from melonclaw.services.knowledge_models import test_model_connection as probe_connection
@@ -179,6 +178,16 @@ def test_knowledge_routes_use_cookie_identity_and_do_not_echo_database_failure()
             response = await client.get("/api/knowledge-bases/" + str(uuid4()))
             assert response.status_code == 503
             assert "secret" not in response.text
+            repo.knowledge_detail.side_effect = None
+            repo.knowledge_detail.return_value = {"id": "kb", "name": "Test"}
+            repo.knowledge_published_document_count = AsyncMock(return_value=4)
+            ok = await client.get("/api/knowledge-bases/" + str(uuid4()))
+            assert ok.status_code == 200
+            body = ok.json()
+            assert body["published_document_count"] == 4
+            assert body["name"] == "Test"
+            assert "embedding_model_id" not in body
+            assert repo.knowledge_detail.await_args.args[0] == "verified-user"
         service = KnowledgeService(repo, object())
         with pytest.raises(ValueError):
             await service.create("verified-user", {"name": " "})

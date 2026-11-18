@@ -42,6 +42,7 @@ env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/mel
 ```bash
 sudo install -m 0644 ops/nginx/melonclaw.conf /etc/nginx/sites-available/melonclaw
 sudo ln -sfn /etc/nginx/sites-available/melonclaw /etc/nginx/sites-enabled/melonclaw
+sudo rm -f /etc/nginx/sites-enabled/default   # 移除默认站点，避免 IP/未匹配 Host 命中欢迎页
 sudo nginx -t && sudo systemctl reload nginx
 sudo install -m 0644 ops/systemd/melonclaw.service /etc/systemd/system/melonclaw.service
 sudo install -m 0644 ops/melonclaw.logrotate /etc/logrotate.d/melonclaw
@@ -51,7 +52,7 @@ curl -sI http://melonclaw.cn | head
 curl -fsS https://melonclaw.cn/api/ready
 ```
 
-HTTP 响应为 301，`Location` 指向 `https://melonclaw.cn/`。HTTPS 就绪接口返回 `{"ready":true}`。云安全组入站放行 TCP 80 和 443；后端只绑定 `127.0.0.1:8000`，不对公网开放。健康检查为 `/api/ready`。systemd 负责进程，不需要自行写 PID；文件日志采用 copytruncate 轮转，轮转瞬间有小量日志损失窗口，不把它当审计存储。
+HTTP 响应为 301，`Location` 指向 `https://melonclaw.cn/`。HTTPS 就绪接口返回 `{"ready":true}`。安装时同时删除 `sites-enabled/default` 软链接（保留 `sites-available/default` 配置文件）：否则用 IP 或未匹配 Host 访问会命中 Ubuntu 默认站点，显示 “Welcome to nginx!”，而不是 melonclaw 页面。云安全组入站放行 TCP 80 和 443；后端只绑定 `127.0.0.1:8000`，不对公网开放。健康检查为 `/api/ready`。systemd 负责进程，不需要自行写 PID；文件日志采用 copytruncate 轮转，轮转瞬间有小量日志损失窗口，不把它当审计存储。
 
 ## 已有部署迁移
 

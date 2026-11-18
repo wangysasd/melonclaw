@@ -25,6 +25,8 @@
 | `MELONCLAW_TASK_EXECUTION_TIMEOUT_SECONDS` | 后台完整运行时限（包含模型解析、历史摘要、Agent 构建和执行），默认 1800 秒，须为正整数 |
 | `MELONCLAW_TASK_RESULT_MAX_CHARS` | 任务文字结果上限，默认 200000 字符，超限明确失败并保留部分内容 |
 | `profile` | 仅 `dev` 开启免密登录和全员身份切换；直接启动后端时按此值生效 |
+| `MELONCLAW_HOST` | Web 监听地址，默认 `127.0.0.1`。由 `core/config.py` 的 `web_bind()` 解析，不进入 Settings |
+| `MELONCLAW_PORT` | Web 监听端口，默认 `8000`，必须是整数。同样只经 `web_bind()` 读取 |
 
 持久数据目录和工作区必须位于项目代码目录之外。仓库里的内置 Skill 是分发模板，安装后使用外部数据目录中的运行时副本。
 

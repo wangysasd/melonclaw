@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import Depends, FastAPI
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -32,7 +31,7 @@ from melonclaw.api.routes.speech import router as speech_router
 from melonclaw.api.routes.status import router as status_router
 from melonclaw.api.routes.tasks import router as tasks_router
 from melonclaw.api.routes.user_input import router as user_input_router
-from melonclaw.core.config import allowed_origins
+from melonclaw.core.config import allowed_origins, web_bind
 from melonclaw.core.task_errors import TaskError
 from melonclaw.repository.accounts import AccountConflict
 
@@ -116,11 +115,7 @@ def main() -> None:
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     logging.getLogger("melonclaw.services.task_scheduler").setLevel(logging.INFO)
     logging.getLogger("melonclaw.services.tasks").setLevel(logging.INFO)
-    host = os.getenv("MELONCLAW_HOST", "127.0.0.1")
-    try:
-        port = int(os.getenv("MELONCLAW_PORT", "8000"))
-    except ValueError as exc:
-        raise RuntimeError("MELONCLAW_PORT 必须是整数。") from exc
+    host, port = web_bind()
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

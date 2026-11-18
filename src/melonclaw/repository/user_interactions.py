@@ -101,12 +101,7 @@ class UserInteractionRepositoryMixin:
                     )
                 )
             ).mappings().first()
-            row = (
-                existing
-                if existing is not None
-                and str(existing["status"]) == UserInteractionStatus.WAITING
-                else None
-            )
+            row = existing if _is_open_ledger(existing) else None
             if row is None:
                 if existing is not None:
                     await connection.execute(

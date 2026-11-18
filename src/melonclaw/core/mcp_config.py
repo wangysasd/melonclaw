@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlparse
 
+# 当前接受的连接类型。别名只在聊天配置解析时折成这些值，不能单独放行。
+MCP_TRANSPORTS = frozenset({"http", "sse", "stdio"})
 TRANSPORT_ALIASES = {
     "http": "http",
     "streamable_http": "http",

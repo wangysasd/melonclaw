@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReadAloudControls } from "../src/components/ReadAloudControls";
-import type { ChatMessage } from "../src/hooks/useChatStream";
+import type { ChatMessage } from "../src/state/chatStream";
 import {
   canReadAloud,
   getReadAloudSnapshot,

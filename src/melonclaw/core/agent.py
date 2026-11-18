@@ -87,23 +87,20 @@ class AgentContext:
     knowledge_search_counts: dict[str, int] = field(default_factory=dict)
 
 
+def _tool_name(tool: object) -> str:
+    """读取 LangChain BaseTool 或普通可调用工具的名称。"""
+
+    return getattr(tool, "name", getattr(tool, "__name__", type(tool).__name__))
+
+
 def _format_tool_summary(tools: list[object]) -> str:
     """生成工具总数和有限预览，避免 Tushare 全量工具刷满日志。"""
 
-    names = [
-        getattr(tool, "name", getattr(tool, "__name__", type(tool).__name__))
-        for tool in tools
-    ]
+    names = [_tool_name(tool) for tool in tools]
     if len(names) <= TOOL_NAMES_PREVIEW_LIMIT:
         return ", ".join(names)
     preview = ", ".join(names[:TOOL_NAMES_PREVIEW_LIMIT])
     return f"{len(names)} 个（前 {TOOL_NAMES_PREVIEW_LIMIT} 个：{preview}，...）"
-
-
-def _tool_name(tool: object) -> str:
-    """兼容 LangChain BaseTool 与普通可调用工具的名称。"""
-
-    return getattr(tool, "name", getattr(tool, "__name__", type(tool).__name__))
 
 
 def _build_tool_selector_middleware(

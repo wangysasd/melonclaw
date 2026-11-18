@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatMessage } from "../src/hooks/useChatStream";
+import type { ChatMessage } from "../src/state/chatStream";
 import { ChatView } from "../src/components/ChatView";
 import * as client from "../src/api/client";
 import type { ConversationSummary, Project } from "../src/types/api";

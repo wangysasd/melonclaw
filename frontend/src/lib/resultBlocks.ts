@@ -115,7 +115,3 @@ export function parseResultBlockDetailed(raw: string): ResultParseOutcome {
     throw error;
   }
 }
-
-export function parseResultBlock(raw: string): ResultBlock | null {
-  return parseResultBlockDetailed(raw).result;
-}

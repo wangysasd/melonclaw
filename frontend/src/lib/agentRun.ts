@@ -1,5 +1,5 @@
 import type { AssistantStep, AssistantToolCall } from "../types/api";
-import type { ChatMessage } from "../hooks/useChatStream";
+import type { ChatMessage } from "../state/chatStream";
 import { toolSummary } from "./toolDisplay";
 
 /**

@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { INITIAL_CHAT_STATE, reducer, type ChatMessage } from "../src/hooks/useChatStream";
+import { INITIAL_CHAT_STATE, reducer, type ChatMessage } from "../src/state/chatStream";
 import { useVisibleRefresh } from "../src/hooks/useVisibleRefresh";
 
 beforeEach(() => { Object.defineProperty(document, "hidden", { configurable: true, value: false }); });

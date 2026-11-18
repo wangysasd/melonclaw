@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../hooks/useChatStream";
+import type { ChatMessage } from "../state/chatStream";
 import type { AgentRun } from "../lib/agentRun";
 import { stoppedRunSummary } from "../lib/runActivity";
 

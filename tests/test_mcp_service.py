@@ -1,8 +1,10 @@
 """MCP 配置装配与安全边界校验。"""
 
 import unittest
+from typing import get_args
 
-from melonclaw.core.mcp_config import row_to_client_config
+from melonclaw.api.mcp_schemas import McpCreateRequest, McpUpdateRequest
+from melonclaw.core.mcp_config import MCP_TRANSPORTS, TRANSPORT_ALIASES, row_to_client_config
 from melonclaw.services.mcp import (
     McpConfigError,
     resolve_user_mcp_servers,
@@ -137,6 +139,22 @@ class ResolveUserMcpServersTests(unittest.TestCase):
         finally:
             del os.environ["MELONCLAW_TEST_TOKEN"]
         self.assertEqual(servers["svc"]["url"], "https://example.com/?t=tok123")
+
+    def test_transport_set_matches_aliases_and_http_schema(self):
+        self.assertEqual(set(TRANSPORT_ALIASES.values()), set(MCP_TRANSPORTS))
+        created = set(get_args(McpCreateRequest.model_fields["transport"].annotation))
+        self.assertEqual(created, set(MCP_TRANSPORTS))
+        updated = get_args(McpUpdateRequest.model_fields["transport"].annotation)[0]
+        self.assertEqual(set(get_args(updated)), set(MCP_TRANSPORTS))
+        with self.assertRaises(McpConfigError):
+            validate_mcp_payload(
+                scope="global",
+                transport="websocket",
+                url="https://example.com/mcp",
+                command=None,
+                env=None,
+                headers=None,
+            )
 
     def test_allowlist_passed_through(self):
         _, allowlists = resolve_user_mcp_servers(

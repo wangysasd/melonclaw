@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import { toggleReadAloud, useReadAloud } from "../lib/readAloud";
 import { readTtsVoice, setTtsVoice, TTS_VOICES, useTtsVoice } from "../lib/ttsVoice";
-import type { ChatMessage } from "../hooks/useChatStream";
+import type { ChatMessage } from "../state/chatStream";
 import { Icon } from "./Icon";
 import { ReadingBars } from "./ReadingBars";
 

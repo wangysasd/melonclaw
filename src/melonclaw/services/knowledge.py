@@ -34,3 +34,10 @@ class KnowledgeService:
 
     async def update(self, user_id, kb_id, version, values):
         return await self.storage.knowledge_update(user_id, kb_id, version, self.values(values))
+
+    async def detail(self, user_id, kb_id):
+        row = await self.storage.knowledge_detail(user_id, kb_id)
+        row["published_document_count"] = await self.storage.knowledge_published_document_count(
+            user_id, kb_id
+        )
+        return row

@@ -5,7 +5,7 @@ import ResultBlockView from "../src/components/ResultBlockView";
 import { ResultProvider } from "../src/components/ResultContext";
 import { ResultAsset } from "../src/components/ResultAsset";
 import { TextDiff } from "../src/components/TextDiff";
-import { parseResultBlock } from "../src/lib/resultBlocks";
+import { parseResultBlockDetailed } from "../src/lib/resultBlocks";
 import { tableCsv } from "../src/lib/resultExport";
 import { textDiff } from "../src/lib/textDiff";
 import { ArtifactWorkspace } from "../src/components/ArtifactWorkspace";
@@ -21,9 +21,9 @@ const block = (value: unknown) => `\`\`\`melon-result\n${JSON.stringify(value)}\
 
 describe("explicit result contract", () => {
   it("validates rectangular numeric data and rejects unsafe refs/options/oversize", () => {
-    expect(parseResultBlock(JSON.stringify(chart))).not.toBeNull();
-    for (const invalid of [{ ...chart, chart: "pie" }, { ...chart, rows: [["一月", "12"]] }, { ...chart, rows: [["一月", 12, 3]] }, { ...chart, option: { formatter: "script" } }, { ...chart, sources: [{ id: "1", title: "x", url: "javascript:alert(1)" }] }, { version: 1, type: "file", ref: { path: "/outputs/../private" } }, { version: 1, type: "image", ref: { url: "https://evil.com/a.png" } }]) expect(parseResultBlock(JSON.stringify(invalid))).toBeNull();
-    expect(parseResultBlock("x".repeat(200001))).toBeNull();
+    expect(parseResultBlockDetailed(JSON.stringify(chart)).result).not.toBeNull();
+    for (const invalid of [{ ...chart, chart: "pie" }, { ...chart, rows: [["一月", "12"]] }, { ...chart, rows: [["一月", 12, 3]] }, { ...chart, option: { formatter: "script" } }, { ...chart, sources: [{ id: "1", title: "x", url: "javascript:alert(1)" }] }, { version: 1, type: "file", ref: { path: "/outputs/../private" } }, { version: 1, type: "image", ref: { url: "https://evil.com/a.png" } }]) expect(parseResultBlockDetailed(JSON.stringify(invalid)).result).toBeNull();
+    expect(parseResultBlockDetailed("x".repeat(200001)).result).toBeNull();
   });
   it.each([
     [{ sources: undefined }, "缺少必填字段 sources"],
@@ -56,7 +56,7 @@ describe("explicit result contract", () => {
     const view = render(<ResultBlockView raw={raw} />);
     expect(screen.getByRole("status").textContent).toContain("JSON 语法错误");
     expect(view.container.querySelector("code")?.textContent).toBe(raw);
-    expect(parseResultBlock(JSON.stringify({ version: 1, type: "sources", items: [{ id: "2", title: '储能电芯"扩产竞赛"降温' }] }))).not.toBeNull();
+    expect(parseResultBlockDetailed(JSON.stringify({ version: 1, type: "sources", items: [{ id: "2", title: '储能电芯"扩产竞赛"降温' }] })).result).not.toBeNull();
   });
   it("downloads exact plotted values, escaping CSV and spreadsheet formulas", () => {
     expect(tableCsv([["项目", "值"], ["=cmd()", -2], ['a,"b\nc', null], ["  +SUM(1)", true]])).toBe('"项目","值"\r\n"\'=cmd()","-2"\r\n"a,""b\nc",""\r\n"\'  +SUM(1)","true"');

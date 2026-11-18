@@ -325,6 +325,17 @@ def provider_env_key(name: str) -> str | None:
     return os.getenv(name, "").strip() or None
 
 
+def web_bind() -> tuple[str, int]:
+    """解析 Web 进程监听地址。启动入口只读这两项，不因此创建数据目录。"""
+
+    host = os.getenv("MELONCLAW_HOST", "127.0.0.1")
+    try:
+        port = int(os.getenv("MELONCLAW_PORT", "8000"))
+    except ValueError as exc:
+        raise RuntimeError("MELONCLAW_PORT 必须是整数。") from exc
+    return host, port
+
+
 def allowed_origins() -> list[str]:
     """CORS 与 Cookie 写请求共用的精确来源白名单。"""
     raw = os.getenv("MELONCLAW_ALLOWED_ORIGINS", "")
