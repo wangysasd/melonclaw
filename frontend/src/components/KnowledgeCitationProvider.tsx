@@ -149,7 +149,7 @@ function KnowledgeTextDrawer({ target, onClose }: { target: CitationTarget | nul
     width={560}
     className="knowledge-source-drawer"
     destroyOnHidden
-    extra={page ? <Tag color={page.is_current ? "blue" : "default"}>{page.is_current ? "当前版本" : `历史版本 · 第 ${page.revision_no} 版`}</Tag> : null}
+    extra={page ? <Tag className={page.is_current ? "status-tag is-processing" : "status-tag is-neutral"}>{page.is_current ? "当前版本" : `历史版本 · 第 ${page.revision_no} 版`}</Tag> : null}
   >
     {page ? <div className="knowledge-source-meta">全文共 {page.total_chars} 字符</div> : null}
     {error ? <Alert type="error" showIcon message={error} /> : null}

@@ -19,17 +19,24 @@
 .markdown-table thead th { border-bottom-color: var(--table-border); }
 
 /* Management density and pagination; chat tables keep their reading rhythm. */
-.ant-table-wrapper .ant-table-thead > tr > th { background: var(--table-header-bg); color: var(--message-user-ink); font-weight: var(--weight-medium); }
+.ant-table-wrapper .ant-table-thead > tr > th { background: var(--table-header-bg); color: var(--muted); font-weight: var(--weight-medium); }
 .ant-table-wrapper .ant-table.ant-table .ant-table-tbody > tr > td { padding-block: calc((var(--table-row-height) - var(--control-height-md) - 1px) / 2); line-height: var(--line-height-base); }
 .ant-table-wrapper .ant-table-tbody > tr { height: var(--table-row-height); }
 .ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell-fix-end { background: var(--panel); }
-.ant-table-wrapper .ant-table-tbody > tr:hover > td { background: var(--table-row-hover); }
-.ant-table-wrapper .ant-table-tbody > tr.is-selected > td { background: var(--message-user-bg); }
+.ant-table-wrapper .ant-table-tbody > tr:hover > td,
+.ant-table-wrapper .ant-table-tbody > tr:hover > td.ant-table-cell-fix-end { background: var(--table-row-hover); }
+.ant-table-wrapper .ant-table-tbody > tr.is-selected > td,
+.ant-table-wrapper .ant-table-tbody > tr.ant-table-row-selected > td,
+.ant-table-wrapper .ant-table-tbody > tr.is-selected > td.ant-table-cell-fix-end,
+.ant-table-wrapper .ant-table-tbody > tr.ant-table-row-selected > td.ant-table-cell-fix-end { background: var(--brand-soft); }
 .ant-table-wrapper .ant-tag { border-color: transparent; }
 .ant-table-wrapper .ant-pagination { align-items: center; gap: var(--space-1); }
 .ant-table-wrapper .ant-pagination-total-text { margin-inline-end: auto; color: var(--muted); }
 .ant-table-wrapper .ant-pagination-item { border-color: transparent; background: transparent; }
-.ant-table-wrapper .ant-pagination-item-active { border-color: transparent; background: var(--glass-blue); }
+.ant-table-wrapper .ant-pagination-item-active { border-color: transparent; background: var(--brand-soft); }
+.ant-table-wrapper .ant-pagination-item-active a { color: var(--brand-primary-hover); }
+.ant-table-wrapper .ant-table-placeholder .ant-empty-description,
+.ant-table-wrapper .ant-table-expanded-row-fixed { color: var(--quiet); }
 .ant-table-wrapper .ant-table-content,
 .ant-table-wrapper .ant-table-body { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
 
@@ -50,15 +57,19 @@
   background: transparent;
   box-shadow: none;
 }
-.ant-table-wrapper .table-actions-cell .ant-btn:not(:disabled):not(.ant-btn-dangerous) { color: var(--brand-primary); }
-.ant-table-wrapper .table-actions-cell .ant-btn:not(:disabled):not(.ant-btn-dangerous):hover { color: var(--brand-primary-active); background: var(--glass-blue); }
-.ant-table-wrapper .table-actions-cell .ant-btn-dangerous:not(:disabled):hover { background: var(--status-error-bg); }
+.ant-table-wrapper .table-actions-cell .ant-btn:not(:disabled):not(.ant-btn-dangerous) { color: var(--brand-primary); background: transparent; }
+.ant-table-wrapper tr:hover .table-actions-cell .ant-btn:not(:disabled):not(.ant-btn-dangerous),
+.ant-table-wrapper tr.is-selected .table-actions-cell .ant-btn:not(:disabled):not(.ant-btn-dangerous),
+.ant-table-wrapper tr.ant-table-row-selected .table-actions-cell .ant-btn:not(:disabled):not(.ant-btn-dangerous),
+.ant-table-wrapper .table-actions-cell .ant-btn:not(:disabled):not(.ant-btn-dangerous):hover { color: var(--brand-primary-hover); background: transparent; }
+.ant-table-wrapper .table-actions-cell .ant-btn-dangerous:not(:disabled),
+.ant-table-wrapper .table-actions-cell .ant-btn-dangerous:not(:disabled):hover { color: var(--status-error); background: transparent; }
 .ant-table-wrapper .table-actions-cell .ant-btn:disabled { color: var(--disabled-text); }
 
 /* Conversation tables use the same header palette as management tables. */
 .markdown-table thead th,
 .melon-markdown.x-markdown .markdown-table thead th {
   background: var(--table-header-bg);
-  color: var(--message-user-ink);
+  color: var(--muted);
   font-weight: var(--weight-medium);
 }

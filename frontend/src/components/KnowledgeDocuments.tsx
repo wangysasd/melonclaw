@@ -6,8 +6,12 @@ import { Icon } from "./Icon";
 
 const stages: Record<string, string> = { parsing: "解析", chunking: "分块", embedding: "向量化", publishing: "发布" };
 const sourceNames: Record<string, string> = { queued: "排队", running: "处理中", succeeded: "可检索", failed: "失败", cancelled: "已取消" };
-const statusColors: Record<string, string> = { queued: "gold", running: "blue", succeeded: "green", failed: "red", cancelled: "orange" };
-const stageColors: Record<string, string> = { parsing: "cyan", chunking: "geekblue", embedding: "purple", publishing: "magenta" };
+function jobTone(job: KnowledgeDocumentJob) {
+  if (job.status === "failed") return "error";
+  if (job.status === "succeeded") return "success";
+  if (job.status === "cancelled") return "neutral";
+  return "processing";
+}
 const statusWidth = 176;
 
 const documentFormats = [
@@ -50,11 +54,6 @@ const formatHelp = (
     </tbody>
   </table>
 );
-
-function jobColor(job: KnowledgeDocumentJob) {
-  return (job.status === "running" && job.stage ? stageColors[job.stage] : undefined)
-    ?? statusColors[job.status];
-}
 
 function hasProcessingAction(job?: KnowledgeDocumentJob | null) {
   return job != null && ["queued", "running", "failed", "cancelled"].includes(job.status);
@@ -152,8 +151,8 @@ export function KnowledgeDocuments({ base }: { base: KnowledgeBase }) {
         const published = Boolean(doc.active_revision_id);
         const jobLabel = source ? `${sourceNames[source.status] ?? source.status}${stageText(source)}` : "未处理";
         return <div className="knowledge-doc-status" aria-live="polite">
-          {published && <Tag color={statusColors.succeeded}>可检索</Tag>}
-          {(!published || hasProcessingAction(source)) && <Tag color={source ? jobColor(source) : undefined}>
+          {published && <Tag className="status-tag is-success">可检索</Tag>}
+          {(!published || hasProcessingAction(source)) && <Tag className={`status-tag is-${source ? jobTone(source) : "neutral"}`}>
             {published ? `新版本 · ${jobLabel}` : jobLabel}
           </Tag>}
           {source?.status === "failed" && source.error_summary && <p className="knowledge-doc-error">{source.error_summary}</p>}

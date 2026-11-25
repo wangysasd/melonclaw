@@ -30,7 +30,7 @@
 .task-status-pill { display: inline-flex; align-items: center; flex: 0 0 auto; width: fit-content; padding: 0 var(--space-2); border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--canvas); color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-regular); line-height: var(--line-height-base); white-space: nowrap; }
 .task-status-pill.is-success { border-color: transparent; background: var(--status-success-bg); color: var(--status-success); }
 .task-status-pill.is-warning { border-color: transparent; background: var(--status-warning-bg); color: var(--status-warning); }
-.task-status-pill.is-processing { border-color: transparent; background: var(--brand-soft); color: var(--brand-primary); }
+.task-status-pill.is-processing { border-color: transparent; background: var(--brand-soft); color: var(--brand-primary-hover); }
 .task-status-pill.is-error { border-color: transparent; background: var(--status-error-bg); color: var(--status-error); }
 
 .task-list { width: 100%; min-width: 0; }

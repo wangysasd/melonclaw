@@ -9,8 +9,6 @@ import { Icon } from "./Icon";
 import { confirmModal, deleteConfirmation } from "./deleteConfirmation";
 import "../styles/knowledge.css";
 
-const scopeColors: Record<KnowledgeShareScope, string> = { everyone: "cyan", tenant: "blue", selected: "gold" };
-const roleColors: Record<KnowledgeBase["role"], string> = { viewer: "default", editor: "green", owner: "purple", system_admin: "magenta" };
 
 export function KnowledgeManager({ onClose }: { onClose: () => void }) {
   const { message, modal } = App.useApp();
@@ -110,8 +108,8 @@ export function KnowledgeManager({ onClose }: { onClose: () => void }) {
         <Table tableLayout="fixed" rowKey="id" loading={loading} dataSource={rows} scroll={{ x: 1000 }} pagination={{ current: page, total, pageSize: 20, showSizeChanger: false, onChange: setPage }} locale={{ emptyText: <Empty description="暂无可访问的知识库" /> }} columns={[
           { title: "知识库", dataIndex: "name", width: "calc((100% - 752px) * 0.7)", render: (_, base) => <Button type="link" onClick={() => void openDocuments(base.id)}>{base.name}</Button> },
           { title: "描述", dataIndex: "description", ellipsis: { showTitle: false }, render: (description: string) => description ? <Tooltip title={description} placement="topLeft" styles={{ container: { fontSize: "var(--text-md)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }}><span className="knowledge-description">{description}</span></Tooltip> : null },
-          { title: "共享", dataIndex: "share_scope", width: 88, render: (value: KnowledgeShareScope) => <Tag className="knowledge-meta-tag" color={scopeColors[value]}>{shareScopeNames[value]}</Tag> },
-          { title: "权限", dataIndex: "role", width: 104, render: (role: KnowledgeBase["role"]) => <Tag className="knowledge-meta-tag" color={roleColors[role]}>{roleNames[role]}</Tag> },
+          { title: "共享", dataIndex: "share_scope", width: 88, render: (value: KnowledgeShareScope) => <Tag className="knowledge-meta-tag">{shareScopeNames[value]}</Tag> },
+          { title: "权限", dataIndex: "role", width: 104, render: (role: KnowledgeBase["role"]) => <Tag className="knowledge-meta-tag">{roleNames[role]}</Tag> },
           { title: "操作", width: 280, className: "knowledge-actions-cell", render: (_, base) => {
             const canManage = base.role === "owner" || base.role === "system_admin";
             return <Space>
@@ -146,8 +144,8 @@ export function KnowledgeManager({ onClose }: { onClose: () => void }) {
     <Drawer title={detail?.name ?? "知识库详情"} open={detail !== null} onClose={() => setDetail(null)} size="large">
       {detail ? <>
         <div className="knowledge-detail-summary">
-          <span>共享状态 <Tag className="knowledge-meta-tag" color={scopeColors[detail.share_scope]}>{{ everyone: "所有人", tenant: "同租户", selected: "指定人员" }[detail.share_scope]}</Tag></span>
-          <span>权限 <Tag className="knowledge-meta-tag" color={roleColors[detail.role]}>{roleNames[detail.role]}</Tag></span>
+          <span>共享状态 <Tag className="knowledge-meta-tag">{{ everyone: "所有人", tenant: "同租户", selected: "指定人员" }[detail.share_scope]}</Tag></span>
+          <span>权限 <Tag className="knowledge-meta-tag">{roleNames[detail.role]}</Tag></span>
         </div>
         <Tabs activeKey={detailTab} onChange={setDetailTab} key={detail.id} destroyOnHidden items={[
           { key: "documents", label: "文档", children: <KnowledgeDocuments base={detail} /> },

@@ -102,11 +102,12 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-2) var(--page-padding);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-header);
   gap: var(--space-4);
   height: calc(var(--control-height-md) + 2 * var(--space-2) + 1px);
   flex-shrink: 0;
   flex-wrap: nowrap;
+  background: var(--panel);
 }
 
 .workspace-header-title {
@@ -139,7 +140,7 @@ body {
 }
 
 .resource-warning {
-  color: var(--brand-coral);
+  color: var(--status-warning);
   font-size: var(--text-xs);
 }
 
@@ -332,8 +333,8 @@ body {
 
 .resource-badge.model-default-badge {
   margin-inline-start: var(--space-1);
-  background: var(--brand-primary-active);
-  color: white;
+  background: var(--brand-primary);
+  color: var(--panel);
 }
 
 .resource-badge.model-image-badge {
@@ -349,12 +350,12 @@ body {
 }
 
 .model-capabilities .resource-badge {
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 .resource-badge.is-global {
-  background: rgba(52, 120, 246, 0.12);
-  color: var(--brand-primary);
+  background: var(--brand-soft);
+  color: var(--brand-primary-hover);
 }
 
 .resource-badge.is-broken {
@@ -475,8 +476,8 @@ body {
 }
 
 .skill-card-icon-action.ant-btn:hover {
-  color: var(--brand-primary);
-  background: rgba(0, 113, 227, 0.08);
+  color: var(--ink);
+  background: var(--hover);
 }
 
 .skill-card-icon-action.ant-btn:disabled {
@@ -517,23 +518,23 @@ body {
 }
 
 .skill-card-primary-action.is-use.ant-btn {
-  color: var(--brand-primary);
-  background: var(--brand-soft);
-}
-
-.skill-card-primary-action.is-use.ant-btn:hover:not(:disabled) {
-  color: var(--brand-primary);
-  background: var(--brand-soft-hover);
-}
-
-.skill-card-primary-action.is-add.ant-btn {
   color: var(--status-success);
   background: var(--status-success-bg);
 }
 
-.skill-card-primary-action.is-add.ant-btn:hover:not(:disabled) {
+.skill-card-primary-action.is-use.ant-btn:hover:not(:disabled) {
   color: var(--status-success);
-  background: var(--status-success-border);
+  background: var(--status-success-bg);
+}
+
+.skill-card-primary-action.is-add.ant-btn {
+  color: var(--panel);
+  background: var(--brand-primary);
+}
+
+.skill-card-primary-action.is-add.ant-btn:hover:not(:disabled) {
+  color: var(--panel);
+  background: var(--brand-primary-hover);
 }
 
 .skill-card-primary-action.ant-btn:disabled {
@@ -992,3 +993,21 @@ button { font-weight: var(--weight-regular); }
 .chat-model-settings > .chat-model-actions {
   margin-inline-start: auto;
 }
+
+.ant-tag.ant-tag {
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  color: var(--muted);
+}
+.ant-tag.status-tag.is-processing { background: var(--brand-soft); color: var(--brand-primary-hover); }
+.ant-tag.status-tag.is-success { background: var(--status-success-bg); color: var(--status-success); }
+.ant-tag.status-tag.is-warning { background: var(--status-warning-bg); color: var(--status-warning); }
+.ant-tag.status-tag.is-error { background: var(--status-error-bg); color: var(--status-error); }
+.ant-tag.status-tag.is-neutral { background: var(--disabled-bg); color: var(--muted); }
+.ant-empty-description, .conversation-state, .conversation-empty { color: var(--quiet); }
+.ant-alert { border-width: 0; }
+.ant-alert-info { background: var(--brand-soft); }
+.ant-alert-success { background: var(--status-success-bg); }
+.ant-alert-warning { background: var(--status-warning-bg); }
+.ant-alert-error { background: var(--status-error-bg); }

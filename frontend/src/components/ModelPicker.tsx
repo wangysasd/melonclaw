@@ -8,17 +8,17 @@ import { Icon } from "./Icon";
 const modelPickerTheme: ThemeConfig = {
   components: {
     Select: {
-      selectorBg: tokens["glass-highlight"],
-      colorBorder: tokens["glass-edge"],
-      colorText: tokens["message-user-ink"],
-      hoverBorderColor: tokens["brand-border"],
-      activeBorderColor: tokens["brand-border"],
+      selectorBg: tokens.panel,
+      colorBorder: tokens["border-control"],
+      colorText: tokens.ink,
+      hoverBorderColor: tokens["border-control"],
+      activeBorderColor: tokens["brand-primary"],
       activeOutlineColor: "transparent",
-      optionActiveBg: tokens["glass-blue"],
-      controlItemBgActiveHover: tokens["glass-action-end"],
-      optionSelectedBg: tokens["message-user-bg"],
-      optionSelectedColor: tokens["brand-primary-active"],
-      optionSelectedFontWeight: 500,
+      optionActiveBg: tokens.hover,
+      controlItemBgActiveHover: tokens["brand-soft"],
+      optionSelectedBg: tokens["brand-soft"],
+      optionSelectedColor: tokens["brand-primary-hover"],
+      optionSelectedFontWeight: 400,
     },
   },
 };

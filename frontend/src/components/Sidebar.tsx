@@ -481,7 +481,7 @@ export function Sidebar({ onNewConversation, onOpenProjectDialog, onNavigateChat
         onClose={() => setMobileOpen(false)}
         className="sidebar-drawer"
         styles={{
-          body: { padding: 0, background: "#F5F5F7" },
+          body: { padding: 0, background: "var(--sidebar)" },
           wrapper: { width: 280 },
         }}
         title={

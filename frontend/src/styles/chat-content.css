@@ -33,7 +33,7 @@
 .message .markdown-code-head button { padding: var(--space-1) var(--space-2); font-family: var(--font-ui); }
 .message .markdown-code-head button:hover,
 .result-actions button:not(:disabled):hover,
-.result-asset > button:not(:disabled):hover { background: var(--glass-blue); color: var(--brand-primary-active); }
+.result-asset > button:not(:disabled):hover { background: var(--hover); color: var(--brand-primary-hover); }
 .message .markdown-code-head button:focus-visible,
 .message .message-attachment a:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
 .message .message-attachment-info a,

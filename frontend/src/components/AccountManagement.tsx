@@ -115,14 +115,14 @@ export function AccountManagement({ onClose }: { onClose: () => void }) {
       dataSource={users.filter((u) => matches(u.user_id, u.user_name_zh) && (!tenant || tenant === u.tenant_id))}
       columns={[
         { title: "用户 ID", dataIndex: "user_id" }, { title: "用户名称", dataIndex: "user_name_zh" },
-        { title: "所属租户", render: (_, u) => <>{u.tenant_name_zh}（{u.tenant_id}）{!u.tenant_enabled ? <Tag>已停用</Tag> : null}</> },
+        { title: "所属租户", render: (_, u) => <>{u.tenant_name_zh}（{u.tenant_id}）{!u.tenant_enabled ? <Tag className="status-tag is-neutral">已停用</Tag> : null}</> },
         { title: "创建时间", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString() },
         { title: "操作", className: "table-actions-cell", fixed: "right", width: 240, render: (_, u) => <Space><Button type="link" onClick={() => open({ kind: "user", row: u })}>编辑</Button><Button type="link" onClick={() => open({ kind: "password", row: u })}>修改密码</Button><Button type="link" danger disabled={u.user_id === "admin"} onClick={() => remove(u)}>删除</Button></Space> },
       ]} /> : <Table<Tenant> rowKey="tenant_id" loading={loading} scroll={{ x: 600 }} pagination={{ ...tablePagination, pageSize: 10, showSizeChanger: false }}
       dataSource={tenants.filter((t) => matches(t.tenant_id, t.tenant_name_zh))}
       columns={[
         { title: "租户 ID", dataIndex: "tenant_id" }, { title: "租户名称", dataIndex: "tenant_name_zh" },
-        { title: "状态", render: (_, t) => <Tag color={t.enabled ? "green" : "default"}>{t.enabled ? "启用" : "停用"}</Tag> },
+        { title: "状态", render: (_, t) => <Tag className={t.enabled ? "status-tag is-success" : "status-tag is-neutral"}>{t.enabled ? "启用" : "停用"}</Tag> },
         { title: "创建时间", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString() },
         { title: "操作", className: "table-actions-cell", fixed: "right", width: 90, render: (_, t) => <Button type="link" onClick={() => open({ kind: "tenant", row: t })}>编辑</Button> },
       ]} />}

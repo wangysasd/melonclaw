@@ -106,24 +106,26 @@
   padding: var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-control);
-  background: linear-gradient(135deg, var(--glass-action-start), var(--glass-action-end));
-  box-shadow: var(--glass-action-shadow);
-  color: var(--brand-primary);
+  background: var(--brand-soft);
+  box-shadow: none;
+  color: var(--brand-primary-hover);
   font-size: var(--text-md);
   font-weight: var(--weight-regular);
   text-align: left;
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-apple),
-    border-color var(--duration-fast) var(--ease-apple);
+    color var(--duration-fast) var(--ease-apple);
 }
 
 .new-session:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--glass-blue), var(--brand-soft-hover));
+  background: color-mix(in srgb, var(--brand-soft) 72%, var(--brand-primary));
+  color: var(--brand-primary-hover);
   border-color: transparent;
 }
 
 .new-session:active:not(:disabled) {
-  background: rgba(0, 113, 227, 0.2);
+  background: var(--brand-soft);
+  color: var(--brand-primary-active);
 }
 
 .new-session:focus-visible {
@@ -151,7 +153,7 @@
   padding: 0 var(--space-1);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.72);
-  color: var(--brand-primary);
+  color: var(--brand-primary-hover);
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   font-weight: var(--weight-regular);
@@ -407,7 +409,8 @@
 
 .conversation-item.is-active {
   background: var(--sidebar-row-selected);
-  color: var(--brand-primary);
+  color: var(--brand-primary-hover);
+  font-weight: var(--weight-regular);
 }
 
 .project-item-name,
@@ -421,15 +424,15 @@
 
 .project-item-badge {
   font-size: var(--text-xs);
-  color: var(--brand-primary);
+  color: var(--brand-primary-hover);
   background: var(--brand-soft);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding: 1px var(--space-2);
 }
 
 .conversation-item-time {
   font-size: var(--text-xs);
-  color: var(--muted);
+  color: var(--quiet);
   flex-shrink: 0;
 }
 
@@ -437,13 +440,13 @@
 .conversation-list.ant-conversations { display: flex; flex-direction: column; gap: 2px; overflow: visible; padding: 0; margin: 0; background: transparent; }
 .conversation-list.ant-conversations .ant-conversations-item { padding: var(--space-2) 10px; color: var(--ink); font-size: var(--text-md); transition: background var(--duration-fast) var(--ease-apple); min-height: var(--control-height-lg); border-radius: var(--radius-control); }
 .conversation-list.ant-conversations .ant-conversations-item:hover { background: var(--hover); }
-.conversation-list.ant-conversations .ant-conversations-item-active { background: var(--brand-soft); color: var(--brand-primary); }
+.conversation-list.ant-conversations .ant-conversations-item-active { background: var(--brand-soft); color: var(--brand-primary-hover); font-weight: var(--weight-regular); }
 .conversation-list.ant-conversations .ant-conversations-label { display: flex; align-items: center; gap: var(--space-2); min-width: 0; width: 100%; }
 .conversation-list.ant-conversations .conversation-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); }
 
 .conversation-empty {
   font-size: var(--text-sm);
-  color: var(--muted);
+  color: var(--quiet);
   padding: 10px;
 }
 
@@ -545,7 +548,7 @@
   align-items: center;
   gap: 8px;
   padding: 14px 0 8px;
-  background: var(--workspace-canvas);
+  background: var(--panel);
 }
 .global-nav-button {
   display: flex;
@@ -557,12 +560,14 @@
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--muted);
+  color: var(--ink);
   cursor: pointer;
 }
 .global-nav-button:hover { background: var(--hover); color: var(--ink); }
-.global-nav-button.is-active { background: var(--glass-highlight); color: var(--brand-primary); box-shadow: var(--glass-action-shadow); }
-.global-nav-button:active, .icon-button:active:not(:disabled) { background: var(--fill-active); }
+.global-nav-button.is-active { background: var(--brand-soft); color: var(--brand-primary); box-shadow: none; }
+.global-nav-button.global-nav-letter.is-active { color: var(--brand-primary-hover); }
+.global-nav-button:active:not(.is-active), .icon-button:active:not(:disabled) { background: var(--fill-active); }
+.global-nav-button.is-active:active { background: var(--brand-soft); }
 .global-nav :is(button):focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
 .global-nav-footer { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .global-status-dot { position: absolute; right: 5px; bottom: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--status-warning); }
@@ -659,7 +664,7 @@
   }
 }
 
-/* Preserve the original compact empty-project action with the glass finish. */
+/* Empty projects use the same control, but it is the primary action. */
 .new-session.project-empty-create {
   height: var(--control-height-md);
   min-height: var(--control-height-md);
@@ -668,4 +673,15 @@
   text-align: center;
   font-size: var(--text-sm);
   font-weight: var(--weight-regular);
+  color: var(--panel);
+  background: var(--brand-primary);
+  box-shadow: none;
+}
+.new-session.project-empty-create:hover:not(:disabled) {
+  color: var(--panel);
+  background: var(--brand-primary-hover);
+}
+.new-session.project-empty-create:active:not(:disabled) {
+  color: var(--panel);
+  background: var(--brand-primary-active);
 }
