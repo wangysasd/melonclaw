@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { taskApi, type Task } from "../../api/tasks";
 import { createRequestId } from "../../lib/requestId";
+import { confirmModal } from "../deleteConfirmation";
 import { Icon } from "../Icon";
 import { WorkspaceHeader } from "../WorkspaceHeader";
 import { tokens } from "../../theme/tokens";
@@ -53,7 +54,7 @@ export default function TaskCenter({ onClose, onOpenConversation }: { onClose: (
       setBusy(current => { const next = { ...current }; delete next[task.id]; return next; });
     }
   };
-  const enable = (task: Task) => modal.confirm({ title: task.status === "enabled" ? "暂停后续计划？" : "恢复后续计划？", content: "已排队或执行中的运行会继续，仍可立即运行；恢复循环计划只安排未来周期，过期的一次性计划不补跑。", okText: "确认", cancelText: "返回", onOk: () => act(task, "enabled") });
+  const enable = (task: Task) => modal.confirm({ ...confirmModal({ title: task.status === "enabled" ? "暂停后续计划？" : "恢复后续计划？", content: "已排队或执行中的运行会继续，仍可立即运行；恢复循环计划只安排未来周期，过期的一次性计划不补跑。", okText: "确认", cancelText: "返回" }), onOk: () => act(task, "enabled") });
   const archive = (task: Task) => modal.confirm({
     rootClassName: "task-archive-confirm", centered: true, width: 440, icon: null,
     styles: { container: { padding: tokens["space-6"] }, body: { padding: 0 } },

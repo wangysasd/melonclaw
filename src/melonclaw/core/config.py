@@ -84,6 +84,8 @@ class Settings:
     workspace_root: Path
     assistant_name: str = "MelonClaw"
     profile: str = ""
+    jwt_secret: str = field(default="", repr=False)
+    token_ttl_hours: int = 1000
     data_root: Path = field(default_factory=_create_data_root)
     database_url: str = field(default="", repr=False)
     deepseek_api_key: str = field(default="", repr=False)
@@ -187,13 +189,36 @@ class Settings:
 
         return derive_psycopg_database_url(self.database_url)
 
+
+def _jwt_secret() -> str:
+    raw = os.getenv("MELONCLAW_JWT_SECRET", "").strip()
+    if len(raw) < 32:
+        raise RuntimeError("MELONCLAW_JWT_SECRET 必须配置且至少 32 个字符。")
+    return raw
+
+
+def _token_ttl_hours() -> int:
+    raw = os.getenv("MELONCLAW_TOKEN_TTL_HOURS")
+    if raw is None or not raw.strip():
+        return 1000
+    return _int_setting("MELONCLAW_TOKEN_TTL_HOURS", 1000)
+
+
+def jwt_settings() -> tuple[str, int]:
+    """只校验 JWT 配置，不初始化应用目录或数据库。"""
+    return _jwt_secret(), _token_ttl_hours()
+
+
 def load_settings() -> Settings:
     """读取应用环境配置。"""
 
+    jwt_secret, token_ttl_hours = jwt_settings()
     return Settings(
         workspace_root=_create_workspace_root(),
         assistant_name=os.getenv("MELONCLAW_NAME", "").strip() or "MelonClaw",
         profile=os.getenv("profile", ""),
+        jwt_secret=jwt_secret,
+        token_ttl_hours=token_ttl_hours,
         database_url=os.getenv("DATABASE_URL", ""),
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         knowledge_embedding_api_key=os.getenv("KNOWLEDGE_EMBEDDING_API_KEY", "").strip(),

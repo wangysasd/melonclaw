@@ -98,7 +98,7 @@ sudo nano /etc/melonclaw/melonclaw.env
 
 `install -d` 创建目录并设置属主／权限；0700 只允许属主访问，配置 0600 只允许属主读写。Nano 保存是 Ctrl+O、回车，退出是 Ctrl+X。
 
-填写数据库连接和所需凭据，保留这些非敏感配置：
+填写数据库连接和至少 32 个字符的随机 `MELONCLAW_JWT_SECRET`。保留这些非敏感配置：
 
 ```dotenv
 profile=prod

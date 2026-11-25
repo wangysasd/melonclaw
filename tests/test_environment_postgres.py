@@ -10,6 +10,8 @@ import pytest
 from sqlalchemy import event, insert, select, text, update
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from melonclaw.core.auth_token import issue_token
+from melonclaw.core.config import load_settings
 from melonclaw.database.connection import normalize_async_database_url
 from melonclaw.database.schema import (
     environment_operations,
@@ -22,7 +24,7 @@ from melonclaw.database.updates.environment import upgrade
 from melonclaw.repository import BusinessRepository
 from melonclaw.repository.environment import EnvironmentConflict
 from melonclaw.repository.mappers import _now
-from melonclaw.services.accounts import AccountService, token_digest
+from melonclaw.services.accounts import AccountService
 from melonclaw.services.environment import EnvironmentError, EnvironmentNotFound, EnvironmentService
 from melonclaw.services.environment_chat import ChatEnvironmentService, parse_environment_chat
 
@@ -347,11 +349,11 @@ def test_environment_resources_approval_and_authentication():
 
             app = create_app()
             app.state.chat = SimpleNamespace(storage=storage, runtime=runtime)
-            await storage.create_auth_session(token_digest("http-fixture"), "bob")
+            token = issue_token("bob", load_settings().jwt_secret, load_settings().token_ttl_hours)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app),
                 base_url="http://test",
-                cookies={"melonclaw_session": "http-fixture"},
+                headers={"Authorization": f"Bearer {token}"},
             ) as client:
                 invalid = await client.post(
                     "/api/environment",
@@ -399,17 +401,16 @@ def test_environment_resources_approval_and_authentication():
                     user,
                     storage=storage,
                 )
-            # 认证只一次 SELECT；原登录身份失效也拒绝当前模拟身份。
-            await storage.create_auth_session(token_digest("fixture-session"), "alice")
-            await storage.switch_auth_session(token_digest("fixture-session"), "bob")
+            # 验签不查库；随后只按用户行确认身份。删除该用户后令牌失效。
+            token = issue_token("bob", load_settings().jwt_secret, load_settings().token_ttl_hours)
             statements.clear()
-            assert (await AccountService(storage).session("fixture-session")).user_id == "bob"
+            assert (await AccountService(storage).session(token)).user_id == "bob"
             assert len(statements) == 1
             async with engine.begin() as conn:
                 await conn.execute(
-                    update(users).where(users.c.user_id == "alice").values(tenant_status="deleted")
+                    update(users).where(users.c.user_id == "bob").values(tenant_status="deleted")
                 )
-            assert await AccountService(storage).session("fixture-session") is None
+            assert await AccountService(storage).session(token) is None
         finally:
             async with engine.begin() as conn:
                 await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))

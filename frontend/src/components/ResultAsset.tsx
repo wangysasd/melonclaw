@@ -5,6 +5,7 @@ import { downloadBlob } from "../lib/resultExport";
 import type { AssetRef } from "../lib/resultBlocks";
 import { useResultScope } from "./ResultContext";
 import { useArtifacts } from "./ArtifactContext";
+import { AuthorizedImage } from "./AuthorizedImage";
 import { Icon } from "./Icon";
 
 /** 所有地址由可信页面身份和明确引用构造；不使用模型提供的下载 URL。 */
@@ -64,7 +65,7 @@ export function ResultAsset({ asset, image = false, caption, compact = false }: 
     if (!image && !(event.target instanceof Element && event.target.closest("button"))) openPreview();
   }}>
     {image ? <button type="button" className="result-image-thumb" aria-label={`放大 ${metadata.file_name}`} disabled={busy || !artifacts} onClick={openPreview}>
-      <img src={url} alt={caption ?? metadata.file_name} loading="lazy" onError={() => setState({ identity, reference, error: "图片加载失败，文件可能已变更或不可访问。" })} />
+      <AuthorizedImage url={url} alt={caption ?? metadata.file_name} onError={() => setState({ identity, reference, error: "图片加载失败，文件可能已变更或不可访问。" })} />
     </button> : null}
     <figcaption>{!image ? <button type="button" className="artifact-file-main" aria-label={`查看 ${metadata.file_name}`} onClick={openPreview} disabled={!artifacts}>
       <span className="artifact-file-icon"><Icon name={metadata.preview_kind === "html" ? "globe-2" : "file-text"} size={24} /><span>{metadata.file_name.split(".").at(-1)?.toUpperCase()}</span></span>

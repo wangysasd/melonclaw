@@ -72,7 +72,7 @@ base64。附件必须经过当前用户唯一有效租户归属、工作区和�
   default-src 'none'; sandbox`，不允许浏览器按内容嗅探类型。
 - 历史消息引用到已删除/过期附件时，hydration 只输出“附件不可用”提示块，不让单条坏
   附件让整轮执行失败；真正的 `attachment_unavailable` 只在发送前绑定阶段抛出。
-- 全局 require_session 验证 Cookie 会话，api/identity.py 读取已验证身份；请求中的 user_id 或 X-Melonclaw-User 只作身份断言，不能覆盖会话身份。服务层仍重新校验唯一有效租户归属与资源所有权。
+- 全局 require_session 验证 JWT，api/identity.py 读取已验证身份；请求中的 user_id 或 X-Melonclaw-User 只作身份断言，不能覆盖令牌身份。服务层仍重新校验唯一有效租户归属与资源所有权。
 
 ## 运行与验证
 

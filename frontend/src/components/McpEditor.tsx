@@ -3,6 +3,7 @@ import { Alert, App, Button, Checkbox, Collapse, Input, Modal, Select } from "an
 import { saveMcp, testMcp } from "../api/mcp";
 import type { McpConfiguration, McpCredentialPatch, McpServer, McpTestResult } from "../types/api";
 import { importMcp, mcpCandidates, type ImportedMcp } from "../lib/mcpImport";
+import { confirmModal } from "./deleteConfirmation";
 import { McpCredentials, type CredentialRow } from "./McpCredentials";
 
 interface Draft {
@@ -85,7 +86,7 @@ export function McpEditor({ userId, isAdmin, existing, fixedSlug, onClose, onSav
   const revision = useRef(0);
   const toolSelectionTouched = useRef(initial.allowMode === "selected");
   useEffect(() => { alive.current = true; return () => { alive.current = false; request.current?.abort(); }; }, []);
-  const confirm = (title: string, content: string) => new Promise<boolean>(resolve => modal.confirm({ rootClassName: "mcp-confirm", title, content, okText: "确定", cancelText: "取消", onOk: () => resolve(true), onCancel: () => resolve(false) }));
+  const confirm = (title: string, content: string) => new Promise<boolean>(resolve => modal.confirm({ ...confirmModal({ title, content, okText: "确定" }), onOk: () => resolve(true), onCancel: () => resolve(false) }));
   const change = (next: Draft, preserveToolList = false) => {
     revision.current++;
     request.current?.abort();

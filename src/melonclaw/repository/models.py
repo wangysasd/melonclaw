@@ -16,6 +16,7 @@ class UserContext:
     tenant_name_zh: str
     tenant_role: str = "member"
     tenant_status: str = "active"
+    tenant_enabled: bool = True
 
 @dataclass(frozen=True)
 class RequestRecord:

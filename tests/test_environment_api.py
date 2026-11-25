@@ -1,4 +1,4 @@
-"""真实 Cookie、HTTP 校验与 PostgreSQL 环境资源生命周期；仅使用随机测试 schema。"""
+"""真实 JWT、HTTP 校验与隔离 PostgreSQL 环境资源生命周期。"""
 
 import asyncio
 import os
@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from account_fixtures import use_access_token
 from sqlalchemy import insert, text, update
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -74,7 +75,8 @@ async def login(client, user_id):
     response = await client.post(
         "/api/auth/login", json={"user_id": user_id, "password": "test-password"}
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
+    use_access_token(client, response)
 
 
 def test_http_personal_override_fallback_and_write_only_lifecycle():
@@ -192,7 +194,7 @@ def test_http_rejects_invalid_or_privileged_input_without_echo(fields):
     asyncio.run(run())
 
 
-def test_http_cookie_identity_origin_and_revocation_guard_every_write():
+def test_http_jwt_identity_origin_and_tenant_guard_every_write():
     async def run():
         async with environment_api() as (client, repository):
             payload = {"user_id": "alice", "name": "DEMO", "value": "fixture-sensitive"}
@@ -213,8 +215,9 @@ def test_http_cookie_identity_origin_and_revocation_guard_every_write():
                 await conn.execute(
                     update(tenants).where(tenants.c.tenant_id == "team-a").values(enabled=False)
                 )
+            assert (await client.get("/api/auth/session")).status_code == 200
             response = await client.post("/api/environment", json=payload)
-            assert response.status_code == 401
+            assert response.status_code == 403
             assert await repository.list_environment("alice") == []
 
     asyncio.run(run())

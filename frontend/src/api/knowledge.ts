@@ -1,5 +1,5 @@
+import { requestHeaders } from "./auth";
 import { API_BASE_URL, apiRequest, parseErrorResponse } from "./client";
-import { identityHeaders } from "./auth";
 
 export type KnowledgeRole = "viewer" | "editor" | "owner" | "system_admin";
 export type KnowledgeMode = "vector";
@@ -23,13 +23,15 @@ export const knowledgeApi = {
   upload: async (id: string, file: File, requestId: string, documentId?: string) => {
     const body = new FormData(); body.append("file", file); body.append("request_id", requestId);
     if (documentId) body.append("document_id", documentId);
-    const response = await fetch(`${API_BASE_URL}${path(id)}/documents`, { method: "POST", credentials: "include", headers: identityHeaders(), body });
-    if (!response.ok) throw await parseErrorResponse(response);
+    const headers = requestHeaders();
+    const response = await fetch(`${API_BASE_URL}${path(id)}/documents`, { method: "POST", cache: "no-store", headers, body });
+    if (!response.ok) throw await parseErrorResponse(response, headers.Authorization);
     return response.json();
   },
   download: async (id: string, document: KnowledgeDocument) => {
-    const response = await fetch(`${API_BASE_URL}${path(id)}/documents/${document.id}/source`, { credentials: "include", headers: identityHeaders() });
-    if (!response.ok) throw await parseErrorResponse(response);
+    const headers = requestHeaders();
+    const response = await fetch(`${API_BASE_URL}${path(id)}/documents/${document.id}/source`, { cache: "no-store", headers });
+    if (!response.ok) throw await parseErrorResponse(response, headers.Authorization);
     const url = URL.createObjectURL(await response.blob());
     const link = window.document.createElement("a"); link.href = url; link.download = document.display_name;
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);

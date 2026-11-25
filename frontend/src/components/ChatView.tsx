@@ -8,7 +8,7 @@ import { Composer } from "./Composer";
 import { toolSummary } from "../lib/toolDisplay";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { UserQuestionPanel } from "./UserQuestionPanel";
-import { ImageLightbox } from "./ImageLightbox";
+import { AuthorizedImage, AuthorizedLightbox, downloadAuthorized } from "./AuthorizedImage";
 import { Markdown } from "./Markdown";
 import { KnowledgeCitationProvider, KnowledgeSourceAllow, useKnowledgeCitation } from "./KnowledgeCitationProvider";
 import { knowledgeSourceLabel, messageKnowledgeSources } from "../lib/knowledgeSources";
@@ -190,7 +190,7 @@ function MessageAttachments({
                   aria-label={`预览 ${attachment.file_name}`}
                   onClick={() => setPreview({ url: previewUrl, name: attachment.file_name })}
                 >
-                  <img src={previewUrl} alt={attachment.file_name} />
+                  <AuthorizedImage url={previewUrl} alt={attachment.file_name} />
                 </button>
               ) : (
                 <span className="attachment-file-icon" aria-hidden="true">
@@ -199,7 +199,7 @@ function MessageAttachments({
                 </span>
               )}
               <div className="message-attachment-info">
-                <a href={url} target="_blank" rel="noreferrer" download={attachment.file_name}>{attachment.file_name}</a>
+                <button type="button" className="message-attachment-download" onClick={() => void downloadAuthorized(url, attachment.file_name)}>{attachment.file_name}</button>
                 <span>{isImage ? "图片" : attachment.parse_status === "failed" ? "解析失败" : "文档"}</span>
               </div>
             </div>
@@ -207,7 +207,7 @@ function MessageAttachments({
         })}
       </div>
       {preview ? (
-        <ImageLightbox src={preview.url} alt={preview.name} onClose={() => setPreview(null)} />
+        <AuthorizedLightbox url={preview.url} alt={preview.name} onClose={() => setPreview(null)} />
       ) : null}
     </>
   );

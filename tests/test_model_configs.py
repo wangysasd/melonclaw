@@ -2,11 +2,16 @@
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
+
+import httpx
 
 from melonclaw.core.model_catalog import (
     catalog_item,
     custom_model_id,
     resolve_model_row,
+    validate_model_provider,
+    validate_provider_protocol,
 )
 from melonclaw.services.resource_service import (
     ModelConfigError,
@@ -110,6 +115,15 @@ class ValidateProviderPayloadTests(unittest.TestCase):
         validate_provider_payload(
             make_provider_payload(models_endpoint="", api_key=None)
         )
+
+    def test_accepts_anthropic_without_extension_body(self):
+        validate_provider_payload(make_provider_payload(provider_type="anthropic"))
+
+    def test_rejects_anthropic_extension_body(self):
+        with self.assertRaises(ModelConfigError):
+            validate_provider_payload(
+                make_provider_payload(provider_type="anthropic", extra_config={"thinking": True})
+            )
 
 
 class ValidateModelPayloadTests(unittest.TestCase):
@@ -274,6 +288,10 @@ class FakeStorage:
         return self.providers[fields["provider_key"]]
 
     async def update_provider_row(self, provider_key, **fields):
+        row = {**self.providers[provider_key], **fields}
+        validate_provider_protocol(row["provider_type"], row["request_headers"], row["extra_config"])
+        for model in await self.list_models_of_provider(provider_key):
+            validate_model_provider(model["purpose"], row["provider_type"])
         self.providers[provider_key].update(fields)
 
     async def delete_provider_row(self, provider_key):
@@ -328,6 +346,7 @@ class FakeStorage:
     async def create_model_row(self, **fields):
         fields.setdefault("id", "00000000-0000-0000-0000-000000000001")
         fields.setdefault("purpose", "chat")
+        validate_model_provider(fields["purpose"], self.providers[fields["provider_key"]]["provider_type"])
         fields.setdefault("is_default", False)
         fields.setdefault("input_modalities", ["text"])
         self.rows[fields["model_key"]] = dict(fields, version=1)
@@ -360,6 +379,98 @@ def make_service(storage):
         settings=SimpleNamespace(data_root=None),
     )
     return ResourceService(runtime)
+
+
+class AnthropicProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_update_can_switch_to_anthropic(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload())
+        await service.update_provider(
+            "admin-1", "my-gateway", provider_type="anthropic", extra_config={}
+        )
+        self.assertEqual(storage.providers["my-gateway"]["provider_type"], "anthropic")
+
+    async def test_switch_keeps_existing_extension_body_rejected(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider(
+            "admin-1", make_provider_payload(extra_config={"thinking": True})
+        )
+        with self.assertRaises(ModelConfigError):
+            await service.update_provider("admin-1", "my-gateway", provider_type="anthropic")
+
+    async def test_switch_rejects_a_retained_credential_header(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload(request_headers={"X-Api-KEY": "placeholder"}))
+        with self.assertRaisesRegex(ModelConfigError, "x-api-key"):
+            await service.update_provider("admin-1", "my-gateway", provider_type="anthropic")
+        await service.update_provider("admin-1", "my-gateway", provider_type="anthropic", request_headers={})
+
+    async def test_list_and_connection_test_use_anthropic_endpoints_and_credentials(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload(
+            provider_type="anthropic", base_url="https://example.invalid/gateway/", models_endpoint=None,
+            request_headers={"X-Client": "test-only"},
+        ))
+        storage.user_keys[("my-gateway", "member-1")] = "personal-placeholder"
+        requests = []
+
+        def handle(request):
+            requests.append(request)
+            return httpx.Response(200, json={"data": [{"id": "claude-example", "display_name": "Claude"}]})
+
+        client_type = httpx.AsyncClient
+        with patch("melonclaw.services.resource_service.httpx.AsyncClient",
+                   side_effect=lambda **options: client_type(transport=httpx.MockTransport(handle), **options)):
+            models = await service.fetch_remote_models("member-1", "my-gateway")
+            tested = await service.test_provider_connection(
+                "admin-1", provider_key=None, provider_type="anthropic",
+                base_url="https://example.invalid/gateway/", models_endpoint=None,
+                api_key="form-placeholder", api_key_env="", request_headers={},
+            )
+            await service.test_provider_connection(
+                "admin-1", provider_key="my-gateway", provider_type="anthropic",
+                base_url="https://example.invalid/gateway", models_endpoint="https://example.invalid/custom/models",
+                api_key="form-placeholder", api_key_env="", request_headers={"Anthropic-Version": "test-version"},
+            )
+
+        self.assertEqual(models, {"items": [{"id": "claude-example", "display_name": "Claude"}]})
+        self.assertEqual(tested, {"model_count": 1})
+        self.assertEqual([request.url.path for request in requests], [
+            "/gateway/v1/models", "/gateway/v1/models", "/custom/models",
+        ])
+        self.assertEqual([request.headers["x-api-key"] for request in requests], [
+            "personal-placeholder", "form-placeholder", "form-placeholder",
+        ])
+        self.assertEqual([request.headers.get_list("anthropic-version") for request in requests], [
+            ["2023-06-01"], ["2023-06-01"], ["test-version"],
+        ])
+        self.assertTrue(all("authorization" not in request.headers for request in requests))
+        self.assertEqual(requests[0].headers["x-client"], "test-only")
+
+    async def test_document_parser_cannot_use_anthropic_provider(self):
+        storage = FakeStorage()
+        service = make_service(storage)
+        await service.create_provider("admin-1", make_provider_payload())
+        await service.create_model(
+            "admin-1", make_payload(purpose="document_parser", context_window=None)
+        )
+        with self.assertRaises(ModelConfigError):
+            await service.update_provider(
+                "admin-1", "my-gateway", provider_type="anthropic", extra_config={}
+            )
+        storage.rows.clear()
+        await service.update_provider(
+            "admin-1", "my-gateway", provider_type="anthropic", extra_config={}
+        )
+        with self.assertRaises(ModelConfigError):
+            await service.create_model(
+                "admin-1",
+                make_payload(purpose="document_parser", model_key="parser", context_window=None),
+            )
 
 
 class ProviderPermissionMatrixTests(unittest.IsolatedAsyncioTestCase):

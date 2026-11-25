@@ -29,6 +29,11 @@ interface Notify {
 
 type ModelPurpose = "chat" | "document_parser";
 
+const PROVIDER_TYPE_OPTIONS = [
+  { value: "openai_compatible", label: "OpenAI Completions API" },
+  { value: "anthropic", label: "Anthropic Messages API" },
+];
+
 interface ModelSectionProps {
   purpose?: ModelPurpose;
   userId: string;
@@ -372,6 +377,7 @@ function ProviderModal({
   const [form, setForm] = useState({
     providerKey: "",
     displayName: "",
+    providerType: "openai_compatible",
     baseUrl: "",
     apiKey: "",
     apiKeyEnv: "",
@@ -388,6 +394,7 @@ function ProviderModal({
       setForm({
         providerKey: provider.provider_key,
         displayName: provider.display_name,
+        providerType: provider.provider_type,
         baseUrl: provider.base_url,
         apiKey: "",
         apiKeyEnv: provider.api_key_env,
@@ -400,6 +407,7 @@ function ProviderModal({
       setForm({
         providerKey: "",
         displayName: "",
+        providerType: "openai_compatible",
         baseUrl: "",
         apiKey: "",
         apiKeyEnv: "",
@@ -418,10 +426,11 @@ function ProviderModal({
     setSaving(true);
     try {
       const headers = parseProviderHeaders(form.requestHeaders);
+      const anthropic = form.providerType === "anthropic";
       const advanced = {
         apiKeyEnv: form.apiKeyEnv.trim(),
         requestHeaders: headers,
-        extraConfig: parseJsonObject(form.extraConfig, "扩展配置"),
+        extraConfig: anthropic ? {} : parseJsonObject(form.extraConfig, "扩展配置"),
       };
       if (providerKey === "new") {
         await createProvider({
@@ -430,6 +439,7 @@ function ProviderModal({
           providerKey: form.providerKey.trim(),
           scope: "global",
           displayName: form.displayName.trim(),
+          providerType: form.providerType,
           baseUrl: form.baseUrl.trim(),
           apiKey: form.apiKey.trim() || null,
           modelsEndpoint: form.modelsEndpoint.trim() || null,
@@ -442,6 +452,7 @@ function ProviderModal({
           ...advanced,
           enabled: form.enabled,
           displayName: form.displayName.trim() || undefined,
+          providerType: form.providerType === "anthropic" ? "anthropic" : "openai_compatible",
           baseUrl: form.baseUrl.trim() || undefined,
           apiKey: form.apiKey.trim() ? form.apiKey.trim() : undefined,
           modelsEndpoint: form.modelsEndpoint.trim(),
@@ -470,6 +481,7 @@ function ProviderModal({
       const result = await testProviderConnection({
         userId,
         providerKey: editing ? provider?.provider_key : undefined,
+        providerType: form.providerType === "anthropic" ? "anthropic" : "openai_compatible",
         baseUrl: form.baseUrl.trim(),
         modelsEndpoint: form.modelsEndpoint.trim(),
         apiKey: form.apiKey.trim() || undefined,
@@ -564,7 +576,13 @@ function ProviderModal({
           </label>
           <label className="provider-edit-field">
             <span>Provider Type</span>
-            <Input value={provider?.provider_type === "openai_compatible" || !provider ? "OpenAI Completions API" : provider.provider_type} disabled />
+            <Select
+              aria-label="Provider Type"
+              value={form.providerType}
+              disabled={saving || testing}
+              options={PROVIDER_TYPE_OPTIONS}
+              onChange={(value: string) => setForm((current) => ({ ...current, providerType: value }))}
+            />
           </label>
           <label className="provider-edit-field">
             <span>API Key Env</span>
@@ -592,6 +610,9 @@ function ProviderModal({
             />
           </label>
         </div>
+        {form.providerType === "anthropic" ? (
+          <p className="resource-hint">Anthropic Base URL 使用服务根地址或网关前缀，客户端会追加 /v1/messages；模型列表端点留空时使用 /v1/models。</p>
+        ) : null}
         <div className="provider-edit-status">
           <span id="provider-edit-status-label">状态</span>
           <Switch
@@ -612,6 +633,8 @@ function ProviderModal({
               placeholder={provider?.has_request_headers ? "已配置（不回显）；留空保留，{} 清空" : "{}"}
               onChange={(event) => setForm((current) => ({ ...current, requestHeaders: event.target.value }))} />
           </label>
+          {form.providerType === "anthropic" ? null : (
+          <>
           <label className="provider-edit-field">
             <span>思考输出格式</span>
             <Select
@@ -648,6 +671,8 @@ function ProviderModal({
             上方选择会同步到 <code>_melonclaw.reasoning_format</code>。
             <code>_melonclaw</code> 仅用于本地解析，其余扩展配置作为附加请求体发送，请勿填写密钥。
           </p>
+          </>
+          )}
           <p className="resource-hint">请求头留空保留，输入 {"{}"} 清空。</p>
         </details>
         <p className="resource-hint">
@@ -778,6 +803,7 @@ function ModelManageModal({
     }, "已创建模型");
   };
 
+  const hasRemoteEndpoint = Boolean(provider?.models_endpoint || provider?.provider_type === "anthropic");
   const createManualButton = (
     <Button className="manual-model-create" type="primary" onClick={submitManual} disabled={!manual.displayName.trim() || !manual.modelName.trim() || (purpose === "chat" && (!manual.contextWindow || manual.contextWindow <= 0))}>
       创建
@@ -892,7 +918,7 @@ function ModelManageModal({
           <Button className="action-secondary"
             icon={<Icon name="refresh-cw" size={14} />}
             loading={remoteLoading}
-            disabled={!provider?.models_endpoint}
+            disabled={!hasRemoteEndpoint}
             onClick={() => void fetchRemote()}
           >
             获取远程模型
@@ -900,7 +926,7 @@ function ModelManageModal({
           <Button icon={<Icon name="plus" size={14} />} onClick={() => setShowManual((v) => !v)}>
             手动添加
           </Button>
-          {!provider?.models_endpoint ? (
+          {!hasRemoteEndpoint ? (
             <span className="resource-hint">该供应商未配置模型列表端点</span>
           ) : null}
         </div>

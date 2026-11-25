@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from account_fixtures import use_access_token
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import func, select, text, update
@@ -188,11 +189,11 @@ def test_cookie_api_permissions_versions_and_identity_changes(monkeypatch, tmp_p
                 transport=httpx.ASGITransport(app), base_url="http://test"
             ) as client:
                 assert (await client.get("/api/tasks")).status_code == 401
-                assert (
-                    await client.post(
-                        "/api/auth/login", json={"user_id": "alice", "password": "alice-pass"}
-                    )
-                ).status_code == 200
+                logged = await client.post(
+                    "/api/auth/login", json={"user_id": "alice", "password": "alice-pass"}
+                )
+                assert logged.status_code == 200
+                use_access_token(client, logged)
                 assert (await client.get("/api/task-notifications")).status_code == 404
                 assert (await client.post(f"/api/task-notifications/{uuid4()}/read")).status_code == 404
                 body = {
@@ -220,9 +221,9 @@ def test_cookie_api_permissions_versions_and_identity_changes(monkeypatch, tmp_p
                 ).status_code == 422
                 with pytest.raises(AccountConflict):
                     await accounts.save_user("alice", "用户甲", "system")
-                assert (
-                    await client.post("/api/auth/switch", json={"user_id": "admin"})
-                ).status_code == 200
+                switched = await client.post("/api/auth/switch", json={"user_id": "admin"})
+                assert switched.status_code == 200
+                use_access_token(client, switched)
                 assert (await client.get(f"/api/tasks/{tid}")).status_code == 404
                 assert (await client.get(f"/api/task-runs/{rid}")).status_code == 404
                 assert (await client.get(f"/api/task-runs/{rid}/events")).status_code == 404

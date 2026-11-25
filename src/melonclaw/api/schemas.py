@@ -113,7 +113,7 @@ class ModelProviderCreateRequest(BaseModel):
     provider_key: str = Field(min_length=1, max_length=64)
     scope: Literal["global"]
     display_name: str = Field(min_length=1, max_length=120)
-    provider_type: Literal["openai_compatible"] = "openai_compatible"
+    provider_type: Literal["openai_compatible", "anthropic"] = "openai_compatible"
     api_key_env: str = Field(default="", max_length=120)
     request_headers: dict[str, str] = Field(default_factory=dict, max_length=64)
     extra_config: dict[str, Any] = Field(default_factory=dict, max_length=64)
@@ -132,6 +132,7 @@ class ModelProviderUpdateRequest(BaseModel):
     extra_config: dict[str, Any] | None = Field(default=None, max_length=64)
     enabled: bool | None = None
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    provider_type: Literal["openai_compatible", "anthropic"] | None = None
     base_url: str | None = Field(default=None, min_length=1, max_length=400)
     api_key: str | None = Field(default=None, max_length=240)
     models_endpoint: str | None = Field(default=None, max_length=300)
@@ -142,6 +143,7 @@ class ModelProviderTestRequest(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=64)
     provider_key: str | None = Field(default=None, min_length=1, max_length=64)
+    provider_type: Literal["openai_compatible", "anthropic"] = "openai_compatible"
     base_url: str = Field(min_length=1, max_length=400)
     models_endpoint: str | None = Field(default=None, max_length=300)
     api_key: str | None = Field(default=None, max_length=240)

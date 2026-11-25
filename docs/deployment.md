@@ -30,7 +30,7 @@ if ! sudo test -e /etc/melonclaw/melonclaw.env; then
 fi
 ```
 
-通过服务器编辑器填写外部配置；不要把实际凭据写进仓库或输出到日志。修改 `DATABASE_URL`、实际站点 Origin，并确认 data/workspace 为外部路径。若本次部署包含知识库所需的 `vector(1024)` 向量列，须在 `db-init` 之前按 [数据库准备说明](../ops/PGVECTOR.md) 在目标库启用扩展；该脚本不建库，账号与库需先按准备指南创建。在 `/opt/melonclaw/` 完成依赖安装后，以 `ubuntu` 账号安装模板并初始化全新数据库：
+通过服务器编辑器填写外部配置；不要把实际凭据写进仓库或输出到日志。填写 `DATABASE_URL`、至少 32 个字符的随机 `MELONCLAW_JWT_SECRET` 和实际站点 Origin，并确认 data/workspace 为外部路径。若本次部署包含知识库所需的 `vector(1024)` 向量列，须在 `db-init` 之前按 [数据库准备说明](../ops/PGVECTOR.md) 在目标库启用扩展；该脚本不建库，账号与库需先按准备指南创建。在 `/opt/melonclaw/` 完成依赖安装后，以 `ubuntu` 账号安装模板并初始化全新数据库：
 
 ```bash
 env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/melonclaw-resources --service-stopped install-builtins --source /opt/melonclaw/.data/skills/shared
@@ -72,7 +72,7 @@ uv run melonclaw-resources --service-stopped migrate --source <旧工作区根> 
 
 ## 升级、回滚与备份
 
-升级前记录当前 Git 提交并停止 Web 服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked --default-index https://pypi.org/simple`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。Nginx 应使用 `ops/nginx/melonclaw.conf` 中对 `/index.html` 设置的 `Cache-Control: no-store`，使浏览器在发版后及时加载新入口与哈希资源；使用自定义配置时应保留该行为。若版本包含数据库升级，标准部署可直接运行 `uv run melonclaw-db-update`：命令会自动读取 `/etc/melonclaw/melonclaw.env`，与 systemd 服务使用相同配置。若配置文件放在其他位置，先设置 `MELONCLAW_ENV_FILE=/实际配置文件路径` 再运行。成功后重启 Web，检查包含任务执行器的 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
+升级到 JWT 版本前，先在 Web 实际读取的外部环境文件填好随机 `MELONCLAW_JWT_SECRET`。如需自定义 `MELONCLAW_TOKEN_TTL_HOURS`，填不小于 1 的整数。常规发版脚本在停服前校验这两项配置。升级前记录当前 Git 提交并停止 Web 服务，备份一致的数据库、数据根和工作区。在 `/opt/melonclaw/` 执行 `git pull --ff-only`、`uv sync --locked --default-index https://pypi.org/simple`、`npm --prefix frontend ci` 和 `npm --prefix frontend run build`。Nginx 应使用 `ops/nginx/melonclaw.conf` 中对 `/index.html` 设置的 `Cache-Control: no-store`，使浏览器在发版后及时加载新入口与哈希资源；使用自定义配置时应保留该行为。若版本包含数据库升级，标准部署可直接运行 `uv run melonclaw-db-update`：命令会自动读取 `/etc/melonclaw/melonclaw.env`，与 systemd 服务使用相同配置。若配置文件放在其他位置，先设置 `MELONCLAW_ENV_FILE=/实际配置文件路径` 再运行。成功后重启 Web，检查包含任务执行器的 `/api/ready`。模板安装命令只填充缺失的 Skill，不更新已有同名 Skill；更新内置内容走资源管理流程。
 
 回滚代码前确认数据库结构与旧版本兼容；切回已记录的旧 Git 提交后，重新同步依赖和构建前端，再启动服务。代码回滚不会自动回滚数据库 schema。异机备份需要包含 PostgreSQL、整个 data/workspaces 和受控保存的配置，定期演练恢复；数据库与磁盘应在同一停写窗口或一致快照中备份。
 

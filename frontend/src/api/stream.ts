@@ -1,3 +1,4 @@
+import { requestHeaders } from "./auth";
 import { API_BASE_URL, ApiError, parseErrorResponse } from "./client";
 import type {
   SendApprovalInput,
@@ -88,12 +89,13 @@ export async function streamRequest(
   body: unknown,
   { onEvent, signal }: StreamHandlers,
 ): Promise<void> {
+  const headers = requestHeaders({ "Content-Type": "application/json" });
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      headers,
       body: JSON.stringify(body),
       signal,
     });
@@ -104,7 +106,7 @@ export async function streamRequest(
     throw new ApiError(0, "无法连接到 MelonClaw 服务，请检查网络或服务状态。");
   }
   if (!response.ok) {
-    throw await parseErrorResponse(response);
+    throw await parseErrorResponse(response, headers.Authorization);
   }
   if (!response.body) {
     throw new ApiError(0, "服务器没有返回可读取的响应流。");

@@ -1,4 +1,4 @@
-import { identityHeaders } from "./auth";
+import { authHeader, clearAccessToken, requestHeaders } from "./auth";
 import type {
   ConversationHistory,
   ConversationSummary,
@@ -51,7 +51,7 @@ interface ApiRequestOptions {
   signal?: AbortSignal;
 }
 
-export async function parseErrorResponse(response: Response): Promise<ApiError> {
+export async function parseErrorResponse(response: Response, sentAuthorization: string | undefined): Promise<ApiError> {
   let message = `请求失败（${response.status}）。`;
   let errorCode: string | undefined;
   try {
@@ -67,7 +67,7 @@ export async function parseErrorResponse(response: Response): Promise<ApiError> 
   } catch {
     // 响应体不是 JSON 时保留默认文案。
   }
-  if (response.status === 401) window.dispatchEvent(new Event("melonclaw-auth-expired"));
+  notifyUnauthorized(response.status, sentAuthorization);
   if (response.status === 409 && message.includes("当前用户已变化")) window.dispatchEvent(new Event("melonclaw-auth-change"));
   return new ApiError(response.status, message, errorCode);
 }
@@ -94,16 +94,13 @@ export async function apiRequest<T>(
   options: ApiRequestOptions = {},
 ): Promise<T> {
   const url = `${API_BASE_URL}${path}${buildQuery(options.query)}`;
+  const headers = requestHeaders(options.body !== undefined ? { "Content-Type": "application/json" } : {});
   let response: Response;
   try {
     response = await fetch(url, {
       method: options.method ?? "GET",
-      credentials: "include",
       cache: "no-store",
-      headers:
-        options.body !== undefined
-          ? { "Content-Type": "application/json", ...identityHeaders() }
-          : identityHeaders(),
+      headers,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       signal: options.signal,
     });
@@ -114,9 +111,22 @@ export async function apiRequest<T>(
     throw new ApiError(0, "无法连接到 MelonClaw 服务，请检查网络或服务状态。");
   }
   if (!response.ok) {
-    throw await parseErrorResponse(response);
+    throw await parseErrorResponse(response, headers.Authorization);
   }
   return (await response.json()) as T;
+}
+
+export async function fetchAuthorizedBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+  const headers = requestHeaders();
+  let response: Response;
+  try {
+    response = await fetch(url, { signal, cache: "no-store", headers });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new ApiError(0, "无法连接到 MelonClaw 服务，请检查网络或服务状态。");
+  }
+  if (!response.ok) throw await parseErrorResponse(response, headers.Authorization);
+  return response.blob();
 }
 
 /* ---------- 端点封装 ---------- */
@@ -158,16 +168,7 @@ export async function downloadSkill(
   input: { userId: string; scope: "global" | "user" },
 ): Promise<void> {
   const url = `${API_BASE_URL}/api/skills/${encodeURIComponent(name)}/download${buildQuery({ user_id: input.userId, scope: input.scope })}`;
-  let response: Response;
-  try {
-    response = await fetch(url, { credentials: "include", headers: identityHeaders() });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new ApiError(0, "无法连接到 MelonClaw 服务，请检查网络或服务状态。");
-  }
-  if (!response.ok) throw await parseErrorResponse(response);
-
-  const blob = await response.blob();
+  const blob = await fetchAuthorizedBlob(url);
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
@@ -188,13 +189,14 @@ export async function prepareSkillImport(input: {
   form.append("user_id", input.userId);
   form.append("file", input.file);
   if (input.targetId) form.append("target_id", input.targetId);
+  const headers = requestHeaders();
   const response = await fetch(`${API_BASE_URL}/api/skills/import/prepare`, {
-    credentials: "include",
-    headers: identityHeaders(),
+    cache: "no-store",
+    headers,
     method: "POST",
     body: form,
   });
-  if (!response.ok) throw await parseErrorResponse(response);
+  if (!response.ok) throw await parseErrorResponse(response, headers.Authorization);
   return (await response.json()) as SkillImportDraft;
 }
 
@@ -407,6 +409,7 @@ export function updateProvider(
     userId: string;
     enabled?: boolean;
     displayName?: string;
+    providerType?: "openai_compatible" | "anthropic";
     baseUrl?: string;
     apiKey?: string | null;
     modelsEndpoint?: string | null;
@@ -423,6 +426,7 @@ export function updateProvider(
         user_id: input.userId,
         enabled: input.enabled,
         display_name: input.displayName,
+        provider_type: input.providerType,
         base_url: input.baseUrl,
         api_key: input.apiKey ?? null,
         models_endpoint: input.modelsEndpoint ?? null,
@@ -462,6 +466,7 @@ export function fetchRemoteModels(
 export function testProviderConnection(input: {
   userId: string;
   providerKey?: string;
+  providerType: "openai_compatible" | "anthropic";
   baseUrl: string;
   modelsEndpoint: string;
   apiKey?: string;
@@ -473,6 +478,7 @@ export function testProviderConnection(input: {
     body: {
       user_id: input.userId,
       provider_key: input.providerKey,
+      provider_type: input.providerType,
       base_url: input.baseUrl,
       models_endpoint: input.modelsEndpoint,
       api_key: input.apiKey,
@@ -654,7 +660,7 @@ function abortError(): DOMException {
   return new DOMException("请求已取消。", "AbortError");
 }
 
-function parseXhrError(request: XMLHttpRequest): ApiError {
+function parseXhrError(request: XMLHttpRequest, sentAuthorization: string | undefined): ApiError {
   let message = `请求失败（${request.status}）。`;
   let errorCode: string | undefined;
   try {
@@ -668,7 +674,14 @@ function parseXhrError(request: XMLHttpRequest): ApiError {
   } catch {
     // 响应体不是 JSON 时保留默认文案。
   }
+  notifyUnauthorized(request.status, sentAuthorization);
   return new ApiError(request.status, message, errorCode);
+}
+
+function notifyUnauthorized(status: number, sentAuthorization: string | undefined) {
+  if (status !== 401 || sentAuthorization !== authHeader().Authorization) return;
+  clearAccessToken();
+  window.dispatchEvent(new Event("melonclaw-auth-expired"));
 }
 
 /**
@@ -701,8 +714,8 @@ export function uploadAttachment(
     }
     const request = new XMLHttpRequest();
     request.open("POST", url);
-    request.withCredentials = true;
-    for (const [key, value] of Object.entries(identityHeaders())) request.setRequestHeader(key, value);
+    const headers = requestHeaders();
+    for (const [key, value] of Object.entries(headers)) request.setRequestHeader(key, value);
     const handleAbort = () => request.abort();
     signal?.addEventListener("abort", handleAbort, { once: true });
     const detach = () => signal?.removeEventListener("abort", handleAbort);
@@ -722,7 +735,7 @@ export function uploadAttachment(
         }
         return;
       }
-      reject(parseXhrError(request));
+      reject(parseXhrError(request, headers.Authorization));
     };
     request.onerror = () => {
       detach();

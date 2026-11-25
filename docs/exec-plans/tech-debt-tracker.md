@@ -21,6 +21,7 @@
 | D14 | `session.runStatus` 只写不读 | 聊天流和上下文切换会写入它，测试锁定这些写入；当前组件不读取。删掉会改变 Session Context 的更新次数 | 先对照认证切换、恢复、停止和跨会话，证明没有依赖这些更新的重渲染，再迁走断言 | `frontend/src/state/sessionState.ts`、`frontend/src/hooks/useChatStream.ts` |
 | D15 | `load_mcp_tools` 只有测试调用 | 生产装配走 `build_mcp_tools`，会附带目录工具；公开函数另有空配置、取消传播和脱敏重抛，两套语义不同 | 确认没有仓库外导入后，再决定保留或迁移其失败语义。不要把它当成 `build_mcp_tools` 的空壳删掉 | `src/melonclaw/tool/tools.py`、`tests/test_mcp_tools.py` |
 | D16 | 收起态工具摘要没有界面调用 | `summariseAgentTools` 只被 `agent-execution.test.tsx` 使用。执行区组件不调用它 | 先确认收起态不再展示工具名摘要，再删除函数和对应断言。在此之前保留计数规则 | `frontend/src/lib/agentRun.ts` |
+| D17 | PostgreSQL 迁移回归出现重复 parser_model_id 列 | 2026-11-23 在隔离库上以当前 HEAD 复现。当前 schema 已包含解析模型列，历史升级只查询 public，未识别隔离 schema 中已有的列，阻塞定时任务等集成用例 | 按历史升级起点构造隔离测试夹具，并复核 schema 假设。保留已登记升级 | `tests/test_task_postgres.py::test_atomic_management_queue_and_restart`、`src/melonclaw/database/updates/parser_model.py` |
 
 ## 审计结束后的独立评估记录
 

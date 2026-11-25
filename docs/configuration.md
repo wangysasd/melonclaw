@@ -25,6 +25,8 @@
 | `MELONCLAW_TASK_EXECUTION_TIMEOUT_SECONDS` | 后台完整运行时限（包含模型解析、历史摘要、Agent 构建和执行），默认 1800 秒，须为正整数 |
 | `MELONCLAW_TASK_RESULT_MAX_CHARS` | 任务文字结果上限，默认 200000 字符，超限明确失败并保留部分内容 |
 | `profile` | 仅 `dev` 开启免密登录和全员身份切换；直接启动后端时按此值生效 |
+| `MELONCLAW_JWT_SECRET` | 登录 JWT 的签名密钥。必须配置，至少 32 个字符；缺失、空白或更短则拒绝启动。不提供公开默认值 |
+| `MELONCLAW_TOKEN_TTL_HOURS` | 新签发令牌的有效期小时数。未设置或空白时为 1000。配置后必须是不小于 1 的整数，否则拒绝启动。已发出的令牌仍用自己的过期时间 |
 | `MELONCLAW_HOST` | Web 监听地址，默认 `127.0.0.1`。由 `core/config.py` 的 `web_bind()` 解析，不进入 Settings |
 | `MELONCLAW_PORT` | Web 监听端口，默认 `8000`，必须是整数。同样只经 `web_bind()` 读取 |
 

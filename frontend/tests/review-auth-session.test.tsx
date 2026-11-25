@@ -134,7 +134,6 @@ it("turns an API 401 into a global auth-expired event and includes the session i
     await expect(apiRequest("/api/protected")).rejects.toMatchObject({ status: 401, message: "请先登录" });
     expect(expired).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledWith("/api/protected", expect.objectContaining({
-      credentials: "include",
       cache: "no-store",
       headers: { "X-Melonclaw-User": "alice" },
     }));
@@ -143,19 +142,13 @@ it("turns an API 401 into a global auth-expired event and includes the session i
   }
 });
 
-it("returns to login after a successful password change invalidates the cookie session", async () => {
-  let authenticated = true;
+it("keeps the workspace after a password change because the token stays valid", async () => {
   vi.stubGlobal("crypto", { randomUUID: () => "auth-change-test" });
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const path = pathOf(input);
-    if (path === "/api/auth/session") {
-      return Promise.resolve(authenticated ? response(200, alice) : response(401, { detail: "请先登录" }));
-    }
+    if (path === "/api/auth/session") return Promise.resolve(response(200, alice));
     if (path === "/api/auth/config") return Promise.resolve(response(200, { passwordless: false, assistant_name: "Melon" }));
-    if (path === "/api/auth/password" && init?.method === "POST") {
-      authenticated = false;
-      return Promise.resolve(response(200, { ok: true }));
-    }
+    if (path === "/api/auth/password" && init?.method === "POST") return Promise.resolve(response(200, { ok: true }));
     throw new Error(`Unexpected request: ${path}`);
   }));
 
@@ -168,9 +161,9 @@ it("returns to login after a successful password change invalidates the cookie s
   fireEvent.change(screen.getByLabelText("再次输入密码"), { target: { value: "new-password" } });
   fireEvent.click(screen.getByRole("button", { name: /保\s*存/ }));
 
-  expect(await screen.findByLabelText("用户 ID")).toBeTruthy();
-  expect(screen.queryByText("受保护的聊天")).toBeNull();
-  expect(closed).toHaveBeenCalledOnce();
+  await waitFor(() => expect(closed).toHaveBeenCalledOnce());
+  expect(screen.getByText("受保护的聊天")).toBeTruthy();
+  expect(screen.queryByLabelText("用户 ID")).toBeNull();
 });
 
 it("blocks invalid account creation and submits the validated form fields", async () => {

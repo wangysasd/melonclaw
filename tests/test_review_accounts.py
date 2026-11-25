@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from account_fixtures import use_access_token
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -28,7 +29,6 @@ class _MemoryAccounts:
 
     def __init__(self, encoded: str):
         self.encoded = encoded
-        self.sessions: dict[str, dict[str, str]] = {}
         self.users = {
             user_id: UserContext(user_id, user_id, "system", "系统")
             for user_id in ("admin", "alice")
@@ -41,17 +41,11 @@ class _MemoryAccounts:
     async def get_user_context(self, user_id):
         return self.users.get(user_id)
 
+    async def active_user(self, user_id):
+        return self.users.get(user_id)
+
     async def account_password(self, user_id):
         return self.encoded if user_id in self.users else None
-
-    async def create_auth_session(self, token_hash, user_id):
-        self.sessions[token_hash] = {"user_id": user_id, "login_user_id": user_id}
-
-    async def authenticated_user(self, token_hash):
-        session = self.sessions.get(token_hash)
-        if not session or session["login_user_id"] not in self.users:
-            return None
-        return self.users.get(session["user_id"])
 
 
 
@@ -80,6 +74,7 @@ def test_cookie_identity_assertions_reject_header_query_and_json_spoofing(monkey
                 json={"user_id": "alice", "password": "password-123"},
             )
             assert login.status_code == 200
+            use_access_token(client, login)
 
             assert (
                 await client.get(
@@ -94,6 +89,19 @@ def test_cookie_identity_assertions_reject_header_query_and_json_spoofing(monkey
                     "/api/projects", json={"user_id": "admin", "name": "spoof"}
                 )
             ).status_code == 409
+            assert (
+                await client.post(
+                    "/api/projects",
+                    json={"user_id": "alice", "actor_user_id": "admin", "name": "spoof"},
+                )
+            ).status_code == 409
+            assert (
+                await client.post(
+                    "/api/projects",
+                    files={"user_id": (None, "admin"), "name": (None, "spoof")},
+                )
+            ).status_code == 409
+            assert (await client.get("/api/auth/session")).json()["user_id"] == "alice"
             assert (
                 await client.post(
                     "/api/admin/users",
@@ -264,17 +272,23 @@ def test_login_origin_boundary_and_cors_preflight(monkeypatch, origin, site, sta
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://api.test") as client:
             preflight = await client.options("/api/auth/login", headers={
                 "Origin": "http://api.test:8001", "Access-Control-Request-Method": "POST",
-                "Access-Control-Request-Headers": "Content-Type,X-Melonclaw-User",
+                "Access-Control-Request-Headers": "authorization,content-type,x-melonclaw-user",
             })
             assert preflight.status_code == 200
             assert preflight.headers["access-control-allow-origin"] == "http://api.test:8001"
+            allowed = preflight.headers["access-control-allow-headers"].lower()
+            assert "authorization" in allowed
+            assert "content-type" in allowed
+            assert "x-melonclaw-user" in allowed
             response = await client.post("/api/auth/login", json={
                 "user_id": "alice", "password": "password-123",
             }, headers={"Origin": origin, "Sec-Fetch-Site": site})
             assert response.status_code == status
             if status == 200:
-                assert "SameSite=strict" in response.headers["set-cookie"]
-                assert (await client.get("/api/auth/session")).status_code == 200
+                assert (await client.get(
+                    "/api/auth/session",
+                    headers={"Authorization": f"Bearer {response.json()['access_token']}"},
+                )).status_code == 200
     asyncio.run(run())
 
 

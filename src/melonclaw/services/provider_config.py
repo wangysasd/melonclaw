@@ -4,13 +4,8 @@ import json
 import re
 from typing import Any
 
+from melonclaw.core.model_catalog import ModelConfigError
 from melonclaw.core.reasoning import protocol_options
-
-
-class ModelConfigError(ValueError):
-    """自定义模型配置不合法。"""
-
-    status_code = 422
 
 
 def validate_provider_advanced(

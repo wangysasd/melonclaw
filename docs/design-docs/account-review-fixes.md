@@ -20,7 +20,7 @@
 
 ## 运行与验证
 
-启动仍用 `scripts/start.sh --profile dev`。无需数据库初始化或升级。运行 `scripts/check.sh`，后端测试覆盖 CORS 预检、来源矩阵、Cookie 会话、损坏散列和公开探测；前端测试覆盖迟到成功与迟到错误响应。真实 PostgreSQL 测试依赖独立测试连接，未配置则跳过，本次不操作业务数据库。
+启动仍用 `scripts/start.sh --profile dev`。无需数据库初始化或升级。运行 `scripts/check.sh`，后端测试覆盖 CORS 预检、来源矩阵、JWT、损坏散列和公开探测；前端测试覆盖迟到成功与迟到错误响应。真实 PostgreSQL 测试依赖独立测试连接，未配置则跳过，本次不操作业务数据库。
 
 针对性验证记录：后端 15 passed（来源、Cookie、散列和 readiness），前端 8 passed（含四种乱序组合）。原 it.fails 的创建用户流程依赖未完成的租户列表，会提前失败；现改用创建租户，确保保存与第二次刷新实际发生，并断言旧响应不能提前结束新请求 loading。测试环境额外定义导航开关默认 false，避免工作区导航改动的编译常量缺失。
 

@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from account_fixtures import use_access_token
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import text, update
@@ -199,11 +200,11 @@ def test_web_process_lifecycle_runs_cancels_and_recovers_tasks(monkeypatch, tmp_
                     base_url=f"http://127.0.0.1:{port}", timeout=2
                 ) as client:
                     await ready(client)
-                    assert (
-                        await client.post(
-                            "/api/auth/login", json={"user_id": "admin", "password": "admin"}
-                        )
-                    ).status_code == 200
+                    logged = await client.post(
+                        "/api/auth/login", json={"user_id": "admin", "password": "admin"}
+                    )
+                    assert logged.status_code == 200
+                    use_access_token(client, logged)
                     saved = (
                         await client.post(
                             "/api/tasks",

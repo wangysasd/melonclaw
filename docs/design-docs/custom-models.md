@@ -8,11 +8,11 @@
 
 ### 数据模型
 
-- `model_providers` 表：`provider_key`（全局唯一）、scope（数据库及管理接口仅允许 `global`，管理员维护）、source_type（`system`=23 家种子 / `manual`=新建）、display_name、provider_type（目前只有 `openai_compatible`）、base_url、api_key（共享 Key，只写不回读）、models_endpoint、enabled、created_by、version。
+- `model_providers` 表：`provider_key`（全局唯一）、scope（数据库及管理接口仅允许 `global`，管理员维护）、source_type（`system`=23 家种子 / `manual`=新建）、display_name、provider_type（`openai_compatible` 或 `anthropic`）、base_url、api_key（共享 Key，只写不回读）、models_endpoint、enabled、created_by、version。
 - `model_configs` 表：`model_key`（全局唯一，对外模型 ID 统一为 `custom:<model_key>`）、`provider_key`（FK → 供应商，RESTRICT）、scope（`global`=管理员共享 / `user`=用户个人）、source_type（`system`=种子 / `manual`=新建）、display_name、model_name（远端真实名）、enabled、is_default（部分唯一索引全局至多一行、每个用户至多一行）、input_modalities、created_by、version。
 - `provider_user_keys` 表：`(provider_key,user_id)` 唯一，用户在共享供应商上的 Key 覆盖；全局模型运行时优先级 用户Key > 共享Key > 指定环境变量，个人模型仅使用个人 Key；供应商删除时级联清理。
 - `version` 列每次更新自增，进 `ResolvedModel.config_version/provider_version` 与 Agent 缓存键：密钥轮换、改 Base URL 等变更下一条消息即生效。
-- 所有模型走 `openai_compatible` 适配器，纯 chat；不含 embedding/rerank 能力与多 base_url。
+- 聊天模型按 `provider_type` 走 OpenAI Completions 或 Anthropic Messages。种子仍是 `openai_compatible`。知识库用途只接受 `openai_compatible`。不含 embedding/rerank 能力与多 base_url。
 - 初始化 23 家供应商模板，全部停用、无 Key、无环境变量引用；不写 model_configs。供应商模板按 `INSERT ... ON CONFLICT DO NOTHING` 补录，不覆盖配置。
 
 手动添加和远端候选添加均由服务端生成内部 `model_key`。调用创建 API 时也可省略 `model_key`。
@@ -48,7 +48,7 @@
 
 ## 关键取舍
 
-- **不做任意 provider 适配器**：所有模型统一 OpenAI 兼容接口（覆盖 DeepSeek/MiniMax/OpenAI 及绝大多数自建网关），目录行的 provider 字段只是展示标签，唯一的分派键是 `adapter_type`。出现非 OpenAI 兼容需求时再按 adapter_type 扩展。
+- **适配器只有两种**：`adapter_type` 仍是唯一分派键。`openai_compatible` 走 `ChatOpenAI`，可带扩展请求体和思考格式。`anthropic` 走 `ChatAnthropic`，参数与 Yuxi 相同：模型名、API Key、Base URL，另把本项目的输出预留写成 `max_tokens`。不传 temperature，也不发送扩展请求体。一行供应商只有一个 Base URL。
 - **不做模型共享给指定用户/租户**：供应商固定为 `global`，模型仅允许 `global/user`，不预留 `tenant`。
 - **不做历史 ID 兼容**：旧 `system:xxx` 模型 ID 随本次升级废弃（历史数据可清空），统一使用 `custom:<model_key>`。
 - **目录来源收敛到服务端**（`runtime.models(user_id)`），前端选择器零改动拿到完整列表。
@@ -72,16 +72,16 @@
 
 ## 供应商编辑与高级配置（2026-09-27）
 
-点击供应商卡片后，管理员进入「编辑供应商」双列表单：Provider ID 编辑时锁定，Provider Type 当前只支持 OpenAI Completions API；名称、Base URL、API Key Env、API Key、Models Endpoint 可修改。状态独占一行，「高级配置」默认收起，点击后展开。「确定」保存表单中的启用状态；内置供应商不能删除，手动创建的供应商仍需先移除模型才能删除。普通用户沿用个人 Key 弹窗，无权修改共享供应商。
+点击供应商卡片后，管理员进入「编辑供应商」双列表单：Provider ID 编辑时锁定，Provider Type 可选 OpenAI Completions API 或 Anthropic Messages API；名称、Base URL、API Key Env、API Key、Models Endpoint 可修改。选中 Anthropic 时隐藏思考输出格式和扩展配置，保存时清空扩展配置。状态独占一行，「高级配置」默认收起，点击后展开。「确定」保存表单中的启用状态；内置供应商不能删除，手动创建的供应商仍需先移除模型才能删除。普通用户沿用个人 Key 弹窗，无权修改共享供应商。
 
 高级配置存放于 `model_providers.api_key_env / request_headers / extra_config`：
 
 - API Key Env 仅接受大写、以 `_API_KEY` 或 `_ACCESS_TOKEN` 结尾的变量名。全局模型凭据优先级：个人 Key → 数据库共享 Key → 指定环境变量；个人模型只使用个人 Key。初始化不读取环境变量或复制凭据。修改环境变量后重启服务。
 
-- 请求头 JSON 是字符串键值对象，聊天通过 `ChatOpenAI.default_headers` 注入，远端模型列表请求也携带这些头。保存后只返回 `has_request_headers`，绝不回显值；编辑时留空保留，`{}` 清空。禁止覆盖 Authorization、Host、Cookie、Content-Type 等认证/传输控制头，拒绝 CR/LF、非 ASCII 和重复头名。
-- 扩展配置 JSON 是供应商附加请求体，通过 `ChatOpenAI.extra_body` 注入，不是任意 SDK 构造参数。支持供应商自定义参数，如 `{"enable_thinking": true}`。不用于模型列表 GET；禁止覆盖模型、消息、工具和流式协议，也拒绝嵌套凭据字段、非有限数和超过 16 KiB 的对象。该配置可回显，请勿写入秘密。
+- 请求头 JSON 是字符串键值对象，聊天通过 OpenAI 或 Anthropic 客户端的 `default_headers` 注入，远端模型列表请求也携带这些头。保存后只返回 `has_request_headers`，绝不回显值；编辑时留空保留，`{}` 清空。禁止覆盖 Authorization、Host、Cookie、Content-Type 等认证/传输控制头。Anthropic 另外保留 `x-api-key` 给凭据解析链路，切换协议时也校验已保存的头。拒绝 CR/LF、非 ASCII 和重复头名。
+- 扩展配置 JSON 是 OpenAI Completions 的附加请求体，通过 `ChatOpenAI.extra_body` 注入，不是任意 SDK 构造参数。Anthropic 不接收这组字段，保存时必须为空。支持供应商自定义参数，如 `{"enable_thinking": true}`。不用于模型列表 GET；禁止覆盖模型、消息、工具和流式协议，也拒绝嵌套凭据字段、非有限数和超过 16 KiB 的对象。该配置可回显，请勿写入秘密。
 
-管理员保存走现有 API 权限检查；配置更新递增供应商版本，后续运行重建模型实例。没有新增 Agent 工具或 HITL 条目，既有文件和 Shell 权限不变；开发模拟身份仍非生产认证。请求失败不回显请求头或连接异常详情。
+管理员保存走现有 API 权限检查。供应商更新与文档解析模型创建复用模型目录事务锁，锁内校验最终供应商协议、有效扩展配置和关联解析模型。提交后发布资源失效并递增供应商版本，后续运行重建模型实例。没有新增 Agent 工具或 HITL 条目，既有文件和 Shell 权限不变；开发模拟身份仍非生产认证。请求失败不回显请求头或连接异常详情。
 
 当前模型与供应商字段由 schema.py 定义，业务读取不增加旧字段兜底。首次建库与已登记保留数据升级分别使用 db-init/db-update；配置编辑不需要重建数据库。
 
@@ -93,7 +93,7 @@
 
 供应商编辑弹窗由「确定」保存配置，启用状态完全由表单中的状态开关决定；「测试连接」不会保存。
 
-供应商新增/编辑弹窗的「测试连接」使用当前表单临时请求 Models Endpoint；端点留空时使用 Base URL + `/models`。显式输入 Key 优先，编辑时留空按个人 Key → 数据库共享 Key → 当前表单指定环境变量解析；请求头留空沿用已保存值。该只读接口只返回模型数量，不保存配置、不回显响应正文或凭据，且仅允许 admin/owner。它验证模型列表 GET，不代表聊天补全也能工作。
+供应商新增/编辑弹窗的「测试连接」使用当前表单临时请求 Models Endpoint；测试请求使用表单当前协议。Anthropic 的 Base URL 使用服务根地址或网关前缀，SDK 追加 `/v1/messages`。连接测试和远端模型列表默认追加 `/v1/models`，复用显式 Models Endpoint、`x-api-key` 与 `anthropic-version` 请求头规则。OpenAI 连接测试在端点留空时使用 Base URL + `/models`。显式输入 Key 优先，编辑时留空按个人 Key → 数据库共享 Key → 当前表单指定环境变量解析；请求头留空沿用已保存值。该只读接口只返回模型数量，不保存配置、不回显响应正文或凭据，且仅允许 admin/owner。它验证模型列表 GET，不代表聊天补全也能工作。
 
 
 ## 个人供应商与全局供应商独立启用（2026-09-27）

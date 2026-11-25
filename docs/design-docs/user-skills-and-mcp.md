@@ -30,7 +30,7 @@ MCP 服务通过 Web 页面配置，运行时读取数据库。首次建库后�
 
 已启用且白名单允许的 MCP 调用免逐次审批；聊天安装和测试仍需审批。Skill 安装确认同样走固定审批入口。MCP、Shell 和文件写入不因资源管理或工具池选择进入 PTC。
 
-Web 统一使用 Cookie 会话，业务 user_id 仅作当前身份断言；服务层再次验证租户、会话及项目归属。profile=dev 的显式切换与 LocalShellBackend 非沙箱限制保持原样。
+Web 统一使用 JWT，业务 user_id 仅作当前身份断言；服务层再次验证租户、会话及项目归属。profile=dev 的显式切换与 LocalShellBackend 非沙箱限制保持原样。
 
 ## 验证
 

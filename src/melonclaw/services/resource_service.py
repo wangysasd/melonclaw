@@ -25,8 +25,14 @@ import httpx
 
 from melonclaw.core.config import provider_env_key
 from melonclaw.core.knowledge_embedding import EMBEDDING_PROVIDER_KEY
-from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW, MAX_CONTEXT_WINDOW
-from melonclaw.services.provider_config import ModelConfigError, validate_provider_advanced
+from melonclaw.core.model_catalog import (
+    DEFAULT_CONTEXT_WINDOW,
+    MAX_CONTEXT_WINDOW,
+    ModelConfigError,
+    validate_model_provider,
+    validate_provider_protocol,
+)
+from melonclaw.services.provider_config import validate_provider_advanced
 from melonclaw.services.skill_content import check_requirements, preview_content
 from melonclaw.services.skill_import import MAX_ARCHIVE_ENTRIES, MAX_ARCHIVE_TOTAL_BYTES
 from melonclaw.services.skill_index import reindex_skills_from_disk
@@ -80,8 +86,7 @@ def validate_provider_payload(payload: ProviderConfigPayload) -> None:
     """校验供应商配置；密钥可为空（表示创建后待补 Key，运行时拒绝调用）。"""
 
     validate_provider_advanced(payload.api_key_env, payload.request_headers, payload.extra_config)
-    if payload.provider_type != "openai_compatible":
-        raise ModelConfigError("当前仅支持 OpenAI Completions API。")
+    validate_provider_protocol(payload.provider_type, payload.request_headers, payload.extra_config)
     if not MODEL_KEY_RE.fullmatch(payload.provider_key):
         raise ModelConfigError(
             "供应商标识只能包含小写字母、数字、下划线和连字符。"
@@ -509,6 +514,7 @@ class ResourceService:
         api_key_env: str | None = None,
         request_headers: dict[str, str] | None = None,
         extra_config: dict[str, Any] | None = None,
+        provider_type: str | None = None,
     ) -> None:
         """更新供应商配置；``api_key=None`` 表示不改动已存密钥。"""
 
@@ -516,6 +522,8 @@ class ResourceService:
         await self._require_provider_row(provider_key, role)
         fields: dict[str, Any] = {}
         validate_provider_advanced(api_key_env, request_headers, extra_config)
+        if provider_type is not None:
+            fields["provider_type"] = provider_type
         for key, value in (("api_key_env", api_key_env), ("request_headers", request_headers), ("extra_config", extra_config)):
             if value is not None:
                 fields[key] = value
@@ -581,6 +589,28 @@ class ResourceService:
         await self._role(user_id)
         await self.storage.delete_user_provider_key(provider_key, user_id)
 
+    @staticmethod
+    def _models_endpoint(provider_type: str, base_url: str, explicit_endpoint: str | None) -> str:
+        if explicit_endpoint:
+            return explicit_endpoint
+        path = "/v1/models" if provider_type == "anthropic" else "/models"
+        return base_url.rstrip("/") + path
+
+    @staticmethod
+    def _model_list_headers(
+        provider_type: str, request_headers: dict[str, str], api_key: str | None,
+    ) -> dict[str, str]:
+        validate_provider_protocol(provider_type, request_headers, None)
+        headers = dict(request_headers)
+        if provider_type == "anthropic":
+            if not any(name.lower() == "anthropic-version" for name in headers):
+                headers["anthropic-version"] = "2023-06-01"
+            if api_key:
+                headers["x-api-key"] = api_key
+        elif api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
     async def fetch_remote_models(
         self, user_id: str, provider_key: str, purpose: str = "chat"
     ) -> dict[str, Any]:
@@ -598,13 +628,15 @@ class ResourceService:
         provider = await self.storage.get_provider_row(provider_key)
         if provider is None:
             raise ResourceNotFoundError(f"供应商 {provider_key!r} 不存在。")
-        endpoint = provider["models_endpoint"]
-        if not endpoint:
+        provider_type = provider["provider_type"]
+        if not provider["models_endpoint"] and provider_type != "anthropic":
             raise ModelConfigError("该供应商未配置模型列表端点。")
+        endpoint = self._models_endpoint(provider_type, provider["base_url"], provider["models_endpoint"])
         if purpose != "chat":
             self._require_admin(role)
             if purpose not in {"document_parser"}:
                 raise ModelConfigError("模型用途无效。")
+            validate_model_provider(purpose, provider_type)
             api_key = provider["api_key"]
             if not provider["enabled"] or not api_key:
                 raise ModelConfigError("请先启用供应商并配置数据库共享 Key。")
@@ -615,9 +647,7 @@ class ResourceService:
             if not personal:
                 raise ModelConfigError("请先配置个人 API Key，再获取远程模型。")
             api_key = personal["api_key"]
-        headers = dict(provider["request_headers"])
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers = self._model_list_headers(provider_type, provider["request_headers"], api_key)
         return await self._request_remote_models(endpoint, headers, knowledge=True) if purpose != "chat" else await self._request_remote_models(endpoint, headers)
 
     async def test_provider_connection(
@@ -625,6 +655,7 @@ class ResourceService:
         user_id: str,
         *,
         provider_key: str | None,
+        provider_type: str = "openai_compatible",
         base_url: str,
         models_endpoint: str | None,
         api_key: str | None,
@@ -640,9 +671,7 @@ class ResourceService:
         normalized_base_url = base_url.strip()
         if not normalized_base_url.startswith(("https://", "http://")):
             raise ModelConfigError("Base URL 必须以 http(s):// 开头。")
-        endpoint = (models_endpoint or "").strip() or (
-            f"{normalized_base_url.rstrip('/')}/models"
-        )
+        endpoint = self._models_endpoint(provider_type, normalized_base_url, (models_endpoint or "").strip())
         if not endpoint.startswith(("https://", "http://")):
             raise ModelConfigError("模型列表端点必须以 http(s):// 开头。")
 
@@ -668,9 +697,7 @@ class ResourceService:
             effective_api_key = str(stored["api_key"])
         if not effective_api_key:
             effective_api_key = provider_env_key(api_key_env) or ""
-        if effective_api_key:
-            headers["Authorization"] = f"Bearer {effective_api_key}"
-
+        headers = self._model_list_headers(provider_type, headers, effective_api_key)
         result = await self._request_remote_models(endpoint, headers)
         return {"model_count": len(result["items"])}
 

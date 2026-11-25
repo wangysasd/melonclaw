@@ -76,6 +76,8 @@ npm run build                     # tsc --noEmit && vite build，产物在 front
 
 定时任务归档确认框沿用连接器确认框的居中布局与共享 Token：短标题 16px，正文/按钮 14px，Modal 圆角 12px，外层留白 24px。任务名称单独放在中性背景区域，长名称完整换行；三条说明分别交代保留历史/会话、队列与当前运行的处理、后续计划及编辑/运行限制。取消默认获得焦点，底部取消与“确认归档”右对齐；样式限定 task-archive-confirm，不影响其他弹窗。
 
+更换用户、暂停或恢复定时任务、取消单次运行、知识库范围切换与所有权转让，以及连接器编辑中的配置确认，复用 `confirmModal`。这些确认同样居中、宽 440px、12px 圆角、24px 留白，不显示默认警告图标；标题 16px，正文与按钮 14px，取消默认聚焦，底部分隔线下右对齐按钮。按钮文案和是否使用危险色保持原操作语义，不附加资源信息卡。
+
 ### 消息区
 
 - 用户消息头像复用导航栏的 `userInitials` 与 `avatarStyle`：显示当前用户的姓名缩写及按用户 ID 生成的配色，不使用固定图片。
@@ -282,7 +284,7 @@ McpEditor 保留已保存白名单，名称/说明变化不使目录失效；连
 
 ## 登录与系统管理
 
-`AuthGate` 在工作区外校验 Cookie 会话，未登录显示 `LoginPage`；服务不可用显示重试。登录页复用品牌字标，主要字号 14px；非 RMS 页面按[MelonClaw 登录页](design-docs/melonclaw-login-page.md)展示浅蓝玻璃风格；登录表单关闭浏览器自动填充并用独立字段名，避免把同源页面保存的模型 URL/API Key 填成用户 ID 和密码。后端 `/api/auth/config` 返回 passwordless 布尔值，只有 `profile=dev` 显示“免密登录”，不带开发后缀或说明。
+`AuthGate` 在工作区外用本地 JWT 调用会话接口，未登录显示 `LoginPage`；服务不可用显示重试。登录页复用品牌字标，主要字号 14px；非 RMS 页面按[MelonClaw 登录页](design-docs/melonclaw-login-page.md)展示浅蓝玻璃风格；登录表单关闭浏览器自动填充并用独立字段名，避免把同源页面保存的模型 URL/API Key 填成用户 ID 和密码。后端 `/api/auth/config` 返回 passwordless 布尔值，只有 `profile=dev` 显示“免密登录”，不带开发后缀或说明。
 
 仅 `profile=dev` 时所有人显示 `UserPicker`，创建用户从原下拉菜单移到 admin 专属的 `AccountManagement`（用户管理／租户管理 Tab）。按当前身份决定管理入口。登录或切换由服务端决定身份；localStorage 不存认证 Token。`AuthGate` 刷新身份时卸载旧 SessionProvider，清除旧请求与 UI 状态，并通过 storage 事件通知其他标签页。X-Melonclaw-User 是过期页面断言，不是身份凭证。
 

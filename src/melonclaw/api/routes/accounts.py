@@ -6,9 +6,8 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints
 
-from melonclaw.api.auth import COOKIE, accounts, public_user
+from melonclaw.api.auth import accounts, bearer_token, public_user
 from melonclaw.core.config import load_settings
-from melonclaw.services.accounts import token_digest
 
 router = APIRouter()
 Identifier = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")]
@@ -57,10 +56,9 @@ class TenantCreate(TenantEdit):
     tenant_id: Identifier
 
 
-def set_cookie(request, response, token):
-    response.set_cookie(COOKIE, token, httponly=True, samesite="strict",
-                        secure=request.url.scheme == "https", max_age=7 * 86400, path="/")
+def _token_response(response: Response, token: str):
     response.headers["Cache-Control"] = "no-store"
+    return {"access_token": token}
 
 
 @router.get("/api/auth/config")
@@ -75,8 +73,7 @@ async def login(request: Request, response: Response, body: Login):
         token = await accounts(request).login(body.user_id, body.password.get_secret_value())
     except ValueError as exc:
         raise HTTPException(401, str(exc)) from None
-    set_cookie(request, response, token)
-    return {"ok": True}
+    return _token_response(response, token)
 
 
 @router.post("/api/auth/passwordless")
@@ -84,8 +81,7 @@ async def passwordless(request: Request, response: Response):
     if load_settings().profile != "dev":
         raise HTTPException(403, "免密登录未启用。")
     token = await accounts(request).login("admin", "", passwordless=True)
-    set_cookie(request, response, token)
-    return {"ok": True}
+    return _token_response(response, token)
 
 
 @router.get("/api/auth/session")
@@ -98,21 +94,21 @@ async def session(request: Request, response: Response):
 async def switch(request: Request, body: Switch):
     if load_settings().profile != "dev":
         raise HTTPException(403, "切换用户未启用。")
-    await accounts(request).switch(request.cookies[COOKIE], body.user_id)
-    return {"ok": True}
+    try:
+        token = await accounts(request).switch(bearer_token(request), body.user_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    return {"access_token": token}
 
 
 @router.post("/api/auth/password")
-async def own_password(request: Request, response: Response, body: Password):
+async def own_password(request: Request, body: Password):
     await accounts(request).reset_password(request.state.user.user_id, body.confirmed_password())
-    response.delete_cookie(COOKIE, path="/")
     return {"ok": True}
 
 
 @router.post("/api/auth/logout")
-async def logout(request: Request, response: Response):
-    await accounts(request).storage.delete_auth_session(token_digest(request.cookies[COOKIE]))
-    response.delete_cookie(COOKIE, path="/")
+async def logout():
     return {"ok": True}
 
 

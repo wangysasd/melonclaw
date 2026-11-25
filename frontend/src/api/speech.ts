@@ -1,4 +1,4 @@
-import { identityHeaders } from "./auth";
+import { requestHeaders } from "./auth";
 import { API_BASE_URL, ApiError, parseErrorResponse } from "./client";
 
 export interface Transcript {
@@ -10,12 +10,13 @@ export interface Transcript {
 export async function transcribeSpeech(audio: Blob, signal: AbortSignal): Promise<Transcript> {
   const form = new FormData();
   form.append("file", audio, "speech.wav");
+  const headers = requestHeaders();
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}/api/speech/transcribe`, {
       method: "POST",
-      credentials: "include",
-      headers: identityHeaders(),
+      cache: "no-store",
+      headers,
       body: form,
       signal,
     });
@@ -23,7 +24,7 @@ export async function transcribeSpeech(audio: Blob, signal: AbortSignal): Promis
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new ApiError(0, "无法连接到 MelonClaw 服务，请检查网络或服务状态。");
   }
-  if (!response.ok) throw await parseErrorResponse(response);
+  if (!response.ok) throw await parseErrorResponse(response, headers.Authorization);
   const body = await response.json() as Partial<Transcript>;
   if (typeof body.text !== "string" || typeof body.duration_ms !== "number") {
     throw new ApiError(0, "语音识别失败，请稍后再试");
@@ -42,12 +43,13 @@ export async function synthesizeSpeech(
   input: SynthesisRequest,
   signal: AbortSignal,
 ): Promise<ReadableStream<Uint8Array>> {
+  const headers = requestHeaders({ "Content-Type": "application/json" });
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}/api/speech/synthesize`, {
       method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", ...identityHeaders() },
+      cache: "no-store",
+      headers,
       body: JSON.stringify({
         conversation_id: input.conversationId,
         message_id: input.messageId,
@@ -59,7 +61,7 @@ export async function synthesizeSpeech(
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new ApiError(0, "无法连接到 MelonClaw 服务，请检查网络或服务状态。");
   }
-  if (!response.ok) throw await parseErrorResponse(response);
+  if (!response.ok) throw await parseErrorResponse(response, headers.Authorization);
   if (!response.body) throw new ApiError(0, "朗读失败，请稍后再试");
   return response.body;
 }

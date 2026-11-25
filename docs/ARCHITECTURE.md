@@ -37,9 +37,9 @@ hydration 按绑定的表示提供受控 Markdown 路径、图片块或 ZIP 引�
 - `database/` + `repository/`：业务数据（用户、Project、Conversation、消息、审批、用户问题交互、Memory 事件）；首次建库由 `melonclaw-db-init` 创建，保留数据的结构升级由 `melonclaw-db-update` 执行。
 - LangGraph Checkpointer：Agent 图状态，与业务表分离。
 
-`tenants` 与 `users` 是一对多关系：`users.tenant_id` 是非空外键，租户角色和状态也直接保存在用户行中，不设成员关联表。服务层从已验证的 Cookie 会话身份读取用户唯一且有效的租户归属，生成 Agent 和 Memory 的运行上下文。Tenant Memory 按这个租户 ID 分区并按用户租户角色授权；Memory 操作会再次核对运行上下文与数据库归属。当前 system/admin 可通过用户管理接口编辑目标用户的租户归属；后续业务请求会重新解析有效归属，不从客户端指定运行租户。
+`tenants` 与 `users` 是一对多关系：`users.tenant_id` 是非空外键，租户角色和状态也直接保存在用户行中，不设成员关联表。服务层从已验证的 JWT 身份读取用户唯一且有效的租户归属，生成 Agent 和 Memory 的运行上下文。Tenant Memory 按这个租户 ID 分区并按用户租户角色授权；Memory 操作会再次核对运行上下文与数据库归属。当前 system/admin 可通过用户管理接口编辑目标用户的租户归属；后续业务请求会重新解析有效归属，不从客户端指定运行租户。
 
-**身份决定租户隔离的实际强度。** `api/app.py` 通过全局 `require_session` 依赖统一保护 JSON、上传、下载和 SSE；请求中的 `user_id` 与 `X-Melonclaw-User` 仅作 Cookie 身份断言，不得覆盖服务端身份，附件的 `api/identity.py` 同样读取已验证会话。仅 profile=dev 开放全员显式切换任意有效用户（含 admin），仍不能作为生产用户间权限隔离；共享环境还须隔离 Agent 的文件与 Shell 能力，`LocalShellBackend` 不是安全沙箱。普通业务请求不得用 `tenant_id` 指定运行上下文；管理用户资料的创建／编辑接口可以提交目标 tenant_id，后端验证租户有效性。运行租户始终从服务端用户记录解析。账户与会话流程见下文「用户管理与开发登录」及[登录设计](design-docs/user-management-login.md)。
+**身份决定租户隔离的实际强度。** `api/app.py` 通过全局 `require_session` 依赖统一保护 JSON、上传、下载和 SSE；请求中的 `user_id` 与 `X-Melonclaw-User` 仅作 JWT 身份断言，不得覆盖服务端身份，附件的 `api/identity.py` 同样读取已验证会话。仅 profile=dev 开放全员显式切换任意有效用户（含 admin），仍不能作为生产用户间权限隔离；共享环境还须隔离 Agent 的文件与 Shell 能力，`LocalShellBackend` 不是安全沙箱。普通业务请求不得用 `tenant_id` 指定运行上下文；管理用户资料的创建／编辑接口可以提交目标 tenant_id，后端验证租户有效性。运行租户始终从服务端用户记录解析。账户与会话流程见下文「用户管理与开发登录」及[登录设计](design-docs/user-management-login.md)。
 
 Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conversation_id` 列；
 消息、审批、用户问题和附件关系表使用 `conversation_id` 外键引用它。Conversation 归属由
@@ -125,7 +125,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
 | Skill 资源 | `services/skills.py` 解析正文；`skill_state.py` 统一有效状态；`skill_import.py` 导入更新；`skill_operations.py` 文件日志恢复；`skill_index.py` 索引重建 | 正文在文件系统，DB 保存归属、启停、版本和来源。持久草稿与内容提交受同数据根文件锁保护；更新保留 ID/偏好，删除先隔离目录。管理、Picker 和 Agent 共用有效状态；`skill_snapshot.py` 固定有效目录内容与摘要，`middleware/skill_refresh.py` 每轮刷新 Checkpoint 摘要。详见 [Skill 生命周期](design-docs/skill-lifecycle.md)。 |
 | Skill/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
-| HTTP 身份 | `api/auth.py` 的 `require_session()` | 统一验证 Cookie 会话、来源和页面身份断言；附件由 `api/identity.py` 读取已验证身份。管理授权按当前 system/admin，业务归属仍由服务层校验 |
+| HTTP 身份 | `api/auth.py` 的 `require_session()` | 统一验证 JWT、来源和页面身份断言；附件由 `api/identity.py` 读取已验证身份。管理授权按当前 system/admin，业务入口在共享账户锁内要求租户启用，服务层校验资源归属 |
 
 凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`LANGFUSE_SECRET_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；系统基础环境与禁止注入规则集中在 `core/defaults.py`，Skill 业务变量只由数据库共享／个人资源解析，不从 `.env` 透传。
 
@@ -236,7 +236,7 @@ headers/env 字面值由 `core/mcp_credentials.py` 按明文存入数据库；�
 
 ## 用户管理与开发登录
 
-参见[用户管理与登录设计](design-docs/user-management-login.md)。users/tenants 维持一对多，辅助 auth_sessions 支持可撤销 Cookie 会话。账户用例位于 services/accounts.py，SQL 与并发边界位于 repository/accounts.py；API 统一依赖覆盖下载、SSE、上传、审批和普通 JSON 请求。请求中的 user_id 仅作会话身份断言，不能覆盖服务端身份。管理资料的 tenant_id 是目标字段，不是运行上下文覆盖参数。
+参见[用户管理与登录设计](design-docs/user-management-login.md)和[JWT 登录](design-docs/jwt-login.md)。users/tenants 维持一对多。`auth_sessions` 不再参与登录。账户用例位于 services/accounts.py，SQL 与并发边界位于 repository/accounts.py；API 统一依赖覆盖下载、SSE、上传、审批和普通 JSON 请求。请求中的 user_id 仅作令牌身份断言，不能覆盖服务端身份。管理资料的 tenant_id 是目标字段，不是运行上下文覆盖参数。
 
 仅 profile=dev 开放免密登录和全员显式切换用户（含 admin）；非 dev 隐藏入口并拒绝对应接口。租户记忆不迁移，个人数据按用户所有权保留；Agent 缓存键增加租户维度。SSE 投递与业务执行生命周期分开，浏览器断开后执行继续，服务关闭才取消。账户变更使用 PostgreSQL 全局共享／独占事务锁与未完成助手消息检查，暂不追求管理操作的高并发吞吐。
 
@@ -294,7 +294,7 @@ ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，
 
 `POST /api/speech/synthesize` 只做朗读代理：页面提交当前用户可见会话中的一条助手消息，服务端只读取该消息已保存的正文，用同一把 `DEEPSEEK_API_KEY` 向 DeepSeek 语音合成换取 PCM 流。这个入口停在 `api/routes/speech.py` 和 `services/speech.py`，不进入 Agent、审批或代码解释器，也不新增表或环境变量。见[朗读助手回复](design-docs/speech-read-aloud.md)。
 
-语音路由使用 `api/auth.py` 的 Cookie 和来源校验，并将身份共享锁限制在身份与会话归属检查。ASR 在鉴权后按实际收到的字节限制 multipart 上传。两个接口等待 DeepSeek 时均已释放身份共享锁。
+语音路由使用 `api/auth.py` 的 JWT 和来源校验，并将身份共享锁限制在身份与会话归属检查。ASR 在鉴权后按实际收到的字节限制 multipart 上传。两个接口等待 DeepSeek 时均已释放身份共享锁。
 
 
 ### 环境变量与准备阶段（2026-10-18）
@@ -303,7 +303,7 @@ ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，
 
 `repository/resource_versions.py` 为显式资源写入口提供单进程提交—发布协议；共享全局版本，个人用户版本。取消保护事务完成并同步发布，发布失败阻止缓存读取。runtime 六因子键为工作区、租户、模型选择、能力、全局版本、用户版本；预热命中不进行资源检查 IO，未命中才解析模型和资源。构建前后核对版本、有界重试，保留 LRU、构建锁及失败不缓存。仅单进程，离线 SQL／文件变更须重启。
 
-`AccountRepository.authenticated_user` 一次联查当前及原登录用户／租户；API 把本次 UserContext 传入服务。`services/preparation.py` 一次会话／项目归属联查后，在同次新消息、审批／问答准备与过期收尾复用上下文，不跨请求缓存。保留锁、幂等检查及副作用事务校验；两次主要身份／归属读取不代表整个消息只需两次 IO。准备计时覆盖认证依赖。范围、运行步骤与验收见[环境变量与聊天准备](design-docs/environment-and-preparation.md)。
+API 先验签 JWT，再读取当前 active 用户及租户状态。业务请求在共享账户锁内拒绝停用租户，通过后复用该身份上下文。`services/preparation.py` 一次会话／项目归属联查后，在同次新消息、审批／问答准备与过期收尾复用上下文，不跨请求缓存。保留锁、幂等检查及副作用事务校验；两次主要身份／归属读取不代表整个消息只需两次 IO。准备计时覆盖认证依赖。范围、运行步骤与验收见[环境变量与聊天准备](design-docs/environment-and-preparation.md)。
 
 SSE 事件拉取与源迭代器关闭显式复用每条流独立的 Context，避免心跳拉取任务切换导致 Langfuse ContextVar token 跨上下文复位；调用方不继承流内监控状态。工具发现的“下一次模型调用”发生于同一用户请求内，MCP 清单仅描述 MCP，不代表内置联网工具是否可用。
 

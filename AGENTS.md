@@ -68,7 +68,7 @@ MelonClaw 是持续演进的 Deep Agents 应用。开发围绕可运行能力、
 
 ### 身份、工具与运行安全
 
-- Web 使用 Cookie 会话；`user_id` 是与会话一致的页面身份断言。服务端从用户记录解析唯一有效租户，重验 Project、Conversation、附件归属。Conversation 归属 `user_id + project_id`，运行时 `tenant_id` 由服务端注入。
+- Web 使用无状态 JWT。浏览器把 `access_token` 放在 `localStorage`，受保护请求携带 `Authorization: Bearer`。令牌只含 `sub` 和 `exp`；`user_id` 仍只是与令牌一致的页面身份断言。服务端先验签和过期，再确认用户仍为 `active`，并从用户记录解析唯一租户，重验 Project、Conversation、附件归属。Conversation 归属 `user_id + project_id`，运行时 `tenant_id` 由服务端注入。登出、改密和停用租户不提前作废已签发令牌；删除用户会在下一次请求失效。
 - 仅 dev profile 开放全员显式切换（含 admin），不得描述为生产权限隔离；权限按当前身份检查，不保留原登录身份的管理员权限。初次上线仅种子 `system/admin`，其他用户由当前系统管理员创建。
 - 普通聊天主/子 Agent 的 `write_file`、`edit_file`、`delete` 及已启用、白名单允许的 MCP 工具免逐次审批，不用 `ask_user` 请求调用批准；仍受路径、作用域、启用状态、白名单和远端凭据约束。聊天安装/测试 MCP 配置仍走 HITL。
 - 其他有副作用工具须有明确 HITL 或受控权限边界。Shell 的免审批例外仅适用于受信任本地开发；`LocalShellBackend` 不是安全沙箱，共享部署能力须明确隔离方案与限制。

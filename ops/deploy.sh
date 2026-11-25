@@ -44,6 +44,25 @@ main() {
     echo "代码目录有本地修改或未跟踪文件；请先处理，服务未停止。" >&2
     return 1
   fi
+  if [[ ! -x .venv/bin/python ]]; then
+    echo "缺少部署环境的 Python；请先安装依赖。服务未停止。" >&2
+    return 1
+  fi
+  if ! env -u MELONCLAW_JWT_SECRET -u MELONCLAW_TOKEN_TTL_HOURS \
+      MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env .venv/bin/python - <<'PYTHON'
+import sys
+
+from melonclaw.core.config import jwt_settings
+
+try:
+    jwt_settings()
+except RuntimeError as exc:
+    sys.exit(str(exc))
+PYTHON
+  then
+    echo "JWT 配置检查失败。请检查外部配置，服务未停止。" >&2
+    return 1
+  fi
   sudo -v
 
   # main 的函数体在 git pull 前已完整载入，避免脚本更新影响当前执行。

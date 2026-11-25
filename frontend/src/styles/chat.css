@@ -1701,7 +1701,8 @@
 .message-attachment { width: fit-content; max-width: 100%; background: rgba(245, 245, 247, 0.8); }
 .message-attachment img { width: 72px; height: 72px; object-fit: cover; border-radius: var(--radius-card); display: block; }
 .message-attachment-info { display: grid; gap: 2px; }
-.message-attachment-info a { overflow: hidden; color: var(--brand-primary); text-overflow: ellipsis; white-space: nowrap; }
+.message-attachment-info a,
+.message-attachment-info button { overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--brand-primary); font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 
 .composer-dropzone {
   position: absolute;

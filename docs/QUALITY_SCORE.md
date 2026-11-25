@@ -18,7 +18,7 @@
 | CI | 低 | 仓库不再提供 GitHub Actions 工作流；可通过 `scripts/check.sh` 手动执行检查 | 不再自动检查推送和 PR；分支保护配置需另行核实 |
 | 文档 | 中 | `docs/` 为事实来源，`AGENTS.md` 提供地图；相对链接与地图条目由 `tests/test_docs_links.py` 校验 | `note/` 未版本化（本地草稿）；无文档新鲜度倒计时机制 |
 | 可观测性 | 中 | 可选 Langfuse 追踪覆盖聊天/恢复/任务，50 项专项及 3 项云端策略验证通过，SDK 状态/事件/链接与传播日志脱敏，监控开关可独立关闭 | 未部署本地 metrics 栈；未验收生产环境长期吞吐/强杀排空与完整 DLP |
-| 安全边界 | 中 | Cookie 会话统一覆盖受保护 API；服务层保留 HITL 审批、凭据硬黑名单与归属校验 | `LocalShellBackend` 无隔离；无病毒扫描；profile=dev 可全员切换身份，仍不是生产用户间权限隔离 |
+| 安全边界 | 中 | JWT 统一覆盖受保护 API；服务层保留 HITL 审批、凭据硬黑名单与归属校验。令牌在 localStorage，登出和改密不提前作废 | `LocalShellBackend` 无隔离；无病毒扫描；profile=dev 可全员切换身份，仍不是生产用户间权限隔离 |
 
 首次审计与首批实施验证分别见[清理计划](exec-plans/completed/2026-10-17-code-cleanup-audit.md)的「验证基线」和「首批实施记录」。首次审计的 59 项数据库跳过在本轮注入 `MELONCLAW_TEST_DATABASE_URL` 后已运行；新增 3 项云端用例正常全量检查默认跳过，但已显式执行通过。2 项 strict xfail 是后台流 producer 异常未取回与首次迭代前关闭清理的既有缺口。下文各日期的完整检查、数据库与浏览器记录保留为历史证据，未在本轮复测。
 
@@ -54,7 +54,7 @@
 
 ## 2026-10-06 账户管理增量验证
 
-密码登录、profile 免密矩阵、全员切换、软删除、租户启停和可撤销 Cookie 会话已加入回归。真实 PostgreSQL 生命周期测试使用独立临时 schema；连接从 MELONCLAW_TEST_DATABASE_URL 读取，未配置时跳过。脚本全量检查通过，细节见[执行记录](exec-plans/completed/user-management-login.md)。仅 profile=dev 开放全员切换任意身份，这是开发需求，仍不具备生产用户间权限隔离。
+密码登录、profile 免密矩阵、全员切换、软删除、租户启停和 JWT 登录已加入回归。真实 PostgreSQL 生命周期测试使用独立临时 schema；连接从 MELONCLAW_TEST_DATABASE_URL 读取，未配置时跳过。脚本全量检查通过，细节见[执行记录](exec-plans/completed/user-management-login.md)。仅 profile=dev 开放全员切换任意身份，这是开发需求，仍不具备生产用户间权限隔离。
 
 ## 2026-10-14 任务中心当前验证
 

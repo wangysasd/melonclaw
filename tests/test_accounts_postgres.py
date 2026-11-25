@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from account_fixtures import use_access_token
 from sqlalchemy import insert, select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -46,7 +47,9 @@ def test_real_account_lifecycle(monkeypatch):
             app = create_app()
             app.state.chat = SimpleNamespace(storage=repo)
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
-                assert (await client.post("/api/auth/login", json={"user_id": "admin", "password": "admin"})).status_code == 200
+                logged = await client.post("/api/auth/login", json={"user_id": "admin", "password": "admin"})
+                assert logged.status_code == 200
+                use_access_token(client, logged)
                 await service.reset_password("admin", "changed-admin-password")
                 await seed_demo_data(database)
                 assert (await client.post("/api/auth/login", json={"user_id": "admin", "password": "admin"})).status_code == 401
@@ -77,10 +80,12 @@ def test_real_account_lifecycle(monkeypatch):
                 async with engine.connect() as conn:
                     assert (await conn.execute(select(projects.c.user_id).where(projects.c.id == pid))).scalar() == "alice"
                 token = await service.login("alice", "initial-password")
-                await service.switch(token, "admin")
-                # 重置原登录者密码也撤销已切换到其他用户的会话，但不赋予原身份权限。
+                switched = await service.switch(token, "admin")
+                assert (await service.session(token)).user_id == "alice"
+                assert (await service.session(switched)).user_id == "admin"
                 await post("/api/admin/users/alice/password", {"password": "changed-password", "confirm_password": "changed-password"})
-                assert await service.session(token) is None
+                assert (await service.session(token)).user_id == "alice"
+                assert (await service.session(switched)).user_id == "admin"
                 with pytest.raises(ValueError):
                     await service.login("alice", "initial-password")
                 token = await service.login("alice", "changed-password")
@@ -94,6 +99,7 @@ def test_real_account_lifecycle(monkeypatch):
                     await conn.execute(text("UPDATE chat_messages SET status='completed' WHERE id=:id"), {"id": mid})
                 assert (await client.delete("/api/admin/users/alice")).status_code == 200
                 assert await service.session(token) is None
+                assert (await service.session(switched)).user_id == "admin"
                 assert await repo.get_user_context("alice") is None
                 async with engine.connect() as conn:
                     assert (await conn.execute(select(users.c.tenant_status).where(users.c.user_id == "alice"))).scalar() == "deleted"
@@ -106,14 +112,14 @@ def test_real_account_lifecycle(monkeypatch):
                 await post("/api/admin/users", {"user_id": "bob", "user_name_zh": "Bob", "tenant_id": "team", "password": "bob-password", "confirm_password": "bob-password"})
                 bob = await service.login("bob", "bob-password")
                 assert (await client.patch("/api/admin/tenants/team", json={"tenant_name_zh": "新租户", "enabled": False})).status_code == 200
-                assert await service.session(bob) is None
-                assert (await client.post("/api/auth/switch", json={"user_id": "bob"})).status_code == 422
-                with pytest.raises(ValueError):
-                    await service.login("bob", "bob-password")
-                # 会话过期在数据库中生效。
-                async with engine.begin() as conn:
-                    await conn.execute(text("UPDATE auth_sessions SET expires_at=created_at"))
-                assert (await client.get("/api/auth/session")).status_code == 401
+                assert (await service.session(bob)).user_id == "bob"
+                bob_headers = {"Authorization": f"Bearer {bob}"}
+                assert (await client.get("/api/auth/session", headers=bob_headers)).status_code == 200
+                assert (await client.get("/api/status", headers=bob_headers)).status_code == 403
+                switched_bob = await client.post("/api/auth/switch", json={"user_id": "bob"})
+                assert switched_bob.status_code == 200
+                assert (await service.session(switched_bob.json()["access_token"])).user_id == "bob"
+                assert (await service.login("bob", "bob-password"))
         finally:
             await engine.dispose()
             async with control.begin() as conn:

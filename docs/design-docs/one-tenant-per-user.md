@@ -10,7 +10,7 @@
 
 - tenants 与 users 一对多，users.tenant_id 是必填外键；tenant_role 与 tenant_status 位于用户行。
 - 当前 system/admin 可以通过用户管理创建用户并指定租户，也可修改归属。更换归属不迁移个人数据；租户记忆留在租户。存在未完成任务时拒绝变更。
-- Web 使用可撤销 Cookie 会话。业务请求 user_id 必须与当前会话身份一致；租户只能从服务端用户记录解析。只有管理用户资料接口允许提交目标 tenant_id，普通业务接口不能覆盖运行租户。
+- Web 使用 JWT。业务请求 user_id 必须与令牌里的用户一致；租户只能从服务端用户记录解析。只有管理用户资料接口允许提交目标 tenant_id，普通业务接口不能覆盖运行租户。令牌校验不因租户停用失败。
 - 项目、会话、附件和个人配置仍按 user_id 校验所有权。Conversation 仅记录 user_id + project_id，不重复存储租户。
 - Global / Tenant / User Memory 命名空间维持原结构。Memory 操作再次读取用户归属，拒绝与运行上下文不一致的租户；租户记忆发布仍遵守既有角色授权。
 - Agent 缓存键包含租户，变更归属后使用新实例。已出现于历史消息的旧租户信息不会被删除。
@@ -18,7 +18,7 @@
 ## 数据流
 
 ```text
-Cookie 会话 → 当前有效用户 → users.tenant_id → 启用中的租户
+JWT → 当前 active 用户 → users.tenant_id → 租户
 → 按用户校验 Project / Conversation / 附件 → AgentContext → Memory 再校验
 ```
 

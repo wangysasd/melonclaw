@@ -31,7 +31,7 @@ from melonclaw.api.routes.speech import router as speech_router
 from melonclaw.api.routes.status import router as status_router
 from melonclaw.api.routes.tasks import router as tasks_router
 from melonclaw.api.routes.user_input import router as user_input_router
-from melonclaw.core.config import allowed_origins, web_bind
+from melonclaw.core.config import allowed_origins, load_settings, web_bind
 from melonclaw.core.task_errors import TaskError
 from melonclaw.repository.accounts import AccountConflict
 
@@ -39,11 +39,13 @@ from melonclaw.repository.accounts import AccountConflict
 def allowed_headers() -> list[str]:
     """跨域前端需要显式放行自定义身份请求头（仅在部署方配置时）。"""
 
-    return ["Content-Type", "X-Melonclaw-User"]
+    return ["Authorization", "Content-Type", "X-Melonclaw-User"]
 
 
 def create_app() -> FastAPI:
     """创建并配置 FastAPI 应用。"""
+
+    load_settings()
 
     application = FastAPI(
         debug=False,

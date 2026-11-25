@@ -6,8 +6,7 @@ import { KnowledgeSearchTest } from "./KnowledgeSearchTest";
 import { KnowledgeDocuments } from "./KnowledgeDocuments";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 import { Icon } from "./Icon";
-import { deleteConfirmation } from "./deleteConfirmation";
-import { tokens } from "../theme/tokens";
+import { confirmModal, deleteConfirmation } from "./deleteConfirmation";
 import "../styles/knowledge.css";
 
 const scopeColors: Record<KnowledgeShareScope, string> = { everyone: "cyan", tenant: "blue", selected: "gold" };
@@ -181,7 +180,7 @@ function ShareScopeCards({ value, onChange, disabled }: { value?: KnowledgeShare
 }
 
 function scopeConfirmation() {
-  return { rootClassName: "delete-confirm-modal", centered: true, width: 440, icon: null, styles: { container: { padding: tokens["space-6"] }, body: { padding: 0 } }, title: "改为只允许指定的人访问？", content: "切换后，所有者、成员列表中的人员和系统管理员可以访问；其他人将失去访问权限。", okText: "确认切换", cancelText: "取消", focusable: { autoFocusButton: "cancel" as const } };
+  return confirmModal({ title: "改为只允许指定的人访问？", content: "切换后，所有者、成员列表中的人员和系统管理员可以访问；其他人将失去访问权限。", okText: "确认切换" });
 }
 
 function userLabel(user: { user_name_zh: string; user_id: string; tenant_name_zh: string }) {
@@ -259,7 +258,7 @@ function KnowledgeMembers({ base, onClose, onChanged, onScopeSaved }: { base: Kn
         { title: "操作", render: (_, m) => <Button danger disabled={busy} onClick={() => modal.confirm({ ...deleteConfirmation({ title: "撤销成员权限？", name: m.user_name_zh, metadata: roleNames[m.role], icon: <Icon name="users" size={20} />, description: "只移除此人的单独授权。如果默认查看范围仍覆盖此人，或此人是系统管理员，仍可访问。历史对话和已下载的内容无法追回。" }), okText: "确认撤权", onOk: () => action(() => knowledgeApi.revoke(base.id, m.user_id)) })}>撤权</Button> },
       ]} />
       </section>
-      {base.role === "owner" ? <details className="knowledge-member-section"><summary>所有权设置</summary><p>可转让给任意有效用户。转让后你将成为编辑者。</p><Space wrap><Select aria-label="新所有者" placeholder="选择新所有者" disabled={busy} showSearch optionFilterProp="label" options={candidateOptions.filter((c) => c.value !== session.userId)} value={transferTarget} onChange={setTransferTarget} style={{ width: "min(240px, 65vw)" }} /><Button disabled={!transferTarget || busy} onClick={() => modal.confirm({ title: "转让知识库所有权？", content: "转让后，你将成为编辑者，并交出知识库设置和成员授权的管理权。如果默认查看范围是同租户，范围将随新所有者的租户变化。", okText: "确认转让", cancelText: "取消", onOk: async () => { try { await knowledgeApi.transfer(base.id, transferTarget!, version); onChanged(); } catch (e) { message.error(e instanceof Error ? e.message : "转让失败"); throw e; } } })}>转让所有权</Button></Space></details> : null}
+      {base.role === "owner" ? <details className="knowledge-member-section"><summary>所有权设置</summary><p>可转让给任意有效用户。转让后你将成为编辑者。</p><Space wrap><Select aria-label="新所有者" placeholder="选择新所有者" disabled={busy} showSearch optionFilterProp="label" options={candidateOptions.filter((c) => c.value !== session.userId)} value={transferTarget} onChange={setTransferTarget} style={{ width: "min(240px, 65vw)" }} /><Button disabled={!transferTarget || busy} onClick={() => modal.confirm({ ...confirmModal({ title: "转让知识库所有权？", content: "转让后，你将成为编辑者，并交出知识库设置和成员授权的管理权。如果默认查看范围是同租户，范围将随新所有者的租户变化。", okText: "确认转让" }), onOk: async () => { try { await knowledgeApi.transfer(base.id, transferTarget!, version); onChanged(); } catch (e) { message.error(e instanceof Error ? e.message : "转让失败"); throw e; } } })}>转让所有权</Button></Space></details> : null}
     </div>
   </Drawer>;
 }

@@ -14,7 +14,7 @@ import Sender, { type SenderRef } from "@ant-design/x/es/sender";
 
 import { AttachmentDialog, type StagedAttachment } from "./AttachmentDialog";
 import { Icon } from "./Icon";
-import { ImageLightbox } from "./ImageLightbox";
+import { AuthorizedImage, AuthorizedLightbox } from "./AuthorizedImage";
 import { ModelPicker } from "./ModelPicker";
 import { PlusMenu } from "./PlusMenu";
 import { KnowledgePicker } from "./KnowledgePicker";
@@ -700,9 +700,11 @@ export function Composer({
                       aria-label={`预览 ${attachment.file_name}`}
                       onClick={() => setPreview(attachment)}
                     >
-                      <img className="composer-attachment-preview" src={
-                        attachmentContentUrl(attachment.attachment_id, attachmentAccess, attachment.media_type === "image/tiff")
-                      } alt="" />
+                      <AuthorizedImage
+                        className="composer-attachment-preview"
+                        url={attachmentContentUrl(attachment.attachment_id, attachmentAccess, attachment.media_type === "image/tiff")}
+                        alt=""
+                      />
                     </button>
                   ) : (
                     <span className="attachment-file-icon" aria-hidden="true">
@@ -900,8 +902,8 @@ export function Composer({
         <div className="composer-footnote">AI生成内容仅供参考。</div>
       </div>
       {preview ? (
-        <ImageLightbox
-          src={attachmentContentUrl(preview.attachment_id, attachmentAccess, preview.media_type === "image/tiff")}
+        <AuthorizedLightbox
+          url={attachmentContentUrl(preview.attachment_id, attachmentAccess, preview.media_type === "image/tiff")}
           alt={preview.file_name}
           onClose={() => setPreview(null)}
         />

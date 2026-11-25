@@ -9,6 +9,7 @@ import { parseResultBlockDetailed } from "../src/lib/resultBlocks";
 import { tableCsv } from "../src/lib/resultExport";
 import { textDiff } from "../src/lib/textDiff";
 import { ArtifactWorkspace } from "../src/components/ArtifactWorkspace";
+import { ACCESS_TOKEN_STORAGE } from "../src/api/auth";
 
 vi.mock("../src/components/ResultChartCanvas", () => ({ default: ({ chart }: { chart: { rows: unknown[][] } }) => <div data-testid="chart">{JSON.stringify(chart.rows)}</div> }));
 const { metadata, blob, copy } = vi.hoisted(() => ({ metadata: vi.fn(), blob: vi.fn(), copy: vi.fn().mockResolvedValue(undefined) }));
@@ -109,15 +110,38 @@ describe("result interactions inside real Markdown", () => {
     expect(details.open).toBe(true);
     expect(details.scrollIntoView).toHaveBeenCalled();
   });
-  it("never loads an external image and accepts explicit owned image references", async () => {
+  it("never loads an external image and fetches owned images with the bearer token", async () => {
     metadata.mockResolvedValue({ file_name: "plot.png", size_bytes: 123, media_type: "image/png", preview_kind: "image" });
+    localStorage.setItem(ACCESS_TOKEN_STORAGE, "image-token");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(new Blob(["png"])));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = vi.fn(() => "blob:owned-image");
+      static revokeObjectURL = vi.fn();
+    });
     const { container } = render(<ResultProvider userId="owner" conversationId="conversation" projectId={null}><Markdown source="![外部](https://example.com/a.png)\n\n![图](/outputs/%E5%9B%BE.png)" /></ResultProvider>);
     expect(container.querySelector('img[src="https://example.com/a.png"]')).toBeNull();
-    expect(await screen.findByAltText("图")).toBeTruthy();
+    const image = await screen.findByAltText("图");
+    expect(image.getAttribute("src")).toBe("blob:owned-image");
+    expect(container.querySelector('img[src="/checked-result"]')).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith("/checked-result", expect.objectContaining({
+      cache: "no-store",
+      headers: { Authorization: "Bearer image-token" },
+    }));
     expect(metadata.mock.calls[0][0]).toEqual({ path: "/outputs/图.png" });
-    fireEvent.error(screen.getByAltText("图"));
+    fireEvent.error(image);
     expect(await screen.findByText(/图片加载失败/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "重新加载" })).toBeTruthy();
+    localStorage.removeItem(ACCESS_TOKEN_STORAGE);
+  });
+  it("does not use an authenticated result url as img src when the token fetch fails", async () => {
+    metadata.mockResolvedValue({ file_name: "plot.png", size_bytes: 123, media_type: "image/png", preview_kind: "image" });
+    localStorage.setItem(ACCESS_TOKEN_STORAGE, "image-token");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "请先登录。" }), { status: 401 })));
+    const { container } = render(<ResultProvider userId="owner" conversationId="conversation" projectId={null}><Markdown source="![图](/outputs/%E5%9B%BE.png)" /></ResultProvider>);
+    expect(await screen.findByText(/图片加载失败/)).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
+    expect(localStorage.getItem(ACCESS_TOKEN_STORAGE)).toBeNull();
   });
 });
 

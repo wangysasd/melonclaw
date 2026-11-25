@@ -1,4 +1,4 @@
-import { API_BASE_URL, apiRequest, attachmentContentUrl, getAttachment, parseErrorResponse } from "./client";
+import { API_BASE_URL, apiRequest, attachmentContentUrl, fetchAuthorizedBlob, getAttachment } from "./client";
 import type { AssetRef } from "../lib/resultBlocks";
 import { fileRefPath, type FileRef } from "../lib/workspaceFiles";
 import type { AttachmentSummary } from "../types/api";
@@ -39,7 +39,5 @@ export function workspaceAttachments(scope: ResultScope, query: FileListQuery, s
   return apiRequest<{ items: (AttachmentSummary & { modified_at: string })[]; next_offset: number | null }>(`/api/conversations/${encodeURIComponent(scope.conversationId)}/files/attachments`, { query: { user_id: scope.userId, ...query }, signal });
 }
 export async function fetchResultBlob(url: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await fetch(url, { signal, credentials: "include" });
-  if (!response.ok) throw await parseErrorResponse(response);
-  return response.blob();
+  return fetchAuthorizedBlob(url, signal);
 }

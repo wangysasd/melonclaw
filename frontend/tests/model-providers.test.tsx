@@ -2,20 +2,21 @@ import { App as AntdApp } from "antd";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ModelSection } from "../src/components/ModelProviders";
-import { listManageableModels, listManageableProviders, updateProvider } from "../src/api/client";
+import { listManageableModels, listManageableProviders, testProviderConnection, updateProvider } from "../src/api/client";
 
 vi.mock("../src/api/client", () => ({
   updateProvider: vi.fn(),
+  testProviderConnection: vi.fn(),
   listManageableModels: vi.fn(),
   listManageableProviders: vi.fn(),
 }));
 afterEach(cleanup);
 const notify = { success: vi.fn(), error: vi.fn() };
 
-async function show(isAdmin: boolean, hasMyKey: boolean) {
+async function show(isAdmin: boolean, hasMyKey: boolean, providerType = "openai_compatible") {
   vi.mocked(listManageableProviders).mockResolvedValue({ items: [{
     provider_key: "deepseek", display_name: "DeepSeek", scope: "global",
-    source_type: "system", provider_type: "openai_compatible",
+    source_type: "system", provider_type: providerType,
     api_key_env: "", has_request_headers: false, extra_config: {},
     base_url: "https://api.deepseek.com", models_endpoint: null,
     enabled: true, has_api_key: true, has_my_key: hasMyKey,
@@ -66,6 +67,37 @@ it("edits provider advanced settings and preserves the selected status when savi
     enabled: false, apiKeyEnv: "TEST_API_KEY", requestHeaders: { "X-Client": "test" },
     extraConfig: { _melonclaw: { reasoning_format: "reasoning_content" }, enable_thinking: true },
   })));
+});
+
+it("saves Anthropic without the OpenAI extension body", async () => {
+  await show(true, false);
+  vi.mocked(updateProvider).mockResolvedValue({ ok: true });
+  fireEvent.click(screen.getByRole("button", { name: "配置供应商：DeepSeek" }));
+  fireEvent.mouseDown(screen.getByRole("combobox", { name: "Provider Type" }));
+  fireEvent.click(await screen.findByText("Anthropic Messages API"));
+  expect(screen.getByText(/客户端会追加 \/v1\/messages/)).toBeTruthy();
+  vi.mocked(testProviderConnection).mockResolvedValueOnce({ model_count: 1 });
+  fireEvent.click(screen.getByRole("button", { name: /测试连接/ }));
+  await waitFor(() => expect(testProviderConnection).toHaveBeenCalledWith(expect.objectContaining({
+    providerKey: "deepseek",
+    providerType: "anthropic",
+    modelsEndpoint: "",
+  })));
+  await waitFor(() => expect(notify.success).toHaveBeenCalledWith("连接成功，可获取 1 个模型。"));
+  fireEvent.click(screen.getByText("高级配置"));
+  expect(screen.queryByRole("combobox", { name: "思考输出格式" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /确\s*定/ }));
+  await waitFor(() => expect(updateProvider).toHaveBeenCalledWith("deepseek", expect.objectContaining({
+    providerType: "anthropic",
+    extraConfig: {},
+  })));
+});
+
+it("enables the remote list for Anthropic with no explicit models endpoint", async () => {
+  await show(true, false, "anthropic");
+  fireEvent.click(screen.getByRole("button", { name: /管理模型/ }));
+  const button = await screen.findByRole("button", { name: "获取远程模型" });
+  expect(button.hasAttribute("disabled")).toBe(false);
 });
 
 it("rejects invalid JSON before saving", async () => {

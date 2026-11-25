@@ -14,11 +14,20 @@ import pytest
 from httpx import AsyncClient as ASGIClient
 
 from melonclaw.api.app import create_app
-from melonclaw.api.auth import COOKIE
+from melonclaw.core.auth_token import issue_token
+from melonclaw.core.config import load_settings
 from melonclaw.repository import ConversationNotFoundError
 from melonclaw.services import speech
-from melonclaw.services.accounts import token_digest
 from melonclaw.services.speech import SpeechError
+
+
+def _speech_token() -> str:
+    settings = load_settings()
+    return issue_token("alice", settings.jwt_secret, settings.token_ttl_hours)
+
+
+def _speech_authorization() -> tuple[bytes, bytes]:
+    return b"authorization", f"Bearer {_speech_token()}".encode()
 
 
 def wav_bytes(
@@ -285,10 +294,11 @@ def test_disconnect_cancels_upstream_and_allows_the_next_request(network):
 
 
 def _client(app, *, signed_in=True):
+    headers = {"Authorization": f"Bearer {_speech_token()}"} if signed_in else {}
     return ASGIClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://local.test",
-        cookies={COOKIE: "speech-test-cookie"} if signed_in else None,
+        headers=headers,
     )
 
 
@@ -695,7 +705,7 @@ def test_tts_disconnect_closes_upstream_and_releases_slot(tts_network, monkeypat
         scope = {
             "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
             "method": "POST", "path": "/api/speech/synthesize", "query_string": b"",
-            "headers": [(b"content-type", b"application/json"), (b"cookie", f"{COOKIE}=speech-test-cookie".encode())],
+            "headers": [(b"content-type", b"application/json"), _speech_authorization()],
         }
         task = asyncio.create_task(app(scope, receive, send))
         try:
@@ -759,10 +769,11 @@ def _storage(message=None, error=None):
         finally:
             storage.guards -= 1
 
-    async def authenticated_user(digest):
+    async def active_user(user_id):
         assert storage.guards == 1
-        if digest == token_digest("speech-test-cookie"):
-            return SimpleNamespace(user_id="alice")
+        if user_id == "alice":
+            return SimpleNamespace(user_id="alice", tenant_enabled=True)
+        return None
 
     async def get_visible_message(conversation_id, user_id, message_id):
         assert storage.guards == 1
@@ -772,7 +783,7 @@ def _storage(message=None, error=None):
         return message
 
     storage.account_guard = account_guard
-    storage.authenticated_user = authenticated_user
+    storage.active_user = active_user
     storage.get_visible_message = get_visible_message
     return storage
 
@@ -931,7 +942,7 @@ def test_tts_read_failure_after_first_pcm_leaves_http_stream_incomplete(tts_netw
         scope = {
             "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
             "method": "POST", "path": "/api/speech/synthesize", "query_string": b"",
-            "headers": [(b"content-type", b"application/json"), (b"cookie", f"{COOKIE}=speech-test-cookie".encode())],
+            "headers": [(b"content-type", b"application/json"), _speech_authorization()],
         }
         with pytest.RaisesGroup(SpeechError, match="unhandled errors in a TaskGroup") as caught:
             await asyncio.wait_for(app(scope, receive, send), 2)

@@ -9,6 +9,7 @@ import type { ConversationSummary, Project } from "../src/types/api";
 vi.mock("../src/api/client", () => ({
   attachmentContentUrl: (id: string) => `/api/attachments/${id}/content`,
   deleteAttachment: vi.fn(),
+  fetchAuthorizedBlob: vi.fn().mockResolvedValue(new Blob()),
   getAttachment: vi.fn(),
   getAttachmentCapabilities: vi.fn(),
   getConversationHistory: vi.fn(),

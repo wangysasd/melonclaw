@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 
 import { Composer } from "../src/components/Composer";
@@ -10,6 +10,7 @@ import type { AttachmentCapabilities, AttachmentSummary } from "../src/types/api
 vi.mock("../src/api/client", () => ({
   attachmentContentUrl: (id: string) => `/api/attachments/${id}/content`,
   deleteAttachment: vi.fn(),
+  fetchAuthorizedBlob: vi.fn(),
   getAttachment: vi.fn(),
   retryAttachmentParse: vi.fn(),
   uploadAttachment: vi.fn(),
@@ -172,7 +173,18 @@ async function addViaDialog(files: File[]): Promise<void> {
   await flush();
 }
 
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
 beforeEach(() => {
+  vi.stubGlobal("URL", class extends URL {
+    static createObjectURL = vi.fn(() => "blob:authorized-attachment");
+    static revokeObjectURL = vi.fn();
+  });
+  vi.mocked(client.fetchAuthorizedBlob).mockReset().mockResolvedValue(new Blob([], { type: "image/png" }));
+
   session.busy = false;
   session.runStatus = null;
   session.conversationCreating = false;
@@ -630,7 +642,9 @@ describe("composer", () => {
     const view = await renderComposer();
     await addViaDialog([makeFile("shot.png", 1, "image/png")]);
     fireEvent.click(screen.getByRole("button", { name: "预览 shot.png" }));
-    expect(screen.getByRole("dialog", { name: "shot.png" })).toBeTruthy();
+    const dialog = await screen.findByRole("dialog", { name: "shot.png" });
+    expect(dialog.querySelector("img")?.getAttribute("src")).toBe("blob:authorized-attachment");
+    expect(client.fetchAuthorizedBlob).toHaveBeenCalledWith("/api/attachments/img1/content", expect.any(AbortSignal));
     view.unmount();
   });
 });

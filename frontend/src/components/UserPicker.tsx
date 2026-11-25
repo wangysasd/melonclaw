@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getAuthConfig } from "../api/auth";
 import { App, Dropdown, Tooltip } from "antd";
 
+import { confirmModal } from "./deleteConfirmation";
 import { Icon } from "./Icon";
 import { avatarStyle, userInitials } from "../lib/format";
 import { useSession } from "../state/session";
@@ -41,7 +42,7 @@ export function UserPicker({ compact = false }: { compact?: boolean }) {
             if (key === session.userId) return;
             const clean = window.dispatchEvent(new Event("melonclaw-check-draft", { cancelable: true }));
             if (clean) void session.changeUser(String(key));
-            else modal.confirm({ title: "切换用户", content: "未发送内容将被清除，是否继续？", okText: "切换", cancelText: "取消", onOk: () => session.changeUser(String(key)) });
+            else modal.confirm({ ...confirmModal({ title: "切换用户", content: "未发送内容将被清除，是否继续？", okText: "切换" }), onOk: () => session.changeUser(String(key)) });
           },
         }}
         disabled={session.users.length === 0}

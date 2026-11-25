@@ -1,4 +1,4 @@
-"""统一 Cookie 身份边界，覆盖 JSON、上传、下载和 SSE。"""
+"""统一 Bearer 令牌身份边界，覆盖 JSON、上传、下载和 SSE。"""
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -12,8 +12,14 @@ from fastapi import HTTPException, Request
 from melonclaw.api.dependencies import get_chat_service
 from melonclaw.services.accounts import AccountService
 
-COOKIE = "melonclaw_session"
 PUBLIC_PATHS = {"/api/auth/config", "/api/auth/login", "/api/auth/passwordless", "/api/ready"}
+
+
+def bearer_token(request: Request) -> str:
+    scheme, _, value = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer":
+        return ""
+    return value.strip()
 
 
 def accounts(request: Request) -> AccountService:
@@ -24,7 +30,9 @@ def accounts(request: Request) -> AccountService:
 
 
 def public_user(context):
-    return asdict(context)
+    identity = asdict(context)
+    del identity["tenant_enabled"]
+    return identity
 
 
 def check_origin(request):
@@ -60,7 +68,7 @@ async def account_session(request: Request, *, check_body: bool = True):
     """身份与业务归属校验共用锁，不把外部 I/O 放在这个作用域内。"""
     service = accounts(request)
     async with service.storage.account_guard():
-        await authenticate(request, service, check_body=check_body)
+        await authenticate(request, service, check_body=check_body, require_enabled_tenant=True)
         yield
 
 
@@ -69,10 +77,12 @@ def assert_request_user(provided: Iterable[object], user_id: str) -> None:
         raise HTTPException(409, "当前用户已变化，请刷新页面。")
 
 
-async def authenticate(request, service, *, check_body: bool = True):
-    context = await service.session(request.cookies.get(COOKIE, ""))
+async def authenticate(request, service, *, check_body: bool = True, require_enabled_tenant: bool = False):
+    context = await service.session(bearer_token(request))
     if context is None:
         raise HTTPException(401, "请先登录。")
+    if require_enabled_tenant and not context.tenant_enabled:
+        raise HTTPException(403, "当前用户所属租户已停用。")
     request.state.user = context
     expected = request.headers.get("x-melonclaw-user")
     if expected is not None and expected != context.user_id:
@@ -83,7 +93,7 @@ async def authenticate(request, service, *, check_body: bool = True):
         return
     if request.url.path.startswith("/api/auth/"):
         return
-    # 请求 user_id 仅作页面上下文断言，绝不能覆盖 Cookie 身份。
+    # 请求 user_id 仅作页面上下文断言，绝不能覆盖令牌身份。
     provided = list(request.query_params.getlist("user_id"))
     content_type = request.headers.get("content-type", "") if check_body else ""
     if "application/json" in content_type:

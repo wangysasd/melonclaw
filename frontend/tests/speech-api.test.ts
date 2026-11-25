@@ -14,12 +14,31 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  localStorage.removeItem("melonclaw.access-token");
   setRequestUser("");
   vi.unstubAllGlobals();
 });
 
 describe("speech HTTP client", () => {
-  it("uploads one multipart file with the identity assertion and cookie credentials", async () => {
+  it("attaches the stored bearer token to speech uploads and synthesis", async () => {
+    localStorage.setItem("melonclaw.access-token", "speech-token");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ text: "你好", duration_ms: 1 })));
+    await transcribeSpeech(wav, new AbortController().signal);
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({
+      Authorization: "Bearer speech-token",
+      "X-Melonclaw-User": "alice",
+    });
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response(Uint8Array.of(1, 2)));
+    await synthesizeSpeech(synthesis, new AbortController().signal);
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({
+      Authorization: "Bearer speech-token",
+      "Content-Type": "application/json",
+      "X-Melonclaw-User": "alice",
+    });
+  });
+
+  it("uploads one multipart file with the identity assertion and bearer token", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       text: "测试文本", duration_ms: 320, request_id: "unused",
     })));
@@ -28,7 +47,7 @@ describe("speech HTTP client", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/api\/speech\/transcribe$/);
-    expect(options).toMatchObject({ method: "POST", credentials: "include", signal });
+    expect(options).toMatchObject({ method: "POST", cache: "no-store", signal });
     expect(options?.headers).toEqual({ "X-Melonclaw-User": "alice" });
     const form = options?.body as FormData;
     expect([...form.keys()]).toEqual(["file"]);
@@ -43,7 +62,7 @@ describe("speech HTTP client", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/api\/speech\/synthesize$/);
-    expect(options).toMatchObject({ method: "POST", credentials: "include", signal });
+    expect(options).toMatchObject({ method: "POST", cache: "no-store", signal });
     expect(options?.headers).toEqual({ "Content-Type": "application/json", "X-Melonclaw-User": "alice" });
     expect(JSON.parse(options?.body as string)).toEqual({
       conversation_id: "conversation", message_id: "message", voice_id: "tide",

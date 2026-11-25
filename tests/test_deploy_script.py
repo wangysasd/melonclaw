@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,7 +12,7 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "ops" / "deploy.sh"
 
 
-@pytest.mark.parametrize("failure", ["", "pull", "build", "readiness"])
+@pytest.mark.parametrize("failure", ["", "pull", "build", "readiness", "jwt-missing", "jwt-short", "jwt-ttl"])
 def test_deploy_order_and_failure_boundary(tmp_path, failure):
     if os.geteuid() == 0:
         pytest.skip("部署脚本要求非 root 账号")
@@ -18,10 +20,20 @@ def test_deploy_order_and_failure_boundary(tmp_path, failure):
     (project / "ops").mkdir(parents=True)
     (project / ".git").mkdir()
     config = tmp_path / "config.env"
-    config.touch()
-    # 仅替换外部配置位置；测试环境不写 /etc。
+    secret = "z" * 32
+    jwt_config = {
+        "jwt-missing": "",
+        "jwt-short": "MELONCLAW_JWT_SECRET=short\n",
+        "jwt-ttl": f"MELONCLAW_JWT_SECRET={secret}\nMELONCLAW_TOKEN_TTL_HOURS=0\n",
+    }
+    config.write_text(jwt_config.get(failure, f"MELONCLAW_JWT_SECRET={secret}\n"))
+    # 在临时目录使用当前测试环境的 Python 和应用配置解析。
     script = project / "ops" / "deploy.sh"
-    script.write_text(SCRIPT.read_text().replace("/etc/melonclaw/melonclaw.env", str(config)))
+    script.write_text(
+        SCRIPT.read_text()
+        .replace("/etc/melonclaw/melonclaw.env", str(config))
+        .replace(".venv/bin/python", shlex.quote(sys.executable))
+    )
     commands = tmp_path / "bin"
     commands.mkdir()
     log = tmp_path / "commands.log"
@@ -46,10 +58,20 @@ if name == "curl":
         executable.write_text(shim)
         executable.chmod(0o755)
     env = dict(os.environ, PATH=f"{commands}:{os.environ['PATH']}",
+               PYTHONPATH=str(SCRIPT.parents[1] / "src"),
+               MELONCLAW_JWT_SECRET=secret, MELONCLAW_TOKEN_TTL_HOURS="24",
                DEPLOY_TEST_LOG=str(log), DEPLOY_TEST_FAILURE=failure)
     result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True,
                             timeout=30)
     calls = log.read_text().splitlines()
+    if failure.startswith("jwt-"):
+        setting = "MELONCLAW_TOKEN_TTL_HOURS" if failure == "jwt-ttl" else "MELONCLAW_JWT_SECRET"
+        assert result.returncode == 1
+        assert setting in result.stderr
+        assert secret not in result.stdout + result.stderr
+        assert not any(call.startswith(("sudo ", "systemctl ")) for call in calls)
+        return
+
     stop = calls.index("sudo systemctl stop melonclaw")
     pull = calls.index("git pull --ff-only")
     assert stop < pull

@@ -2,14 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import secrets
 
+from melonclaw.core.auth_token import issue_token, token_subject
+from melonclaw.core.config import load_settings
 from melonclaw.core.passwords import hash_password, verify_password
-
-
-def token_digest(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
 
 
 class AccountService:
@@ -18,25 +14,30 @@ class AccountService:
 
     async def login(self, user_id, password, *, passwordless=False):
         async with self.storage.account_guard():
-            context = await self.storage.get_user_context(user_id)
+            context = await self.storage.active_user(user_id)
             encoded = await self.storage.account_password(user_id)
             valid = passwordless or await asyncio.to_thread(verify_password, password, encoded)
             if context is None or not valid:
                 raise ValueError("用户 ID 或密码错误。")
-            token = secrets.token_urlsafe(32)
-            await self.storage.create_auth_session(token_digest(token), user_id)
-            return token
+            return self._issue(context.user_id)
 
     async def session(self, token):
-        return await self.storage.authenticated_user(token_digest(token))
+        user_id = token_subject(token or "", load_settings().jwt_secret)
+        if user_id is None:
+            return None
+        return await self.storage.active_user(user_id)
 
     async def switch(self, token, user_id):
         async with self.storage.account_guard():
             if await self.session(token) is None:
                 raise ValueError("登录已失效。")
-            if await self.storage.get_user_context(user_id) is None:
-                raise ValueError("用户不存在或所属租户已停用。")
-            await self.storage.switch_auth_session(token_digest(token), user_id)
+            if await self.storage.active_user(user_id) is None:
+                raise ValueError("用户不存在或已删除。")
+            return self._issue(user_id)
+
+    def _issue(self, user_id: str) -> str:
+        settings = load_settings()
+        return issue_token(user_id, settings.jwt_secret, settings.token_ttl_hours)
 
     async def save_user(self, user_id, name, tenant_id, password=None):
         if user_id == "admin" and tenant_id != "system":

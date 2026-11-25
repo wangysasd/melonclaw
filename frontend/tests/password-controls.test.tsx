@@ -4,10 +4,10 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { ChangePasswordDialog } from "../src/components/ChangePasswordDialog";
 import { UserPicker } from "../src/components/UserPicker";
 import { apiRequest } from "../src/api/client";
-import { getAuthConfig, notifyAuthChange } from "../src/api/auth";
+import { getAuthConfig } from "../src/api/auth";
 
 vi.mock("../src/api/client", () => ({ apiRequest: vi.fn() }));
-vi.mock("../src/api/auth", () => ({ getAuthConfig: vi.fn(), notifyAuthChange: vi.fn() }));
+vi.mock("../src/api/auth", () => ({ getAuthConfig: vi.fn() }));
 vi.mock("../src/state/session", () => ({ useSession: () => ({ userId: "alice", users: [{ user_id: "alice", username: "Alice" }], changeUser: vi.fn() }) }));
 beforeEach(() => {
   vi.resetAllMocks();
@@ -20,7 +20,7 @@ it.each([false, true])("shows switching only when the backend dev capability is 
   if (enabled) expect(await screen.findByRole("button", { name: "更换用户" })).toBeTruthy();
   else expect(screen.queryByRole("button", { name: "更换用户" })).toBeNull();
 });
-it("rejects mismatched passwords before submitting and refreshes authentication after saving", async () => {
+it("rejects mismatched passwords before submitting and keeps the session after saving", async () => {
   const close = vi.fn();
   vi.mocked(apiRequest).mockResolvedValue({ ok: true });
   render(<App><ChangePasswordDialog onClose={close} /></App>);
@@ -33,5 +33,4 @@ it("rejects mismatched passwords before submitting and refreshes authentication 
   fireEvent.click(screen.getByRole("button", { name: /保\s*存/ }));
   await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("/api/auth/password", { method: "POST", body: { password: "new-password", confirm_password: "new-password" } }));
   expect(close).toHaveBeenCalled();
-  expect(notifyAuthChange).toHaveBeenCalled();
 });

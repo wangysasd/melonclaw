@@ -15,6 +15,37 @@ from melonclaw.services.provider_config import ModelConfigError, validate_provid
 from melonclaw.services.resource_service import provider_public_dict
 
 
+def test_anthropic_uses_messages_parameters_only():
+    from langchain_anthropic import ChatAnthropic
+
+    provider = make_provider_row(
+        provider_type="anthropic",
+        base_url="https://api.example.com/anthropic",
+        request_headers={"X-Client": "test-client"},
+    )
+    model = build_chat_model(resolve_model_row(make_row(), provider))
+    assert isinstance(model, ChatAnthropic)
+    assert model.model == "gpt-4o-mini"
+    assert model.anthropic_api_url == "https://api.example.com/anthropic"
+    assert model.max_tokens == 4096
+    assert model.max_retries == 0
+    assert model.temperature is None
+    assert "test-client" not in repr(model)
+    assert "test-client" not in str(model.to_json())
+
+
+def test_anthropic_rejects_extension_body():
+    provider = make_provider_row(provider_type="anthropic", extra_config={"thinking": {"type": "enabled"}})
+    with pytest.raises(ValueError, match="扩展配置"):
+        build_chat_model(resolve_model_row(make_row(), provider))
+
+
+def test_anthropic_rejects_credential_header_before_sdk_construction():
+    provider = make_provider_row(provider_type="anthropic", request_headers={"X-Api-Key": "placeholder"})
+    with pytest.raises(ModelConfigError, match="x-api-key"):
+        build_chat_model(resolve_model_row(make_row(), provider))
+
+
 def test_advanced_settings_reach_model_without_public_header_values():
     provider = make_provider_row(
         request_headers={"X-Client": "test-client"},

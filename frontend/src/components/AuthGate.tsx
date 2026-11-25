@@ -1,7 +1,7 @@
 import { Alert, Button, Spin } from "antd";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
-import { AUTH_EVENT, AUTH_STORAGE, getAuthConfig, getAuthSession, setRequestUser, type AuthUser } from "../api/auth";
+import { ACCESS_TOKEN_STORAGE, AUTH_EVENT, AUTH_STORAGE, getAuthConfig, getAuthSession, setRequestUser, type AuthUser } from "../api/auth";
 import { AssistantNameContext } from "../state/assistantName";
 import { LoginPage } from "./LoginPage";
 
@@ -29,7 +29,7 @@ export function AuthGate({ children }: { children: (user: AuthUser) => ReactNode
   useEffect(() => {
     void refresh();
     const changed = () => void refresh();
-    const storage = (event: StorageEvent) => { if (event.key === AUTH_STORAGE) changed(); };
+    const storage = (event: StorageEvent) => { if (event.key === AUTH_STORAGE || event.key === ACCESS_TOKEN_STORAGE) changed(); };
     const expired = () => { ++sequence.current; setUser(null); setRequestUser(""); setChecking(false); };
     window.addEventListener(AUTH_EVENT, changed);
     window.addEventListener("storage", storage);

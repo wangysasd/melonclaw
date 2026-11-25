@@ -33,7 +33,8 @@
 | [聊天生成 Skill](chat-skill-creation.md) | 已实现 | 内置 skill-creator、受限文本草稿、聊天来源、角色范围、复用安装审批与文件/数据库恢复 |
 | [聊天安装与更新 MCP](chat-mcp-install.md) | 已实现 | JSON 凭据隔离、同名版本化更新与明确字段保留、测试/保存独立审批、原子幂等回执与下一轮生效 |
 | [MCP 两层配置与 JSON 导入](mcp-two-layer.md) | 已实现 | 角色归属、个人偏好、同名不回退、JSON 单向填表、凭据明文存储与 API 不回显、连接测试、工具白名单交集与缺失诊断、探测调度/缓存、卡片仅展示使用状态、无后台检测、工具权限胶囊对齐与编辑体验、外部工具调用免逐次审批（安装/测试仍审批） |
-| [用户管理与开发登录](user-management-login.md) | 已实现 | 两张业务表、密码登录、dev 免密、全员切换、软删除与租户启停；可撤销 Cookie 会话 |
+| [用户管理与开发登录](user-management-login.md) | 已实现 | 两张业务表、密码登录、dev 免密、全员切换、软删除与租户启停；身份凭证见 JWT 登录 |
+| [JWT 登录](jwt-login.md) | 已实现 | 无状态 JWT：载荷只有用户和过期时间，有效性只查用户行；dev 免密与切换重签。不新增表或字段 |
 | [用户唯一租户归属](one-tenant-per-user.md) | 已实现 | 用户行固定归属一个租户；服务端解析租户上下文，项目与会话仍按用户归属，Tenant Memory 沿用租户隔离与角色授权 |
 | [聊天附件存储与绑定](chat-attachments.md) | 已实现 | 两阶段上传、消息原子绑定、模型请求副本、权限和清理 |
 | [普通聊天附件上传与处理](chat-attachment-processing.md) | 已实现 | 20 种扩展名、同步 OCR、视觉模型输入、多页 TIFF、XLS、生效限额和验收 |
@@ -47,7 +48,7 @@
 | [内置教程与聊天安装 Skill](chat-skill-install.md) | 已实现 | 教程按需问答、ZIP/GitHub/HTTPS 批量同步与合集展开、同名更新/冲突、清单绑定审批与下一轮启用 |
 | [Skill 生命周期与一致性](skill-lifecycle.md) | 已实现 | 范围身份、统一有效状态、保留身份的内容更新、持久草稿与操作恢复、正文/差异/依赖预览、运行时只读快照 |
 | [用户 Skill 与 MCP 资源管理](user-skills-and-mcp.md) | 已实现 | 管理员直接安装全局共享 Skill、管理全局 MCP，普通用户安装私有 Skill（ZIP/远程两段式）与自建 HTTP MCP；Skill 严格两级 scope、管理操作显式范围、内置源单向同步、按 scope 的 `${VAR}` 安全边界 |
-| [用户自定义模型](custom-models.md) | 已实现 | 供应商固定 global、模型 global/user（数据库与 API 约束）：23 家纯 chat 内置供应商，供应商双列表单及高级配置（显式环境变量凭据兜底、请求头和扩展请求体）、未保存配置的只读连接测试，admin 配全局共享默认给全员，用户可配私有；各人启用集合不一样，聊天模型可显式配置图片输入；`custom:` 模型 ID 解析到 `model_configs` 表，api_key 只写不回读 |
+| [用户自定义模型](custom-models.md) | 已实现 | 供应商固定 global、模型 global/user（数据库与 API 约束）：23 家纯 chat 内置供应商，供应商双列表单及高级配置（显式环境变量凭据兜底、请求头和扩展请求体）、Provider Type 可选 OpenAI Completions 或 Anthropic Messages、未保存配置的只读连接测试，admin 配全局共享默认给全员，用户可配私有；各人启用集合不一样，聊天模型可显式配置图片输入；`custom:` 模型 ID 解析到 `model_configs` 表，api_key 只写不回读 |
 | [空工具名快速失败](tool-name-guard.md) | 已实现 | 出站前验证工具名，避免供应商报错后才定位 |
 | [聊天错误恢复与发送前反馈](chat-error-recovery.md) | 已实现 | 错误来源、只读同步和附件发送前门槛 |
 | [环境变量与聊天准备缓存](environment-and-preparation.md) | 已实现 | 管理员共享／普通用户个人、停用回退、只写值、单项/批量聊天 HITL 与混合消息脱敏；六因子内存缓存、提交发布及请求准备身份归属复用，MCP 业务规则不变；[补充测试矩阵](../exec-plans/completed/2026-10-18-environment-validation.md) |

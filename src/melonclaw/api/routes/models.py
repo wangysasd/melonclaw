@@ -138,6 +138,7 @@ async def test_provider_connection(
             await manager.test_provider_connection(
                 body.user_id,
                 provider_key=body.provider_key,
+                provider_type=body.provider_type,
                 base_url=body.base_url,
                 models_endpoint=body.models_endpoint,
                 api_key=body.api_key,
@@ -194,6 +195,7 @@ async def update_provider(
             provider_key,
             enabled=body.enabled,
             display_name=body.display_name,
+            provider_type=body.provider_type,
             base_url=body.base_url,
             api_key=body.api_key,
             models_endpoint=body.models_endpoint,

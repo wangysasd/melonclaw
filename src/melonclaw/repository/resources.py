@@ -19,7 +19,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from melonclaw.core.config import provider_env_key
 from melonclaw.core.knowledge import KnowledgeConflict
-from melonclaw.core.model_catalog import DEFAULT_CONTEXT_WINDOW
+from melonclaw.core.model_catalog import (
+    DEFAULT_CONTEXT_WINDOW,
+    ModelConfigError,
+    validate_model_provider,
+    validate_provider_protocol,
+)
 from melonclaw.database.schema import (
     KNOWLEDGE_TABLES,
     model_configs,
@@ -311,6 +316,7 @@ class ResourceRepositoryMixin:
         extra_config: dict[str, Any] | None = None,
         enabled: bool = True,
     ) -> dict[str, Any]:
+        validate_provider_protocol(provider_type, request_headers, extra_config)
         timestamp = _now()
         row = {
             "id": uuid4(),
@@ -344,6 +350,18 @@ class ResourceRepositoryMixin:
             await self._model_catalog_lock(connection)
             old = (await connection.execute(select(model_providers).where(
                 model_providers.c.provider_key == provider_key).with_for_update())).mappings().one()
+            provider_type = fields.get("provider_type", old["provider_type"])
+            validate_provider_protocol(
+                provider_type, fields.get("request_headers", old["request_headers"]),
+                fields.get("extra_config", old["extra_config"]),
+            )
+            if provider_type == "anthropic" and provider_type != old["provider_type"]:
+                has_parser = await connection.scalar(select(model_configs.c.id).where(
+                    model_configs.c.provider_key == provider_key,
+                    model_configs.c.purpose == "document_parser",
+                ).limit(1))
+                if has_parser is not None:
+                    raise ModelConfigError("文档解析模型仍使用该供应商，不能改为 Anthropic Messages API。")
             bound = await self._knowledge_provider_bound(connection, provider_key)
             if bound:
                 for key in ("provider_type", "base_url", "request_headers", "extra_config"):
@@ -559,6 +577,14 @@ class ResourceRepositoryMixin:
             "updated_at": timestamp,
         }
         async with self.engine.begin() as connection:
+            if purpose == "document_parser":
+                await self._model_catalog_lock(connection)
+                provider_type = await connection.scalar(select(model_providers.c.provider_type).where(
+                    model_providers.c.provider_key == provider_key
+                ))
+                if provider_type is None:
+                    raise ModelConfigError("所选供应商不存在。")
+                validate_model_provider(purpose, provider_type)
             await connection.execute(insert(model_configs).values(**row))
         return row
 

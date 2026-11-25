@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from account_fixtures import use_access_token
 from langchain_core.messages import HumanMessage
 from sqlalchemy import insert, update
 from test_task_agent import resolved_model, settings_for
@@ -144,7 +145,9 @@ def test_task_conversation_filter_precedes_limit_and_preserves_pagination(monkey
             ))
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
                 assert (await client.get("/api/conversations?user_id=admin&task_only=true")).status_code == 401
-                assert (await client.post("/api/auth/passwordless", json={"user_id": "admin"})).status_code == 200
+                signed = await client.post("/api/auth/passwordless", json={"user_id": "admin"})
+                assert signed.status_code == 200
+                use_access_token(client, signed)
                 ordinary = await client.get("/api/conversations", params={"user_id": "admin", "limit": 100})
                 assert ordinary.status_code == 200
                 assert len(ordinary.json()["items"]) == 100

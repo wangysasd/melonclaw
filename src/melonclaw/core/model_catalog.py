@@ -18,6 +18,31 @@ MAX_CONTEXT_WINDOW = 2_147_483_647
 
 CUSTOM_MODEL_ID_PREFIX = "custom:"
 
+class ModelConfigError(ValueError):
+    """自定义模型配置不合法。"""
+
+    status_code = 422
+
+
+def validate_provider_protocol(
+    provider_type: str,
+    request_headers: dict[str, str] | None,
+    extra_config: dict[str, Any] | None,
+) -> None:
+    if provider_type not in {"openai_compatible", "anthropic"}:
+        raise ModelConfigError("Provider Type 只支持 OpenAI Completions API 或 Anthropic Messages API。")
+    if provider_type == "anthropic":
+        if extra_config:
+            raise ModelConfigError("Anthropic Messages API 不使用扩展配置。")
+        if any(name.lower() == "x-api-key" for name in request_headers or {}):
+            raise ModelConfigError("Anthropic 请求头不能覆盖 x-api-key，请在 API Key 字段配置凭据。")
+
+
+def validate_model_provider(purpose: str, provider_type: str) -> None:
+    if purpose == "document_parser" and provider_type != "openai_compatible":
+        raise ModelConfigError("文档解析只支持 OpenAI Completions API 供应商。")
+
+
 @dataclass(frozen=True)
 class ResolvedModel:
     """一次 Agent 运行实际绑定的模型配置。"""

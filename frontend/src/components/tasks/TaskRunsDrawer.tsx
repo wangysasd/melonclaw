@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { taskApi, type TaskRun } from "../../api/tasks";
 import { ApiError } from "../../api/client";
 import { createRequestId } from "../../lib/requestId";
+import { confirmModal } from "../deleteConfirmation";
 import { StatusTag, time } from "./presentation";
 import { useTaskPolling } from "./useTaskPolling";
 
@@ -37,7 +38,7 @@ function RunRecord({ id, taskId, onChanged }: { id: string; taskId: string; onCh
     {error && <Alert type="error" showIcon title={error} />}
     {run ? <>
       <Space wrap><h3>本次运行</h3><StatusTag status={run.status} />
-        {["queued", "running"].includes(run.status) && <Button loading={busy} disabled={Boolean(run.cancel_requested_at)} onClick={() => modal.confirm({ title: "取消这次运行？", content: "只取消本次执行，不暂停后续计划；已发出的远端请求可能仍在处理，最终状态以后台确认为准。", okText: "确认取消", cancelText: "返回", onOk: cancel })}>{run.cancel_requested_at ? "取消请求已提交" : "取消运行"}</Button>}
+        {["queued", "running"].includes(run.status) && <Button loading={busy} disabled={Boolean(run.cancel_requested_at)} onClick={() => modal.confirm({ ...confirmModal({ title: "取消这次运行？", content: "只取消本次执行，不暂停后续计划；已发出的远端请求可能仍在处理，最终状态以后台确认为准。", okText: "确认取消", cancelText: "返回" }), onOk: cancel })}>{run.cancel_requested_at ? "取消请求已提交" : "取消运行"}</Button>}
       </Space>
       <Descriptions size="small" column={1} items={[
         { key: "model", label: "执行时模型", children: run.config_snapshot?.model_display_name ?? "—" },

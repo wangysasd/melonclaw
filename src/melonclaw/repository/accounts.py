@@ -1,14 +1,12 @@
-"""账户管理、可撤销会话和身份修改的事务边界。"""
+"""账户管理和身份修改的事务边界。"""
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import timedelta
 
-from sqlalchemy import delete, insert, or_, select, text, update
+from sqlalchemy import insert, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from melonclaw.database.schema import (
-    auth_sessions,
     chat_conversations,
     chat_messages,
     task_runs,
@@ -17,7 +15,6 @@ from melonclaw.database.schema import (
     users,
 )
 from melonclaw.repository.mappers import _now
-from melonclaw.repository.models import UserContext
 
 
 class AccountConflict(ValueError):
@@ -56,9 +53,8 @@ class AccountRepositoryMixin:
 
     async def account_password(self, user_id):
         async with self.engine.connect() as conn:
-            return (await conn.execute(select(users.c.password_hash).join(tenants).where(
+            return (await conn.execute(select(users.c.password_hash).where(
                 users.c.user_id == user_id, users.c.tenant_status == "active",
-                tenants.c.enabled.is_(True),
             ))).scalar_one_or_none()
 
     async def _account_idle(self, conn, user_ids):
@@ -117,7 +113,6 @@ class AccountRepositoryMixin:
             ).values(tenant_status="deleted", updated_at=_now()))
             if not result.rowcount:
                 raise ValueError("用户不存在。")
-            await self._revoke_user_sessions(conn, user_id)
 
     async def set_account_password(self, user_id, password_hash):
         async with self.account_guard(exclusive=True) as conn:
@@ -126,12 +121,6 @@ class AccountRepositoryMixin:
             ).values(password_hash=password_hash, updated_at=_now()))
             if not result.rowcount:
                 raise ValueError("用户不存在。")
-            await self._revoke_user_sessions(conn, user_id)
-
-    async def _revoke_user_sessions(self, conn, user_id):
-        await conn.execute(delete(auth_sessions).where(or_(
-            auth_sessions.c.user_id == user_id, auth_sessions.c.login_user_id == user_id,
-        )))
 
     async def save_account_tenant(self, tenant_id, values, *, create=False):
         values = {**values, "updated_at": _now()}
@@ -150,7 +139,6 @@ class AccountRepositoryMixin:
                         await self._pause_account_tasks(conn, ids, "tenant_disabled")
                         for user_id in sorted(ids):
                             await self.knowledge_account_change(conn, user_id, suspending=True)
-                            await self._revoke_user_sessions(conn, user_id)
                     result = await conn.execute(update(tenants).where(
                         tenants.c.tenant_id == tenant_id,
                     ).values(**values))
@@ -158,49 +146,3 @@ class AccountRepositoryMixin:
                         raise ValueError("租户不存在。")
         except IntegrityError as exc:
             raise ValueError("租户 ID 或名称已存在。") from exc
-
-    async def create_auth_session(self, token_hash, user_id):
-        async with self.engine.begin() as conn:
-            await conn.execute(delete(auth_sessions).where(auth_sessions.c.expires_at <= _now()))
-            await conn.execute(insert(auth_sessions).values(
-                token_hash=token_hash, user_id=user_id, login_user_id=user_id,
-                created_at=_now(), expires_at=_now() + timedelta(days=7),
-            ))
-
-    async def authenticated_user(self, token_hash):
-        """一次联查校验当前与原登录账户，始终读取当前数据库状态。"""
-        origin = users.alias("login_user")
-        origin_tenant = tenants.alias("login_tenant")
-        query = select(
-            users.c.user_id, users.c.user_name_zh, users.c.tenant_id,
-            tenants.c.tenant_name_zh, users.c.tenant_role, users.c.tenant_status,
-        ).select_from(auth_sessions.join(users, auth_sessions.c.user_id == users.c.user_id)
-            .join(tenants, users.c.tenant_id == tenants.c.tenant_id)
-            .join(origin, auth_sessions.c.login_user_id == origin.c.user_id)
-            .join(origin_tenant, origin.c.tenant_id == origin_tenant.c.tenant_id)
-        ).where(
-            auth_sessions.c.token_hash == token_hash, auth_sessions.c.expires_at > _now(),
-            users.c.tenant_status == "active", tenants.c.enabled.is_(True),
-            origin.c.tenant_status == "active", origin_tenant.c.enabled.is_(True),
-        )
-        async with self.engine.connect() as conn:
-            row = (await conn.execute(query)).mappings().first()
-        return UserContext(**dict(row)) if row else None
-
-    async def get_auth_session(self, token_hash):
-        async with self.engine.connect() as conn:
-            return (await conn.execute(select(auth_sessions).where(
-                auth_sessions.c.token_hash == token_hash, auth_sessions.c.expires_at > _now(),
-            ))).mappings().first()
-
-    async def switch_auth_session(self, token_hash, user_id):
-        async with self.engine.begin() as conn:
-            result = await conn.execute(update(auth_sessions).where(
-                auth_sessions.c.token_hash == token_hash, auth_sessions.c.expires_at > _now(),
-            ).values(user_id=user_id))
-            if not result.rowcount:
-                raise ValueError("登录已失效。")
-
-    async def delete_auth_session(self, token_hash):
-        async with self.engine.begin() as conn:
-            await conn.execute(delete(auth_sessions).where(auth_sessions.c.token_hash == token_hash))

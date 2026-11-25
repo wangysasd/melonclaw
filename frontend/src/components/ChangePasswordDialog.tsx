@@ -1,7 +1,6 @@
 import { App, Form, Modal } from "antd";
 import { useState } from "react";
 import { apiRequest } from "../api/client";
-import { notifyAuthChange } from "../api/auth";
 import { PasswordFields } from "./PasswordFields";
 
 export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
@@ -13,9 +12,8 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
       setSaving(true);
       try {
         await apiRequest("/api/auth/password", { method: "POST", body: values });
-        message.success("密码已修改，请重新登录");
+        message.success("密码已修改");
         onClose();
-        notifyAuthChange();
       } catch (err) { message.error(err instanceof Error ? err.message : "修改密码失败"); }
       finally { setSaving(false); }
     }}>

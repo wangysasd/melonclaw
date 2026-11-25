@@ -36,7 +36,8 @@
 .result-asset > button:not(:disabled):hover { background: var(--glass-blue); color: var(--brand-primary-active); }
 .message .markdown-code-head button:focus-visible,
 .message .message-attachment a:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
-.message .message-attachment-info a { white-space: normal; overflow-wrap: anywhere; }
+.message .message-attachment-info a,
+.message .message-attachment-info button { white-space: normal; overflow-wrap: anywhere; }
 .message .message-attachment-info span { color: var(--muted); }
 .result-card .result-title { color: var(--ink); margin-bottom: var(--space-3); }
 /* A nested table or code block needs one outer shadow, not several layers. */
