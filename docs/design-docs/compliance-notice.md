@@ -15,3 +15,7 @@ components/ComplianceNotice.tsx 的 AccessNoticeGate 位于 App 的 AuthGate 外
 ## 验证
 
 frontend/tests/ComplianceNotice.test.tsx 覆盖提示门控、确认记忆与存储失败。页脚组件的孤立渲染测试不能证明 ChatView 挂载。真实浏览器可在隔离测试配置下清除确认键验证首次提示；本轮仅进行文档检查，不操作用户浏览器存储。
+
+## 工信部备案页脚
+
+应用在访问提示、认证和工作区之外统一挂载 FilingFooter，各品牌均显示“京ICP备2026082777号-1”，新窗口打开 https://beian.miit.gov.cn/，带 noopener noreferrer。页脚位于页面正常文档流的末尾，工作区占满视口时向下滚动可见，不覆盖输入区。公安联网备案数据码不用于展示；正式公安备案号待审核通过后另行添加。

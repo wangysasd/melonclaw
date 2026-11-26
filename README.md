@@ -108,6 +108,7 @@ scripts/restart.sh    # 重启
 | 定时任务 | 「定时任务」页面，或在聊天中说明。服务需保持运行，使用北京时间；错过不补跑 |
 | 搜索、语音、朗读、OCR | 在 `.env` 设置 `DEEPSEEK_API_KEY` 后重启。未设置不影响聊天启动 |
 | 知识库 | 页面创建。导入、权限和检索见[知识库设计](docs/design-docs/knowledge-base.md) |
+| 开始聊天 | 打开空会话，在居中的输入框直接输入消息。输入 `/` 可选择技能 |
 | 聊天附件 | 见[附件处理](docs/design-docs/chat-attachment-processing.md) |
 | 调用监控 | 见 [Langfuse 配置](docs/configuration.md#langfuse-追踪) |
 
@@ -125,6 +126,8 @@ scripts/start.sh
 ```
 
 不要用 `melonclaw-db-init` 代替升级。服务器部署见 [Linux 部署说明](docs/deployment.md)。
+
+网站底部显示工信部备案号“京ICP备2026082777号-1”，点击可打开工信部备案系统；全屏工作区向下滚动可见。
 
 ## 安全边界
 

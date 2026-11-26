@@ -49,7 +49,7 @@ describe("skill picker", () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
     const input = screen.getByRole("textbox");
-    expect(input.getAttribute("placeholder")).toBe("聊点儿什么，输入/调用技能工具。");
+    expect(input.getAttribute("placeholder")).toBeFalsy();
 
     fireEvent.change(input, { target: { value: "/" } });
     expect(screen.getByRole("dialog", { name: "可选技能" })).toBeTruthy();

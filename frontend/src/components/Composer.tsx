@@ -437,7 +437,7 @@ export function Composer({
   }, [active, selectionContextKey]);
   const narrow = useNarrowViewport();
 
-  let placeholder = "聊点儿什么，输入/调用技能工具。";
+  let placeholder = "";
   const running = isRunning ?? session.busy;
   const waiting = pendingInteraction !== null;
   const stopMode = running && !waiting && !session.conversationCreating &&
@@ -745,7 +745,6 @@ export function Composer({
             },
           }}
           aria-label="输入内容"
-          aria-describedby="composer-hint"
           disabled={inputDisabled}
           loading={session.conversationCreating || (running && !queueEnabled)}
           onChange={(nextValue, event) => {
@@ -895,12 +894,7 @@ export function Composer({
       {preparingAttachments ? <div className="composer-attachment-warning" role="status">正在使用 DeepSeek 识别图片文字…</div>
         : hasParseFailure ? <div className="composer-attachment-warning" role="alert">附件解析失败或超时，请重新解析或移除附件后再发送。</div>
         : attachments.some((item) => !isReady(item, modelSupportsImage) && isPolling(item)) ? <div className="composer-attachment-warning" role="status">附件尚未完成解析，完成后才能发送。文字草稿会保留。</div> : null}
-      <div className="composer-meta">
-        <div className="composer-hint" id="composer-hint">
-          <Icon name="message-circle" size={16} /> Enter 发送 · Shift + Enter 换行 · 支持拖拽或粘贴附件
-        </div>
-        <div className="composer-footnote">AI生成内容仅供参考。</div>
-      </div>
+      <div className="composer-footnote">AI生成内容仅供参考。</div>
       {preview ? (
         <AuthorizedLightbox
           url={attachmentContentUrl(preview.attachment_id, attachmentAccess, preview.media_type === "image/tiff")}

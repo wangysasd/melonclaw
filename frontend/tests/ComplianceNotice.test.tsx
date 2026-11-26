@@ -37,7 +37,7 @@ describe("访问提示", () => {
 
   it("首页展示完整声明", () => {
     render(<ComplianceStatement />);
-    expect(screen.getByRole("contentinfo").textContent).toContain("本站已在腾讯云提交ICP备案申请");
+    expect(screen.getByRole("contentinfo").textContent).toContain("本站已完成ICP备案");
     expect(screen.getByRole("contentinfo").querySelectorAll("p")).toHaveLength(4);
   });
 });

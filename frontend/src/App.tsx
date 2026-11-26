@@ -1,5 +1,5 @@
 import { useVisibleRefresh } from "./hooks/useVisibleRefresh";
-import { AccessNoticeGate } from "./components/ComplianceNotice";
+import { AccessNoticeGate, FilingFooter } from "./components/ComplianceNotice";
 import { AuthGate } from "./components/AuthGate";
 import { AccountManagement } from "./components/AccountManagement";
 import "./styles/accounts.css";
@@ -132,6 +132,7 @@ export default function App() {
       <XProvider theme={antdTheme}>
         <AntdApp>
           <AccessNoticeGate><AuthGate>{(user) => <SessionProvider key={user.user_id} initialUserId={user.user_id}><Workspace /></SessionProvider>}</AuthGate></AccessNoticeGate>
+          <FilingFooter />
         </AntdApp>
       </XProvider>
     </ConfigProvider>

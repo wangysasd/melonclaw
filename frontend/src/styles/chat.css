@@ -148,14 +148,20 @@
 
 /* 欢迎页 */
 
+.chat-view.is-empty .conversation {
+  flex: 0 1 auto;
+  margin-top: auto;
+  padding-top: 0;
+  padding-bottom: var(--space-4);
+}
+
+.chat-view.is-empty .composer-wrap {
+  margin-bottom: auto;
+}
+
 .welcome {
-  max-width: 1040px;
-  margin: var(--space-6) auto 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 0 var(--space-4);
+  display: grid;
+  justify-items: center;
 }
 
 .welcome-mark img {
@@ -165,13 +171,8 @@
   object-fit: contain;
 }
 
-.welcome h1 {
-  margin: var(--space-4) 0 var(--space-4);
-  font-size: var(--text-title);
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.02em;
-  text-wrap: balance;
-  line-height: var(--line-height-title);
+@media (max-width: 768px) {
+  .welcome-mark img { width: 140px; height: 44px; }
 }
 
 /* 系统状态弹窗 */
@@ -545,15 +546,6 @@
   border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.055);
   font-size: var(--text-xs);
-}
-
-.prompt-grid {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-3);
-  margin-top: 10px;
-  text-align: left;
 }
 
 /* 消息流 */
@@ -1909,60 +1901,13 @@
 .model-picker-dropdown.ant-select-dropdown .ant-select-item-group,
 .model-picker-dropdown.ant-select-dropdown .ant-select-item-option { padding-inline: var(--space-3); }
 
-.composer-meta {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.composer-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--icon-gap);
-  min-width: 0;
-  overflow-wrap: anywhere;
-  text-align: center;
-  color: var(--muted);
-  font-size: var(--text-xs);
-}
-
-.composer-hint .icon {
-  color: var(--brand-primary);
-}
-
 .composer-footnote {
-  margin: 0;
+  margin: var(--space-2) 0 0;
   color: var(--muted);
   text-align: center;
   font-size: var(--text-xs);
 }
 
-.welcome-prompt {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  border: 1px solid transparent;
-  border-radius: var(--radius-resource-card);
-  background: var(--resource-card-surface);
-  box-shadow: var(--resource-card-shadow);
-  color: var(--ink);
-  font: inherit;
-  font-size: var(--text-md);
-  text-align: left;
-  cursor: pointer;
-  transition: box-shadow var(--duration-fast);
-}
-.welcome-prompt-title { font-weight: var(--weight-semibold); }
-.welcome-prompt-description { color: var(--muted); line-height: 1.5; }
-.welcome-prompt:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 3px; }
-.welcome-prompt:hover, .welcome-prompt:focus-visible { box-shadow: var(--resource-card-shadow-hover); }
-.welcome-prompt:hover .welcome-prompt-title { color: var(--brand-primary); }
-@media (prefers-reduced-motion: reduce) { .welcome-prompt { transition: none; } }
 .send-button {
   width: 32px;
   height: 32px;
@@ -1999,19 +1944,6 @@
 
 .chat-empty-project {
   padding: 0 var(--space-5) 10px;
-}
-
-@media (max-width: 900px) {
-  .prompt-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-width: 680px;
-    margin-right: auto;
-    margin-left: auto;
-  }
-}
-
-@media (max-width: 640px) {
-  .prompt-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
@@ -2064,11 +1996,6 @@
     padding-left: var(--space-4);
   }
 
-  .prompt-grid {
-    gap: 9px;
-    margin-top: var(--space-6);
-  }
-
   .composer-wrap {
     padding-bottom: calc(var(--space-1) + env(safe-area-inset-bottom));
   }
@@ -2084,14 +2011,6 @@
     padding-right: var(--space-4);
     padding-left: var(--space-4);
 }
-
-  .composer-meta {
-    gap: var(--space-2);
-  }
-
-  .composer-hint {
-    font-size: var(--text-xs);
-  }
 
   .model-picker {
     max-width: 48%;
@@ -2435,29 +2354,6 @@
 
 .message-token-usage { margin-top: var(--space-2); color: var(--muted); font-size: var(--text-md); }
 
-
-/* 欢迎页：方向标签与具体问题保持清晰的两级关系。 */
-.welcome-services { width: 100%; text-align: left; margin-top: var(--space-3); }
-.welcome-category-list { display: flex; justify-content: center; flex-wrap: wrap; gap: var(--space-2); }
-.welcome-category { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 0 1 calc(25% - var(--space-2)); min-height: 44px; padding: 8px 14px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); font: inherit; cursor: pointer; transition: background var(--duration-fast), color var(--duration-fast); }
-.welcome-category:hover { background: var(--hover); color: var(--ink); }
-.welcome-category.is-active { background: var(--brand-soft); color: var(--brand-primary); }
-.welcome-category-name { font-size: var(--text-md); }
-.welcome-category.is-active .welcome-category-name { font-weight: var(--weight-semibold); }
-.welcome-category:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
-.welcome-prompts-section { margin-top: var(--space-4); }
-.welcome-services .prompt-grid { margin-top: 0; }
-.welcome-prompt-description { font-size: var(--text-md); }
-.welcome-more-button { min-height: 44px; display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2) auto 0; padding: 0 12px; border: 0; background: transparent; color: var(--brand-primary); font: inherit; font-size: var(--text-md); cursor: pointer; }
-.welcome-more-button:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
-@media (max-width: 768px) {
-  .welcome { margin-top: var(--space-3); }
-  .welcome-mark img { width: 140px; height: 44px; }
-  .welcome-category { flex: 1 1 calc(50% - var(--space-2)); min-width: 0; padding-inline: 6px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .welcome-category { transition: none; }
-}
 
 .composer-knowledge-panel { position: static; width: min(320px, calc(100vw - 32px)); }
 .composer-knowledge-popover .ant-popover-arrow { display: none; }
