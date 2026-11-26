@@ -242,9 +242,16 @@ Nginx 从 `/opt/melonclaw/frontend/dist/` 读取新文件。
 就绪接口正常不代表全部业务功能正常。
 
 本次如果修改了 Nginx，安装仓库中的站点配置。
-该配置使 `http://melonclaw.cn` 返回 301，并在 `https://melonclaw.cn` 提供网页和 `/api/`。
+该配置使 `melonclaw.cn` 和 `www.melonclaw.cn` 的 HTTP 各自 301 到同名 HTTPS，并在 HTTPS 上提供网页和 `/api/`。
 证书路径为 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem` 与同目录 `privkey.pem`。
-安装前确认这两份证书文件存在。
+安装前确认这两份证书文件存在，且证书同时包含这两个主机名。
+已有证书只有主域名时，先扩展证书，再安装站点：
+
+```bash
+sudo certbot certonly --webroot -w /var/www/html \
+  --cert-name melonclaw.cn --expand \
+  -d melonclaw.cn -d www.melonclaw.cn
+```
 重新加载前，检查配置。
 
 ```bash

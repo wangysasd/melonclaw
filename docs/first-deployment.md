@@ -158,9 +158,9 @@ curl -fsS http://127.0.0.1:8000/api/ready
 
 ## 7. 配置 Nginx 提供网页和代理 API
 
-本次 Nginx 已安装，版本为 Ubuntu nginx/1.24.0，最初只启用了 default 站点。2026-10-07 首次安装时，仓库文件只监听 80 并直接返回页面，本机检查得到 ready=true 和 HTTP 200。2026-11-18 起，`ops/nginx/melonclaw.conf` 同时包含 HTTP 301 和 HTTPS 站点，按当前文件安装后，用户通过 `http://melonclaw.cn` 与 `https://melonclaw.cn` 访问同一网站。
+本次 Nginx 已安装，版本为 Ubuntu nginx/1.24.0，最初只启用了 default 站点。2026-10-07 首次安装时，仓库文件只监听 80 并直接返回页面，本机检查得到 ready=true 和 HTTP 200。2026-11-18 起，`ops/nginx/melonclaw.conf` 同时包含 HTTP 301 和 HTTPS 站点。当前文件的 `server_name` 包含 `melonclaw.cn` 和 `www.melonclaw.cn`，两个主机名访问同一网站。
 
-证书文件就绪后安装站点。`server_name` 保持 `melonclaw.cn`，网页根为 `/opt/melonclaw/frontend/dist`，`/api/` 转发到 `127.0.0.1:8000`，并关闭代理缓冲让聊天 SSE 增量及时显示。证书校验与浏览器访问都使用该域名。
+证书文件就绪后安装站点。网页根为 `/opt/melonclaw/frontend/dist`，`/api/` 转发到 `127.0.0.1:8000`，并关闭代理缓冲让聊天 SSE 增量及时显示。证书校验与浏览器访问都使用这两个主机名。
 
 `/etc/nginx/sites-available/melonclaw` 是配置文件，不能 cd 进去。启用链接只针对 Nginx 站点文件，与代码目录无软链接的方案不冲突：
 
@@ -202,7 +202,7 @@ sudo certbot --nginx -d melonclaw.cn --redirect
 
 当次 Certbot 验证域名控制权、申请证书并改写了当时的 Nginx 配置。签发和部署成功，证书位于 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem`，私钥为同目录 `privkey.pem`，当次证书有效期至 2027-01-05，并设置了自动续期任务。这个日期仅是本次记录，续期后会变化；私钥不得泄露。浏览器已经展示 HTTPS 登录页。
 
-当前仓库配置直接引用上述证书，并自己完成 80 端口 301 与 443 端口站点。生产机安装第 7 节的文件后，公网 HTTP 返回 301 并指向 `https://melonclaw.cn`，HTTPS 提供站点与 `/api/`。证书文件缺失时，先确认 80 端口空闲，再执行 `sudo certbot certonly --standalone -d melonclaw.cn`，然后安装仓库站点。续期继续使用已有 certbot 定时任务；80 端口保留 `/.well-known/acme-challenge/`。续期若改写站点文件，重新安装仓库配置并 reload。
+当前仓库配置直接引用上述证书，并自己完成 80 端口 301 与 443 端口站点。`server_name` 同时包含 `melonclaw.cn` 和 `www.melonclaw.cn`，两个主机名都提供同一网站。生产机安装第 7 节的文件后，公网 HTTP 按访问的主机名 301 到对应 HTTPS，HTTPS 提供站点与 `/api/`。证书文件缺失时，先确认 80 端口空闲，再执行 `sudo certbot certonly --standalone -d melonclaw.cn -d www.melonclaw.cn`，然后安装仓库站点。2026-10-07 签发的证书只有主域名；补 `www` 时扩展原证书，不要另开一套证书路径：`sudo certbot certonly --webroot -w /var/www/html --cert-name melonclaw.cn --expand -d melonclaw.cn -d www.melonclaw.cn`。续期继续使用已有 certbot 定时任务；80 端口保留 `/.well-known/acme-challenge/`。续期若改写站点文件，重新安装仓库配置并 reload。
 
 ```bash
 curl -sI http://melonclaw.cn | head

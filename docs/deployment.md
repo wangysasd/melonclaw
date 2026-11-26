@@ -1,6 +1,6 @@
 # Linux 服务器部署
 
-生产服务器已绑定域名 `melonclaw.cn`。用户打开 `http://melonclaw.cn` 或 `https://melonclaw.cn` 都进入网站：80 端口把请求 301 到同一路径的 HTTPS，443 端口提供页面和 `/api/`。Ubuntu 从拉代码到 HTTPS 的完整操作、每步作用和验收记录见 [首次上线流程](first-deployment.md)。
+生产服务器已绑定域名 `melonclaw.cn` 和 `www.melonclaw.cn`。两个主机名的 HTTP 都 301 到同一主机名的 HTTPS，443 端口提供页面和 `/api/`。Ubuntu 从拉代码到 HTTPS 的完整操作、每步作用和验收记录见 [首次上线流程](first-deployment.md)。
 
 ## 目录与归属
 
@@ -37,7 +37,7 @@ env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/mel
 env MELONCLAW_ENV_FILE=/etc/melonclaw/melonclaw.env /opt/melonclaw/.venv/bin/melonclaw-db-init
 ```
 
-安装 [Web systemd 服务](../ops/systemd/melonclaw.service)、[Nginx 站点](../ops/nginx/melonclaw.conf) 和 [日志轮转配置](../ops/melonclaw.logrotate)。Nginx 配置中的域名、请求体上限与实际附件限制同步。站点 `server_name` 为 `melonclaw.cn`：80 端口返回 301，443 端口用 Let's Encrypt 证书托管 `frontend/dist`，并把 `/api/` 反代到本机 8000。`/.well-known/acme-challenge/` 留在 80 端口，供证书续期校验。`MELONCLAW_ALLOWED_ORIGINS` 填 `https://melonclaw.cn`，与浏览器最终访问的 Origin 一致。证书文件为 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem` 与同目录 `privkey.pem`；这两份文件存在后再安装站点，否则 `nginx -t` 失败。尚无证书时，先确认 80 端口空闲，执行 `sudo certbot certonly --standalone -d melonclaw.cn`，再安装下面的站点。续期沿用服务器上已有的 certbot 定时任务。站点内容以仓库配置为准；续期若改写了站点文件，重新安装该文件并 reload。完整签发与验收见 [首次上线流程](first-deployment.md) 第 7–9 节。
+安装 [Web systemd 服务](../ops/systemd/melonclaw.service)、[Nginx 站点](../ops/nginx/melonclaw.conf) 和 [日志轮转配置](../ops/melonclaw.logrotate)。Nginx 配置中的域名、请求体上限与实际附件限制同步。站点 `server_name` 为 `melonclaw.cn www.melonclaw.cn`：80 端口返回 301，443 端口用 Let's Encrypt 证书托管 `frontend/dist`，并把 `/api/` 反代到本机 8000。`/.well-known/acme-challenge/` 留在 80 端口，供证书续期校验。页面走同源 `/api/`，`MELONCLAW_ALLOWED_ORIGINS` 仍填 `https://melonclaw.cn`。证书文件为 `/etc/letsencrypt/live/melonclaw.cn/fullchain.pem` 与同目录 `privkey.pem`，并且必须同时包含这两个主机名；文件存在后再安装站点，否则 `nginx -t` 失败。尚无证书时，先确认 80 端口空闲，执行 `sudo certbot certonly --standalone -d melonclaw.cn -d www.melonclaw.cn`，再安装下面的站点。已有只含主域名的证书时，在安装新站点前扩展原证书：`sudo certbot certonly --webroot -w /var/www/html --cert-name melonclaw.cn --expand -d melonclaw.cn -d www.melonclaw.cn`。续期沿用服务器上已有的 certbot 定时任务。站点内容以仓库配置为准；续期若改写了站点文件，重新安装该文件并 reload。完整签发与验收见 [首次上线流程](first-deployment.md) 第 7–9 节。
 
 ```bash
 sudo install -m 0644 ops/nginx/melonclaw.conf /etc/nginx/sites-available/melonclaw
@@ -52,7 +52,7 @@ curl -sI http://melonclaw.cn | head
 curl -fsS https://melonclaw.cn/api/ready
 ```
 
-HTTP 响应为 301，`Location` 指向 `https://melonclaw.cn/`。HTTPS 就绪接口返回 `{"ready":true}`。安装时同时删除 `sites-enabled/default` 软链接（保留 `sites-available/default` 配置文件）：否则用 IP 或未匹配 Host 访问会命中 Ubuntu 默认站点，显示 “Welcome to nginx!”，而不是 melonclaw 页面。云安全组入站放行 TCP 80 和 443；后端只绑定 `127.0.0.1:8000`，不对公网开放。健康检查为 `/api/ready`。systemd 负责进程，不需要自行写 PID；文件日志采用 copytruncate 轮转，轮转瞬间有小量日志损失窗口，不把它当审计存储。安全审计在数据目录的 `audit/audit-YYYY-MM-DD.jsonl`，由应用保留 180 天后删除，不走上述 14 天轮转。站点配置会把访问者的源地址和源端口传给应用。更新 `ops/nginx/melonclaw.conf` 后重新安装并 reload；未重载时，审计里的来源是本机回环地址。
+主域名 HTTP 响应为 301，`Location` 指向 `https://melonclaw.cn/`；`www` 的 `Location` 指向 `https://www.melonclaw.cn/`。两个 HTTPS 地址都能打开首页，就绪接口返回 `{"ready":true}`。安装时同时删除 `sites-enabled/default` 软链接（保留 `sites-available/default` 配置文件）：否则用 IP 或未匹配 Host 访问会命中 Ubuntu 默认站点，显示 “Welcome to nginx!”，而不是 melonclaw 页面。云安全组入站放行 TCP 80 和 443；后端只绑定 `127.0.0.1:8000`，不对公网开放。健康检查为 `/api/ready`。systemd 负责进程，不需要自行写 PID；文件日志采用 copytruncate 轮转，轮转瞬间有小量日志损失窗口，不把它当审计存储。安全审计在数据目录的 `audit/audit-YYYY-MM-DD.jsonl`，由应用保留 180 天后删除，不走上述 14 天轮转。站点配置会把访问者的源地址和源端口传给应用。更新 `ops/nginx/melonclaw.conf` 后重新安装并 reload；未重载时，审计里的来源是本机回环地址。
 
 ## 已有部署迁移
 
