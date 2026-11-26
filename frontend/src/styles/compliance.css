@@ -18,13 +18,16 @@
 .access-notice p { font-size: 14px; line-height: 1.8; }
 .access-notice-risk { color: #b42318; font-weight: 700; }
 
+.rms-login-content, .melon-login-content { position: relative; }
 .filing-footer {
+  position: absolute;
+  inset-inline: 0;
+  bottom: var(--space-4);
   padding: var(--space-2) var(--space-4);
-  background: var(--workspace-canvas);
   text-align: center;
   font-size: var(--text-md);
   line-height: var(--line-height-base);
 }
-.filing-footer a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
-.filing-footer a:hover { color: var(--brand-primary); }
+.filing-footer a { color: var(--muted); text-decoration: none; }
+.filing-footer a:hover { text-decoration: underline; }
 .filing-footer a:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }

@@ -1,5 +1,6 @@
 import { Alert, Button, ConfigProvider, Form, Input } from "antd";
 import { useEffect, useState } from "react";
+import { FilingFooter } from "./ComplianceNotice";
 import { antdTheme } from "../theme/antd";
 import { getAuthConfig, login, passwordlessLogin } from "../api/auth";
 
@@ -48,6 +49,7 @@ export function LoginPage() {
         {passwordless ? <Button block type="link" className="passwordless-button" disabled={busy} onClick={() => void submit()}>免密登录</Button> : null}
       </Form>
     </section>
+    <FilingFooter />
     </div>
     {!isRmsBrand ? <div className="melon-login-visual" aria-hidden="true"><img src="/assets/brand/melonclaw-login-glass.webp" alt="" /></div> : null}
   </main>;

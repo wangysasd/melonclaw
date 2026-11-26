@@ -18,4 +18,4 @@ frontend/tests/ComplianceNotice.test.tsx 覆盖提示门控、确认记忆与存
 
 ## 工信部备案页脚
 
-应用在访问提示、认证和工作区之外统一挂载 FilingFooter，各品牌均显示“京ICP备2026082777号-1”，新窗口打开 https://beian.miit.gov.cn/，带 noopener noreferrer。页脚位于页面正常文档流的末尾，工作区占满视口时向下滚动可见，不覆盖输入区。公安联网备案数据码不用于展示；正式公安备案号待审核通过后另行添加。
+LoginPage 在登录表单所在面板内挂载 FilingFooter，登录后的工作区不挂载，各品牌均显示“京ICP备2026082777号-1”，新窗口打开 https://beian.miit.gov.cn/，带 noopener noreferrer。页脚定位在登录面板底部，沿用面板留白避免覆盖表单；仅显示灰色文字链接，无独立背景条，默认无下划线，悬停显示下划线。公安联网备案数据码不用于展示；正式公安备案号待审核通过后另行添加。

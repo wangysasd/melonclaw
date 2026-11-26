@@ -166,13 +166,14 @@
 
 .welcome-mark img {
   display: block;
-  width: 180px;
-  height: 60px;
+  width: 270px;
+  max-width: 100%;
+  height: 90px;
   object-fit: contain;
 }
 
 @media (max-width: 768px) {
-  .welcome-mark img { width: 140px; height: 44px; }
+  .welcome-mark img { width: 180px; height: 60px; }
 }
 
 /* 系统状态弹窗 */
