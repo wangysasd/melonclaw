@@ -80,14 +80,20 @@ def test_login_switch_admin_logout_and_all_route_guards(monkeypatch):
         storage = MemoryAccounts()
         app.state.chat = SimpleNamespace(storage=storage)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
-            for path in ["/api/status", "/api/dev/users", "/api/projects", "/api/admin/users", "/api/conversations/00000000-0000-0000-0000-000000000001/files/content"]:
+            paths = ["/api/status", "/api/dev/users", "/api/projects", "/api/admin/users", "/api/conversations/00000000-0000-0000-0000-000000000001/files/content"]
+            first = await client.get(paths[0])
+            assert first.status_code == 401
+            cookie = first.headers.get("set-cookie", "")
+            assert cookie.startswith("melonclaw_device=")
+            assert "access_token" not in cookie
+            for path in paths[1:]:
                 assert (await client.get(path)).status_code == 401
             body = {"user_id": "alice", "password": "password-123"}
             assert (await client.post("/api/auth/login", json={**body, "password": "incorrect"})).status_code == 401
             response = await client.post("/api/auth/login", json=body)
             assert response.status_code == 200
             alice = use_access_token(client, response)
-            assert "set-cookie" not in response.headers
+            assert "access_token" not in response.headers.get("set-cookie", "")
             assert (await client.get("/api/auth/session")).json()["user_id"] == "alice"
             assert (await client.get("/api/admin/users")).status_code == 403
             assert (await client.get("/api/projects?user_id=admin")).status_code == 409

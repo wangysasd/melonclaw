@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { taskApi, type Task } from "../../api/tasks";
 import { createRequestId } from "../../lib/requestId";
-import { confirmModal } from "../deleteConfirmation";
+import { confirmModal, deleteConfirmation } from "../deleteConfirmation";
 import { Icon } from "../Icon";
 import { WorkspaceHeader } from "../WorkspaceHeader";
 import { tokens } from "../../theme/tokens";
@@ -19,13 +19,16 @@ import "../../styles/tasks.css";
 export default function TaskCenter({ onClose, onOpenConversation }: { onClose: () => void; onOpenConversation?: (conversationId: string) => void }) {
   const session = useSession();
   const { message, modal } = App.useApp();
+  // admin 不能离开 system 租户，当前 userId 即 system/admin。
+  const systemAdmin = session.userId === "admin";
+  const owns = (task: Task) => !task.owner_user_id || task.owner_user_id === session.userId;
   const [name, setName] = useState("");
   const [status, setStatus] = useState<string>();
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [historyTaskId, setHistoryTaskId] = useState<string>();
   const [editor, setEditor] = useState<Task | "new">();
-  const [busy, setBusy] = useState<Record<string, "runs" | "archive" | "enabled">>({});
+  const [busy, setBusy] = useState<Record<string, "runs" | "archive" | "enabled" | "delete">>({});
   const pendingTasks = useRef(new Set<string>());
   const keys = useRef(new Map<string, string>());
   const load = useCallback(async (signal: AbortSignal) => {
@@ -33,7 +36,7 @@ export default function TaskCenter({ onClose, onOpenConversation }: { onClose: (
     return { list, health, revision };
   }, [name, status, page, revision]);
   const { data, error } = useTaskPolling(load, 10000);
-  const act = async (task: Task, action: "runs" | "archive" | "enabled") => {
+  const act = async (task: Task, action: "runs" | "archive" | "enabled" | "delete") => {
     if (pendingTasks.current.has(task.id)) return;
     pendingTasks.current.add(task.id);
     const identity = `${task.id}:${task.version}:${action}`;
@@ -41,11 +44,16 @@ export default function TaskCenter({ onClose, onOpenConversation }: { onClose: (
     setBusy(current => ({ ...current, [task.id]: action }));
     try {
       if (action === "enabled") await taskApi.enable(task, task.status !== "enabled", keys.current.get(identity)!);
+      else if (action === "delete") await taskApi.remove(task, keys.current.get(identity)!);
       else await taskApi.action(task, action, keys.current.get(identity)!);
       keys.current.delete(identity);
       setRevision(n => n + 1);
       if (action === "runs") { setHistoryTaskId(undefined); onOpenConversation?.(task.conversation_id); }
-      void message.success(action === "runs" ? "已加入运行队列" : action === "archive" ? "任务已归档" : "任务启用状态已更新");
+      if (action === "delete") {
+        setHistoryTaskId(current => current === task.id ? undefined : current);
+        setEditor(current => current !== "new" && current?.id === task.id ? undefined : current);
+      }
+      void message.success(action === "runs" ? "已加入运行队列" : action === "archive" ? "任务已归档" : action === "delete" ? "任务已删除" : "任务启用状态已更新");
     } catch (err) {
       void message.error(err instanceof Error ? err.message : "操作失败");
       if (err instanceof ApiError && err.status > 0 && err.status < 500) keys.current.delete(identity);
@@ -60,7 +68,10 @@ export default function TaskCenter({ onClose, onOpenConversation }: { onClose: (
     styles: { container: { padding: tokens["space-6"] }, body: { padding: 0 } },
     title: "归档任务？",
     content: <div className="task-archive-content">
-      <div className="task-archive-target"><span>任务名称</span><strong>{task.name}</strong></div>
+      <div className="task-archive-target">
+        <span>任务名称</span><strong>{task.name}</strong>
+        {!owns(task) && task.owner_user_id ? <><span>所属用户</span><strong>{task.owner_user_id}</strong></> : null}
+      </div>
       <ul className="task-archive-impact">
         <li>保留历史结果和任务会话。</li>
         <li>取消排队中的运行，已开始的运行会继续完成。</li>
@@ -69,6 +80,16 @@ export default function TaskCenter({ onClose, onOpenConversation }: { onClose: (
     </div>,
     okText: "确认归档", okButtonProps: { danger: true }, cancelText: "取消", focusable: { autoFocusButton: "cancel" },
     onOk: () => act(task, "archive"),
+  });
+  const remove = (task: Task) => modal.confirm({
+    ...deleteConfirmation({
+      title: "删除任务？",
+      name: task.name,
+      metadata: owns(task) ? "定时任务" : `所属用户 ${task.owner_user_id}`,
+      icon: <Icon name="alarm-clock" size={20} />,
+      description: "删除后该任务不再调度，运行记录会从任务列表移除。固定会话和已经写入的聊天记录仍保留给原用户。如果任务正在执行，会先取消本次运行，需要等它结束后再次删除。",
+    }),
+    onOk: () => act(task, "delete"),
   });
   return <main className="task-center">
     <WorkspaceHeader title="定时任务" icon="alarm-clock" actions={<Button className="action-secondary" icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>返回聊天</Button>} />
@@ -85,20 +106,32 @@ export default function TaskCenter({ onClose, onOpenConversation }: { onClose: (
       <Table<Task> className="task-list" tableLayout="fixed" rowKey="id" size="middle" dataSource={data?.list.items ?? []} loading={!data && !error} scroll={{ x: 1120 }} locale={{ emptyText: "还没有任务，点击新建任务开始" }}
         pagination={{ ...tablePagination, current: page, total: data?.list.total ?? 0, pageSize: 20, showSizeChanger: false, onChange: setPage }}
         columns={[
-          { title: "任务名称", dataIndex: "name", ellipsis: true, width: 220, render: (v: string, task) => <Button type="link" className="task-name-link" title={v} onClick={() => onOpenConversation?.(task.conversation_id)}>{v}</Button> },
+          { title: "任务名称", dataIndex: "name", ellipsis: true, width: 220, render: (v: string, task) => {
+            const title = owns(task) || !task.owner_user_id ? v : `${v}（${task.owner_user_id}）`;
+            return owns(task)
+              ? <Button type="link" className="task-name-link" title={title} onClick={() => onOpenConversation?.(task.conversation_id)}>{v}</Button>
+              : <span className="task-name-text" title={title}>{v}</span>;
+          } },
           { title: "任务模型", className: "task-cell-muted", ellipsis: true, width: 180, render: (_, task) => session.modelOptions.find(m => m.id === task.definition.model_id)?.display_name ?? task.definition.model_id },
           { title: "执行计划", className: "task-cell-muted", ellipsis: true, width: 180, render: (_, task) => <div>{task.definition.schedule.kind === "once" ? <>一次 {task.definition.schedule.run_at ? zonedLocal(task.definition.schedule.run_at).replace("T", " ") : "—"}</> : scheduleLabel(task.definition.schedule)}</div> },
           { title: "状态", dataIndex: "status", width: 90, render: v => <StatusTag status={v} /> },
-          { title: "最近一次运行", width: 240, render: (_, task) => task.latest_run ? <Button type="link" className="task-run-link" aria-label={`查看${task.name}的运行记录，最近一次${statusNames[task.latest_run.status]}，${zonedLocal(task.latest_run.started_at ?? task.latest_run.created_at).replace("T", " ")}`} onClick={() => setHistoryTaskId(task.id)}><StatusTag status={task.latest_run.status} /><TaskTime value={task.latest_run.started_at ?? task.latest_run.created_at} /></Button> : "尚未运行" },
+          { title: "最近一次运行", width: 240, render: (_, task) => {
+            if (!task.latest_run) return "尚未运行";
+            const content = <><StatusTag status={task.latest_run.status} /><TaskTime value={task.latest_run.started_at ?? task.latest_run.created_at} /></>;
+            return owns(task)
+              ? <Button type="link" className="task-run-link" aria-label={`查看${task.name}的运行记录，最近一次${statusNames[task.latest_run.status]}，${zonedLocal(task.latest_run.started_at ?? task.latest_run.created_at).replace("T", " ")}`} onClick={() => setHistoryTaskId(task.id)}>{content}</Button>
+              : <span className="task-run-static">{content}</span>;
+          } },
           { title: "下一次运行", className: "task-cell-muted", width: 170, render: (_, task) => task.status === "paused" ? "已暂停" : task.status === "archived" ? "已归档" : task.next_run_at ? <TaskTime value={task.next_run_at} /> : task.definition.schedule.kind === "once" ? "计划已结束" : task.definition.schedule.kind === "manual" ? "手动运行" : "—" },
           { title: "操作", className: "table-actions-cell", fixed: "right", width: 128, render: (_, task) => <Space size={8} className="task-actions">
-            <Button type="link" className="task-action-run" disabled={task.status === "archived" || Boolean(busy[task.id]) || task.has_active_run} loading={busy[task.id] === "runs"} onClick={() => void act(task, "runs")}>运行</Button>
+            <Button type="link" className="task-action-run" disabled={!owns(task) || task.status === "archived" || Boolean(busy[task.id]) || task.has_active_run} loading={busy[task.id] === "runs"} onClick={() => void act(task, "runs")}>运行</Button>
             <Dropdown trigger={["click"]} menu={{ items: [
-              { key: "conversation", label: "查看会话", onClick: () => onOpenConversation?.(task.conversation_id) },
-              { key: "edit", label: "编辑", disabled: task.status === "archived" || Boolean(busy[task.id]), onClick: () => setEditor(task) },
-              { key: "enabled", label: task.status === "enabled" ? "暂停" : "恢复", disabled: task.status === "archived" || Boolean(busy[task.id]), onClick: () => enable(task) },
+              { key: "conversation", label: "查看会话", disabled: !owns(task), onClick: () => onOpenConversation?.(task.conversation_id) },
+              { key: "edit", label: "编辑", disabled: !owns(task) || task.status === "archived" || Boolean(busy[task.id]), onClick: () => setEditor(task) },
+              { key: "enabled", label: task.status === "enabled" ? "暂停" : "恢复", disabled: !owns(task) || task.status === "archived" || Boolean(busy[task.id]), onClick: () => enable(task) },
               { type: "divider" },
-              { key: "archive", label: "归档", danger: true, disabled: task.status === "archived" || Boolean(busy[task.id]), onClick: () => archive(task) },
+              { key: "archive", label: "归档", danger: true, disabled: task.status === "archived" || Boolean(busy[task.id]) || (!owns(task) && !systemAdmin), onClick: () => archive(task) },
+              ...(systemAdmin ? [{ key: "delete", label: "删除", danger: true, disabled: Boolean(busy[task.id]), onClick: () => remove(task) }] : []),
             ] }}><Button type="link" aria-label={`${task.name}更多操作`}>···</Button></Dropdown>
           </Space> },
         ]} />

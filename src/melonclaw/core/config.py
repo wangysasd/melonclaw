@@ -47,6 +47,15 @@ def _create_data_root() -> Path:
     return data_root.resolve()
 
 
+def _audit_dir(data_root: Path) -> Path:
+    """安全审计目录。未单独配置时放在数据根下，不使用 14 天应用日志。"""
+
+    configured = os.getenv("MELONCLAW_AUDIT_DIR", "").strip()
+    if not configured:
+        return data_root / "audit"
+    return _validate_persistent_root(Path(configured).expanduser())
+
+
 def _int_setting(name: str, default: int, *, minimum: int = 1) -> int:
     """解析附件资源限制，避免解析器直接读取环境变量。"""
 
@@ -87,6 +96,7 @@ class Settings:
     jwt_secret: str = field(default="", repr=False)
     token_ttl_hours: int = 1000
     data_root: Path = field(default_factory=_create_data_root)
+    audit_dir: Path | None = None
     database_url: str = field(default="", repr=False)
     deepseek_api_key: str = field(default="", repr=False)
     knowledge_embedding_api_key: str = field(default="", repr=False)
@@ -213,12 +223,15 @@ def load_settings() -> Settings:
     """读取应用环境配置。"""
 
     jwt_secret, token_ttl_hours = jwt_settings()
+    data_root = _create_data_root()
     return Settings(
         workspace_root=_create_workspace_root(),
         assistant_name=os.getenv("MELONCLAW_NAME", "").strip() or "MelonClaw",
         profile=os.getenv("profile", ""),
         jwt_secret=jwt_secret,
         token_ttl_hours=token_ttl_hours,
+        data_root=data_root,
+        audit_dir=_audit_dir(data_root),
         database_url=os.getenv("DATABASE_URL", ""),
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         knowledge_embedding_api_key=os.getenv("KNOWLEDGE_EMBEDDING_API_KEY", "").strip(),

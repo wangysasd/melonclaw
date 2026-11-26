@@ -1,28 +1,4 @@
-import { Button, Modal } from "antd";
-import { useState, type ReactNode } from "react";
-import { readStorage, writeStorage } from "../state/storage";
 import "../styles/compliance.css";
-
-const CONSENT_KEY = "melonclaw.access_notice.v1";
-
-export function AccessNoticeGate({ children }: { children: ReactNode }) {
-  const [accepted, setAccepted] = useState(() => readStorage(CONSENT_KEY) === "accepted");
-  if (__MELONCLAW_IS_RMS_BRAND__ || accepted) return children;
-
-  return (
-    <Modal open title="⚠️ 重要访问提示" closable={false} maskClosable={false} keyboard={false}
-      width={560} className="access-notice" aria-describedby="access-notice-description"
-      footer={<Button type="primary" autoFocus onClick={() => {
-        writeStorage(CONSENT_KEY, "accepted");
-        setAccepted(true);
-      }}>我已确认并进入</Button>}>
-      <div id="access-notice-description">
-        <p>本网站为纯个人内部学习站点，仅向指定少数好友开放，所有金融分析内容均为个人学习推演记录，<strong className="access-notice-risk">不构成任何投资建议</strong>，访问者基于本站内容做出的任何投资决策，<strong className="access-notice-risk">盈亏全部自行承担</strong>。</p>
-        <p>您确认已阅读并完全理解以上风险提示，同意仅将本站内容用于个人学习用途，<strong className="access-notice-risk">不对外传播任何站点内容</strong>。</p>
-      </div>
-    </Modal>
-  );
-}
 
 export function ComplianceStatement() {
   return (

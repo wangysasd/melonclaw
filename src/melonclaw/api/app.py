@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from melonclaw.api.audit import SecurityAuditMiddleware
 from melonclaw.api.auth import require_session
 from melonclaw.api.errors import error_response
 from melonclaw.api.lifespan import lifespan
@@ -85,7 +86,8 @@ def create_app() -> FastAPI:
 
     application.state.allowed_origins = allowed_origins()
 
-    # CORS 与写请求来源校验共享同一配置快照。
+    # CORS 在外层。审计在内层，写请求结束后追加文件，不写业务表。
+    application.add_middleware(SecurityAuditMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=application.state.allowed_origins,

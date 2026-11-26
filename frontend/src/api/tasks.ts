@@ -12,7 +12,7 @@ export interface TaskRun {
   config_snapshot?: { definition: TaskDefinition; task_version: number; model_display_name: string };
 }
 export interface Task {
-  id: string; conversation_id: string; name: string; version: number; status: "enabled" | "paused" | "archived";
+  id: string; conversation_id: string; owner_user_id?: string; name: string; version: number; status: "enabled" | "paused" | "archived";
   has_active_run?: boolean;
   next_run_at?: string | null;
   definition: TaskDefinition; latest_run?: TaskRun; updated_at: string; pause_reason?: string;
@@ -29,4 +29,5 @@ export const taskApi = {
   enable: (task: Task, enabled: boolean, key: string) => apiRequest<Task>(`/api/tasks/${task.id}/enabled`, { method: "POST", body: { enabled, expected_version: task.version, idempotency_key: key } }),
   cancel: (runId: string, key: string) => apiRequest<TaskRun>(`/api/task-runs/${runId}/cancel`, { method: "POST", body: { idempotency_key: key } }),
   action: (task: Task, action: "runs" | "archive", key: string) => apiRequest<TaskRun | Task>(`/api/tasks/${task.id}/${action}`, { method: "POST", body: { expected_version: task.version, idempotency_key: key } }),
+  remove: (task: Task, key: string) => apiRequest<{ deleted: boolean; id: string }>(`/api/tasks/${task.id}/delete`, { method: "POST", body: { expected_version: task.version, idempotency_key: key } }),
 };

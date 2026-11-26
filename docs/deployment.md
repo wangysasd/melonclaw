@@ -52,7 +52,7 @@ curl -sI http://melonclaw.cn | head
 curl -fsS https://melonclaw.cn/api/ready
 ```
 
-HTTP 响应为 301，`Location` 指向 `https://melonclaw.cn/`。HTTPS 就绪接口返回 `{"ready":true}`。安装时同时删除 `sites-enabled/default` 软链接（保留 `sites-available/default` 配置文件）：否则用 IP 或未匹配 Host 访问会命中 Ubuntu 默认站点，显示 “Welcome to nginx!”，而不是 melonclaw 页面。云安全组入站放行 TCP 80 和 443；后端只绑定 `127.0.0.1:8000`，不对公网开放。健康检查为 `/api/ready`。systemd 负责进程，不需要自行写 PID；文件日志采用 copytruncate 轮转，轮转瞬间有小量日志损失窗口，不把它当审计存储。
+HTTP 响应为 301，`Location` 指向 `https://melonclaw.cn/`。HTTPS 就绪接口返回 `{"ready":true}`。安装时同时删除 `sites-enabled/default` 软链接（保留 `sites-available/default` 配置文件）：否则用 IP 或未匹配 Host 访问会命中 Ubuntu 默认站点，显示 “Welcome to nginx!”，而不是 melonclaw 页面。云安全组入站放行 TCP 80 和 443；后端只绑定 `127.0.0.1:8000`，不对公网开放。健康检查为 `/api/ready`。systemd 负责进程，不需要自行写 PID；文件日志采用 copytruncate 轮转，轮转瞬间有小量日志损失窗口，不把它当审计存储。安全审计在数据目录的 `audit/audit-YYYY-MM-DD.jsonl`，由应用保留 180 天后删除，不走上述 14 天轮转。站点配置会把访问者的源地址和源端口传给应用。更新 `ops/nginx/melonclaw.conf` 后重新安装并 reload；未重载时，审计里的来源是本机回环地址。
 
 ## 已有部署迁移
 

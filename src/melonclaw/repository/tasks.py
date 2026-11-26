@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import and_, case, func, insert, null, or_, select, text, tuple_, update
+from sqlalchemy import and_, case, delete, func, insert, null, or_, select, text, tuple_, update
 
 from melonclaw.core.task_errors import TaskError, task_not_found
 from melonclaw.core.task_messages import task_conversation, task_setup_message
@@ -54,6 +54,11 @@ def scope(table, user_id):
     return (table.c.owner_user_id == user_id, table.c.tenant_id == tenant)
 
 
+def is_system_admin(user):
+    """活动租户内的系统管理员。列表查询使用同一 user_id 与 system 租户条件。"""
+    return user.user_id == "admin" and user.tenant_id == "system"
+
+
 async def task_lock(conn):
     # 与账户管理同一锁：账户变更不能穿过任务保存/领取。
     await conn.execute(
@@ -67,20 +72,20 @@ class TaskTransaction:
     def __init__(self, conn, user, replay=None):
         self.conn, self.user, self.replay = conn, user, replay
         self.result = None
+        # 只提交取消、不记回执，便于运行结束后用新的幂等键删除。
+        self.ephemeral = False
 
     async def current_time(self):
         return await self.conn.scalar(select(func.clock_timestamp()))
 
-    async def task(self, task_id):
+    async def task(self, task_id, *, any_owner=False):
+        conditions = [tasks.c.id == task_id]
+        if not any_owner:
+            conditions.extend(scope(tasks, self.user.user_id))
         row = (
             (
                 await self.conn.execute(
-                    select(tasks)
-                    .where(
-                        tasks.c.id == task_id,
-                        *scope(tasks, self.user.user_id),
-                    )
-                    .with_for_update()
+                    select(tasks).where(*conditions).with_for_update()
                 )
             )
             .mappings()
@@ -235,7 +240,7 @@ class TaskTransaction:
         await sync_run(self.conn, updated)
         return updated
 
-    async def archive(self, task):
+    async def cancel_queued(self, task):
         cancelled = await self.conn.execute(
             update(task_runs)
             .where(
@@ -246,6 +251,9 @@ class TaskTransaction:
         )
         for run in cancelled.mappings():
             await sync_run(self.conn, dict(run))
+
+    async def archive(self, task):
+        await self.cancel_queued(task)
         return dict(
             (
                 await self.conn.execute(
@@ -263,6 +271,39 @@ class TaskTransaction:
             .mappings()
             .one()
         )
+
+    async def delete_task(self, task):
+        """移除任务和运行记录。执行中只请求取消并返回 None，调用方不记回执。"""
+        running = (
+            await self.conn.execute(
+                select(task_runs.c.id)
+                .where(
+                    task_runs.c.task_id == task["id"],
+                    task_runs.c.status == "running",
+                )
+                .limit(1)
+            )
+        ).first()
+        if running is not None:
+            await self.conn.execute(
+                update(task_runs)
+                .where(task_runs.c.id == running[0])
+                .values(cancel_requested_at=_now())
+            )
+            return None
+        await self.cancel_queued(task)
+        threads = list(
+            (
+                await self.conn.execute(
+                    select(task_runs.c.execution_context_id).where(
+                        task_runs.c.task_id == task["id"]
+                    )
+                )
+            ).scalars()
+        )
+        await self.conn.execute(delete(task_runs).where(task_runs.c.task_id == task["id"]))
+        await self.conn.execute(delete(tasks).where(tasks.c.id == task["id"]))
+        return threads
 
 
 class TaskRepository:
@@ -323,7 +364,7 @@ class TaskRepository:
                     raise TaskError("idempotency_expired", "该操作回执已过保留期，请先核实当前状态，再发起新的操作。")
             tx = TaskTransaction(conn, user, prior["response"] if prior else None)
             yield tx
-            if prior is None:
+            if prior is None and not tx.ephemeral:
                 if tx.result is None:
                     raise RuntimeError("任务操作缺少事务结果。")
                 await conn.execute(
@@ -348,6 +389,7 @@ class TaskRepository:
         return dict(value)
 
     async def list_tasks(self, user_id, *, name="", status=None, page=1, page_size=20):
+        # 与 is_system_admin 同一身份：system 租户的 admin，且用户和租户均有效。
         system_admin = (
             select(users.c.user_id)
             .join(tenants)

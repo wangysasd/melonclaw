@@ -104,6 +104,17 @@ async def archive_task(request: Request, task_id: UUID, payload: TaskAction):
     )
 
 
+@router.post("/api/tasks/{task_id}/delete")
+async def delete_task(request: Request, task_id: UUID, payload: TaskAction):
+    scheduler = getattr(request.app.state, "task_scheduler", None)
+    return await service(request).delete(
+        request.state.user.user_id,
+        task_id,
+        checkpointer=getattr(scheduler, "checkpointer", None),
+        **payload.model_dump(),
+    )
+
+
 @router.get("/api/tasks/{task_id}/messages")
 async def task_message_updates(request: Request, task_id: UUID,
     after_seq: int = Query(0, ge=0), pending_message_ids: list[UUID] = Query(default=[])):

@@ -4,12 +4,14 @@ import { beforeEach, expect, it, vi } from "vitest";
 import TaskCenter from "../src/components/tasks/TaskCenter";
 import { taskApi, type Task, type TaskRun } from "../src/api/tasks";
 
-vi.mock("../src/state/session", () => ({ useSession: () => ({ modelOptions: [{ id: "custom:test", display_name: "任务执行模型" }] }) }));
+const sessionState = vi.hoisted(() => ({ userId: "alice", modelOptions: [{ id: "custom:test", display_name: "任务执行模型" }] }));
+vi.mock("../src/state/session", () => ({ useSession: () => sessionState }));
 vi.mock("../src/api/tasks", () => ({ taskApi: {
-  list: vi.fn(), status: vi.fn(), get: vi.fn(), history: vi.fn(), run: vi.fn(), action: vi.fn(),
+  list: vi.fn(), status: vi.fn(), get: vi.fn(), history: vi.fn(), run: vi.fn(), action: vi.fn(), remove: vi.fn(),
 } }));
 
 beforeEach(() => {
+  sessionState.userId = "alice";
   vi.clearAllMocks();
   Object.defineProperty(document, "hidden", { configurable: true, value: false });
   Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({
@@ -105,6 +107,7 @@ it("focuses cancel in the archive dialog and archives the selected task only aft
   render(<App><TaskCenter onClose={vi.fn()} /></App>);
   const row = (await screen.findByText("A")).closest("tr")!;
   fireEvent.click(within(row).getByRole("button", { name: /更多操作/ }));
+  expect(screen.queryByRole("menuitem", { name: "删除" })).toBeNull();
   fireEvent.click(await screen.findByRole("menuitem", { name: "归档" }));
   let dialog = await screen.findByRole("dialog");
   expect(dialog.textContent).toContain("归档任务？");
@@ -168,4 +171,48 @@ it("keeps each task's action pending independently when requests finish out of o
   expect(currentRun("B").classList.contains("ant-btn-loading")).toBe(true);
   finish.get("B")!({ id: "run-B", task_id: "B" } as TaskRun);
   await waitFor(() => expect(currentRun("B").disabled).toBe(false));
+});
+
+it("lets system admin archive or delete any task and keeps other actions with the owner", async () => {
+  sessionState.userId = "admin";
+  const task = (id: string, name: string, owner: string, status: Task["status"] = "enabled"): Task => ({
+    id, conversation_id: `chat-${id}`, owner_user_id: owner, name, version: 3, status,
+    definition: { name, instruction: "整理报告", model_id: "custom:test", schedule: { kind: "manual" } },
+    latest_run: { id: `run-${id}`, task_id: id, status: "succeeded", result_is_partial: false, created_at: "2026-10-14T00:00:00Z" } as TaskRun,
+  });
+  vi.mocked(taskApi.list).mockResolvedValue({
+    items: [task("mine", "我的任务", "admin"), task("other", "他人日报", "alice"), task("old", "已归档他人任务", "bob", "archived")],
+    total: 3,
+  });
+  vi.mocked(taskApi.remove).mockResolvedValue({ deleted: true, id: "other" });
+  const open = vi.fn();
+  render(<App><TaskCenter onClose={vi.fn()} onOpenConversation={open} /></App>);
+  const mine = (await screen.findByRole("button", { name: "我的任务" })).closest("tr")!;
+  const other = screen.getByText("他人日报").closest("tr")!;
+  expect(within(other).queryByRole("button", { name: "他人日报" })).toBeNull();
+  expect(within(other).getByText("他人日报").getAttribute("title")).toBe("他人日报（alice）");
+  expect((within(other).getByRole("button", { name: /^运\s*行$/ }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(mine).getByRole("button", { name: /^运\s*行$/ }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(within(other).getByRole("button", { name: /更多操作/ }));
+  for (const name of ["查看会话", "编辑", "暂停"]) {
+    expect((await screen.findByRole("menuitem", { name })).getAttribute("aria-disabled")).toBe("true");
+  }
+  expect((await screen.findByRole("menuitem", { name: "归档" })).getAttribute("aria-disabled")).not.toBe("true");
+  fireEvent.click(await screen.findByRole("menuitem", { name: "删除" }));
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog.textContent).toContain("删除任务？");
+  expect(within(dialog).getByText("他人日报")).toBeTruthy();
+  expect(dialog.textContent).toContain("所属用户 alice");
+  const cancel = within(dialog).getByRole("button", { name: /^取\s*消$/ });
+  await waitFor(() => expect(document.activeElement).toBe(cancel));
+  expect(taskApi.remove).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "确认删除" }));
+  await waitFor(() => expect(taskApi.remove).toHaveBeenCalledOnce());
+  expect(taskApi.remove).toHaveBeenCalledWith(expect.objectContaining({ id: "other", version: 3 }), expect.any(String));
+  expect(open).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const archivedRow = screen.getByText("已归档他人任务").closest("tr")!;
+  fireEvent.click(within(archivedRow).getByRole("button", { name: /更多操作/ }));
+  expect((await screen.findByRole("menuitem", { name: "归档" })).getAttribute("aria-disabled")).toBe("true");
+  expect((await screen.findByRole("menuitem", { name: "删除" })).getAttribute("aria-disabled")).not.toBe("true");
 });

@@ -24,6 +24,7 @@
 | 定时任务不展示报告正文，打开选定任务的固定会话；重新运行使用当前版本 | [页面回归](../../frontend/tests/taskCenter.test.tsx) |
 | 列表名称/模型/计划/状态/最近/下一次独立列、北京时间与每周星期、无后续计划原因、五个操作及归档禁用 | [列表回归](../../frontend/tests/taskCenter.test.tsx) |
 | 归档确认默认聚焦取消，取消不发请求，明确确认后按选中任务当前版本与幂等键归档 | [归档确认回归](../../frontend/tests/taskCenter.test.tsx) |
+| system/admin 可归档并删除任意任务；执行中先取消并拒绝本次删除；普通用户删除返回 403；他人任务不能编辑、运行或打开会话 | [数据库队列](../../tests/test_task_postgres.py)、[列表回归](../../frontend/tests/taskCenter.test.tsx) |
 | 名称直达固定会话、最近运行打开抽屉、关闭保留筛选/页码；历史选择/分页/刷新、旧响应取消、跨任务拒绝、失败快照及取消终态等待 | [列表入口](../../frontend/tests/taskCenter.test.tsx)、[运行记录抽屉](../../frontend/tests/taskRunsDrawer.test.tsx) |
 | 编辑暂停任务保持关闭；表单无项目/Skill/时区；网络重试复用键 | [编辑器回归](../../frontend/tests/taskEditor.test.tsx) |
 | 北京时间转换、轮询生命周期 | [时间转换](../../frontend/tests/taskSchedule.test.ts)、[轮询](../../frontend/tests/taskPolling.test.tsx) |

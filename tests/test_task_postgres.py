@@ -19,6 +19,8 @@ from melonclaw.api.app import create_app
 from melonclaw.core import task_agent
 from melonclaw.core.task_errors import TaskError
 from melonclaw.database.schema import (
+    chat_conversations,
+    chat_messages,
     metadata,
     task_runs,
     tasks,
@@ -206,6 +208,12 @@ def test_cookie_api_permissions_versions_and_identity_changes(monkeypatch, tmp_p
                 assert response.status_code == 201, response.text
                 saved = response.json()
                 tid, rid = saved["task"]["id"], saved["run"]["id"]
+                denied = await client.post(
+                    f"/api/tasks/{tid}/delete",
+                    json={"idempotency_key": str(uuid4()), "expected_version": 1},
+                )
+                assert denied.status_code == 403
+                assert denied.json()["error_code"] == "admin_required"
                 assert (await client.post("/api/task-chat/context", json={"run_id": rid})).status_code == 404
                 assert (await client.post("/api/tasks", json=body)).json() == saved
                 assert (await client.get("/api/tasks?page=0")).status_code == 422
@@ -243,17 +251,40 @@ def test_cookie_api_permissions_versions_and_identity_changes(monkeypatch, tmp_p
                 assert (
                     await client.patch(f"/api/tasks/{tid}", json={**body, "expected_version": 1})
                 ).status_code == 404
-                for action in ("runs", "archive", "enabled"):
+                for action in ("runs", "enabled"):
                     payload = {"idempotency_key": str(uuid4()), "expected_version": 1}
                     if action == "enabled":
                         payload["enabled"] = False
                     assert (
                         await client.post(f"/api/tasks/{tid}/{action}", json=payload)
                     ).status_code == 404
-                service = TaskService(settings, storage)
-                await service.archive(
-                    "alice", UUID(tid), expected_version=1, idempotency_key=str(uuid4())
+                archived = await client.post(
+                    f"/api/tasks/{tid}/archive",
+                    json={"idempotency_key": str(uuid4()), "expected_version": 1},
                 )
+                assert archived.status_code == 200, archived.text
+                assert archived.json()["status"] == "archived"
+                delete_key = str(uuid4())
+                removed = await client.post(
+                    f"/api/tasks/{tid}/delete",
+                    json={"idempotency_key": delete_key, "expected_version": archived.json()["version"]},
+                )
+                assert removed.status_code == 200, removed.text
+                assert removed.json()["deleted"] is True
+                replay = await client.post(
+                    f"/api/tasks/{tid}/delete",
+                    json={"idempotency_key": delete_key, "expected_version": archived.json()["version"]},
+                )
+                assert replay.status_code == 200
+                assert replay.json() == removed.json()
+                assert (
+                    await client.post(
+                        f"/api/tasks/{tid}/delete",
+                        json={"idempotency_key": str(uuid4()), "expected_version": archived.json()["version"]},
+                    )
+                ).status_code == 404
+                assert (await client.get("/api/tasks")).json()["total"] == 0
+                service = TaskService(settings, storage)
                 inactive = await service.save(
                     "alice", definition=definition(), enabled=True, idempotency_key=str(uuid4())
                 )
@@ -484,5 +515,113 @@ def test_task_list_owner_scope_and_admin_overview(monkeypatch, tmp_path):
             await accounts.save_tenant("team", "测试租户", False)
             assert (await repository.list_tasks("alice"))["total"] == 0
             assert (await repository.list_tasks("admin"))["total"] == 3
+
+    asyncio.run(run())
+
+
+def test_admin_archives_and_deletes_any_task(monkeypatch, tmp_path):
+    install_model(monkeypatch)
+
+    class Checkpoints:
+        def __init__(self, fail=False):
+            self.fail = fail
+            self.threads = []
+
+        async def adelete_thread(self, thread_id):
+            if self.fail:
+                raise RuntimeError("checkpoint store unavailable")
+            self.threads.append(thread_id)
+
+    async def run():
+        async with database_fixture() as storage:
+            accounts = AccountService(storage)
+            await accounts.save_tenant("team", "测试租户", True, create=True)
+            await accounts.save_user("alice", "用户甲", "team", password="alice-pass")
+            await accounts.save_user("bob", "用户乙", "team", password="bob-pass")
+            service = TaskService(settings_for(tmp_path), storage)
+            queue = storage.task_queue
+            bob = await service.save(
+                "bob", definition=definition(name="bob任务"), enabled=True, idempotency_key=str(uuid4()),
+            )
+            bob_id = UUID(bob["task"]["id"])
+            with pytest.raises(TaskError) as denied:
+                await service.delete("bob", bob_id, expected_version=1, idempotency_key=str(uuid4()))
+            assert denied.value.error_code == "admin_required"
+            with pytest.raises(TaskError) as denied:
+                await service.archive("alice", bob_id, expected_version=1, idempotency_key=str(uuid4()))
+            assert denied.value.status_code == 404
+            with pytest.raises(TaskError) as denied:
+                await service.run("admin", bob_id, expected_version=1, idempotency_key=str(uuid4()))
+            assert denied.value.status_code == 404
+            with pytest.raises(TaskError) as denied:
+                await service.delete("admin", bob_id, expected_version=9, idempotency_key=str(uuid4()))
+            assert denied.value.error_code == "version_conflict"
+            archived = await service.archive(
+                "admin", bob_id, expected_version=1, idempotency_key=str(uuid4()),
+            )
+            assert archived["status"] == "archived" and archived["owner_user_id"] == "bob"
+            assert (await service.repository.get_task("bob", bob_id))["status"] == "archived"
+            removed = await service.delete(
+                "admin", bob_id, expected_version=archived["version"], idempotency_key=str(uuid4()),
+            )
+            assert removed == {"deleted": True, "id": str(bob_id)}
+            with pytest.raises(TaskError) as missing:
+                await service.repository.get_task("bob", bob_id)
+            assert missing.value.status_code == 404
+            async with storage.engine.connect() as conn:
+                assert await conn.scalar(select(chat_conversations.c.status).where(
+                    chat_conversations.c.id == UUID(bob["task"]["conversation_id"])
+                )) == "active"
+
+            queued = await enqueue(service, "alice", name="alice排队")
+            queued_id = UUID(queued["task"]["id"])
+            checkpoints = Checkpoints()
+            key = str(uuid4())
+            first = await service.delete(
+                "admin", queued_id, expected_version=1, idempotency_key=key, checkpointer=checkpoints,
+            )
+            second = await service.delete(
+                "admin", queued_id, expected_version=1, idempotency_key=key, checkpointer=checkpoints,
+            )
+            assert first == second == {"deleted": True, "id": str(queued_id)}
+            assert checkpoints.threads == [queued["run"]["execution_context_id"]]
+            async with storage.engine.connect() as conn:
+                assert await conn.scalar(select(func.count()).select_from(task_runs).where(
+                    task_runs.c.task_id == queued_id
+                )) == 0
+                assert await conn.scalar(select(chat_conversations.c.status).where(
+                    chat_conversations.c.id == UUID(queued["task"]["conversation_id"])
+                )) == "active"
+                statuses = (await conn.execute(select(chat_messages.c.role, chat_messages.c.status).where(
+                    chat_messages.c.conversation_id == UUID(queued["task"]["conversation_id"])
+                ))).all()
+            assert ("assistant", "cancelled") in statuses
+            assert (await service.repository.list_tasks("alice"))["total"] == 0
+            assert (await service.repository.list_tasks("admin"))["total"] == 0
+
+            running = await enqueue(service, "alice", name="alice执行")
+            run = await claim(queue)
+            assert run["task_id"] == UUID(running["task"]["id"])
+            with pytest.raises(TaskError) as busy:
+                await service.delete(
+                    "admin", run["task_id"], expected_version=1, idempotency_key=str(uuid4()),
+                    checkpointer=Checkpoints(),
+                )
+            assert busy.value.error_code == "task_busy" and busy.value.status_code == 409
+            assert (await queue.execution_status(run)) == {"running": True, "cancel_requested": True}
+            assert (await service.repository.get_task("alice", run["task_id"]))["version"] == 1
+            assert await queue.finish(run, status="cancelled", error_code="cancelled", error_message="已取消")
+            finished = Checkpoints()
+            await service.delete(
+                "admin", run["task_id"], expected_version=1, idempotency_key=str(uuid4()),
+                checkpointer=finished,
+            )
+            assert finished.threads == [run["execution_context_id"]]
+
+            broken = await enqueue(service, "alice", name="检查点失败")
+            assert (await service.delete(
+                "admin", UUID(broken["task"]["id"]), expected_version=1, idempotency_key=str(uuid4()),
+                checkpointer=Checkpoints(fail=True),
+            ))["deleted"] is True
 
     asyncio.run(run())

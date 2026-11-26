@@ -7,7 +7,7 @@ from melonclaw.core.task_errors import TaskError
 from melonclaw.core.task_schedule import due_decision
 from melonclaw.core.task_snapshot import TaskDefinition
 from melonclaw.repository.task_scheduling import TaskScheduleRepository
-from melonclaw.repository.tasks import json_value
+from melonclaw.repository.tasks import is_system_admin, json_value
 from melonclaw.services.model_resolution import ModelResolutionMixin
 
 logger = logging.getLogger(__name__)
@@ -131,10 +131,51 @@ class TaskService(ModelResolutionMixin):
         ) as tx:
             if tx.replay is not None:
                 return tx.replay
-            task = await tx.task(task_id)
+            task = await tx.task(task_id, any_owner=is_system_admin(tx.user))
             self.editable(task, expected_version)
             tx.result = json_value(await tx.archive(task))
             return tx.result
+
+    async def delete(self, user_id, task_id, *, idempotency_key, expected_version, checkpointer=None):
+        threads = []
+        async with self.repository.operation(
+            user_id,
+            idempotency_key,
+            {
+                "action": "delete",
+                "task_id": task_id,
+                "expected_version": expected_version,
+            },
+        ) as tx:
+            if tx.replay is not None:
+                outcome = tx.replay
+            else:
+                if not is_system_admin(tx.user):
+                    raise TaskError("admin_required", "只有系统管理员可以删除任务。", 403)
+                task = await tx.task(task_id, any_owner=True)
+                if task["version"] != expected_version:
+                    raise TaskError("version_conflict", "任务配置已变化，请刷新后重新确认。")
+                purged = await tx.delete_task(task)
+                if purged is None:
+                    tx.ephemeral = True
+                    outcome = {"deleted": False}
+                else:
+                    threads = purged
+                    outcome = {"deleted": True, "id": str(task["id"])}
+                    tx.result = outcome
+        if checkpointer is not None:
+            for thread_id in threads:
+                try:
+                    await checkpointer.adelete_thread(thread_id)
+                except Exception as exc:
+                    logger.warning(
+                        "task checkpoint delete failed thread_id=%s error=%s",
+                        thread_id,
+                        type(exc).__name__,
+                    )
+        if not outcome["deleted"]:
+            raise TaskError("task_busy", "任务正在执行，已请求取消。请待本次运行结束后再删除。", 409)
+        return outcome
 
     async def set_enabled(self, user_id, task_id, *, enabled, idempotency_key, expected_version):
         async with self.repository.operation(

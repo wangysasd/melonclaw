@@ -125,7 +125,7 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
 | Skill 资源 | `services/skills.py` 解析正文；`skill_state.py` 统一有效状态；`skill_import.py` 导入更新；`skill_operations.py` 文件日志恢复；`skill_index.py` 索引重建 | 正文在文件系统，DB 保存归属、启停、版本和来源。持久草稿与内容提交受同数据根文件锁保护；更新保留 ID/偏好，删除先隔离目录。管理、Picker 和 Agent 共用有效状态；`skill_snapshot.py` 固定有效目录内容与摘要，`middleware/skill_refresh.py` 每轮刷新 Checkpoint 摘要。详见 [Skill 生命周期](design-docs/skill-lifecycle.md)。 |
 | Skill/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
-| HTTP 身份 | `api/auth.py` 的 `require_session()` | 统一验证 JWT、来源和页面身份断言；附件由 `api/identity.py` 读取已验证身份。管理授权按当前 system/admin，业务入口在共享账户锁内要求租户启用，服务层校验资源归属 |
+| HTTP 身份 | `api/auth.py` 的 `require_session()` | 统一验证 JWT、来源和页面身份断言；附件由 `api/identity.py` 读取已验证身份。管理授权按当前 system/admin，业务入口在共享账户锁内要求租户启用，服务层校验资源归属。写操作结束后 `api/audit.py` 追加审计文件，不写业务表，见 [安全审计日志](design-docs/security-audit-log.md) |
 
 凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`LANGFUSE_SECRET_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；系统基础环境与禁止注入规则集中在 `core/defaults.py`，Skill 业务变量只由数据库共享／个人资源解析，不从 `.env` 透传。
 

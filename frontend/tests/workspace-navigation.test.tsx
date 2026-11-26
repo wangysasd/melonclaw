@@ -25,7 +25,7 @@ vi.mock("../src/components/tasks/TaskCenter", () => ({ default: ({ onClose }: { 
 beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); session.userId = "u1"; });
 it("preserves mounted chat and collapse state across navigation and remembers the tab after reload", () => {
   const view = render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: "我已确认并进入" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryByRole("button", { name: /^任务通知/ })).toBeNull();
   expect(screen.getByRole("button", { name: "定时任务" })).toBeTruthy();
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "draft" } });
@@ -48,7 +48,6 @@ it("preserves mounted chat and collapse state across navigation and remembers th
 });
 it("returns from tasks to the existing chat without clearing its draft or starting a conversation", async () => {
   render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: "我已确认并进入" }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "unsent draft" } });
   fireEvent.click(screen.getByRole("button", { name: "定时任务" }));
   fireEvent.click(await screen.findByRole("button", { name: "返回聊天" }));
@@ -58,7 +57,6 @@ it("returns from tasks to the existing chat without clearing its draft or starti
 });
 it("clears the mounted draft on user change", () => {
   const view = render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: "我已确认并进入" }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "private" } });
   session.userId = "u2";
   view.rerender(<App />);

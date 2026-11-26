@@ -300,5 +300,7 @@ def test_corrupt_stored_password_returns_uniform_login_failure():
             response = await client.post("/api/auth/login", json={"user_id": "alice", "password": "valid-password"})
             assert response.status_code == 401
             assert response.json() == {"detail": "用户 ID 或密码错误。"}
-            assert "set-cookie" not in response.headers
+            cookie = response.headers.get("set-cookie", "")
+            assert cookie.startswith("melonclaw_device=")
+            assert "access_token" not in cookie
     asyncio.run(run())

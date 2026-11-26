@@ -69,6 +69,7 @@ async def config(request: Request):
 
 @router.post("/api/auth/login")
 async def login(request: Request, response: Response, body: Login):
+    request.state.audit_account = body.user_id
     try:
         token = await accounts(request).login(body.user_id, body.password.get_secret_value())
     except ValueError as exc:
@@ -78,6 +79,7 @@ async def login(request: Request, response: Response, body: Login):
 
 @router.post("/api/auth/passwordless")
 async def passwordless(request: Request, response: Response):
+    request.state.audit_account = "admin"
     if load_settings().profile != "dev":
         raise HTTPException(403, "免密登录未启用。")
     token = await accounts(request).login("admin", "", passwordless=True)
@@ -92,6 +94,7 @@ async def session(request: Request, response: Response):
 
 @router.post("/api/auth/switch")
 async def switch(request: Request, body: Switch):
+    request.state.audit_target = body.user_id
     if load_settings().profile != "dev":
         raise HTTPException(403, "切换用户未启用。")
     try:

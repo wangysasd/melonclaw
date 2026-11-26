@@ -29,7 +29,7 @@
 
 ## 登录、免密、切换与登出
 
-密码登录校验用户 ID 和现有 scrypt 哈希。用户须为 `active`。成功响应返回 `access_token`，不再写 Cookie。前端把令牌放在 `localStorage` 的 `melonclaw.access-token`，之后受保护请求携带 `Authorization: Bearer`。
+密码登录校验用户 ID 和现有 scrypt 哈希。用户须为 `active`。成功响应返回 `access_token`。访问令牌不写入 Cookie。浏览器另收到只含随机设备标识的 `melonclaw_device`，供安全审计识别客户端，不代表登录状态。前端把令牌放在 `localStorage` 的 `melonclaw.access-token`，之后受保护请求携带 `Authorization: Bearer`。
 
 `profile=dev` 时保留免密登录。`POST /api/auth/passwordless` 仍匿名可用，确认 `admin` 为 `active` 后签发 `sub` 为 `admin` 的令牌。其他 profile 返回 403，登录页不显示入口。
 

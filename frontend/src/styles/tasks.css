@@ -2,7 +2,8 @@
 .task-center-content { flex: 1; min-height: 0; overflow: auto; padding: var(--space-4) var(--page-padding) var(--space-6); }
 .task-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-4); }
 .task-create-action { flex-shrink: 0; margin-left: auto; }
-.task-name-link { height: auto; padding: 0; white-space: normal; text-align: left; overflow-wrap: anywhere; font-weight: var(--weight-regular); }
+.task-name-link, .task-name-text { height: auto; padding: 0; white-space: normal; text-align: left; overflow-wrap: anywhere; font-weight: var(--weight-regular); }
+.task-run-static { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); }
 .task-run-link { height: auto; padding: 0; flex-direction: column; align-items: flex-start; gap: var(--space-1); white-space: normal; }
 .task-cell-secondary { color: var(--muted); font-size: var(--text-sm); }
 .task-form { margin-top: var(--space-6); }
@@ -36,7 +37,7 @@
 .task-list { width: 100%; min-width: 0; }
 .task-list .ant-table-tbody > tr > td { vertical-align: middle; overflow-wrap: anywhere; }
 .task-list .ant-table-tbody > tr:last-child > td { border-bottom: 0; }
-.task-list .task-name-link { display: block; max-width: 100%; font-size: var(--text-md); line-height: var(--line-height-base); }
+.task-list .task-name-link, .task-list .task-name-text { display: block; max-width: 100%; font-size: var(--text-md); line-height: var(--line-height-base); }
 .task-list .task-cell-secondary { margin-top: var(--space-1); }
 .task-list .task-run-link { font-size: var(--text-sm); line-height: var(--line-height-sm); text-align: left; }
 .task-list .ant-pagination { margin: var(--space-5) 0 0; }

@@ -15,8 +15,6 @@
   font-weight: 600;
 }
 .compliance-statement p { margin: 0 0 12px; }
-.access-notice p { font-size: 14px; line-height: 1.8; }
-.access-notice-risk { color: #b42318; font-weight: 700; }
 
 .rms-login-content, .melon-login-content { position: relative; }
 .filing-footer {
