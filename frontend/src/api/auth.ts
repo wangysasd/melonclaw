@@ -7,6 +7,20 @@ export interface AuthUser {
   user_name_zh: string;
   tenant_id: string;
   tenant_name_zh: string;
+  phone_tail?: string;
+}
+export interface AuthConfig {
+  passwordless: boolean;
+  assistant_name: string;
+  registration: boolean;
+  sms_login: boolean;
+  operator_name?: string;
+  operator_email?: string;
+}
+export interface SmsChallengeResult {
+  challenge_id: string;
+  expires_in: number;
+  resend_after: number;
 }
 export const AUTH_EVENT = "melonclaw-auth-change";
 export const AUTH_STORAGE = "melonclaw.auth-change";
@@ -41,7 +55,14 @@ export function notifyAuthChange() {
   writeStorage(AUTH_STORAGE, createRequestId());
 }
 export const getAuthSession = () => apiRequest<AuthUser>("/api/auth/session");
-export const getAuthConfig = () => apiRequest<{ passwordless: boolean; assistant_name: string }>("/api/auth/config");
+export const getAuthConfig = () => apiRequest<AuthConfig>("/api/auth/config");
+export const sendSmsChallenge = (phone: string, purpose: "register" | "login" | "reset") =>
+  apiRequest<SmsChallengeResult>("/api/auth/sms/challenges", { method: "POST", body: { phone, purpose } });
+export const resetPasswordWithSms = (body: {
+  phone: string; challenge_id: string; code: string; password: string; confirm_password: string;
+}) => apiRequest<{ ok: boolean; user_id: string }>("/api/auth/password/reset", { method: "POST", body });
+export const sendBindChallenge = (phone: string) =>
+  apiRequest<SmsChallengeResult>("/api/auth/phone/challenges", { method: "POST", body: { phone } });
 export async function login(user_id: string, password: string) {
   const body = await apiRequest<{ access_token: string }>("/api/auth/login", { method: "POST", body: { user_id, password } });
   storeAccessToken(body.access_token);
@@ -52,6 +73,22 @@ export async function passwordlessLogin() {
   storeAccessToken(body.access_token);
   notifyAuthChange();
 }
+export async function loginWithSms(phone: string, challenge_id: string, code: string) {
+  const body = await apiRequest<{ access_token: string }>("/api/auth/login/sms", { method: "POST", body: { phone, challenge_id, code } });
+  storeAccessToken(body.access_token);
+  notifyAuthChange();
+}
+export async function registerAccount(body: {
+  user_id: string; password: string; confirm_password: string; phone: string; challenge_id: string; code: string;
+}) {
+  const result = await apiRequest<{ access_token: string }>("/api/auth/register", { method: "POST", body });
+  storeAccessToken(result.access_token);
+  notifyAuthChange();
+}
+export const bindPhone = (body: { password: string; phone: string; challenge_id: string; code: string }) =>
+  apiRequest<{ ok: boolean; phone_tail: string }>("/api/auth/phone/bind", { method: "POST", body });
+export const updateProfile = (body: { user_name_zh: string }) =>
+  apiRequest<{ ok: boolean; user_name_zh: string }>("/api/auth/profile", { method: "PATCH", body });
 export async function switchUser(user_id: string) {
   const body = await apiRequest<{ access_token: string }>("/api/auth/switch", { method: "POST", body: { user_id } });
   storeAccessToken(body.access_token);

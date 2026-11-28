@@ -402,7 +402,7 @@ export function ChatView({
   const showWelcome = !hasMessages && !chat.state.historyLoading &&
     !chat.state.approval && !chat.state.userQuestion && !chat.state.error;
   const currentUser = session.users.find((user) => user.user_id === session.userId);
-  const userName = currentUser?.display_name || currentUser?.username || session.userId || "用户";
+  const userName = currentUser?.user_name_zh || currentUser?.username || currentUser?.display_name || session.userId || "用户";
   const currentConversation = session.conversationId
     ? session.conversations.find((item) => item.id === session.conversationId)
       ?? session.recents.find((item) => item.id === session.conversationId)

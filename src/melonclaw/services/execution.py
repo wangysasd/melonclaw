@@ -184,15 +184,18 @@ class ExecutionService:
                 task_context.update(await TaskChatService(self.runtime).history_selection(
                     context.user_id, conversation_id, model, clean_content,
                 ))
-            if await aget_pending_interaction(
-                agent,
-                self.runtime.conversation_config(conversation_id),
-            ):
-                raise ValueError("当前对话正在等待人工交互，请先处理待处理请求。")
-            stale = await storage.get_incomplete_assistant(
-                conversation_id,
-                context.user_id,
+            pending_interaction, stale = await asyncio.gather(
+                aget_pending_interaction(
+                    agent,
+                    self.runtime.conversation_config(conversation_id),
+                ),
+                storage.get_incomplete_assistant(
+                    conversation_id,
+                    context.user_id,
+                ),
             )
+            if pending_interaction:
+                raise ValueError("当前对话正在等待人工交互，请先处理待处理请求。")
             if stale is not None:
                 # 能取得会话锁说明旧执行已经不再运行，此时才安全收敛遗留状态。
                 try:

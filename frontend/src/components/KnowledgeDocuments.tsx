@@ -79,9 +79,9 @@ export function KnowledgeDocuments({ base }: { base: KnowledgeBase }) {
   const [activePipeline, setActivePipeline] = useState<string | null>(base.active_pipeline_job_id);
   const editable = base.role !== "viewer";
   const blocked = Boolean(activePipeline);
-  const hasFourActions = editable && rows.some((doc) =>
+  const hasProcessingActions = editable && rows.some((doc) =>
     doc.active_revision_id && hasProcessingAction(doc.source_job));
-  const actionsWidth = editable ? (hasFourActions ? 340 : 248) : 116;
+  const actionsWidth = editable ? (hasProcessingActions ? 350 : 254) : 116;
   useEffect(() => {
     let stopped = false;
     const controller = new AbortController();

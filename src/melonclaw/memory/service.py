@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -224,6 +225,13 @@ class MemoryService:
         scope: MemoryScope,
     ) -> list[MemoryRecord]:
         await self._authorize(context, scope)
+        return await self._list_scope_authorized(context, scope)
+
+    async def _list_scope_authorized(
+        self,
+        context: Any,
+        scope: MemoryScope,
+    ) -> list[MemoryRecord]:
         namespace = self.namespace(context, scope)
         items: list[Item] = []
         offset = 0
@@ -272,9 +280,11 @@ class MemoryService:
 
         if context is None or not self._is_memory_enabled(context):
             return None
-        records: list[MemoryRecord] = []
-        for scope in SEARCH_SCOPES:
-            records.extend(await self._list_scope(context, scope))
+        await self._verified_user_context(context)
+        batches = await asyncio.gather(
+            *(self._list_scope_authorized(context, scope) for scope in SEARCH_SCOPES)
+        )
+        records = [record for batch in batches for record in batch]
         if not records:
             return None
 

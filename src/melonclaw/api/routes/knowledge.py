@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from melonclaw.api.dependencies import get_chat_service
 from melonclaw.api.errors import error_response
-from melonclaw.core.knowledge import ChunkConfig
+from melonclaw.core.knowledge import ChunkConfig, is_system_admin
 from melonclaw.services.knowledge import KnowledgeService
 
 router = APIRouter()
@@ -59,6 +59,21 @@ class TransferRequest(BaseRequest):
 class ShareScopeRequest(BaseRequest):
     version: int = Field(gt=0)
     share_scope: Literal["everyone", "tenant", "selected"]
+
+
+class SuspendRequest(BaseRequest):
+    version: int = Field(gt=0)
+    reason: Literal["report_review", "risk_hold"]
+
+
+class RestoreRequest(BaseRequest):
+    version: int = Field(gt=0)
+    reason: Literal["review_passed", "report_unfounded"]
+
+
+class DisposeRequest(BaseRequest):
+    version: int = Field(gt=0)
+    reason: Literal["confirmed_violation"]
 
 
 def storage(request):
@@ -146,6 +161,67 @@ async def update_base(request: Request, kb_id: UUID, body: UpdateBase):
 async def delete_base(request: Request, kb_id: UUID, version: int = Query(..., gt=0)):
     return await respond(
         storage(request).knowledge_delete(request.state.user.user_id, kb_id, version)
+    )
+
+
+@router.get("/api/knowledge-bases/{kb_id}/operations")
+async def operation_history(
+    request: Request,
+    kb_id: UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    user = request.state.user
+    if not is_system_admin(getattr(user, "user_id", ""), getattr(user, "tenant_id", "")):
+        return JSONResponse(
+            {"error": "只有系统管理员可以查看知识库操作记录。"},
+            status_code=403,
+        )
+    return await respond(
+        storage(request).knowledge_operation_history(
+            user.user_id, kb_id, page=page, page_size=page_size
+        )
+    )
+
+
+@router.get("/api/knowledge-moderation/bases")
+async def list_suspended_bases(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: str = Query("", max_length=255),
+):
+    return await respond(
+        storage(request).knowledge_moderation_list(
+            request.state.user.user_id, page=page, page_size=page_size, search=search
+        )
+    )
+
+
+@router.post("/api/knowledge-bases/{kb_id}/suspend")
+async def suspend_base(request: Request, kb_id: UUID, body: SuspendRequest):
+    return await respond(
+        storage(request).knowledge_suspend(
+            request.state.user.user_id, kb_id, body.version, body.reason
+        )
+    )
+
+
+@router.post("/api/knowledge-bases/{kb_id}/restore")
+async def restore_base(request: Request, kb_id: UUID, body: RestoreRequest):
+    return await respond(
+        storage(request).knowledge_restore(
+            request.state.user.user_id, kb_id, body.version, body.reason
+        )
+    )
+
+
+@router.post("/api/knowledge-bases/{kb_id}/dispose")
+async def dispose_base(request: Request, kb_id: UUID, body: DisposeRequest):
+    return await respond(
+        storage(request).knowledge_dispose(
+            request.state.user.user_id, kb_id, body.version, body.reason
+        )
     )
 
 

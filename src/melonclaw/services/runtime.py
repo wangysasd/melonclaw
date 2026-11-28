@@ -35,6 +35,7 @@ from melonclaw.output.formatting import sanitize_text
 from melonclaw.repository import BusinessRepository
 from melonclaw.services.mcp import resolve_user_mcp_servers
 from melonclaw.services.mcp_discovery import McpDiscoveryCoordinator
+from melonclaw.services.mcp_tool_cache import McpToolCache
 from melonclaw.services.model_resolution import ModelResolutionMixin
 from melonclaw.services.skill_snapshot import clear_stale_snapshots, skill_snapshot
 from melonclaw.services.skill_state import evaluate_skills
@@ -77,6 +78,7 @@ class ChatRuntime(ModelResolutionMixin):
     workspace_agents: dict[Any, Any] | None = None
     agent_build_locks: dict[Any, _AgentBuildLock] = field(default_factory=dict)
     mcp_discovery: McpDiscoveryCoordinator = field(default_factory=McpDiscoveryCoordinator)
+    mcp_tool_cache: McpToolCache = field(default_factory=McpToolCache)
     tracing: Tracing | None = None
     startup_error: str | None = None
     worker_id: str = field(default_factory=lambda: f"web-{uuid4()}")
@@ -135,6 +137,7 @@ class ChatRuntime(ModelResolutionMixin):
             await self.tracing.close()
             self.tracing = None
         await self.mcp_discovery.close()
+        await self.mcp_tool_cache.close()
 
         if self.memory_store_context is not None:
             try:
@@ -157,6 +160,27 @@ class ChatRuntime(ModelResolutionMixin):
             self.workspace_agents.clear()
         self.workspace_agents = None
         self.agent_build_locks.clear()
+
+    async def warmup_shared_mcp_cache(self) -> None:
+        """启动后在后台预热全局共享 MCP 工具发现缓存，避免首条消息冷等待。"""
+
+        if not self.ready or self.storage is None:
+            return
+        try:
+            global_version, _ = await self.storage.resource_versions.read("")
+            mcp_rows = await self.storage.list_visible_mcp_rows("")
+            mcp_servers, mcp_allowlists = resolve_user_mcp_servers(mcp_rows)
+            if not mcp_servers:
+                return
+            await self.mcp_tool_cache.get_or_discover(
+                mcp_servers,
+                mcp_allowlists,
+                global_version=global_version,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - 预热失败不影响主链路
+            logger.warning("启动后台预热共享 MCP 缓存未完成，将在首次会话时按需发现。")
 
     @property
     def ready(self) -> bool:
@@ -420,6 +444,11 @@ class ChatRuntime(ModelResolutionMixin):
                     )
                     _, skill_dirs, skill_references = skill_state
                     mcp_servers, mcp_allowlists = resolve_user_mcp_servers(mcp_rows)
+                    mcp_discovery = await self.mcp_tool_cache.get_or_discover(
+                        mcp_servers,
+                        mcp_allowlists,
+                        global_version=generation[0],
+                    )
                     agent = await build_research_agent(
                         self.settings, checkpointer=self.checkpointer,
                         workspace_dir=self.workspace_dir(conversation, project),
@@ -432,7 +461,8 @@ class ChatRuntime(ModelResolutionMixin):
                         task_configuration_provider=self.task_configuration_provider,
                         knowledge_provider=self.knowledge_provider,
                         client_capabilities=capabilities, mcp_servers=mcp_servers,
-                        mcp_tool_allowlists=mcp_allowlists, skill_dirs=skill_dirs,
+                        mcp_tool_allowlists=mcp_allowlists, mcp_discovery=mcp_discovery,
+                        skill_dirs=skill_dirs, immutable_skills=True,
                         environment=environment,
                     )
                     agent.melonclaw_skill_references = skill_references

@@ -13,11 +13,17 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from melonclaw.api.audit_alert import (
+    classify_audit_failure,
+    note_audit_write_recovered,
+    report_audit_write_failure,
+)
 from melonclaw.core.config import load_settings
 
 logger = logging.getLogger(__name__)
 
-RETENTION_DAYS = 180
+# 任意六个连续自然月最多 184 天，边界日期的文件仍保留。
+RETENTION_DAYS = 184
 DEVICE_COOKIE = "melonclaw_device"
 _DEVICE_RE = re.compile(r"^[0-9a-f]{32}$")
 _LOCK = threading.Lock()
@@ -36,9 +42,16 @@ _TEXT_LIMITS = {
 }
 _OPERATIONS = {
     "POST /api/auth/login": "登录",
+    "POST /api/auth/login/sms": "短信登录",
+    "POST /api/auth/register": "注册账号",
+    "POST /api/auth/password/reset": "找回密码",
+    "POST /api/auth/sms/challenges": "发送短信验证码",
+    "POST /api/auth/phone/challenges": "发送绑定验证码",
+    "POST /api/auth/phone/bind": "绑定手机号",
     "POST /api/auth/passwordless": "免密登录",
     "POST /api/auth/logout": "登出",
     "POST /api/auth/switch": "切换用户",
+    "PATCH /api/auth/profile": "修改昵称",
     "POST /api/auth/password": "修改密码",
     "POST /api/admin/users": "创建用户",
     "PATCH /api/admin/users/{user_id}": "修改用户",
@@ -46,6 +59,14 @@ _OPERATIONS = {
     "POST /api/admin/users/{user_id}/password": "重置密码",
     "POST /api/admin/tenants": "创建租户",
     "PATCH /api/admin/tenants/{tenant_id}": "修改租户",
+    "POST /api/reports/anonymous": "提交投诉",
+    "POST /api/reports/lookup": "查询投诉",
+    "POST /api/reports": "提交举报",
+    "POST /api/admin/reports/{report_id}/accept": "受理投诉",
+    "POST /api/admin/reports/{report_id}/message": "核查被举报回复",
+    "POST /api/admin/reports/{report_id}/note": "记录投诉备注",
+    "POST /api/admin/reports/{report_id}/reply": "回复投诉",
+    "POST /api/admin/reports/{report_id}/resolve": "办结投诉",
     "POST /api/conversations": "创建会话",
     "POST /api/conversations/{conversation_id}/messages": "发送消息",
     "PATCH /api/conversations/{conversation_id}": "修改会话",
@@ -79,7 +100,9 @@ class SecurityAuditMiddleware:
                 _write(scope, status["code"], device_id)
 
 
-def append_audit(fields: Mapping[str, object], directory: Path, *, today: date | None = None) -> Path:
+def append_audit(
+    fields: Mapping[str, object], directory: Path, *, today: date | None = None
+) -> Path:
     """追加一行 JSON。未知字段丢弃，避免口令或令牌被记入。"""
 
     today = today or date.today()
@@ -115,7 +138,9 @@ def describe_request(scope, status: int | None, device_id: str) -> dict[str, obj
     route = _route(scope)
     state = scope.get("state")
     account = _state_text(state, "audit_account") or _user_id(state)
-    target = _state_text(state, "audit_target") or str(scope.get("path_params", {}).get("user_id", ""))
+    target = _state_text(state, "audit_target") or str(
+        scope.get("path_params", {}).get("user_id", "")
+    )
     code = status if isinstance(status, int) else 0
     return {
         "account": account,
@@ -160,8 +185,12 @@ def _write(scope, status: int | None, device_id: str) -> None:
         if directory is None:
             return
         append_audit(describe_request(scope, status, device_id), directory)
-    except Exception:
-        logger.warning("安全审计日志写入失败")
+    except Exception as exc:
+        category = classify_audit_failure(exc)
+        logger.warning("安全审计日志写入失败 category=%s", category)
+        report_audit_write_failure(category)
+    else:
+        note_audit_write_recovered()
 
 
 def _with_client_headers(message, scope, device_id: str, fresh: bool):
@@ -308,7 +337,7 @@ def _status(value: object) -> int:
 def _host(value: str) -> str:
     value = value.strip()
     if value.startswith("[") and "]" in value:
-        value = value[1:value.find("]")]
+        value = value[1 : value.find("]")]
     elif value.count(":") == 1:
         value = value.split(":", 1)[0]
     if not value or any(char in value for char in " \r\n/\\"):

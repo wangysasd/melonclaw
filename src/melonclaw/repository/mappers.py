@@ -42,7 +42,6 @@ def _user_dict(
     row: Mapping[str, Any],
 ) -> dict[str, Any]:
     user_name = str(row["user_name_zh"])
-    tenant_name = str(row["tenant_name_zh"])
     return {
         "user_id": str(row["user_id"]),
         # username 保留现有开发接口字段，值改为用户中文名。
@@ -52,7 +51,7 @@ def _user_dict(
         "tenant_role": str(row["tenant_role"]),
         "tenant_status": str(row["tenant_status"]),
         "is_default": str(row["user_id"]) == DEFAULT_SIMULATED_USER_ID,
-        "display_name": f"{user_name}-{tenant_name}",
+        "display_name": user_name,
     }
 
 

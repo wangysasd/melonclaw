@@ -45,7 +45,12 @@ class MemoryAccounts:
             raise ValueError("用户不存在。")
         self.encoded = encoded
 
-    async def account_users(self):
+    async def set_account_name(self, user_id, user_name_zh):
+        if user_id not in self.users:
+            raise ValueError("用户不存在。")
+        self.users[user_id] = replace(self.users[user_id], user_name_zh=user_name_zh)
+
+    async def account_users(self, *, include_deleted_registrations=False):
         return []
 
 
@@ -60,7 +65,12 @@ def test_profile_gate_and_no_password_echo(monkeypatch, profile, enabled):
         app.state.chat = SimpleNamespace(storage=MemoryAccounts())
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
             monkeypatch.setenv("MELONCLAW_NAME", " Melon ")
-            assert (await client.get("/api/auth/config")).json() == {"passwordless": enabled, "assistant_name": "Melon"}
+            monkeypatch.delenv("MELONCLAW_OPERATOR_NAME", raising=False)
+            monkeypatch.delenv("MELONCLAW_REPORT_CONTACT_EMAIL", raising=False)
+            assert (await client.get("/api/auth/config")).json() == {
+                "passwordless": enabled, "assistant_name": "Melon", "registration": False, "sms_login": False,
+                "operator_name": "", "operator_email": "",
+            }
             response = await client.post("/api/auth/passwordless")
             assert response.status_code == (200 if enabled else 403)
             if enabled:
@@ -288,5 +298,44 @@ def test_switch_reissues_expiry_and_failure_keeps_the_previous_token(monkeypatch
             assert _claims(new) == {"sub": "admin", "exp": clock["now"] + 9 * 3600}
             assert (await client.get("/api/auth/session", headers={"Authorization": f"Bearer {old}"})).json()["user_id"] == "alice"
             assert (await client.get("/api/auth/session", headers={"Authorization": f"Bearer {new}"})).json()["user_id"] == "admin"
+
+    asyncio.run(run())
+
+
+def test_self_profile_nickname_update_scope_and_validation(monkeypatch):
+    monkeypatch.setenv("profile", "")
+
+    async def run():
+        from melonclaw.api.audit import _OPERATIONS
+        from melonclaw.repository.mappers import _user_dict
+
+        assert _OPERATIONS["PATCH /api/auth/profile"] == "修改昵称"
+        mapped = _user_dict({
+            "user_id": "alice", "user_name_zh": "小明", "tenant_id": "u1",
+            "tenant_name_zh": "用户alice", "tenant_role": "member", "tenant_status": "active",
+        })
+        assert mapped["display_name"] == "小明"
+        app = create_app()
+        storage = MemoryAccounts()
+        app.state.chat = SimpleNamespace(storage=storage)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            assert (await client.patch("/api/auth/profile", json={"user_name_zh": "小明"})).status_code == 401
+            logged = await client.post("/api/auth/login", json={"user_id": "alice", "password": "password-123"})
+            use_access_token(client, logged)
+            assert (await client.patch("/api/auth/profile", json={"user_name_zh": "   "})).status_code == 422
+            assert (await client.patch("/api/auth/profile", json={"user_name_zh": "a" * 65})).status_code == 422
+            assert (await client.patch("/api/auth/profile", json={"user_name_zh": "小明", "user_id": "admin"})).status_code == 422
+            assert (await client.patch("/api/auth/profile", json={"user_name_zh": "小明", "tenant_id": "other"})).status_code == 422
+            assert (await client.patch(
+                "/api/auth/profile", json={"user_name_zh": "小明"}, headers={"Origin": "http://evil.test"},
+            )).status_code == 403
+            updated = await client.patch("/api/auth/profile", json={"user_name_zh": "  小明  "})
+            assert updated.status_code == 200
+            assert updated.json() == {"ok": True, "user_name_zh": "小明"}
+            session = await client.get("/api/auth/session")
+            assert session.status_code == 200
+            assert session.json()["user_id"] == "alice"
+            assert session.json()["user_name_zh"] == "小明"
+            assert storage.users["admin"].user_name_zh == "admin"
 
     asyncio.run(run())

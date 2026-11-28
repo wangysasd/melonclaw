@@ -13,7 +13,6 @@ vi.mock("../src/api/knowledge", async (load) => {
   const actual = await load<typeof import("../src/api/knowledge")>();
   return { ...actual, readKnowledgeDocumentText: vi.fn() };
 });
-
 const kbId = "123e4567-e89b-42d3-a456-426614174000";
 const documentId = "223e4567-e89b-42d3-a456-426614174000";
 const revisionId = "323e4567-e89b-42d3-a456-426614174000";
@@ -32,7 +31,10 @@ function renderCitation(source: string) {
 }
 
 beforeEach(() => vi.mocked(readKnowledgeDocumentText).mockReset());
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("knowledge source citations", () => {
   it("opens same-origin text citations in the drawer and pages with server offsets", async () => {
@@ -45,6 +47,7 @@ describe("knowledge source citations", () => {
     expect(await screen.findByText("研究资料.txt")).toBeTruthy();
     expect(screen.getByText("历史版本 · 第 2 版")).toBeTruthy();
     expect(screen.getByText("历史原文 📚")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^举\s*报$/ })).toBeNull();
     expect(readKnowledgeDocumentText).toHaveBeenCalledWith(kbId, documentId,
       { revisionId, offset: 0, limit: 4000 }, expect.any(AbortSignal));
 

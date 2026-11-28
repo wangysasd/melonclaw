@@ -10,6 +10,10 @@ BUSINESS_TABLES = (
     "tenants",
     "users",
     "auth_sessions",
+    "user_phones",
+    "sms_challenges",
+    "sms_quotas",
+    "registration_verifications",
     "projects",
     "chat_conversations",
     "chat_messages",
@@ -30,6 +34,8 @@ BUSINESS_TABLES = (
     "model_providers",
     "model_configs",
     "provider_user_keys",
+    "reports",
+    "report_events",
 )
 CHECKPOINT_TABLES = (
     "checkpoint_migrations",

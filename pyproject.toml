@@ -42,6 +42,7 @@ dependencies = [
     "jieba>=0.42.1",
     "xlrd==2.0.2",
     "olefile==0.47",
+    "alibabacloud-dypnsapi20170525==2.0.0",
 ]
 
 [project.scripts]

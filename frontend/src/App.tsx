@@ -1,6 +1,9 @@
+import { TermsPage } from "./components/TermsPage";
 import { useVisibleRefresh } from "./hooks/useVisibleRefresh";
 import { AuthGate } from "./components/AuthGate";
+import { PrivacyPage } from "./components/PrivacyPage";
 import { AccountManagement } from "./components/AccountManagement";
+import { MyReports } from "./components/MyReports";
 import "./styles/accounts.css";
 import { App as AntdApp, ConfigProvider } from "antd";
 import XProvider from "@ant-design/x/es/x-provider";
@@ -79,7 +82,7 @@ function Workspace() {
 
   return (
     <div className="app-shell">
-      <GlobalNav onKnowledge={() => setView("knowledge")} onTasks={() => openTasks()} view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} onAmp={() => setView("amp")} onMindera={() => setView("mindera")} onAdmin={() => setView("admin")} />
+      <GlobalNav onKnowledge={() => setView("knowledge")} onTasks={() => openTasks()} view={view} onHome={() => setView("chat")} onResources={() => setView("resources")} onAmp={() => setView("amp")} onMindera={() => setView("mindera")} onAdmin={() => setView("admin")} onFeedback={() => setView("reports")} />
       <div className="home-workspace" hidden={view !== "chat"}>
         <Sidebar key={`sidebar:${session.userId}`} onNewConversation={newConversation} onOpenProjectDialog={openProjectDialog} onNavigateChat={() => setView("chat")} />
         <ChatView
@@ -111,6 +114,7 @@ function Workspace() {
         />
       ) : null}
       {view === "admin" && session.userId === "admin" ? <AccountManagement onClose={() => setView("chat")} /> : null}
+      {view === "reports" ? <MyReports key={session.userId} onClose={() => setView("chat")} /> : null}
       {view === "amp" ? <PlaceholderView title="AMP" /> : null}
       {view === "mindera" ? <PlaceholderView title="Mindera" /> : null}
       <ProjectDialog
@@ -122,7 +126,18 @@ function Workspace() {
   );
 }
 
+function isPrivacyLocation() {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  return path === "/privacy" || path === "/terms";
+}
+
 export default function App() {
+  const [privacy, setPrivacy] = useState(isPrivacyLocation);
+  useEffect(() => {
+    const sync = () => setPrivacy(isPrivacyLocation());
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
   return (
     <ConfigProvider theme={antdTheme} locale={zhCN}
       modal={{ styles: { ...overlayStyles, container: { padding: 0 } } }}
@@ -130,7 +145,7 @@ export default function App() {
       <style>{tokenCss}</style>
       <XProvider theme={antdTheme}>
         <AntdApp>
-          <AuthGate>{(user) => <SessionProvider key={user.user_id} initialUserId={user.user_id}><Workspace /></SessionProvider>}</AuthGate>
+          {privacy ? (window.location.pathname.replace(/\/+$/, "") === "/terms" ? <TermsPage /> : <PrivacyPage />) : <AuthGate>{(user) => <SessionProvider key={user.user_id} initialUserId={user.user_id}><Workspace /></SessionProvider>}</AuthGate>}
         </AntdApp>
       </XProvider>
     </ConfigProvider>

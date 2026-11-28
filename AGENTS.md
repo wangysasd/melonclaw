@@ -21,7 +21,7 @@ MelonClaw 是持续演进的 Deep Agents 应用。开发围绕可运行能力、
 | Skill / MCP、持久文件 | [资源管理](docs/design-docs/user-skills-and-mcp.md)、[持久文件](docs/design-docs/persistent-user-files.md) |
 | Agent 环境变量、准备流程或缓存失效 | [环境变量与缓存](docs/design-docs/environment-and-preparation.md) |
 | 工具、审批与 PTC | [用户交互与审批](docs/design-docs/user-input-hitl.md)、[按需工具池](docs/design-docs/on-demand-tool-pool.md) |
-| 用户、租户与会话身份 | [账户与登录](docs/design-docs/user-management-login.md)、[唯一租户](docs/design-docs/one-tenant-per-user.md) |
+| 用户、租户与会话身份 | [账户与登录](docs/design-docs/user-management-login.md)、[JWT 登录](docs/design-docs/jwt-login.md)、[短信注册与登录](docs/design-docs/sms-registration-login.md)、[隐私说明](docs/design-docs/privacy-notice.md)、[唯一租户](docs/design-docs/one-tenant-per-user.md) |
 | 定时任务、对话配置任务、后台 Agent | [定时任务](docs/design-docs/task-center.md)、[当前资源与执行保护](docs/design-docs/task-resources-and-execution-guards.md) |
 | 知识库、固定嵌入、导入、检索与引用 | [知识库设计](docs/design-docs/knowledge-base.md) |
 | 普通聊天附件 | [附件处理](docs/design-docs/chat-attachment-processing.md)、[存储与绑定](docs/design-docs/chat-attachments.md) |

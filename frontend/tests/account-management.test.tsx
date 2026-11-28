@@ -69,3 +69,46 @@ it("uses the shared deletion layout and only deletes after explicit confirmation
   fireEvent.click(within(dialog).getByRole("button", { name: "确认删除" }));
   await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("/api/admin/users/alice", { method: "DELETE" }));
 });
+
+it("displays masked registration evidence and finds it by verification number after deletion", async () => {
+  const verificationId = "b4f63cfe30db4bb492ca04a4e875f396";
+  const verified = {
+    ...user,
+    tenant_status: "active",
+    phone_verified: true,
+    phone_tail: "8000",
+    verification_method: "短信验证码",
+    verified_at: "2026-10-05T23:59:59Z",
+    verification_id: verificationId,
+  };
+  const admin = { ...user, user_id: "admin", user_name_zh: "管理员", phone_verified: false };
+  vi.mocked(apiRequest).mockImplementation(async (path) => {
+    if (path === "/api/admin/users") return { items: [admin, verified] };
+    if (path === "/api/admin/users?include_deleted_registrations=true") {
+      return { items: [admin, { ...verified, tenant_status: "deleted" }] };
+    }
+    return { items: [] };
+  });
+
+  render(<App><AccountManagement onClose={vi.fn()} /></App>);
+  const trigger = await screen.findByRole("button", { name: "alice 的手机号已验证" });
+  expect(screen.queryByRole("button", { name: "admin 的手机号已验证" })).toBeNull();
+  fireEvent.click(trigger);
+  const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText("手机号已验证")).toBeTruthy();
+  for (const text of ["alice", "注册时间", "核验成功时间", "短信验证码", "8000", verificationId]) {
+    expect(within(dialog).getByText(text)).toBeTruthy();
+  }
+  expect(dialog.textContent).not.toContain("13800138000");
+  fireEvent.click(within(dialog).getByRole("button", { name: /关\s*闭/ }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索用户 ID、名称或验证编号" }), {
+    target: { value: verificationId },
+  });
+  expect(screen.queryByText("管理员")).toBeNull();
+  fireEvent.click(screen.getByRole("checkbox", { name: "含已删除的注册账号" }));
+  const row = (await screen.findByText("已删除")).closest("tr")!;
+  expect(within(row).queryByRole("button", { name: "修改密码" })).toBeNull();
+  expect(within(row).getByRole("button", { name: "alice 的手机号已验证" })).toBeTruthy();
+});

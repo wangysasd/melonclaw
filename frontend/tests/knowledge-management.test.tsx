@@ -13,6 +13,7 @@ const context = vi.hoisted(() => ({ userId: "owner", users: [{ user_id: "owner",
 vi.mock("../src/state/session", () => ({ useSession: () => context }));
 vi.mock("../src/api/knowledge", async (load) => ({ ...await load<typeof import("../src/api/knowledge")>(), knowledgeApi: {
   list: vi.fn(), detail: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(),
+  suspend: vi.fn(), restore: vi.fn(), dispose: vi.fn(), suspended: vi.fn(), operations: vi.fn(),
   documents: vi.fn(),
   members: vi.fn(), candidates: vi.fn(), userCandidates: vi.fn(), setShareScope: vi.fn(), saveMember: vi.fn(), revoke: vi.fn(), transfer: vi.fn(),
 } }));
@@ -28,6 +29,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   context.userId = "owner"; context.users = [{ user_id: "owner", tenant_role: "member" }];
   vi.mocked(knowledgeApi.list).mockResolvedValue({ items: [base], total: 1 });
+  vi.mocked(knowledgeApi.suspend).mockResolvedValue({ id: "kb-test", status: "suspended", version: 4 });
+  vi.mocked(knowledgeApi.restore).mockResolvedValue({ id: "kb-test", status: "active", version: 5 });
+  vi.mocked(knowledgeApi.dispose).mockResolvedValue({ id: "kb-test", status: "deleted", version: 6 });
+  vi.mocked(knowledgeApi.suspended).mockResolvedValue({ items: [], total: 0 });
   vi.mocked(knowledgeApi.detail).mockResolvedValue({ ...base });
   vi.mocked(knowledgeApi.documents).mockResolvedValue({ items: [], total: 0, active_pipeline_job_id: null });
   vi.mocked(knowledgeApi.create).mockResolvedValue({ ...base });
@@ -35,6 +40,7 @@ beforeEach(() => {
   vi.mocked(knowledgeApi.members).mockResolvedValue({ items: [{ user_id: "viewer", user_name_zh: "李四", tenant_name_zh: "研究组", role: "viewer" }] });
   vi.mocked(knowledgeApi.candidates).mockResolvedValue({ items: [{ user_id: "target", user_name_zh: "张三", tenant_name_zh: "研究组" }] });
   vi.mocked(knowledgeApi.userCandidates).mockResolvedValue({ items: [{ user_id: "target", user_name_zh: "张三", tenant_name_zh: "研究组" }] });
+  vi.mocked(knowledgeApi.operations).mockResolvedValue({ kb_id: "kb-test", name: "投研资料", status: "active", total: 0, page: 1, page_size: 20, items: [] });
   vi.mocked(listManageableModels).mockResolvedValue({ items: [] });
 });
 afterEach(cleanup);
@@ -48,7 +54,42 @@ it("shows system administrators upload and edit, with deletion in the actions me
   expect(screen.queryByRole("menuitem", { name: "删除知识库" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
   expect(await screen.findByRole("menuitem", { name: "删除知识库" })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: "停用" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "知识库状态" })).toBeNull();
 });
+
+it("lets the system administrator suspend with a fixed reason and review suspended libraries", async () => {
+  context.userId = "admin";
+  vi.mocked(knowledgeApi.list).mockResolvedValue({ items: [{ ...base, role: "system_admin" }], total: 1 });
+  vi.mocked(knowledgeApi.suspended).mockResolvedValue({ items: [{
+    id: "kb-test", owner_user_id: "owner", owner_name_zh: "所有者", name: "已停用资料", description: "待核查",
+    status: "suspended", share_scope: "tenant", version: 4, created_at: "2026-11-26T02:00:00Z", updated_at: "2026-11-26T03:00:00Z",
+  }], total: 1 });
+  vi.mocked(knowledgeApi.operations).mockResolvedValue({
+    kb_id: "kb-test", name: "已停用资料", status: "suspended", total: 1, page: 1, page_size: 20,
+    items: [{ id: "event-1", created_at: "2026-11-26T03:00:00Z", actor_user_id: "admin", actor_label: "管理员（admin）", kb_id: "kb-test", kb_name: "已停用资料", action: "base_suspended", action_label: "停用", detail: "接到举报，暂停核查" }],
+  });
+  show();
+  await screen.findByText("投研资料");
+  expect(screen.getByRole("combobox", { name: "知识库状态" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "停用" }));
+  expect(await screen.findByRole("button", { name: "确认停用" })).toBeTruthy();
+  await choose("处置原因", "接到举报，暂停核查");
+  fireEvent.click(screen.getByRole("button", { name: "确认停用" }));
+  await waitFor(() => expect(knowledgeApi.suspend).toHaveBeenCalledWith("kb-test", 3, "report_review"));
+
+  await choose("知识库状态", "已停用");
+  expect(await screen.findByText("已停用资料")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /上\s*传/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /^操作记录$/ }));
+  expect(await screen.findByText("接到举报，暂停核查")).toBeTruthy();
+  expect(screen.getByText("管理员（admin）")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "恢复共享" }));
+  await choose("处置原因", "复核通过，恢复共享");
+  fireEvent.click(screen.getByRole("button", { name: "确认恢复" }));
+  await waitFor(() => expect(knowledgeApi.restore).toHaveBeenCalledWith("kb-test", 4, "review_passed"));
+}, 30000);
 
 it("selects named users when creating a restricted library", async () => {
   show(); await screen.findByText("投研资料");
@@ -172,6 +213,21 @@ it("offers only reading to a viewer and shows the document empty state", async (
   expect(await screen.findByText("800 字符")).toBeTruthy();
 });
 
+it("keeps downloads on published document rows without a separate report action", async () => {
+  const viewerBase = { ...base, role: "viewer" } as const;
+  vi.mocked(knowledgeApi.list).mockResolvedValue({ items: [viewerBase], total: 1 });
+  vi.mocked(knowledgeApi.detail).mockResolvedValue(viewerBase);
+  vi.mocked(knowledgeApi.documents).mockResolvedValue({
+    items: [{ id: "doc-1", display_name: "已发布文档", active_revision_id: "revision-1" }],
+    total: 1,
+    active_pipeline_job_id: null,
+  });
+  show();
+  fireEvent.click(await screen.findByRole("button", { name: "投研资料" }));
+  expect(await screen.findByRole("button", { name: "下载原件" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^举\s*报$/ })).toBeNull();
+});
+
 it("keeps all knowledge model configuration hidden even for administrators", async () => {
   context.users = [{ user_id: "owner", tenant_role: "admin" }];
   show(); await screen.findByText("投研资料");
@@ -201,4 +257,34 @@ it("creates a vector library with chunk settings", async () => {
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "资料库" } });
   fireEvent.click(screen.getByRole("button", { name: /保\s*存/ }));
   await waitFor(() => expect(knowledgeApi.create).toHaveBeenCalledWith({ name: "资料库", description: "", share_scope: "tenant", chunk_config: { chunk_size: 800, chunk_overlap: 120 } }));
+});
+
+it("shows a share-scope change in the admin operation history", async () => {
+  context.userId = "admin";
+  vi.mocked(knowledgeApi.operations).mockResolvedValue({
+    kb_id: "kb-test", name: "投研资料", status: "active", total: 1, page: 1, page_size: 20,
+    items: [{
+      id: "evt-1", created_at: "2026-11-26T12:00:00+08:00", actor_user_id: "owner", actor_label: "甲（owner）",
+      kb_id: "kb-test", kb_name: "投研资料", action: "share_scope_changed", action_label: "变更共享范围", detail: "同租户 → 所有用户",
+    }],
+  });
+  show();
+  await screen.findByText("投研资料");
+  expect(screen.getByRole("button", { name: "查询操作记录" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "投研资料" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^操作记录$/ }));
+  expect(await screen.findByText("同租户 → 所有用户")).toBeTruthy();
+  expect(screen.getByText("甲（owner）")).toBeTruthy();
+  expect(screen.getByText("变更共享范围")).toBeTruthy();
+  expect(knowledgeApi.operations).toHaveBeenCalledWith("kb-test", 1);
+});
+
+it("hides operation history from a regular user", async () => {
+  show();
+  await screen.findByText("投研资料");
+  expect(screen.queryByRole("button", { name: "查询操作记录" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "投研资料" }));
+  await screen.findByRole("tab", { name: "文档" });
+  expect(screen.queryByRole("button", { name: /^操作记录$/ })).toBeNull();
+  expect(knowledgeApi.operations).not.toHaveBeenCalled();
 });

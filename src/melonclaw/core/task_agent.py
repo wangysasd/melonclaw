@@ -165,5 +165,7 @@ async def build_unattended_agent(
         interrupt_on={},
     )
     agent.melonclaw_usage_enabled = settings.agent_usage_enabled
-    agent.melonclaw_mcp_failed = any((tool.metadata or {}).get("mcp_failures") for tool in mcp_tools)
+    agent.melonclaw_mcp_failed = any(
+        (tool.metadata or {}).get("mcp_transient_failures") for tool in mcp_tools
+    )
     return agent

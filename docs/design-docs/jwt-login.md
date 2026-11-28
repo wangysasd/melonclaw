@@ -6,7 +6,7 @@
 
 ## 目标
 
-用无状态 JWT 替换服务端会话。令牌只回答「是哪个用户、何时过期」；角色、租户和资源权限继续按当前用户重算。不新增表或字段。
+用无状态 JWT 替换服务端会话。令牌只回答「是哪个用户、何时过期」；角色、租户和资源权限继续按当前用户重算。令牌不新增字段。
 
 ## 令牌
 
@@ -51,11 +51,11 @@ JSON 请求在统一客户端加上 `Authorization`。聊天流、语音、技�
 
 图片地址和附件链接若直接用作 `<img src>` 或 `<a href>`，浏览器不能附加 `Authorization`。这些展示改为先带令牌取得内容，再交给页面。
 
-跨域白名单放行 `Authorization`。匿名路径仍是 `/api/auth/config`、`/api/auth/login`、`/api/auth/passwordless`、`/api/ready`。
+跨域白名单放行 `Authorization`。匿名路径是 `/api/auth/config`、`/api/auth/login`、`/api/auth/passwordless`、`/api/auth/sms/challenges`、`/api/auth/register`、`/api/auth/login/sms`、`/api/auth/password/reset`、`/api/ready`。短信注册和短信登录成功后签发的仍是这张令牌。手机号不进入载荷，见[短信注册与登录](sms-registration-login.md)。
 
 ## 数据与边界
 
-不修改 `users` 和 `tenants`。`auth_sessions` 不再读写，本次不删除该表，也不写升级脚本。
+令牌本身不修改 `users` 和 `tenants`。手机号绑定和验证请求使用独立表，由 `20261126_sms_auth` 升级创建。`auth_sessions` 不再读写，本次不删除该表。
 
 令牌放在 `localStorage`，页面脚本可以读到。签名密钥、密码和密码哈希都不进入令牌、消息、Checkpoint 或追踪。`profile=dev` 的免密登录和全员切换仍是开发便利，不是生产环境的用户隔离。
 

@@ -47,3 +47,34 @@ def test_same_checkpoint_uses_current_authorized_skill_catalog(tmp_path):
         assert state.values["skills_metadata"] == []
 
     asyncio.run(run())
+
+
+def test_cached_snapshot_avoids_rescanning_immutable_skills(tmp_path):
+    directory = tmp_path / "skills/demo"
+    directory.mkdir(parents=True)
+    path = directory / "SKILL.md"
+    path.write_text("---\nname: demo\ndescription: snapshot-v1\n---\n# Demo")
+    backend = FilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+    middleware = SkillRefreshMiddleware(backend, ["/skills/"], cache_snapshot=True)
+    calls = 0
+    original = middleware.loader.abefore_agent
+
+    async def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return await original(*args, **kwargs)
+
+    middleware.loader.abefore_agent = counted
+
+    async def run():
+        first = await middleware.abefore_agent({}, None, {})
+        second = await middleware.abefore_agent({}, None, {})
+        assert calls == 1
+        assert first["skills_metadata"][0]["description"] == "snapshot-v1"
+        assert second["skills_metadata"][0]["description"] == "snapshot-v1"
+        # 返回副本，防止外部修改污染缓存
+        first["skills_metadata"].clear()
+        third = await middleware.abefore_agent({}, None, {})
+        assert len(third["skills_metadata"]) == 1
+
+    asyncio.run(run())

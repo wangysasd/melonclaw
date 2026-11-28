@@ -29,6 +29,29 @@ class KnowledgeVector(UserDefinedType):
         return f"VECTOR({self.dimensions})"
 
 
+EVENT_ACTIONS = (
+    "base_created",
+    "base_deleted",
+    "base_updated",
+    "base_suspended",
+    "base_restored",
+    "ownership_transferred",
+    "share_scope_changed",
+    "member_granted",
+    "member_updated",
+    "member_revoked",
+    "document_deleted",
+    "revision_published",
+)
+
+
+def event_action_check_sql():
+    if any(not name.isidentifier() for name in EVENT_ACTIONS):
+        raise RuntimeError("知识库事件类型无效。")
+    quoted = ",".join("'" + name + "'" for name in EVENT_ACTIONS)
+    return "action IN (" + quoted + ")"
+
+
 def register_knowledge_tables(metadata):
     def col(name, typ, nullable=False, **kw):
         return Column(name, typ, nullable=nullable, **kw)
@@ -146,7 +169,7 @@ def register_knowledge_tables(metadata):
     events = table("events", uid(primary_key=True), kb(), user("actor_user_id", True),
         col("action", String(32)), col("target_type", String(16)), col("target_id", String(128)),
         col("safe_details", JSONB, server_default=text("'{}'::jsonb")), stamp("created_at"), obj("safe_details"),
-        check("action IN ('base_created','base_deleted','base_updated','ownership_transferred','share_scope_changed','member_granted','member_updated','member_revoked','document_deleted','revision_published')", "event_action"),
+        check(event_action_check_sql(), "event_action"),
         check("target_type IN ('base','member','document','revision','job') AND length(target_id) > 0", "event_target"))
     for t, suffix, cols in [
         (bases,"owner",["owner_user_id","status"]), (bases,"embedding_model",["embedding_model_id"]),

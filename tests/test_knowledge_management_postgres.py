@@ -1,6 +1,7 @@
 """仅使用名称含 test 的显式隔离库；独立 schema，不读取业务配置。"""
 
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from sqlalchemy import insert, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from melonclaw.core.knowledge import KnowledgeConflict, KnowledgeDenied
+from melonclaw.core.knowledge import KnowledgeConflict, KnowledgeDenied, KnowledgeForbidden
 from melonclaw.core.knowledge_embedding import EMBEDDING_MODEL_KEY, EMBEDDING_PROVIDER_KEY
 from melonclaw.database.connection import normalize_async_database_url
 from melonclaw.database.knowledge_ddl import ensure_vector
@@ -396,5 +397,87 @@ def test_share_scope_is_live_and_keeps_named_roles():
                 await conn.execute(update(tenants).where(tenants.c.tenant_id == "team").values(enabled=False))
             with pytest.raises(KnowledgeDenied):
                 await repo.knowledge_detail("outsider", kid)
+
+    asyncio.run(run())
+
+
+def test_admin_operation_history_is_scoped_and_does_not_reopen_content():
+    async def run():
+        async with isolated_repository() as repo:
+            first = await create_base(repo, name="甲库")
+            second = await create_base(repo, name="乙库")
+            kid = first["id"]
+            scoped = await repo.knowledge_set_share_scope("owner", kid, first["version"], "tenant")
+            opened = await repo.knowledge_set_share_scope("owner", kid, scoped["version"], "everyone")
+            described = await repo.knowledge_update(
+                "owner", kid, opened["version"], {"description": "secret-description-text"}
+            )
+            documents = KNOWLEDGE_TABLES[2]
+            async with repo.engine.begin() as conn:
+                await conn.execute(
+                    insert(documents).values(
+                        id=uuid4(),
+                        kb_id=kid,
+                        display_name="fixture-original-name",
+                        created_by="owner",
+                        created_at=_now(),
+                        updated_at=_now(),
+                    )
+                )
+                await repo._knowledge_event(conn, kid, "owner", "document_deleted", "document", uuid4())
+            with pytest.raises(KnowledgeForbidden):
+                await repo.knowledge_operation_history("owner", kid, page=1, page_size=20)
+            with pytest.raises(KnowledgeForbidden):
+                await repo.knowledge_operation_history("admin", kid, page=1, page_size=20)
+            async with repo.engine.begin() as conn:
+                await conn.execute(
+                    insert(tenants).values(
+                        tenant_id="system", tenant_name_zh="系统", enabled=True, created_at=_now()
+                    )
+                )
+                await conn.execute(update(users).where(users.c.user_id == "admin").values(tenant_id="system"))
+            history = await repo.knowledge_operation_history("admin", kid, page=1, page_size=20)
+            changes = [item for item in history["items"] if item["detail"] == "同租户 → 所有用户"]
+            assert len(changes) == 1
+            assert changes[0]["actor_user_id"] == "owner"
+            assert changes[0]["actor_label"] == "owner（owner）"
+            assert changes[0]["kb_name"] == "甲库"
+            assert changes[0]["created_at"] is not None
+            other = await repo.knowledge_operation_history("admin", second["id"], page=1, page_size=20)
+            assert other["items"]
+            assert all(item["kb_id"] == second["id"] for item in other["items"])
+            assert all(item["detail"] != "同租户 → 所有用户" for item in other["items"])
+            suspended = await repo.knowledge_suspend("admin", kid, described["version"], "report_review")
+            removed = await repo.knowledge_dispose(
+                "admin", kid, suspended["version"], "confirmed_violation"
+            )
+            assert removed["status"] == "deleted"
+            first_page = await repo.knowledge_operation_history("admin", kid, page=1, page_size=1)
+            assert first_page["status"] == "deleted"
+            assert first_page["total"] > 1
+            assert first_page["items"][0]["action"] == "base_deleted"
+            assert first_page["items"][0]["detail"] == "确认违规，删除知识库"
+            next_page = await repo.knowledge_operation_history("admin", kid, page=2, page_size=1)
+            assert next_page["items"][0]["id"] != first_page["items"][0]["id"]
+            full = await repo.knowledge_operation_history("admin", kid, page=1, page_size=20)
+            assert any(
+                item["action"] == "base_suspended" and item["detail"] == "接到举报，暂停核查"
+                for item in full["items"]
+            )
+            assert all(item["action"] != "document_deleted" for item in full["items"])
+            blob = json.dumps(full, default=str)
+            assert "secret-description-text" not in blob
+            assert "fixture-original-name" not in blob
+            assert "safe_details" not in blob
+            with pytest.raises(KnowledgeDenied):
+                await repo.knowledge_detail("admin", kid)
+            with pytest.raises(KnowledgeDenied):
+                await repo.knowledge_detail("owner", kid)
+            current = await repo.knowledge_detail("owner", second["id"])
+            await repo.knowledge_delete("owner", second["id"], current["version"])
+            second_history = await repo.knowledge_operation_history("admin", second["id"], page=1, page_size=20)
+            deleted = [item for item in second_history["items"] if item["action"] == "base_deleted"]
+            assert deleted[0]["detail"] == "未记录"
+            assert second_history["status"] == "deleted"
 
     asyncio.run(run())

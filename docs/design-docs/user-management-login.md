@@ -9,7 +9,7 @@
 ## 数据与权限
 
 - 复用 users 和 tenants，一个用户通过非空 users.tenant_id 属于一个租户；不创建关系表。名称上限 64 字符，ID 为 1～64 位字母、数字、下划线或连字符，首字符必须为字母或数字。ID 创建后不可修改／复用。
-- users.password_hash 保存带随机盐的 scrypt 哈希；NULL 表示未设置密码，不能密码登录。tenant_status 为 active/deleted，删除只更新状态。created_at/updated_at 记录时间。
+- users.password_hash 保存带随机盐的 scrypt 哈希；NULL 表示未设置密码，不能密码登录。tenant_status 为 active/deleted，删除更新状态并释放手机号绑定。created_at/updated_at 记录时间。
 - tenants.enabled 控制启停，不提供删除。名称保持唯一。system 不可停用，admin 不可删除或移出租户。
 - 登录凭证是无状态 JWT，规则见 [JWT 登录](jwt-login.md)。`auth_sessions` 不再读写，表仍保留。
 - 当前身份来自令牌的 `sub`。修改密码和停用租户不提前作废已签发令牌。删除用户后，该用户的令牌在下一次请求失效。租户停用后业务接口返回 403，会话查询仍可识别用户。
@@ -33,24 +33,29 @@ Agent 缓存键包含当前租户，换租户后不会命中旧租户实例；Me
 
 ## 界面与 API
 
-登录页复用品牌图片，以 14px 为主要字号。包含用户 ID、密码和登录按钮，无注册或找回密码。登录表单关闭浏览器自动填充，使用独立字段名，密码字段标记 `new-password`，避免把同源页面保存的模型 URL/API Key 回填为登录凭据。仅根目录 `.env` 小写 `profile=dev` 时显示“免密登录”，后端同时开放入口。空、未配置、DEV 或其他值均关闭。前端读取布尔能力，不读取环境文件。
+登录页复用品牌图片，以 14px 为主要字号。默认包含用户 ID、密码和登录按钮。短信和自助注册按服务端开关显示，流程见[短信注册与登录](sms-registration-login.md)。登录表单关闭浏览器自动填充，使用独立字段名，密码字段标记 `new-password`，避免把同源页面保存的模型 URL/API Key 回填为登录凭据。仅根目录 `.env` 小写 `profile=dev` 时显示“免密登录”，后端同时开放入口。空、未配置、DEV 或其他值均关闭。前端读取布尔能力，不读取环境文件。
 
-全局导航底部：当前用户为 admin 时显示“系统管理”，包含用户管理／租户管理。用户创建需 ID、名称、租户、初始密码及再次输入密码确认；编辑不带密码，修改密码单独操作。租户下拉显示名称（ID）。支持搜索、租户筛选、基础分页。租户可修改名称及启用状态，无删除功能。
+全局导航底部：当前用户为 admin 时显示“系统管理”，包含用户管理、租户管理和投诉举报。投诉举报的受理与反馈见[投诉举报与反馈](reports.md)。用户创建需 ID、名称、租户、初始密码及再次输入密码确认；编辑不带密码，修改密码单独操作。租户下拉显示名称（ID）。支持搜索、租户筛选、基础分页。租户可修改名称及启用状态，无删除功能。
 
-仅 profile=dev 时所有用户显示用户切换器；有未发送内容时确认。切换失败保留当前页面。头像菜单“登出”删除本地令牌，卸载个人数据并返回登录页；已发出的令牌在过期前仍然有效。失效身份不会自动回退 admin。跨标签页通过 storage 通知刷新，旧请求身份不匹配返回 409。
+管理员在用户管理按用户 ID 或验证编号搜索，点击「手机号已验证」可查看自助注册核验详情。已删除账号的原记录可通过「含已删除的注册账号」查阅。留痕和权限见[短信注册与登录](sms-registration-login.md#管理员查阅)。
+
+仅 profile=dev 时所有用户显示用户切换器；有未发送内容时确认。切换失败保留当前页面。头像菜单、聊天界面与开发态用户列表均只显示用户昵称（`user_name_zh`），不拼接租户名称。头像菜单提供「修改昵称」（修改当前账号 `user_name_zh`，1～64 字符，即时刷新工作台展示）和「修改密码」；「意见反馈」在列表下方提供「个人信息申请」，打开公开页面 `/privacy#requests`；「登出」删除本地令牌，卸载个人数据并返回登录页。已发出的令牌在过期前仍然有效。失效身份不会自动回退 admin。跨标签页通过 storage 通知刷新，旧请求身份不匹配返回 409。
 
 | API | 用途 |
 |---|---|
-| GET /api/auth/config | 匿名读取免密开关 |
+| GET /api/auth/config | 匿名读取免密、自助注册、短信登录开关，以及公开运营主体和申请邮箱。见[隐私说明](privacy-notice.md) |
 | POST /api/auth/login | 用户 ID + 密码，返回 access_token |
+| POST /api/auth/register、/api/auth/login/sms、/api/auth/password/reset、/api/auth/sms/challenges | 自助注册、短信登录与手机验证码找回密码，见[短信注册与登录](sms-registration-login.md) |
+| POST /api/auth/phone/challenges、/api/auth/phone/bind | 已登录普通用户首次绑定手机号 |
 | POST /api/auth/passwordless | 仅 dev，为 admin 签发 access_token |
 | GET /api/auth/session | 获取当前有效身份 |
 | POST /api/auth/switch | 已登录后为 dev 目标用户另签 access_token |
 | POST /api/auth/logout | 无服务端会话可删，不使令牌失效 |
 | GET /api/dev/users | 已登录用户读取可切换用户 |
-| GET /api/admin/users、POST /api/admin/users | 列表／创建用户 |
+| GET /api/admin/users、POST /api/admin/users | 列表含脱敏注册核验信息。创建用户沿用管理流程 |
 | PATCH /api/admin/users/{user_id}、DELETE /api/admin/users/{user_id} | 编辑／软删除用户 |
 | POST /api/admin/users/{user_id}/password | 管理员修改指定用户密码 |
+| PATCH /api/auth/profile | 已登录用户修改当前身份昵称（`user_name_zh`，1～64 字符） |
 | POST /api/auth/password | 已登录用户修改当前身份密码 |
 | GET /api/admin/tenants、POST /api/admin/tenants | 列表／创建租户 |
 | PATCH /api/admin/tenants/{tenant_id} | 修改名称、启停 |

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, App, Button, Checkbox, Drawer, Dropdown, Empty, Form, Input, InputNumber, Modal, Radio, Select, Space, Table, Tabs, Tag, Tooltip } from "antd";
-import { knowledgeApi, roleNames, shareScopeNames, type KnowledgeBase, type KnowledgeCandidate, type KnowledgeMember, type KnowledgeShareScope } from "../api/knowledge";
+import { knowledgeApi, moderationReasons, roleNames, shareScopeNames, type KnowledgeBase, type KnowledgeCandidate, type KnowledgeMember, type KnowledgeModerationBase, type KnowledgeOperation, type KnowledgeShareScope, type ModerationAction } from "../api/knowledge";
 import { useSession } from "../state/session";
 import { KnowledgeSearchTest } from "./KnowledgeSearchTest";
 import { KnowledgeDocuments } from "./KnowledgeDocuments";
@@ -11,10 +11,52 @@ import "../styles/knowledge.css";
 
 const scopeColors: Record<KnowledgeShareScope, string> = { everyone: "cyan", tenant: "blue", selected: "gold" };
 const roleColors: Record<KnowledgeBase["role"], string> = { viewer: "default", editor: "green", owner: "purple", system_admin: "magenta" };
+const dispositionCopy: Record<ModerationAction, { title: string; okText: string; description: string }> = {
+  suspend: { title: "停用知识库？", okText: "确认停用", description: "停用后，所有人都不能再检索、引用或下载该库。正在处理的导入会被取消。" },
+  restore: { title: "恢复共享？", okText: "确认恢复", description: "恢复后按当前账户、租户、成员和共享范围重新开放。已取消的导入不会自动重跑。" },
+  delete: { title: "删除知识库？", okText: "确认删除", description: "删除后不能恢复。文档和历史版本不再提供访问，已有操作记录仍可按库标识查询。" },
+};
+const libraryStatusNames: Record<string, string> = { active: "使用中", suspended: "已停用", deleted: "已删除" };
+const knowledgeIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function confirmDisposition(modal: ReturnType<typeof App.useApp>["modal"], notify: { error: (text: string) => void }, action: ModerationAction, baseName: string) {
+  let reason = "";
+  const copy = dispositionCopy[action];
+  return new Promise<string | null>((resolve) => {
+    modal.confirm({
+      ...confirmModal({
+        title: copy.title,
+        okText: copy.okText,
+        content: <div className="delete-confirm-content">
+          <div className="delete-confirm-resource"><Icon name="knowledge-books" size={20} /><div><strong>{baseName}</strong><span>知识库</span></div></div>
+          <p>{copy.description}</p>
+          <Select className="knowledge-disposition-reason" aria-label="处置原因" placeholder="选择原因" options={[...moderationReasons[action]]} onChange={(value) => { reason = value; }} />
+        </div>,
+      }),
+      okButtonProps: action === "delete" ? { danger: true } : undefined,
+      onOk: () => {
+        if (!reason) { notify.error("请选择处置原因"); return Promise.reject(new Error("reason")); }
+        resolve(reason);
+      },
+      onCancel: () => resolve(null),
+    });
+  });
+}
 
 export function KnowledgeManager({ onClose }: { onClose: () => void }) {
   const { message, modal } = App.useApp();
+  const session = useSession();
+  const systemAdmin = session.userId === "admin";
   const [rows, setRows] = useState<KnowledgeBase[]>([]);
+  const [suspendedRows, setSuspendedRows] = useState<KnowledgeModerationBase[]>([]);
+  const [listing, setListing] = useState<"active" | "suspended">("active");
+  const [history, setHistory] = useState<{ name: string; status: string; kbId: string; items: KnowledgeOperation[] } | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyQueryOpen, setHistoryQueryOpen] = useState(false);
+  const [historyId, setHistoryId] = useState("");
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -35,13 +77,24 @@ export function KnowledgeManager({ onClose }: { onClose: () => void }) {
   const refresh = useCallback(() => setRevision((v) => v + 1), []);
 
   useEffect(() => {
+    if (!systemAdmin && listing === "suspended") { setListing("active"); setPage(1); }
+  }, [systemAdmin, listing]);
+  useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    void knowledgeApi.list(page, search, controller.signal).then((r) => { if (!controller.signal.aborted) { setRows(r.items); setTotal(r.total); setError(""); } }).catch((e: unknown) => {
-      if (!controller.signal.aborted) { setRows([]); setError(e instanceof Error ? e.message : "读取失败"); }
+    const request = listing === "suspended" ? knowledgeApi.suspended(page, search, controller.signal) : knowledgeApi.list(page, search, controller.signal);
+    void request.then((result) => {
+      if (controller.signal.aborted) return;
+      if (listing === "suspended") setSuspendedRows(result.items as KnowledgeModerationBase[]);
+      else setRows(result.items as KnowledgeBase[]);
+      setTotal(result.total); setError("");
+    }).catch((e: unknown) => {
+      if (controller.signal.aborted) return;
+      if (listing === "suspended") setSuspendedRows([]); else setRows([]);
+      setError(e instanceof Error ? e.message : "读取失败");
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [page, search, revision]);
+  }, [page, search, revision, listing]);
 
   const run = async (fn: () => Promise<unknown>) => {
     try { await fn(); refresh(); } catch (e) { message.error(e instanceof Error ? e.message : "操作失败"); }
@@ -99,15 +152,60 @@ export function KnowledgeManager({ onClose }: { onClose: () => void }) {
       }
     },
   });
+  const runDisposition = (base: { id: string; name: string; version: number }, action: ModerationAction) => {
+    void (async () => {
+      const reason = await confirmDisposition(modal, message, action, base.name);
+      if (!reason) return;
+      try {
+        if (action === "suspend") await knowledgeApi.suspend(base.id, base.version, reason);
+        else if (action === "restore") await knowledgeApi.restore(base.id, base.version, reason);
+        else await knowledgeApi.dispose(base.id, base.version, reason);
+        if (action !== "restore") {
+          setDetail((current) => current?.id === base.id ? null : current);
+          setMemberBase((current) => current?.id === base.id ? null : current);
+        }
+        message.success(action === "suspend" ? "知识库已停用" : action === "restore" ? "知识库已恢复共享" : "知识库已删除");
+        refresh();
+      } catch (e) { message.error(e instanceof Error ? e.message : "操作失败"); }
+    })();
+  };
+  const openHistory = async (id: string, page = 1) => {
+    setHistoryLoading(true);
+    setHistoryOpen(true);
+    try {
+      const result = await knowledgeApi.operations(id, page);
+      setHistory({ name: result.name, status: result.status, kbId: result.kb_id, items: result.items });
+      setHistoryPage(result.page);
+      setHistoryTotal(result.total);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+  const suspended = listing === "suspended";
   return <main className="resource-view knowledge-view" aria-label="知识库">
     <WorkspaceHeader title="知识库" icon="knowledge-books" actions={<Button className="action-secondary" icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>返回聊天</Button>} />
     <section className="knowledge-content">
         <div className="skill-resource-actions">
           <Input className="skill-search" allowClear aria-label="搜索知识库" placeholder="搜索知识库" prefix={<Icon name="search" size={14} />} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
-          <Space><Button type="primary" onClick={() => void openEditor("new")}>创建知识库</Button><Button aria-label="刷新知识库" icon={<Icon name="refresh-cw" size={16} />} onClick={refresh} /></Space>
+          <Space>
+            {systemAdmin ? <Select className="knowledge-status-filter" aria-label="知识库状态" value={listing} options={[{ value: "active", label: "使用中" }, { value: "suspended", label: "已停用" }]} onChange={(value: "active" | "suspended") => { setListing(value); setPage(1); setDetail(null); setMemberBase(null); }} /> : null}
+            {systemAdmin ? <Button onClick={() => { setHistoryId(""); setHistoryQueryOpen(true); }}>查询操作记录</Button> : null}
+            <Button type="primary" onClick={() => void openEditor("new")}>创建知识库</Button>
+            <Button aria-label="刷新知识库" icon={<Icon name="refresh-cw" size={16} />} onClick={refresh} />
+          </Space>
         </div>
         {error ? <Alert type="error" showIcon title={error} /> : null}
-        <Table tableLayout="fixed" rowKey="id" loading={loading} dataSource={rows} scroll={{ x: 1000 }} pagination={{ current: page, total, pageSize: 20, showSizeChanger: false, onChange: setPage }} locale={{ emptyText: <Empty description="暂无可访问的知识库" /> }} columns={[
+        {suspended ? <Table<KnowledgeModerationBase> tableLayout="fixed" rowKey="id" loading={loading} dataSource={suspendedRows} scroll={{ x: 1100 }} pagination={{ current: page, total, pageSize: 20, showSizeChanger: false, onChange: setPage }} locale={{ emptyText: <Empty description="暂无已停用的知识库" /> }} columns={[
+          { title: "知识库", dataIndex: "name", width: "calc((100% - 760px) * 0.7)" },
+          { title: "描述", dataIndex: "description", ellipsis: { showTitle: false }, render: (description: string) => description ? <Tooltip title={description} placement="topLeft"><span className="knowledge-description">{description}</span></Tooltip> : null },
+          { title: "所有者", dataIndex: "owner_name_zh", width: 140, render: (_, base) => `${base.owner_name_zh}（${base.owner_user_id}）` },
+          { title: "共享", dataIndex: "share_scope", width: 88, render: (value: KnowledgeShareScope) => <Tag className="knowledge-meta-tag" color={scopeColors[value]}>{shareScopeNames[value]}</Tag> },
+          { title: "操作", width: 360, className: "knowledge-actions-cell", render: (_, base) => <Space>
+            <Button className="action-secondary" onClick={() => runDisposition(base, "restore")}>恢复共享</Button>
+            <Button className="action-secondary" onClick={() => runDisposition(base, "delete")}>删除知识库</Button>
+            <Button className="action-secondary" onClick={() => void openHistory(base.id).catch((e: unknown) => message.error(e instanceof Error ? e.message : "读取失败"))}>操作记录</Button>
+          </Space> },
+        ]} /> : <Table tableLayout="fixed" rowKey="id" loading={loading} dataSource={rows} scroll={{ x: 1000 }} pagination={{ current: page, total, pageSize: 20, showSizeChanger: false, onChange: setPage }} locale={{ emptyText: <Empty description="暂无可访问的知识库" /> }} columns={[
           { title: "知识库", dataIndex: "name", width: "calc((100% - 752px) * 0.7)", render: (_, base) => <Button type="link" onClick={() => void openDocuments(base.id)}>{base.name}</Button> },
           { title: "描述", dataIndex: "description", ellipsis: { showTitle: false }, render: (description: string) => description ? <Tooltip title={description} placement="topLeft" styles={{ container: { fontSize: "var(--text-md)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }}><span className="knowledge-description">{description}</span></Tooltip> : null },
           { title: "共享", dataIndex: "share_scope", width: 88, render: (value: KnowledgeShareScope) => <Tag className="knowledge-meta-tag" color={scopeColors[value]}>{shareScopeNames[value]}</Tag> },
@@ -120,15 +218,22 @@ export function KnowledgeManager({ onClose }: { onClose: () => void }) {
                 <Button className="action-secondary" onClick={() => void openEditor(base)}>编辑</Button>
                 <Button className="action-secondary" onClick={() => void run(async () => setMemberBase(await knowledgeApi.detail(base.id)))}>成员</Button>
                 <Dropdown trigger={["click"]} menu={{
-                  items: [{ key: "delete", label: "删除知识库", danger: true }],
-                  onClick: () => confirmDelete(base),
+                  items: [
+                    ...(systemAdmin ? [{ key: "history", label: "操作记录" }, { key: "suspend", label: "停用" }] : []),
+                    { key: "delete", label: "删除知识库", danger: true },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "history") void openHistory(base.id).catch((e: unknown) => message.error(e instanceof Error ? e.message : "读取失败"));
+                    if (key === "suspend") runDisposition(base, "suspend");
+                    if (key === "delete") confirmDelete(base);
+                  },
                 }}>
                   <Button className="action-secondary" aria-label="更多操作" aria-haspopup="menu" title="更多操作">…</Button>
                 </Dropdown>
               </> : null}
             </Space>;
           } },
-        ]} />
+        ]} />}
     </section>
     <Modal forceRender width={728} className="knowledge-editor-modal" title={editing === "new" ? "创建知识库" : "编辑知识库"} open={editing !== null} onCancel={() => setEditing(null)} onOk={() => void save()} confirmLoading={saving} okText="保存" cancelText="取消">
       <Form form={form} layout="vertical">
@@ -148,6 +253,7 @@ export function KnowledgeManager({ onClose }: { onClose: () => void }) {
         <div className="knowledge-detail-summary">
           <span>共享状态 <Tag className="knowledge-meta-tag" color={scopeColors[detail.share_scope]}>{{ everyone: "所有人", tenant: "同租户", selected: "指定人员" }[detail.share_scope]}</Tag></span>
           <span>权限 <Tag className="knowledge-meta-tag" color={roleColors[detail.role]}>{roleNames[detail.role]}</Tag></span>
+          {systemAdmin ? <Button className="action-secondary" onClick={() => { const id = detail.id; setDetail(null); void openHistory(id).catch((e: unknown) => message.error(e instanceof Error ? e.message : "读取失败")); }}>操作记录</Button> : null}
         </div>
         <Tabs activeKey={detailTab} onChange={setDetailTab} key={detail.id} destroyOnHidden items={[
           { key: "documents", label: "文档", children: <KnowledgeDocuments base={detail} /> },
@@ -164,6 +270,30 @@ export function KnowledgeManager({ onClose }: { onClose: () => void }) {
       </> : null}
     </Drawer>
     {memberBase ? <KnowledgeMembers key={memberBase.id} base={memberBase} onScopeSaved={(updated) => { setDetail((current) => current?.id === updated.id ? updated : current); refresh(); }} onClose={() => setMemberBase(null)} onChanged={() => { setMemberBase(null); setDetail(null); refresh(); }} /> : null}
+    <Modal title="查询操作记录" open={historyQueryOpen} okText="查询" cancelText="取消" onCancel={() => setHistoryQueryOpen(false)} onOk={() => {
+      const id = historyId.trim();
+      if (!knowledgeIdPattern.test(id)) { message.error("请输入知识库标识"); return; }
+      setHistoryQueryOpen(false);
+      void openHistory(id).catch((e: unknown) => message.error(e instanceof Error ? e.message : "读取失败"));
+    }}>
+      <Input aria-label="知识库标识" placeholder="知识库标识" value={historyId} onChange={(event) => setHistoryId(event.target.value)} />
+    </Modal>
+    <Drawer title="操作记录" open={historyOpen} onClose={() => setHistoryOpen(false)} size="large">
+      {history ? <>
+        <dl className="knowledge-detail-info">
+          <dt>知识库</dt><dd>{history.name}</dd>
+          <dt>状态</dt><dd>{libraryStatusNames[history.status] ?? history.status}</dd>
+          <dt>库标识</dt><dd>{history.kbId}</dd>
+        </dl>
+        <Table<KnowledgeOperation> style={{ marginTop: 16 }} rowKey="id" loading={historyLoading} dataSource={history.items} locale={{ emptyText: "暂无操作记录" }} pagination={{ current: historyPage, total: historyTotal, pageSize: 20, showSizeChanger: false, onChange: (next) => void openHistory(history.kbId, next).catch((e: unknown) => message.error(e instanceof Error ? e.message : "读取失败")) }} columns={[
+          { title: "时间", dataIndex: "created_at", width: 180, render: (value: string) => { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" }); } },
+          { title: "操作人", dataIndex: "actor_label", width: 160 },
+          { title: "知识库", dataIndex: "kb_name", ellipsis: true },
+          { title: "动作", dataIndex: "action_label", width: 140 },
+          { title: "说明", dataIndex: "detail", render: (value: string) => value || "—" },
+        ]} />
+      </> : null}
+    </Drawer>
   </main>;
 }
 
@@ -236,7 +366,7 @@ function KnowledgeMembers({ base, onClose, onChanged, onScopeSaved }: { base: Kn
       {error ? <Alert type="error" title={error} /> : null}
       <section className="knowledge-member-section" aria-labelledby="knowledge-default-access">
         <h3 id="knowledge-default-access">默认查看范围</h3>
-        <p>决定谁无需单独授权就能查看和下载原件。系统管理员始终可以访问。</p>
+        <p>决定谁无需单独授权就能查看和下载原件。使用中的库，系统管理员不受此范围限制。</p>
         <ShareScopeCards value={draftScope} disabled={busy} onChange={setDraftScope} />
         <div className="knowledge-scope-footer">
           <span role="status">当前生效：{shareScopeNames[scope]}{draftScope !== scope ? " · 有未保存的更改" : ""}</span>

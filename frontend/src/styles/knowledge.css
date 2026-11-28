@@ -8,6 +8,8 @@
 .knowledge-view .knowledge-actions-cell,
 .knowledge-view .knowledge-actions-cell .ant-space { white-space: nowrap; flex-wrap: nowrap; }
 .knowledge-view .skill-resource-actions { margin: var(--space-4) 0; display: flex; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
+.knowledge-status-filter { width: 112px; }
+.knowledge-disposition-reason { width: 100%; margin-top: var(--space-3); }
 .knowledge-view .ant-alert { margin-bottom: var(--space-4); }
 
 .knowledge-editor-modal.ant-modal { top: 24px; padding-bottom: 24px; }

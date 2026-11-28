@@ -21,14 +21,25 @@
 | `DEEPSEEK_API_KEY` | 内置 DeepSeek 联网搜索、网页读取、聊天语音识别、助手回复朗读和知识库 OCR 的凭据，读取根目录 `.env`；留空不影响启动。未设置时搜索、网页读取、语音识别、朗读，以及 PDF、Office、图片导入不可用。朗读消耗 DeepSeek 语音合成额度 |
 | `KNOWLEDGE_OCR_TIMEOUT_SECONDS` | 知识库 OCR 单次请求时限，默认 180 秒，须为正整数。覆盖连接、上传和读取完整响应；保活换行不延长时限 |
 | `MELONCLAW_DATA_DIR` | Skill 等持久资源目录，默认 `~/.melonclaw/data` |
+| `MELONCLAW_AUDIT_ALERT_WEBHOOK_URL` | 审计文件写失败时的接收地址。留空则只在应用日志记警告，不会通知负责人。地址由部署者填写，不要写入仓库、日志或问题反馈。只有配置后并用测试接收端确认送达，才能认为负责人会收到通知 |
+| `MELONCLAW_AUDIT_ALERT_TIMEOUT_SECONDS` | 告警发送超时，默认 2 秒，最大 30 秒，且必须小于重试间隔 |
+| `MELONCLAW_AUDIT_ALERT_RETRY_SECONDS` | 同一次持续写入故障中，通知失败后的重试间隔，默认 300 秒 |
 | `MELONCLAW_WORKSPACE_DIR` | 会话与项目文件目录，默认 `~/.melonclaw/workspaces` |
 | `MELONCLAW_TASK_EXECUTION_TIMEOUT_SECONDS` | 后台完整运行时限（包含模型解析、历史摘要、Agent 构建和执行），默认 1800 秒，须为正整数 |
 | `MELONCLAW_TASK_RESULT_MAX_CHARS` | 任务文字结果上限，默认 200000 字符，超限明确失败并保留部分内容 |
 | `profile` | 仅 `dev` 开启免密登录和全员身份切换；直接启动后端时按此值生效 |
 | `MELONCLAW_JWT_SECRET` | 登录 JWT 的签名密钥。必须配置，至少 32 个字符；缺失、空白或更短则拒绝启动。不提供公开默认值 |
 | `MELONCLAW_TOKEN_TTL_HOURS` | 新签发令牌的有效期小时数。未设置或空白时为 1000。配置后必须是不小于 1 的整数，否则拒绝启动。已发出的令牌仍用自己的过期时间 |
+| `MELONCLAW_REPORT_CONTACT_EMAIL` | 投诉页展示的运营邮箱。留空或格式无效时不展示，站内表单仍可用 |
+| `MELONCLAW_REPORT_CONTACT_NAME` | 投诉页联系人姓名。只有邮箱有效时才展示，最长 40 字 |
+| `MELONCLAW_REPORT_RESPONSE_HOURS` | 承诺响应小时数，1 到 720。只有邮箱有效时才展示；留空或无效则不展示时限 |
+| `MELONCLAW_OPERATOR_NAME` | 隐私说明页显示的运营主体，最长 80 个字符。留空可以启动；含控制字符或超长则拒绝启动。申请邮箱复用上面的 `MELONCLAW_REPORT_CONTACT_EMAIL`，见[隐私说明](design-docs/privacy-notice.md) |
+| `MELONCLAW_SMS_ENABLED` | 短信验证总开关，默认 false。关闭时不要求阿里云凭据，密码登录不受影响 |
+| `MELONCLAW_REGISTRATION_ENABLED` | 自助注册开关，默认 false，且必须同时开启短信。关闭时已绑定用户仍可短信登录 |
 | `MELONCLAW_HOST` | Web 监听地址，默认 `127.0.0.1`。由 `core/config.py` 的 `web_bind()` 解析，不进入 Settings |
 | `MELONCLAW_PORT` | Web 监听端口，默认 `8000`，必须是整数。同样只经 `web_bind()` 读取 |
+
+启用短信时还须配置 `MELONCLAW_SMS_ACCESS_KEY_ID`、`MELONCLAW_SMS_ACCESS_KEY_SECRET`、`MELONCLAW_SMS_SIGN_NAME`、`MELONCLAW_SMS_TEMPLATE_AUTH`、`MELONCLAW_SMS_TEMPLATE_BIND` 和至少 32 个字符的 `MELONCLAW_PHONE_HMAC_KEY`；可选配置 `MELONCLAW_SMS_TEMPLATE_RESET` 指定找回密码专用模板（留空沿用 `MELONCLAW_SMS_TEMPLATE_AUTH`）。这些值只经 `core/config.py` 读取，不进入前端或 Agent 环境。频控、模板变量和升级步骤见[短信注册与登录](design-docs/sms-registration-login.md)。
 
 持久数据目录和工作区必须位于项目代码目录之外。仓库里的内置 Skill 是分发模板，安装后使用外部数据目录中的运行时副本。
 

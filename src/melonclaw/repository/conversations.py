@@ -40,6 +40,36 @@ from melonclaw.repository.tasks import scope as task_scope
 from melonclaw.repository.tasks import task_lock
 
 
+def visible_conversation_query(conversation_id: UUID, user_id: str):
+    """会话详情、指定消息和内容举报共用当前归属检查。"""
+    return (
+        select(
+            chat_conversations,
+            projects.c.name.label("project_name"),
+            projects.c.workdir_path,
+            tasks.c.id.label("task_id"),
+        )
+        .select_from(
+            chat_conversations.outerjoin(
+                projects,
+                and_(
+                    chat_conversations.c.project_id == projects.c.id,
+                    chat_conversations.c.user_id == projects.c.user_id,
+                    projects.c.status == "active",
+                ),
+            )
+        )
+        .outerjoin(tasks, tasks.c.conversation_id == chat_conversations.c.id)
+        .where(
+            chat_conversations.c.id == conversation_id,
+            chat_conversations.c.user_id == user_id,
+            chat_conversations.c.status == "active",
+            or_(tasks.c.id.is_(None), and_(*task_scope(tasks, user_id))),
+            or_(chat_conversations.c.project_id.is_(None), projects.c.id.is_not(None)),
+        )
+    )
+
+
 class ConversationRepositoryMixin:
     async def create_conversation(
         self,
@@ -71,34 +101,7 @@ class ConversationRepositoryMixin:
         conversation_id: UUID,
         user_id: str,
     ) -> dict[str, Any] | None:
-        query = (
-            select(
-                chat_conversations,
-                projects.c.name.label("project_name"),
-                projects.c.workdir_path,
-                tasks.c.id.label("task_id"),
-            )
-            .select_from(
-                chat_conversations.outerjoin(
-                    projects,
-                    and_(
-                        chat_conversations.c.project_id == projects.c.id,
-                        chat_conversations.c.user_id == projects.c.user_id,
-                        projects.c.status == "active",
-                    ),
-                )
-            )
-            .outerjoin(tasks, tasks.c.conversation_id == chat_conversations.c.id)
-            .where(
-                and_(
-                    chat_conversations.c.id == conversation_id,
-                    chat_conversations.c.user_id == user_id,
-                    chat_conversations.c.status == "active",
-                    or_(tasks.c.id.is_(None), and_(*task_scope(tasks, user_id))),
-                    or_(chat_conversations.c.project_id.is_(None), projects.c.id.is_not(None)),
-                )
-            )
-        )
+        query = visible_conversation_query(conversation_id, user_id)
         async with self.engine.connect() as connection:
             row = (await connection.execute(query)).mappings().first()
         return _conversation_dict(row) if row else None

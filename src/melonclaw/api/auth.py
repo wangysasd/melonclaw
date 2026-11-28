@@ -12,7 +12,19 @@ from fastapi import HTTPException, Request
 from melonclaw.api.dependencies import get_chat_service
 from melonclaw.services.accounts import AccountService
 
-PUBLIC_PATHS = {"/api/auth/config", "/api/auth/login", "/api/auth/passwordless", "/api/ready"}
+PUBLIC_PATHS = {
+    "/api/auth/config",
+    "/api/auth/login",
+    "/api/auth/passwordless",
+    "/api/auth/sms/challenges",
+    "/api/auth/register",
+    "/api/auth/login/sms",
+    "/api/auth/password/reset",
+    "/api/ready",
+    "/api/reports/channels",
+    "/api/reports/anonymous",
+    "/api/reports/lookup",
+}
 
 
 def bearer_token(request: Request) -> str:
@@ -26,7 +38,13 @@ def accounts(request: Request) -> AccountService:
     manager = get_chat_service(request)
     if manager.storage is None:
         raise HTTPException(503, "账户服务尚未就绪，请稍后重试。")
-    return AccountService(manager.storage)
+    state = request.app.state
+    return AccountService(
+        manager.storage,
+        sms=getattr(state, "sms_provider", None),
+        settings=getattr(state, "sms_settings", None),
+        clock=getattr(state, "sms_clock", None),
+    )
 
 
 def public_user(context):
