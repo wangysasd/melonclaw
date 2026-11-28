@@ -4,8 +4,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from melonclaw.tool.tools import (
-    _load_mcp_tools_with_catalog,
+    McpDiscoveryResult,
     build_mcp_catalog_tool,
+    build_mcp_tools,
+    discover_mcp_tools,
     load_mcp_tools,
 )
 
@@ -45,12 +47,13 @@ class McpToolLoadingTests(unittest.IsolatedAsyncioTestCase):
                 return [FakeTool("healthy_tool")]
 
         with patch("melonclaw.tool.tools.MultiServerMCPClient", Client):
-            tools, catalog, failures = await _load_mcp_tools_with_catalog(servers)
+            result = await discover_mcp_tools(servers)
 
-        self.assertEqual(len(tools), 1)
-        self.assertTrue(tools[0].name.startswith("mcp__healthy__healthy_tool__"))
-        self.assertEqual(catalog, {"healthy": (tools[0].name,)})
-        self.assertEqual(failures, {"unauthorized": "HTTP 401"})
+        self.assertEqual(len(result.tools), 1)
+        self.assertTrue(result.tools[0].name.startswith("mcp__healthy__healthy_tool__"))
+        self.assertEqual(result.catalog, {"healthy": (result.tools[0].name,)})
+        self.assertEqual(result.failures, {"unauthorized": "HTTP 401"})
+        self.assertEqual(result.transient_failures, frozenset({"unauthorized"}))
 
     async def test_public_loader_returns_successes_when_one_server_fails(self):
         servers = {
@@ -87,15 +90,16 @@ class McpToolLoadingTests(unittest.IsolatedAsyncioTestCase):
                 return [FakeTool(f"{server_name}_tool")]
 
         with patch("melonclaw.tool.tools.MultiServerMCPClient", Client):
-            tools, catalog, failures = await _load_mcp_tools_with_catalog(
+            result = await discover_mcp_tools(
                 servers,
                 {"filtered": ("missing_tool",)},
             )
 
-        self.assertEqual(len(tools), 1)
-        self.assertTrue(tools[0].name.startswith("mcp__healthy__healthy_tool__"))
-        self.assertEqual(catalog, {"healthy": (tools[0].name,), "filtered": ()})
-        self.assertEqual(failures, {})
+        self.assertEqual(len(result.tools), 1)
+        self.assertTrue(result.tools[0].name.startswith("mcp__healthy__healthy_tool__"))
+        self.assertEqual(result.catalog, {"healthy": (result.tools[0].name,), "filtered": ()})
+        self.assertEqual(result.failures, {})
+        self.assertEqual(result.transient_failures, frozenset())
 
     async def test_all_mcp_failures_still_leave_agent_tools_available(self):
         from melonclaw.tool.tools import build_agent_tools
@@ -143,12 +147,78 @@ class McpToolLoadingTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {"TUSHARE_MCP_TOKEN": "secret-value"}), patch(
             "melonclaw.tool.tools.MultiServerMCPClient", Client
         ):
-            _, _, failures = await _load_mcp_tools_with_catalog(servers)
+            result = await discover_mcp_tools(servers)
 
         self.assertEqual(
-            failures["secret"],
+            result.failures["secret"],
             "MCP 连接或协议错误",
         )
+        self.assertEqual(result.transient_failures, frozenset({"secret"}))
+
+    async def test_configuration_error_is_deterministic_and_not_transient(self):
+        servers = {
+            "healthy": {"transport": "http", "url": "https://healthy.test/mcp"},
+            "misconfigured": {"transport": "http", "configuration_error": True},
+        }
+
+        class Client:
+            def __init__(self, configured):
+                self.configured = configured
+
+            async def get_tools(self, *, server_name):
+                return [FakeTool("healthy_tool")]
+
+        with patch("melonclaw.tool.tools.MultiServerMCPClient", Client):
+            result = await discover_mcp_tools(servers)
+
+        self.assertEqual(len(result.tools), 1)
+        self.assertEqual(
+            result.failures,
+            {"misconfigured": "凭据或配置无法解析，请检查配置。"},
+        )
+        self.assertEqual(result.transient_failures, frozenset())
+
+        tools = await build_mcp_tools(servers, discovery=result)
+        catalog = next(t for t in tools if t.name == "list_mcp_tools")
+        self.assertTrue(catalog.metadata["mcp_failures"])
+        self.assertFalse(catalog.metadata["mcp_transient_failures"])
+        self.assertEqual(catalog.invoke({})["failed_server_count"], 1)
+
+    async def test_all_configuration_errors_skip_client_instantiation(self):
+        servers = {"broken_env": {"transport": "http", "configuration_error": True}}
+
+        class FailingClient:
+            def __init__(self, _servers):
+                raise AssertionError("should not connect when all servers have config errors")
+
+        with patch("melonclaw.tool.tools.MultiServerMCPClient", FailingClient):
+            result = await discover_mcp_tools(servers)
+
+        self.assertEqual(result.tools, ())
+        self.assertIn("broken_env", result.failures)
+        self.assertEqual(result.transient_failures, frozenset())
+
+    async def test_prebuilt_discovery_skips_rediscovery(self):
+        prebuilt = McpDiscoveryResult(
+            tools=(),
+            catalog={"healthy": ()},
+            failures={"broken": "连接超时"},
+            transient_failures=frozenset({"broken"}),
+        )
+
+        class FailingClient:
+            def __init__(self, _servers):
+                raise AssertionError("should not discover when discovery is prebuilt")
+
+        with patch("melonclaw.tool.tools.MultiServerMCPClient", FailingClient):
+            tools = await build_mcp_tools(
+                {"healthy": {"transport": "http"}, "broken": {"transport": "http"}},
+                discovery=prebuilt,
+            )
+
+        catalog = next(t for t in tools if t.name == "list_mcp_tools")
+        self.assertTrue(catalog.metadata["mcp_failures"])
+        self.assertTrue(catalog.metadata["mcp_transient_failures"])
 
     def test_catalog_exposes_failed_server_without_credentials(self):
         tool = build_mcp_catalog_tool(
@@ -233,11 +303,12 @@ def test_partial_allowlist_keeps_existing_tools_and_ignores_new_tools():
 
     async def run():
         with patch("melonclaw.tool.tools.MultiServerMCPClient", Client):
-            tools, catalog, failures = await _load_mcp_tools_with_catalog(
+            result = await discover_mcp_tools(
                 {"demo": {"transport": "http", "url": "https://example.com/mcp"}},
                 {"demo": ("search", "removed")},
             )
-        assert len(tools) == 1 and "__search__" in tools[0].name
-        assert catalog == {"demo": (tools[0].name,)} and not failures
+        assert len(result.tools) == 1 and "__search__" in result.tools[0].name
+        assert result.catalog == {"demo": (result.tools[0].name,)} and not result.failures
+        assert not result.transient_failures
 
     asyncio.run(run())

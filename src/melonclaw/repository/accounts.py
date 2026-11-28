@@ -3,15 +3,17 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from sqlalchemy import insert, select, text, update
+from sqlalchemy import and_, delete, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from melonclaw.database.schema import (
     chat_conversations,
     chat_messages,
+    registration_verifications,
     task_runs,
     tasks,
     tenants,
+    user_phones,
     users,
 )
 from melonclaw.repository.mappers import _now
@@ -19,6 +21,27 @@ from melonclaw.repository.mappers import _now
 
 class AccountConflict(ValueError):
     """存在活动请求或任务，无法修改身份归属。"""
+
+
+def _public_account_user(row) -> dict:
+    """管理员列表只带脱敏核验结果，不带号码摘要。"""
+
+    verified = row["verification_id"] is not None and row["method"] == "sms_code"
+    return {
+        "user_id": row["user_id"],
+        "user_name_zh": row["user_name_zh"],
+        "tenant_id": row["tenant_id"],
+        "tenant_role": row["tenant_role"],
+        "tenant_status": row["tenant_status"],
+        "created_at": row["created_at"],
+        "tenant_name_zh": row["tenant_name_zh"],
+        "tenant_enabled": row["tenant_enabled"],
+        "phone_verified": verified,
+        "phone_tail": row["phone_tail"] if verified else None,
+        "verification_method": "短信验证码" if verified else None,
+        "verified_at": row["verified_at"] if verified else None,
+        "verification_id": row["verification_id"] if verified else None,
+    }
 
 
 class AccountRepositoryMixin:
@@ -36,14 +59,27 @@ class AccountRepositoryMixin:
                 await conn.execute(text("SELECT pg_advisory_xact_lock_shared(hashtext(current_schema()), 741923)"))
             yield conn
 
-    async def account_users(self):
+    async def account_users(self, *, include_deleted_registrations: bool = False):
+        visible = users.c.tenant_status == "active"
+        if include_deleted_registrations:
+            visible = or_(visible, and_(
+                users.c.tenant_status == "deleted",
+                registration_verifications.c.user_id.is_not(None),
+            ))
         query = select(
             users.c.user_id, users.c.user_name_zh, users.c.tenant_id,
             users.c.tenant_role, users.c.tenant_status, users.c.created_at,
             tenants.c.tenant_name_zh, tenants.c.enabled.label("tenant_enabled"),
-        ).join(tenants).where(users.c.tenant_status == "active").order_by(users.c.user_id)
+            registration_verifications.c.verification_id,
+            registration_verifications.c.method,
+            registration_verifications.c.phone_tail,
+            registration_verifications.c.verified_at,
+        ).join(tenants).outerjoin(
+            registration_verifications,
+            registration_verifications.c.user_id == users.c.user_id,
+        ).where(visible).order_by(users.c.user_id)
         async with self.engine.connect() as conn:
-            return [dict(row) for row in (await conn.execute(query)).mappings()]
+            return [_public_account_user(row) for row in (await conn.execute(query)).mappings()]
 
     async def account_tenants(self):
         async with self.engine.connect() as conn:
@@ -113,12 +149,21 @@ class AccountRepositoryMixin:
             ).values(tenant_status="deleted", updated_at=_now()))
             if not result.rowcount:
                 raise ValueError("用户不存在。")
+            await conn.execute(delete(user_phones).where(user_phones.c.user_id == user_id))
 
     async def set_account_password(self, user_id, password_hash):
         async with self.account_guard(exclusive=True) as conn:
             result = await conn.execute(update(users).where(
                 users.c.user_id == user_id, users.c.tenant_status == "active",
             ).values(password_hash=password_hash, updated_at=_now()))
+            if not result.rowcount:
+                raise ValueError("用户不存在。")
+
+    async def set_account_name(self, user_id, user_name_zh):
+        async with self.account_guard(exclusive=True) as conn:
+            result = await conn.execute(update(users).where(
+                users.c.user_id == user_id, users.c.tenant_status == "active",
+            ).values(user_name_zh=user_name_zh, updated_at=_now()))
             if not result.rowcount:
                 raise ValueError("用户不存在。")
 

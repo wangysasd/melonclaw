@@ -13,6 +13,7 @@ from melonclaw.database.schema import KNOWLEDGE_TABLES, metadata
 def test_knowledge_update_is_registered_after_environment():
     from melonclaw.database.updates import UPDATES
     from melonclaw.database.updates.knowledge import upgrade
+    from melonclaw.database.updates.knowledge_moderation import upgrade as knowledge_moderation
     from melonclaw.database.updates.model_purpose import upgrade as model_purpose
     from melonclaw.database.updates.parser_model import upgrade as parser_model
 
@@ -20,9 +21,11 @@ def test_knowledge_update_is_registered_after_environment():
     assert ids.index("20261117_knowledge") == ids.index("20261017_environment") + 1
     assert ids.index("20261117_model_purpose") == ids.index("20261117_knowledge") + 1
     assert ids.index("20261117_parser_model") == ids.index("20261117_model_purpose") + 1
+    assert ids.index("20261126_knowledge_moderation") == ids.index("20261117_parser_model") + 1
     assert UPDATES[ids.index("20261117_knowledge")].upgrade is upgrade
     assert UPDATES[ids.index("20261117_model_purpose")].upgrade is model_purpose
     assert UPDATES[ids.index("20261117_parser_model")].upgrade is parser_model
+    assert UPDATES[ids.index("20261126_knowledge_moderation")].upgrade is knowledge_moderation
 
 
 def test_knowledge_ddl_has_fixed_vector_and_cyclic_foreign_key():
@@ -31,6 +34,7 @@ def test_knowledge_ddl_has_fixed_vector_and_cyclic_foreign_key():
     metadata.create_all(engine, tables=KNOWLEDGE_TABLES)
     ddl = '\n'.join(statements)
     assert 'VECTOR(1024)' in ddl
+    assert "'base_suspended'" in ddl and "'base_restored'" in ddl and "'base_created'" in ddl
     assert 'ALTER TABLE knowledge_documents ADD CONSTRAINT fk_kb_document_active_revision' in ddl
     assert 'GENERATED ALWAYS AS' in ddl
     assert len(KNOWLEDGE_TABLES) == 8

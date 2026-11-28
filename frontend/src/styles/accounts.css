@@ -1,152 +1,624 @@
-.login-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--canvas); font-size: var(--text-md); }
-.passwordless-button { margin-top: 12px; }
+/* 登录页与账户管理样式：与清透冰蓝磨砂工作台同源。 */
+.login-page {
+  height: 100dvh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: var(--space-2);
+  background: var(--workspace-canvas);
+  color: var(--ink);
+  font-size: var(--text-md);
+  overflow: hidden;
+}
+
+.login-card {
+  width: min(100%, 400px);
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border-radius: var(--radius-workspace);
+  background: var(--panel);
+  box-shadow: var(--resource-card-shadow);
+}
+
 .account-page { display: flex; flex: 1; flex-direction: column; min-width: 0; height: 100dvh; font-size: var(--text-md); }
 .account-page-content { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--page-padding) var(--space-6); }
 .account-toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
 .account-page .ant-table-cell { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 
-/* RMS 登录：浅蓝品牌区与白色表单区；认证沿用同一表单。 */
-.rms-login-page {
+/* 通高一体化双栏登录舞台：与工作台共用 8px 外留白与 16px 外圆角。 */
+.login-stage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 56% minmax(0, 1fr);
-  place-items: stretch;
-  padding: 0;
+  grid-template-columns: minmax(0, 1.3fr) minmax(440px, 0.7fr);
+  border-radius: var(--radius-workspace);
+  border: 1px solid rgba(255, 255, 255, 0.88);
   background: var(--panel);
-  color: var(--ink);
-  font-size: var(--text-base);
-}
-.rms-login-visual {
-  position: relative;
-  min-height: 100dvh;
+  box-shadow:
+    0 20px 56px rgba(36, 59, 83, 0.06),
+    0 2px 10px rgba(36, 59, 83, 0.03);
   overflow: hidden;
-  background: var(--canvas);
 }
-.rms-login-background {
+
+/* 左侧清透玻璃视觉区 */
+.login-visual {
+  position: relative;
+  min-width: 0;
+  min-height: 100%;
+  overflow: hidden;
+  background: var(--glass-blue);
+  border-right: 1px solid var(--glass-edge);
+}
+
+.login-visual-img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  display: block;
   object-fit: cover;
+  object-position: center;
+}
+
+.rms-login-background {
   object-position: center bottom;
 }
-.rms-login-logo {
-  display: block;
-  position: relative;
-  width: 128px;
-  height: 44px;
-  overflow: hidden;
-}
-/* 源字标自带透明留白；缩放与偏移须保留完整字标。 */
-.rms-login-logo img {
-  position: absolute;
-  width: 253px;
-  max-width: none;
-  height: auto;
-  left: -63px;
-  top: -22px;
-  filter: brightness(1.06);
-}
-.rms-login-logo { mix-blend-mode: multiply; }
+
 .rms-login-headline {
   position: relative;
-  margin: clamp(180px, 27vh, 360px) clamp(32px, 5.2vw, 80px) 0;
+  z-index: 1;
+  margin: 0;
+  padding: clamp(44px, 7vh, 76px) clamp(32px, 4vw, 56px) 0;
   font-family: var(--font-ui);
-  font-size: clamp(28px, 3vw, 44px);
+  font-size: clamp(26px, 2.5vw, 36px);
   font-weight: var(--weight-regular);
-  color: color-mix(in srgb, var(--brand-primary) 30%, var(--muted));
-  line-height: 1.5;
+  color: color-mix(in srgb, var(--brand-primary) 26%, var(--message-user-ink));
+  line-height: 1.45;
   letter-spacing: 0.04em;
 }
-.rms-login-content {
+
+/* 右侧通高表单列：正文居中伸展，内容较长时独立滚动，底栏自然贴底且永不覆盖表单。 */
+.login-form-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--chat-surface);
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.login-form-pane:hover,
+.login-form-pane:focus-within {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.login-form-pane::-webkit-scrollbar {
+  width: 6px;
+}
+
+.login-form-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.login-form-pane::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.login-form-pane:hover::-webkit-scrollbar-thumb,
+.login-form-pane:focus-within::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+
+.login-form-body {
+  flex: 1 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 0;
-  padding: 64px clamp(32px, 5vw, 80px);
-  background: var(--panel);
-}
-.rms-login-form { width: 100%; max-width: 360px; min-width: 0; }
-.rms-login-form-logo {
-  width: 160px;
-  height: 56px;
-  margin: 0 auto 48px;
-}
-.rms-login-form-logo img {
-  width: 260px;
-  left: -50px;
-  top: -13px;
-}
-.rms-login-form .ant-alert { margin-bottom: var(--space-5); }
-.rms-login-form .ant-form-item { margin-bottom: var(--space-8); }
-.rms-login-form .ant-form-item-label { padding-bottom: var(--space-2); }
-.rms-login-form .ant-input,
-.rms-login-form .ant-input-affix-wrapper,
-.rms-login-form .ant-btn {
-  min-height: var(--control-height-touch);
-  border-radius: var(--radius-control);
-  font-size: var(--text-base);
-}
-.rms-login-form .ant-input-affix-wrapper .ant-input { min-height: 0; }
-.rms-login-form .passwordless-button { margin-top: var(--space-4); }
-@media (max-width: 900px) {
-  .rms-login-page { display: flex; flex-direction: column; }
-  .rms-login-visual { display: none; }
-  .rms-login-background, .rms-login-headline { display: none; }
-  .rms-login-content { flex: 1; padding: var(--space-10) var(--page-padding); }
-}
-@media (max-width: 480px) {
-  .rms-login-form-logo { width: 160px; height: 56px; }
+  padding: var(--space-10) clamp(28px, 4.5vw, 56px) var(--space-5);
 }
 
-
-/* 默认品牌：左侧开放式表单，右侧浅蓝玻璃 AI 装饰。 */
-.melon-login-page {
-  grid-template-columns: 44% minmax(0, 1fr);
-  place-items: stretch;
-  padding: 0;
-  background: var(--panel);
-  color: var(--ink);
-}
-.melon-login-content {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  padding: 64px clamp(32px, 7.8vw, 112px);
-}
-.melon-login-form {
-  position: relative;
-  isolation: isolate;
+.login-form-card {
   width: 100%;
-  max-width: 430px;
+  max-width: 368px;
   min-width: 0;
 }
+
+.login-form-card.is-portal {
+  max-width: 420px;
+}
+
+/* 品牌头 */
+.login-brand-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.login-brand-header.is-rms {
+  align-items: center;
+  margin-bottom: var(--space-8);
+}
+
+/* MelonClaw 透明字标：留出上下安全余量避免亚像素裁切，左缘与标题/表单对齐。 */
 .melon-login-logo {
   display: block;
   position: relative;
-  width: min(100%, 240px);
-  aspect-ratio: 7.4;
+  width: 184px;
+  aspect-ratio: 6.4;
   overflow: hidden;
-  margin-bottom: 56px;
+  flex-shrink: 0;
+}
+
+.melon-login-logo img {
+  position: absolute;
+  width: 117.8%;
+  max-width: none;
+  height: auto;
+  left: -9.2%;
+  top: -71%;
+  display: block;
+}
+
+.melon-login-heading {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  line-height: var(--line-height-title);
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+/* RMS 居中字标：按内容区居中展示并留出安全余量。 */
+.rms-login-logo {
+  display: block;
+  position: relative;
+  width: 156px;
+  aspect-ratio: 3.7;
+  overflow: hidden;
   mix-blend-mode: multiply;
 }
-.melon-login-logo img { position: absolute; width: 147%; max-width: none; left: -23.7%; top: -122%; filter: brightness(1.06); }
-.melon-login-heading { margin-bottom: 40px; }
-.melon-login-heading h1 { margin: 0; font-size: clamp(26px, 2.7vw, 36px); font-weight: 600; line-height: 1.4; letter-spacing: 0.02em; }
-.melon-login-form .ant-alert { margin-bottom: 20px; }
-.melon-login-form .ant-form-item { margin-bottom: 28px; }
-.melon-login-form .ant-input,
-.melon-login-form .ant-input-affix-wrapper,
-.melon-login-form .ant-btn { min-height: 44px; font-size: var(--text-base); border-radius: var(--radius-control); }
-.melon-login-form .ant-input-affix-wrapper .ant-input { min-height: 0; }
-.rms-login-form .ant-btn.login-submit,
-.melon-login-form .ant-btn.login-submit { display: flex; width: 50%; margin-inline: auto; }
-.melon-login-form .passwordless-button { display: block; width: auto; padding-inline: 0; margin: 16px auto 0; }
-.melon-login-visual { min-width: 0; overflow: hidden; }
-.melon-login-visual img { display: block; width: 100%; height: 100%; min-height: 100dvh; object-fit: cover; object-position: center; }
+
+.rms-login-logo img {
+  position: absolute;
+  width: 170%;
+  max-width: none;
+  height: auto;
+  left: -35%;
+  top: -54%;
+  display: block;
+}
+
+/* 认证表单区域 */
+.auth-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.auth-panel .ant-alert {
+  margin-bottom: var(--space-4);
+  border-radius: var(--radius-card);
+}
+
+/* 登录方式沿用线形页签的分隔线与选中指示。 */
+.auth-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.auth-mode-tab {
+  min-height: var(--control-height-lg);
+  margin-bottom: -1px;
+  padding: 6px var(--space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+  line-height: var(--line-height-sm);
+  cursor: pointer;
+  transition: color var(--button-transition-duration);
+}
+
+.auth-mode-tab:hover:not(:disabled):not(.is-active) {
+  color: var(--brand-primary-hover);
+}
+
+.auth-mode-tab.is-active {
+  border-bottom-color: var(--brand-primary);
+  color: var(--brand-primary);
+  font-weight: var(--weight-medium);
+}
+
+.auth-mode-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.auth-mode-tab:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.auth-register-bar {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.auth-register-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  line-height: var(--line-height-base);
+  color: var(--muted);
+}
+
+.rms-login-form .auth-register-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+
+/* 表单字段与输入控件 */
+.login-form-card .ant-form-item {
+  margin-bottom: var(--space-4);
+}
+
+.auth-panel.is-register .ant-form-item,
+.auth-panel.is-reset .ant-form-item {
+  margin-bottom: var(--space-3);
+}
+
+.login-form-card .ant-form-item-label {
+  padding-bottom: 6px;
+}
+
+.login-form-card .ant-form-item-label > label {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--ink);
+  height: auto;
+}
+
+.login-form-card .ant-input,
+.login-form-card .ant-input-affix-wrapper,
+.login-form-card .ant-select-outlined .ant-select-selector {
+  min-height: var(--control-height-lg);
+  border-radius: var(--radius-card);
+  border-color: var(--glass-edge);
+  background: var(--panel);
+  font-size: var(--text-md);
+  transition: border-color var(--button-transition-duration), box-shadow var(--button-transition-duration);
+}
+
+.login-form-card .ant-select-single {
+  height: auto;
+}
+
+.login-form-card .ant-input:hover,
+.login-form-card .ant-input-affix-wrapper:hover,
+.login-form-card .ant-select-outlined:not(.ant-select-disabled):hover .ant-select-selector {
+  border-color: var(--brand-border);
+}
+
+.login-form-card .ant-input:focus,
+.login-form-card .ant-input-affix-wrapper-focused,
+.login-form-card .ant-select-focused.ant-select-outlined .ant-select-selector {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.1);
+}
+
+.login-form-card .ant-input-affix-wrapper .ant-input {
+  min-height: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.login-form-card .ant-input-affix-wrapper .ant-input:focus {
+  box-shadow: none;
+}
+
+/* 短信用途说明使用表单辅助文字样式。 */
+.auth-note {
+  margin: -2px 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.auth-info-popover .auth-note {
+  margin: 0;
+}
+
+.auth-note a {
+  color: var(--brand-primary);
+  font-size: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.auth-note a:hover {
+  text-decoration: underline;
+}
+
+.auth-note a:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* 验证码输入 + 次操作获取按钮 */
+.auth-code-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.auth-code-row .ant-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.auth-code-button.ant-btn {
+  flex: 0 0 auto;
+  min-width: 112px;
+  min-height: var(--control-height-lg);
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-card);
+  font-size: var(--text-md);
+  white-space: nowrap;
+}
+
+/* 主提交动作区 */
+.auth-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: var(--space-5);
+}
+
+.auth-panel.is-register .auth-actions,
+.auth-panel.is-reset .auth-actions {
+  margin-top: var(--space-4);
+}
+
+.login-submit.ant-btn {
+  width: 100%;
+  min-height: 42px;
+  border-radius: var(--radius-card);
+  font-size: var(--text-md);
+}
+
+/* 注册 / 登录入口切换行 */
+.auth-switch-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: var(--space-5);
+  font-size: var(--text-md);
+  line-height: var(--line-height-base);
+}
+
+.auth-switch-row.is-split {
+  justify-content: space-between;
+}
+
+.auth-switch-hint {
+  color: var(--muted);
+}
+
+.auth-switch-sep {
+  color: var(--line-strong);
+  user-select: none;
+}
+
+.auth-inline-link {
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--brand-primary);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: color var(--button-transition-duration);
+}
+
+.auth-inline-link:hover:not(:disabled) {
+  color: var(--brand-primary-active);
+  text-decoration: underline;
+}
+
+.auth-inline-link.passwordless-link {
+  min-height: 24px;
+  margin-top: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+.auth-inline-link:disabled {
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+.auth-inline-link:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* 低干扰合规与备案底栏：正常文档流贴底，绝不遮挡表单。 */
+.login-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-6) var(--space-5);
+  border-top: 1px solid var(--line-light);
+}
+
+.login-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 2px 8px;
+}
+
+.login-footer-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--line-height-sm);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color var(--button-transition-duration);
+}
+
+.login-footer-link:hover {
+  color: var(--brand-primary);
+  text-decoration: underline;
+}
+
+.login-footer-link:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.login-footer-sep {
+  color: var(--line-strong);
+  font-size: var(--text-sm);
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-mode-tab,
+  .auth-inline-link,
+  .login-footer-link,
+  .login-form-card .ant-input,
+  .login-form-card .ant-input-affix-wrapper {
+    transition: none;
+  }
+}
+
+/* 平板及中等屏：居中圆角卡，隐藏左侧配图，恢复页面级滚动。 */
 @media (max-width: 900px) {
-  .melon-login-page { display: flex; flex-direction: column; }
-  .melon-login-content { flex: 1; padding: 48px 24px; }
-  .melon-login-visual { display: none; }
-  .melon-login-logo { margin-bottom: 48px; }
+  .login-page {
+    height: auto;
+    align-items: center;
+    padding: var(--space-6) var(--space-4);
+    overflow: visible;
+  }
+
+  .login-stage {
+    max-width: 460px;
+    height: auto;
+    min-height: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .login-form-pane {
+    overflow-y: visible;
+  }
+
+  .login-visual {
+    display: none;
+  }
+
+  .login-form-body {
+    padding: var(--space-8) var(--space-6) var(--space-5);
+  }
+
+  .login-form-card,
+  .login-form-card.is-portal {
+    max-width: 100%;
+  }
+
+  .auth-mode-tab,
+  .login-form-card .ant-input,
+  .login-form-card .ant-input-affix-wrapper,
+  .auth-code-button.ant-btn,
+  .login-submit.ant-btn {
+    min-height: var(--control-height-touch);
+  }
+}
+
+/* 手机窄屏：全屏清爽表面，顶部安全留白与 44px 触控区域。 */
+@media (max-width: 520px) {
+  .login-page {
+    padding: 0;
+    align-items: stretch;
+    background: var(--panel);
+  }
+
+  .login-stage {
+    max-width: none;
+    min-height: 100dvh;
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .login-form-body {
+    align-items: flex-start;
+    padding: clamp(32px, 7vh, 56px) 20px var(--space-5);
+  }
+
+  .login-brand-header {
+    margin-bottom: var(--space-5);
+  }
+
+  .melon-login-logo {
+    width: 164px;
+  }
+
+  .login-footer {
+    padding: var(--space-3) var(--space-4) var(--space-5);
+  }
+}
+
+@media (max-width: 340px) {
+  .auth-code-row {
+    flex-direction: column;
+  }
+
+  .auth-code-button.ant-btn {
+    width: 100%;
+  }
+}
+
+.auth-info-button {
+  border: 0;
+  padding: 2px 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.auth-info-button:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
 }

@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
+
+logger = logging.getLogger(__name__)
+_REPORT_WARNED: set[str] = set()
+_REPORT_EMAIL = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
 
 def _validate_persistent_root(root: Path) -> Path:
@@ -56,6 +63,41 @@ def _audit_dir(data_root: Path) -> Path:
     return _validate_persistent_root(Path(configured).expanduser())
 
 
+def _webhook_url(value: str) -> bool:
+    """只接受不含账号口令的 http(s) 地址。失败时不回显原值。"""
+
+    if not value or len(value) > 2000 or any(ord(char) < 33 or char.isspace() for char in value):
+        return False
+    parsed = urlsplit(value)
+    return (
+        parsed.scheme.lower() in {"http", "https"}
+        and bool(parsed.hostname)
+        and not parsed.username
+        and not parsed.password
+    )
+
+
+def _audit_alert_config() -> dict[str, object]:
+    """审计写入失败的接收地址。留空表示只保留应用警告。"""
+
+    timeout = _int_setting("MELONCLAW_AUDIT_ALERT_TIMEOUT_SECONDS", 2)
+    retry = _int_setting("MELONCLAW_AUDIT_ALERT_RETRY_SECONDS", 300)
+    if timeout > 30:
+        raise RuntimeError("MELONCLAW_AUDIT_ALERT_TIMEOUT_SECONDS 不能大于 30。")
+    if retry > 86400:
+        raise RuntimeError("MELONCLAW_AUDIT_ALERT_RETRY_SECONDS 不能大于 86400。")
+    if timeout >= retry:
+        raise RuntimeError("审计告警超时必须小于重试间隔。")
+    raw = os.getenv("MELONCLAW_AUDIT_ALERT_WEBHOOK_URL", "").strip()
+    if raw and not _webhook_url(raw):
+        raise RuntimeError("MELONCLAW_AUDIT_ALERT_WEBHOOK_URL 必须是 http 或 https 地址。")
+    return {
+        "audit_alert_webhook_url": raw,
+        "audit_alert_timeout_seconds": timeout,
+        "audit_alert_retry_seconds": retry,
+    }
+
+
 def _int_setting(name: str, default: int, *, minimum: int = 1) -> int:
     """解析附件资源限制，避免解析器直接读取环境变量。"""
 
@@ -92,11 +134,15 @@ class Settings:
 
     workspace_root: Path
     assistant_name: str = "MelonClaw"
+    operator_name: str = ""
     profile: str = ""
     jwt_secret: str = field(default="", repr=False)
     token_ttl_hours: int = 1000
     data_root: Path = field(default_factory=_create_data_root)
     audit_dir: Path | None = None
+    audit_alert_webhook_url: str = field(default="", repr=False)
+    audit_alert_timeout_seconds: int = 2
+    audit_alert_retry_seconds: int = 300
     database_url: str = field(default="", repr=False)
     deepseek_api_key: str = field(default="", repr=False)
     knowledge_embedding_api_key: str = field(default="", repr=False)
@@ -151,6 +197,24 @@ class Settings:
     task_result_max_chars: int = 200_000
     task_history_timeout_seconds: int = 60
     task_history_summary_max_calls: int = 4
+    sms_enabled: bool = False
+    registration_enabled: bool = False
+    sms_access_key_id: str = field(default="", repr=False)
+    sms_access_key_secret: str = field(default="", repr=False)
+    sms_sign_name: str = ""
+    sms_template_auth: str = ""
+    sms_template_bind: str = ""
+    sms_template_reset: str = ""
+    sms_code_variable: str = "code"
+    sms_minutes_variable: str = "min"
+    phone_hmac_key: str = field(default="", repr=False)
+    sms_phone_interval_seconds: int = 60
+    sms_phone_daily_limit: int = 10
+    sms_ip_daily_limit: int = 30
+    sms_global_daily_limit: int = 200
+    sms_max_attempts: int = 5
+    sms_code_ttl_seconds: int = 300
+    sms_timeout_seconds: int = 8
 
     langfuse_enabled: bool = False
     langfuse_public_key: str = field(default="", repr=False)
@@ -166,6 +230,9 @@ class Settings:
     task_checkpoint_retention_days: int = 30
     task_operation_retention_days: int = 30
     task_cleanup_interval_seconds: int = 3600
+    report_contact_email: str = ""
+    report_contact_name: str = ""
+    report_response_hours: int | None = None
 
     def __post_init__(self) -> None:
         if min(self.task_poll_seconds, self.task_global_concurrency, self.task_user_concurrency,
@@ -181,6 +248,16 @@ class Settings:
             raise ValueError("最大重试间隔不能小于初始间隔。")
         if min(self.task_execution_timeout_seconds, self.task_result_max_chars) < 1:
             raise ValueError("任务时限和结果上限必须为正数。")
+        if (
+            self.audit_alert_timeout_seconds < 1
+            or self.audit_alert_retry_seconds < 1
+            or self.audit_alert_timeout_seconds > 30
+            or self.audit_alert_retry_seconds > 86400
+            or self.audit_alert_timeout_seconds >= self.audit_alert_retry_seconds
+        ):
+            raise ValueError("审计告警超时必须小于重试间隔，并且都在允许范围内。")
+        if self.audit_alert_webhook_url and not _webhook_url(self.audit_alert_webhook_url):
+            raise ValueError("审计告警接收地址无效。")
 
     def summary_trigger_tokens(self, context_window: int) -> int:
         """按数据库模型窗口计算阈值，并校验输出与近期保留预算。"""
@@ -219,20 +296,103 @@ def jwt_settings() -> tuple[str, int]:
     return _jwt_secret(), _token_ttl_hours()
 
 
+def _operator_name() -> str:
+    """公开运营主体。留空可以启动；控制字符或超长时拒绝启动。"""
+
+    name = os.getenv("MELONCLAW_OPERATOR_NAME", "").strip()
+    if re.search(r"[\x00-\x1f\x7f]", name):
+        raise RuntimeError("MELONCLAW_OPERATOR_NAME 含有无效字符。")
+    if len(name) > 80:
+        raise RuntimeError("MELONCLAW_OPERATOR_NAME 过长。")
+    return name
+
+
+def _variable_name(name: str, default: str) -> str:
+    raw = os.getenv(name, default).strip() or default
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,20}", raw) is None:
+        raise RuntimeError(f"{name} 格式无效。")
+    return raw
+
+
+def _sms_config() -> dict[str, object]:
+    """短信关闭时不要求云凭据，避免未开通的部署无法启动。"""
+
+    enabled = _bool_setting("MELONCLAW_SMS_ENABLED", False)
+    registration = _bool_setting("MELONCLAW_REGISTRATION_ENABLED", False)
+    if not enabled:
+        if registration:
+            raise RuntimeError("MELONCLAW_REGISTRATION_ENABLED 需要同时启用 MELONCLAW_SMS_ENABLED。")
+        return {"sms_enabled": False, "registration_enabled": False}
+    required = {
+        "MELONCLAW_SMS_ACCESS_KEY_ID": os.getenv("MELONCLAW_SMS_ACCESS_KEY_ID", "").strip(),
+        "MELONCLAW_SMS_ACCESS_KEY_SECRET": os.getenv("MELONCLAW_SMS_ACCESS_KEY_SECRET", "").strip(),
+        "MELONCLAW_SMS_SIGN_NAME": os.getenv("MELONCLAW_SMS_SIGN_NAME", "").strip(),
+        "MELONCLAW_SMS_TEMPLATE_AUTH": os.getenv("MELONCLAW_SMS_TEMPLATE_AUTH", "").strip(),
+        "MELONCLAW_SMS_TEMPLATE_BIND": os.getenv("MELONCLAW_SMS_TEMPLATE_BIND", "").strip(),
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        raise RuntimeError("短信已启用，但缺少配置：" + "、".join(missing) + "。")
+    if len(required["MELONCLAW_SMS_SIGN_NAME"]) > 40:
+        raise RuntimeError("MELONCLAW_SMS_SIGN_NAME 过长。")
+    hmac_key = os.getenv("MELONCLAW_PHONE_HMAC_KEY", "").strip()
+    if len(hmac_key) < 32:
+        raise RuntimeError("MELONCLAW_PHONE_HMAC_KEY 必须配置且至少 32 个字符。")
+    interval = _int_setting("MELONCLAW_SMS_PHONE_INTERVAL_SECONDS", 60)
+    phone_daily = _int_setting("MELONCLAW_SMS_PHONE_DAILY_LIMIT", 10)
+    ip_daily = _int_setting("MELONCLAW_SMS_IP_DAILY_LIMIT", 30)
+    global_daily = _int_setting("MELONCLAW_SMS_GLOBAL_DAILY_LIMIT", 200)
+    attempts = _int_setting("MELONCLAW_SMS_MAX_ATTEMPTS", 5)
+    if attempts > 10:
+        raise RuntimeError("MELONCLAW_SMS_MAX_ATTEMPTS 不能大于 10。")
+    ttl = _int_setting("MELONCLAW_SMS_CODE_TTL_SECONDS", 300)
+    if not 60 <= ttl <= 1800:
+        raise RuntimeError("MELONCLAW_SMS_CODE_TTL_SECONDS 必须在 60 到 1800 之间。")
+    timeout = _int_setting("MELONCLAW_SMS_TIMEOUT_SECONDS", 8)
+    if timeout > 30:
+        raise RuntimeError("MELONCLAW_SMS_TIMEOUT_SECONDS 不能大于 30。")
+    return {
+        "sms_enabled": True,
+        "registration_enabled": registration,
+        "sms_access_key_id": required["MELONCLAW_SMS_ACCESS_KEY_ID"],
+        "sms_access_key_secret": required["MELONCLAW_SMS_ACCESS_KEY_SECRET"],
+        "sms_sign_name": required["MELONCLAW_SMS_SIGN_NAME"],
+        "sms_template_auth": required["MELONCLAW_SMS_TEMPLATE_AUTH"],
+        "sms_template_bind": required["MELONCLAW_SMS_TEMPLATE_BIND"],
+        "sms_template_reset": (
+            os.getenv("MELONCLAW_SMS_TEMPLATE_RESET", "").strip()
+            or required["MELONCLAW_SMS_TEMPLATE_AUTH"]
+        ),
+        "sms_code_variable": _variable_name("MELONCLAW_SMS_CODE_VARIABLE", "code"),
+        "sms_minutes_variable": _variable_name("MELONCLAW_SMS_MINUTES_VARIABLE", "min"),
+        "phone_hmac_key": hmac_key,
+        "sms_phone_interval_seconds": interval,
+        "sms_phone_daily_limit": phone_daily,
+        "sms_ip_daily_limit": ip_daily,
+        "sms_global_daily_limit": global_daily,
+        "sms_max_attempts": attempts,
+        "sms_code_ttl_seconds": ttl,
+        "sms_timeout_seconds": timeout,
+    }
+
+
 def load_settings() -> Settings:
     """读取应用环境配置。"""
 
     jwt_secret, token_ttl_hours = jwt_settings()
     data_root = _create_data_root()
+    sms = _sms_config()
     return Settings(
         workspace_root=_create_workspace_root(),
         assistant_name=os.getenv("MELONCLAW_NAME", "").strip() or "MelonClaw",
+        operator_name=_operator_name(),
         profile=os.getenv("profile", ""),
         jwt_secret=jwt_secret,
         token_ttl_hours=token_ttl_hours,
         data_root=data_root,
         audit_dir=_audit_dir(data_root),
         database_url=os.getenv("DATABASE_URL", ""),
+        **_audit_alert_config(),
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         knowledge_embedding_api_key=os.getenv("KNOWLEDGE_EMBEDDING_API_KEY", "").strip(),
         knowledge_embedding_url=os.getenv("KNOWLEDGE_EMBEDDING_URL", "").strip(),
@@ -351,7 +511,52 @@ def load_settings() -> Settings:
         user_input_ttl_seconds=_int_setting(
             "MELONCLAW_USER_INPUT_TTL_SECONDS", 24 * 60 * 60
         ),
+        report_contact_email=_report_email(),
+        report_contact_name=_report_name(),
+        report_response_hours=_report_hours(),
+        **sms,
     )
+
+
+def _warn_report_once(key: str, message: str) -> None:
+    if key in _REPORT_WARNED:
+        return
+    _REPORT_WARNED.add(key)
+    logger.warning(message)
+
+
+def _report_email() -> str:
+    raw = os.getenv("MELONCLAW_REPORT_CONTACT_EMAIL", "").strip()
+    if not raw:
+        return ""
+    if len(raw) > 120 or _REPORT_EMAIL.fullmatch(raw) is None:
+        _warn_report_once("email", "MELONCLAW_REPORT_CONTACT_EMAIL 无效，投诉页不展示邮箱。")
+        return ""
+    return raw
+
+
+def _report_name() -> str:
+    raw = os.getenv("MELONCLAW_REPORT_CONTACT_NAME", "").strip()
+    if not raw:
+        return ""
+    if len(raw) > 40 or any(ord(char) < 32 or ord(char) == 127 for char in raw):
+        _warn_report_once("name", "MELONCLAW_REPORT_CONTACT_NAME 无效，投诉页不展示联系人。")
+        return ""
+    return raw
+
+
+def _report_hours() -> int | None:
+    raw = os.getenv("MELONCLAW_REPORT_RESPONSE_HOURS", "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if not 1 <= value <= 720:
+        _warn_report_once("hours", "MELONCLAW_REPORT_RESPONSE_HOURS 无效，投诉页不展示响应时限。")
+        return None
+    return value
 
 
 def provider_env_key(name: str) -> str | None:

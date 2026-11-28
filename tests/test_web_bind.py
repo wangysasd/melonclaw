@@ -37,3 +37,4 @@ def test_web_entry_uses_config_bind(monkeypatch):
     assert seen["host"] == "127.0.0.1"
     assert seen["port"] == 8123
     assert seen["log_level"] == "info"
+    assert seen["proxy_headers"] is False

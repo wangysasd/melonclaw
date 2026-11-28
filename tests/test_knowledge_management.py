@@ -14,9 +14,22 @@ from test_model_configs import make_provider_row, make_row
 
 from melonclaw.api.app import create_app
 from melonclaw.api.routes.knowledge import CreateBase, UpdateBase
-from melonclaw.core.knowledge import ChunkConfig, KnowledgeDenied, require_role
+from melonclaw.core.knowledge import (
+    ChunkConfig,
+    KnowledgeDenied,
+    KnowledgeError,
+    is_system_admin,
+    knowledge_operation_item,
+    require_role,
+)
 from melonclaw.core.model_catalog import resolve_knowledge_model_row, resolve_model_row
-from melonclaw.repository.knowledge import visible_query
+from melonclaw.database.knowledge_schema import EVENT_ACTIONS
+from melonclaw.repository.knowledge import (
+    EVENT_DETAIL_KEYS,
+    suspended_admin_query,
+    validate_knowledge_event,
+    visible_query,
+)
 from melonclaw.services.knowledge import KnowledgeService
 from melonclaw.services.knowledge_models import test_model_connection as probe_connection
 from melonclaw.services.resource_service import ModelConfigPayload, validate_model_payload
@@ -61,6 +74,93 @@ def test_visible_sql_filters_before_pagination_and_is_parameterized():
         "LIMIT",
     ]:
         assert required in sql
+    assert "active" in compiled.params.values()
+    assert "suspended" not in compiled.params.values()
+    moderated = suspended_admin_query("not-a-sql-literal").compile(dialect=postgresql.dialect())
+    moderated_sql = str(moderated)
+    assert "not-a-sql-literal" not in moderated_sql
+    assert {"admin", "system", "suspended"} <= set(moderated.params.values())
+    assert "knowledge_documents" not in moderated_sql
+    assert "knowledge_chunks" not in moderated_sql
+
+
+def test_moderation_reasons_are_fixed_codes_and_do_not_echo_document_text():
+    assert set(EVENT_DETAIL_KEYS) == set(EVENT_ACTIONS)
+    assert is_system_admin("admin", "system")
+    assert not is_system_admin("admin", "team")
+    assert not is_system_admin("owner", "system")
+    validate_knowledge_event("base_suspended", {"reason": "report_review"})
+    validate_knowledge_event("base_deleted", {})
+    validate_knowledge_event("base_deleted", {"reason": "confirmed_violation"})
+    for values in (
+        {},
+        {"reason": "自由文本"},
+        {"reason": "report_review", "content": "文档正文"},
+    ):
+        with pytest.raises(KnowledgeError):
+            validate_knowledge_event("base_suspended", values)
+    with pytest.raises(KnowledgeError):
+        validate_knowledge_event("base_deleted", {"reason": "把正文写进原因"})
+    item = knowledge_operation_item(
+        {
+            "id": "event",
+            "kb_id": "kb",
+            "action": "base_suspended",
+            "actor_user_id": "admin",
+            "user_name_zh": "管理员",
+            "target_id": "kb",
+            "created_at": "2026-11-26T00:00:00Z",
+            "safe_details": {"reason": "report_review", "content": "不应出现的文档正文"},
+        },
+        kb_name="库A",
+    )
+    assert item["detail"] == "接到举报，暂停核查"
+    assert item["action_label"] == "停用"
+    assert "不应出现" not in str(item)
+    assert "content" not in item
+
+
+def test_moderation_routes_use_the_verified_user_and_reject_free_text_reasons():
+    async def run():
+        from melonclaw.api.routes.knowledge import DisposeRequest, RestoreRequest, SuspendRequest
+        from melonclaw.core.knowledge import DELETE_REASONS, RESTORE_REASONS, SUSPEND_REASONS
+
+        assert set(SuspendRequest.model_fields["reason"].annotation.__args__) == set(SUSPEND_REASONS)
+        assert set(RestoreRequest.model_fields["reason"].annotation.__args__) == set(RESTORE_REASONS)
+        assert set(DisposeRequest.model_fields["reason"].annotation.__args__) == set(DELETE_REASONS)
+        repo = SimpleNamespace(
+            knowledge_suspend=AsyncMock(return_value={"id": "kb", "status": "suspended", "version": 2}),
+            knowledge_moderation_list=AsyncMock(side_effect=KnowledgeDenied("知识库不存在或无权访问。")),
+        )
+        app = authenticated_route_app(create_app(), "verified-user")
+        app.state.chat = SimpleNamespace(
+            runtime=SimpleNamespace(require_ready=lambda: repo, settings=object())
+        )
+        kb_id = str(uuid4())
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            rejected = await client.post(
+                f"/api/knowledge-bases/{kb_id}/suspend",
+                json={"version": 1, "reason": "自由输入的文档正文"},
+            )
+            assert rejected.status_code == 422
+            assert "文档" not in rejected.text
+            accepted = await client.post(
+                f"/api/knowledge-bases/{kb_id}/suspend",
+                json={"version": 3, "reason": "report_review"},
+            )
+            assert accepted.status_code == 200
+            args = repo.knowledge_suspend.await_args.args
+            assert args[0] == "verified-user"
+            assert str(args[1]) == kb_id
+            assert args[2:] == (3, "report_review")
+            denied = await client.get("/api/knowledge-moderation/bases")
+            assert denied.status_code == 404
+            history = await client.get(f"/api/knowledge-bases/{kb_id}/operations")
+            assert history.status_code == 403
+
+    asyncio.run(run())
 
 
 def test_chunk_and_mutation_schemas_reject_unbounded_or_legacy_fields():
@@ -295,5 +395,78 @@ def test_knowledge_remote_model_list_uses_only_shared_key():
         storage.providers["my-gateway"]["api_key"] = None
         with pytest.raises(ValueError, match="共享 Key"):
             await service.fetch_remote_models("admin-1", "my-gateway", purpose="document_parser")
+
+    asyncio.run(run())
+
+
+def test_operation_item_shows_scope_change_and_only_recorded_reasons():
+    from melonclaw.core.knowledge import knowledge_operation_item
+
+    share = knowledge_operation_item(
+        {
+            "id": "1",
+            "created_at": "t",
+            "actor_user_id": "owner",
+            "user_name_zh": "甲",
+            "kb_id": "kb",
+            "action": "share_scope_changed",
+            "target_id": "kb",
+            "safe_details": {"previous": "tenant", "share_scope": "everyone"},
+        },
+        kb_name="甲库",
+    )
+    assert share["detail"] == "同租户 → 所有用户"
+    assert share["actor_label"] == "甲（owner）"
+    assert share["kb_name"] == "甲库"
+    missing = knowledge_operation_item(
+        {
+            "id": "2",
+            "created_at": "t",
+            "actor_user_id": "owner",
+            "user_name_zh": "甲",
+            "kb_id": "kb",
+            "action": "base_deleted",
+            "target_id": "kb",
+            "safe_details": {},
+        },
+        kb_name="甲库",
+    )
+    assert missing["detail"] == "未记录"
+    recorded = knowledge_operation_item(
+        {
+            "id": "3",
+            "created_at": "t",
+            "actor_user_id": None,
+            "kb_id": "kb",
+            "action": "base_suspended",
+            "target_id": "kb",
+            "safe_details": {"reason": "report_review"},
+        },
+        kb_name="甲库",
+    )
+    assert recorded["actor_label"] == "系统"
+    assert recorded["action_label"] == "停用"
+    assert recorded["detail"] == "接到举报，暂停核查"
+
+
+def test_operation_history_route_rejects_non_admin_before_reading():
+    repo = SimpleNamespace(knowledge_operation_history=AsyncMock(return_value={"items": []}))
+
+    async def run():
+        denied = authenticated_route_app(create_app(), "owner")
+        denied.state.chat = SimpleNamespace(runtime=SimpleNamespace(require_ready=lambda: repo))
+        allowed = authenticated_route_app(create_app(), "admin")
+        allowed.state.chat = SimpleNamespace(runtime=SimpleNamespace(require_ready=lambda: repo))
+        kb_id = str(uuid4())
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(denied), base_url="http://test") as client:
+            response = await client.get(f"/api/knowledge-bases/{kb_id}/operations")
+            assert response.status_code == 403
+            assert "只有系统管理员" in response.text
+        repo.knowledge_operation_history.assert_not_called()
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(allowed), base_url="http://test") as client:
+            response = await client.get(f"/api/knowledge-bases/{kb_id}/operations")
+            assert response.status_code == 200
+        assert repo.knowledge_operation_history.await_args.args[0] == "admin"
+        assert str(repo.knowledge_operation_history.await_args.args[1]) == kb_id
 
     asyncio.run(run())

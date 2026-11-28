@@ -15,6 +15,31 @@ export interface KnowledgeBase {
 export interface KnowledgeMember { user_id: string; user_name_zh: string; tenant_name_zh: string; role: "viewer" | "editor" }
 export interface KnowledgeCandidate { user_id: string; user_name_zh: string; tenant_name_zh: string }
 export const roleNames: Record<KnowledgeRole, string> = { viewer: "查看者", editor: "编辑者", owner: "所有者", system_admin: "系统管理员" };
+export const moderationReasons = {
+  suspend: [
+    { value: "report_review", label: "接到举报，暂停核查" },
+    { value: "risk_hold", label: "发现风险，暂停共享" },
+  ],
+  restore: [
+    { value: "review_passed", label: "复核通过，恢复共享" },
+    { value: "report_unfounded", label: "举报不成立，恢复共享" },
+  ],
+  delete: [
+    { value: "confirmed_violation", label: "确认违规，删除知识库" },
+  ],
+} as const;
+export type ModerationAction = keyof typeof moderationReasons;
+export interface KnowledgeModerationBase {
+  id: string; owner_user_id: string; owner_name_zh: string; name: string; description: string;
+  status: "suspended"; share_scope: KnowledgeShareScope; version: number;
+  created_at: string; updated_at: string;
+}
+export interface KnowledgeOperation {
+  id: string; created_at: string; actor_user_id: string | null; actor_label: string;
+  kb_id: string; kb_name: string; action: string; action_label: string; detail: string;
+}
+const dispositionActions = new Set(["base_suspended", "base_restored", "base_deleted"]);
+export const isDispositionAction = (action: string) => dispositionActions.has(action);
 const path = (id: string) => `/api/knowledge-bases/${encodeURIComponent(id)}`;
 export const knowledgeApi = {
   search: (id: string, body: KnowledgeSearchInput, signal?: AbortSignal) => apiRequest<KnowledgeSearchResult>(`${path(id)}/search`, { method: "POST", body, signal }),
@@ -41,6 +66,11 @@ export const knowledgeApi = {
   create: (body: unknown) => apiRequest<KnowledgeBase>("/api/knowledge-bases", { method: "POST", body }),
   update: (id: string, body: unknown) => apiRequest<KnowledgeBase>(path(id), { method: "PATCH", body }),
   delete: (id: string, version: number) => apiRequest(path(id), { method: "DELETE", query: { version } }),
+  suspend: (id: string, version: number, reason: string) => apiRequest<{ id: string; status: string; version: number }>(`${path(id)}/suspend`, { method: "POST", body: { version, reason } }),
+  restore: (id: string, version: number, reason: string) => apiRequest<{ id: string; status: string; version: number }>(`${path(id)}/restore`, { method: "POST", body: { version, reason } }),
+  dispose: (id: string, version: number, reason: string) => apiRequest<{ id: string; status: string; version: number }>(`${path(id)}/dispose`, { method: "POST", body: { version, reason } }),
+  suspended: (page: number, search: string, signal?: AbortSignal) => apiRequest<{ items: KnowledgeModerationBase[]; total: number }>("/api/knowledge-moderation/bases", { query: { page, page_size: 20, search }, signal }),
+  operations: (id: string, page = 1, signal?: AbortSignal) => apiRequest<{ kb_id: string; name: string; status: string; items: KnowledgeOperation[]; total: number; page: number; page_size: number }>(`${path(id)}/operations`, { query: { page, page_size: 20 }, signal }),
   members: (id: string) => apiRequest<{ items: KnowledgeMember[] }>(`${path(id)}/members`),
   candidates: (id: string, search = "") => apiRequest<{ items: KnowledgeCandidate[] }>(`${path(id)}/member-candidates`, { query: { search } }),
   userCandidates: (search = "") => apiRequest<{ items: KnowledgeCandidate[] }>("/api/knowledge-user-candidates", { query: { search } }),

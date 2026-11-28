@@ -22,8 +22,10 @@ from melonclaw.repository.mcp import McpRepositoryMixin
 from melonclaw.repository.mcp_install import McpInstallRepositoryMixin
 from melonclaw.repository.memory_events import MemoryEventRepositoryMixin
 from melonclaw.repository.projects import ProjectRepositoryMixin
+from melonclaw.repository.reports import ReportRepositoryMixin
 from melonclaw.repository.resource_versions import ResourceVersions
 from melonclaw.repository.resources import ResourceRepositoryMixin
+from melonclaw.repository.sms_auth import SmsAuthRepositoryMixin
 from melonclaw.repository.user_interactions import UserInteractionRepositoryMixin
 from melonclaw.repository.users import UserRepositoryMixin
 
@@ -35,6 +37,8 @@ class BusinessRepository(
     KnowledgeEmbeddingRepositoryMixin,
     KnowledgeSearchRepositoryMixin,
     AccountRepositoryMixin,
+    ReportRepositoryMixin,
+    SmsAuthRepositoryMixin,
     EnvironmentRepositoryMixin,
     UserRepositoryMixin,
     ProjectRepositoryMixin,

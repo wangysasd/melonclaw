@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from deepagents import FilesystemPermission
 from deepagents.backends import (
@@ -30,6 +31,85 @@ def _build_shell_env(environment: dict[str, str] | None = None) -> dict[str, str
         ]
     )
     return env
+
+
+class _VirtualRouteBackend(BackendProtocol):
+    """仅通过虚拟文件工具访问的本地目录路由包装。
+
+    不继承 ``FilesystemBackend``，避免 ``FilesystemMiddleware`` 在系统提示中
+    为 ``/.attachments/``、``/.artifacts/`` 输出包含会话 UUID 的宿主机映射路径：
+    既防止向 Shell 提示暴露内部目录宿主机路径，又保持不同新会话的系统提示前缀
+    完全一致，使模型 KV 前缀缓存跨会话生效。
+    """
+
+    def __init__(self, root_dir: Path) -> None:
+        self._inner = FilesystemBackend(root_dir=root_dir, virtual_mode=True)
+
+    def ls(self, path: str) -> Any:
+        return self._inner.ls(path)
+
+    async def als(self, path: str) -> Any:
+        return await self._inner.als(path)
+
+    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> Any:
+        return self._inner.read(file_path, offset=offset, limit=limit)
+
+    async def aread(self, file_path: str, offset: int = 0, limit: int = 2000) -> Any:
+        return await self._inner.aread(file_path, offset=offset, limit=limit)
+
+    def write(self, file_path: str, content: str) -> Any:
+        return self._inner.write(file_path, content)
+
+    async def awrite(self, file_path: str, content: str) -> Any:
+        return await self._inner.awrite(file_path, content)
+
+    def edit(
+        self,
+        file_path: str,
+        old_string: str,
+        new_string: str,
+        replace_all: bool = False,
+    ) -> Any:
+        return self._inner.edit(file_path, old_string, new_string, replace_all=replace_all)
+
+    async def aedit(
+        self,
+        file_path: str,
+        old_string: str,
+        new_string: str,
+        replace_all: bool = False,
+    ) -> Any:
+        return await self._inner.aedit(file_path, old_string, new_string, replace_all=replace_all)
+
+    def delete(self, file_path: str) -> Any:
+        return self._inner.delete(file_path)
+
+    async def adelete(self, file_path: str) -> Any:
+        return await self._inner.adelete(file_path)
+
+    def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> Any:
+        return self._inner.grep(pattern, path=path, glob=glob)
+
+    async def agrep(self, pattern: str, path: str | None = None, glob: str | None = None) -> Any:
+        return await self._inner.agrep(pattern, path=path, glob=glob)
+
+    def glob(self, pattern: str, path: str = "/") -> Any:
+        return self._inner.glob(pattern, path=path)
+
+    async def aglob(self, pattern: str, path: str = "/") -> Any:
+        return await self._inner.aglob(pattern, path=path)
+
+    def upload_files(self, files: list[tuple[str, bytes]]) -> Any:
+        return self._inner.upload_files(files)
+
+    async def aupload_files(self, files: list[tuple[str, bytes]]) -> Any:
+        return await self._inner.aupload_files(files)
+
+    def download_files(self, paths: list[str]) -> Any:
+        return self._inner.download_files(paths)
+
+    async def adownload_files(self, paths: list[str]) -> Any:
+        return await self._inner.adownload_files(paths)
 
 
 def build_agent_backend(
@@ -74,14 +154,8 @@ def build_agent_backend(
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     routes.update(
         {
-            "/.attachments/": FilesystemBackend(
-                root_dir=attachments_dir,
-                virtual_mode=True,
-            ),
-            "/.artifacts/": FilesystemBackend(
-                root_dir=artifacts_dir,
-                virtual_mode=True,
-            ),
+            "/.attachments/": _VirtualRouteBackend(attachments_dir),
+            "/.artifacts/": _VirtualRouteBackend(artifacts_dir),
         }
     )
     permissions: list[FilesystemPermission] = [

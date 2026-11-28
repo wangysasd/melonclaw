@@ -608,6 +608,7 @@
   border-radius: 16px;
 }
 .current-user-menu .ant-dropdown-menu-item { min-height: 36px; border-radius: 10px; font-size: var(--text-md); }
+.current-user-menu a { color: inherit; font-size: var(--text-md); text-decoration: none; }
 .current-user-menu .current-user-menu-profile { min-height: 40px; background: var(--hover); padding: 6px 8px; }
 .current-user-profile { display: flex; align-items: center; gap: 8px; }
 .current-user-name { min-width: 0; overflow-wrap: anywhere; }

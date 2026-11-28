@@ -26,11 +26,15 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     application.state.chat = manager
     application.state.task_scheduler = None
     application.state.knowledge_executor = None
+    application.state.mcp_warmup_task = None
 
     async def initialize():
         await manager.initialize()
         if not manager.ready:
             return
+        application.state.mcp_warmup_task = asyncio.create_task(
+            manager.runtime.warmup_shared_mcp_cache()
+        )
         knowledge = KnowledgeExecutor(manager.settings, manager.storage)
         application.state.knowledge_executor = knowledge
         try:
@@ -71,6 +75,11 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             await startup_task
         except asyncio.CancelledError:
             pass
+        warmup_task = application.state.mcp_warmup_task
+        if warmup_task is not None:
+            if not warmup_task.done():
+                warmup_task.cancel()
+            await asyncio.gather(warmup_task, return_exceptions=True)
         knowledge = application.state.knowledge_executor
         if knowledge is not None:
             await knowledge.close()

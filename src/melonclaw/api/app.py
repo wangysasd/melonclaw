@@ -26,6 +26,7 @@ from melonclaw.api.routes.knowledge import router as knowledge_router
 from melonclaw.api.routes.mcp import router as mcp_router
 from melonclaw.api.routes.models import router as models_router
 from melonclaw.api.routes.projects import router as projects_router
+from melonclaw.api.routes.reports import router as reports_router
 from melonclaw.api.routes.results import router as results_router
 from melonclaw.api.routes.skills import router as skills_router
 from melonclaw.api.routes.speech import router as speech_router
@@ -33,6 +34,7 @@ from melonclaw.api.routes.status import router as status_router
 from melonclaw.api.routes.tasks import router as tasks_router
 from melonclaw.api.routes.user_input import router as user_input_router
 from melonclaw.core.config import allowed_origins, load_settings, web_bind
+from melonclaw.core.reports import ReportFlowError, flow_response
 from melonclaw.core.task_errors import TaskError
 from melonclaw.repository.accounts import AccountConflict
 
@@ -54,8 +56,21 @@ def create_app() -> FastAPI:
         description="Deep Agents 学习项目的浏览器交互 API。",
         lifespan=lifespan,
     )
+    @application.exception_handler(ReportFlowError)
+    async def report_flow(request, exc: ReportFlowError):
+        status, message = flow_response(exc)
+        return JSONResponse(
+            {"error": message}, status_code=status, headers={"Cache-Control": "no-store"},
+        )
+
     @application.exception_handler(RequestValidationError)
     async def safe_validation(request, exc):
+        if request.url.path.startswith("/api/reports") or "/reports" in request.url.path:
+            return JSONResponse(
+                {"error": "投诉字段格式无效，请检查填写内容。"},
+                status_code=422,
+                headers={"Cache-Control": "no-store"},
+            )
         if request.url.path.startswith(("/api/auth/", "/api/admin/")):
             return JSONResponse({"error": "字段格式无效；名称最多 64 字符，密码需要 5～128 字符。"}, status_code=422)
         if request.url.path.startswith(("/api/tasks", "/api/task-runs")):
@@ -97,7 +112,7 @@ def create_app() -> FastAPI:
     )
     session_dependency = [Depends(require_session, scope="function")]
     for router in (
-        accounts_router, status_router, models_router, knowledge_router,
+        accounts_router, status_router, models_router, knowledge_router, reports_router,
         skills_router, mcp_router, environment_router, tasks_router,
         projects_router, attachments_router, results_router, files_router,
         conversations_router, chat_router, approvals_router, user_input_router,
@@ -118,9 +133,11 @@ def main() -> None:
 
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     logging.getLogger("melonclaw.services.task_scheduler").setLevel(logging.INFO)
+    logging.getLogger("melonclaw.sms").setLevel(logging.INFO)
     logging.getLogger("melonclaw.services.tasks").setLevel(logging.INFO)
     host, port = web_bind()
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    # 审计依赖实际连接地址判断是否信任本机反代的请求头。
+    uvicorn.run(app, host=host, port=port, log_level="info", proxy_headers=False)
 
 
 if __name__ == "__main__":

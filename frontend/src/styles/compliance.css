@@ -16,16 +16,12 @@
 }
 .compliance-statement p { margin: 0 0 12px; }
 
-.rms-login-content, .melon-login-content { position: relative; }
 .filing-footer {
-  position: absolute;
-  inset-inline: 0;
-  bottom: var(--space-4);
-  padding: var(--space-2) var(--space-4);
+  padding: 2px var(--space-3);
   text-align: center;
-  font-size: var(--text-md);
-  line-height: var(--line-height-base);
+  font-size: var(--text-xs);
+  line-height: var(--line-height-sm);
 }
-.filing-footer a { color: var(--muted); text-decoration: none; }
-.filing-footer a:hover { text-decoration: underline; }
-.filing-footer a:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+.filing-footer a { color: var(--tertiary); text-decoration: none; }
+.filing-footer a:hover { color: var(--muted); text-decoration: underline; }
+.filing-footer a:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; border-radius: 2px; }

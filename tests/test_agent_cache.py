@@ -350,3 +350,215 @@ def test_agent_build_exception_releases_lock_and_next_request_can_build(monkeypa
     import pytest
 
     asyncio.run(run())
+
+
+def test_mcp_tool_cache_reused_across_conversations_and_invalidated_on_global_change(monkeypatch, tmp_path):
+    """相同 MCP 配置在新会话中复用发现结果，全局版本变化后重新发现。"""
+    from unittest.mock import AsyncMock
+
+    from melonclaw.services.mcp_tool_cache import McpToolCache
+    from melonclaw.tool.tools import McpDiscoveryResult
+
+    mcp_row = {
+        "id": str(uuid4()),
+        "slug": "demo",
+        "scope": "global",
+        "enabled": True,
+        "user_enabled": True,
+        "transport": "http",
+        "url": "https://demo.test/mcp",
+        "headers": {},
+        "env": {},
+        "command": None,
+        "args": [],
+        "tool_allowlist": None,
+    }
+    discover_calls = 0
+    seen_discoveries = []
+
+    async def fake_discover(servers, allowlists):
+        nonlocal discover_calls
+        discover_calls += 1
+        return McpDiscoveryResult(catalog={"demo": (f"mcp__demo__tool_{discover_calls}",)})
+
+    async def fake_build(*args, mcp_discovery=None, **kwargs):
+        seen_discoveries.append(mcp_discovery)
+        return SimpleNamespace(melonclaw_mcp_failed=bool(mcp_discovery and mcp_discovery.transient_failures))
+
+    monkeypatch.setattr(runtime_module, "build_research_agent", fake_build)
+    monkeypatch.setattr(runtime_module, "skill_snapshot", AsyncMock(return_value=("rev", (), [])))
+    versions = ResourceVersions()
+    runtime = ChatRuntime(
+        settings=SimpleNamespace(data_root=tmp_path, workspace_root=tmp_path, agent_cache_entries=32),
+        storage=SimpleNamespace(
+            resource_versions=versions,
+            list_visible_mcp_rows=AsyncMock(return_value=[mcp_row]),
+            effective_environment=AsyncMock(return_value={}),
+        ),
+        checkpointer=object(),
+        memory_store=object(),
+        memory_service=object(),
+        mcp_tool_cache=McpToolCache(discover=fake_discover),
+    )
+    runtime.resolve_model = AsyncMock(return_value=SimpleNamespace(profile_id="default"))
+    context = SimpleNamespace(user_id="alice", tenant_id="tenant")
+
+    async def run():
+        conv1 = {"id": str(uuid4()), "user_id": "alice"}
+        conv2 = {"id": str(uuid4()), "user_id": "alice"}
+        await runtime.agent_for_conversation(conv1, None, user_context=context)
+        await runtime.agent_for_conversation(conv2, None, user_context=context)
+        assert discover_calls == 1
+        assert seen_discoveries[0] is seen_discoveries[1]
+
+        # 全局资源版本推进后，下一次构建重新发现 MCP
+        versions.publish(None)
+        conv3 = {"id": str(uuid4()), "user_id": "alice"}
+        await runtime.agent_for_conversation(conv3, None, user_context=context)
+        assert discover_calls == 2
+        assert seen_discoveries[2] is not seen_discoveries[0]
+
+    asyncio.run(run())
+
+
+def test_deterministic_mcp_config_error_allows_agent_caching(monkeypatch, tmp_path):
+    """MCP 环境变量无法解析属于确定性配置错误，不阻止 Agent 缓存；连接失败才跳过缓存。"""
+    from unittest.mock import AsyncMock
+
+    from melonclaw.services.mcp_tool_cache import McpToolCache
+    from melonclaw.tool.tools import McpDiscoveryResult, build_mcp_tools
+
+    bad_env_row = {
+        "id": str(uuid4()),
+        "slug": "missing_env",
+        "scope": "global",
+        "enabled": True,
+        "user_enabled": True,
+        "transport": "http",
+        "url": "https://missing.test/mcp",
+        "headers": {"Authorization": {"type": "reference", "env": "NONEXISTENT_MCP_TEST_ENV_VAR"}},
+        "env": {},
+        "command": None,
+        "args": [],
+        "tool_allowlist": None,
+    }
+    build_calls = 0
+
+    async def fake_build(*args, mcp_servers=None, mcp_tool_allowlists=None, mcp_discovery=None, **kwargs):
+        nonlocal build_calls
+        build_calls += 1
+        mcp_tools = await build_mcp_tools(mcp_servers, mcp_tool_allowlists, mcp_discovery)
+        has_transient = any(
+            getattr(tool, "metadata", None) and tool.metadata.get("mcp_transient_failures")
+            for tool in mcp_tools
+        )
+        return SimpleNamespace(melonclaw_mcp_failed=has_transient, mcp_tools=mcp_tools)
+
+    monkeypatch.setattr(runtime_module, "build_research_agent", fake_build)
+    monkeypatch.setattr(runtime_module, "skill_snapshot", AsyncMock(return_value=("rev", (), [])))
+    runtime = ChatRuntime(
+        settings=SimpleNamespace(data_root=tmp_path, workspace_root=tmp_path, agent_cache_entries=32),
+        storage=SimpleNamespace(
+            resource_versions=ResourceVersions(),
+            list_visible_mcp_rows=AsyncMock(return_value=[bad_env_row]),
+            effective_environment=AsyncMock(return_value={}),
+        ),
+        checkpointer=object(),
+        memory_store=object(),
+        memory_service=object(),
+        mcp_tool_cache=McpToolCache(),
+    )
+    runtime.resolve_model = AsyncMock(return_value=SimpleNamespace(profile_id="default"))
+    conv = {"id": str(uuid4()), "user_id": "alice"}
+    context = SimpleNamespace(user_id="alice", tenant_id="tenant")
+
+    async def run():
+        first = await runtime.agent_for_conversation(conv, None, user_context=context)
+        second = await runtime.agent_for_conversation(conv, None, user_context=context)
+        assert first is second
+        assert build_calls == 1
+        assert first.melonclaw_mcp_failed is False
+        catalog = next(t for t in first.mcp_tools if t.name == "list_mcp_tools")
+        assert catalog.invoke({})["failed_server_count"] == 1
+
+        # 对比：临时连接失败仍阻止 Agent 缓存
+        async def transient_discover(servers, allowlists):
+            return McpDiscoveryResult(
+                failures={"flaky": "连接超时"},
+                transient_failures=frozenset({"flaky"}),
+            )
+
+        runtime.mcp_tool_cache = McpToolCache(discover=transient_discover)
+        runtime.storage.resource_versions.publish(None)
+        third = await runtime.agent_for_conversation(conv, None, user_context=context)
+        fourth = await runtime.agent_for_conversation(conv, None, user_context=context)
+        assert third is not fourth
+        assert third.melonclaw_mcp_failed is True
+
+    asyncio.run(run())
+
+
+def test_warmup_shared_mcp_cache_populates_cache_for_first_conversation(monkeypatch, tmp_path):
+    """Web 启动后台预热共享 MCP 缓存后，首个新会话直接命中且预热异常不中断启动。"""
+    from unittest.mock import AsyncMock
+
+    from melonclaw.services.mcp_tool_cache import McpToolCache
+    from melonclaw.tool.tools import McpDiscoveryResult
+
+    shared_row = {
+        "id": str(uuid4()),
+        "slug": "shared",
+        "scope": "global",
+        "enabled": True,
+        "user_enabled": True,
+        "transport": "http",
+        "url": "https://shared.test/mcp",
+        "headers": {},
+        "env": {},
+        "command": None,
+        "args": [],
+        "tool_allowlist": None,
+    }
+    discover_calls = 0
+
+    async def fake_discover(servers, allowlists):
+        nonlocal discover_calls
+        discover_calls += 1
+        return McpDiscoveryResult(catalog={"shared": ("mcp__shared__ping",)})
+
+    monkeypatch.setattr(
+        runtime_module,
+        "build_research_agent",
+        AsyncMock(return_value=SimpleNamespace(melonclaw_mcp_failed=False)),
+    )
+    monkeypatch.setattr(runtime_module, "skill_snapshot", AsyncMock(return_value=("rev", (), [])))
+    runtime = ChatRuntime(
+        settings=SimpleNamespace(data_root=tmp_path, workspace_root=tmp_path, agent_cache_entries=32),
+        storage=SimpleNamespace(
+            resource_versions=ResourceVersions(),
+            list_visible_mcp_rows=AsyncMock(return_value=[shared_row]),
+            effective_environment=AsyncMock(return_value={}),
+        ),
+        checkpointer=object(),
+        memory_store=object(),
+        memory_service=object(),
+        mcp_tool_cache=McpToolCache(discover=fake_discover),
+    )
+    runtime.resolve_model = AsyncMock(return_value=SimpleNamespace(profile_id="default"))
+    context = SimpleNamespace(user_id="alice", tenant_id="tenant")
+
+    async def run():
+        await runtime.warmup_shared_mcp_cache()
+        assert discover_calls == 1
+
+        # 重启后的首个新会话直接命中预热缓存，不重复发现
+        await runtime.agent_for_conversation(
+            {"id": str(uuid4()), "user_id": "alice"}, None, user_context=context,
+        )
+        assert discover_calls == 1
+
+        # 预热异常时静默降级，不向上抛出
+        runtime.storage.list_visible_mcp_rows = AsyncMock(side_effect=RuntimeError("db blip"))
+        await runtime.warmup_shared_mcp_cache()
+
+    asyncio.run(run())

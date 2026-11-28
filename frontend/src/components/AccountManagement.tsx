@@ -3,14 +3,28 @@ import { PasswordFields } from "./PasswordFields";
 import { Icon } from "./Icon";
 import { tokens } from "../theme/tokens";
 import { WorkspaceHeader } from "./WorkspaceHeader";
-import { App, Button, Form, Input, Modal, Select, Space, Switch, Table, Tabs, Tag } from "antd";
+import { App, Button, Checkbox, Descriptions, Form, Input, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../api/client";
 import { notifyAuthChange } from "../api/auth";
 import { useSession } from "../state/session";
+import { AdminReports } from "./AdminReports";
 
 type Tenant = { tenant_id: string; tenant_name_zh: string; enabled: boolean; created_at: string };
-type User = { user_id: string; user_name_zh: string; tenant_id: string; tenant_name_zh: string; tenant_enabled: boolean; created_at: string };
+type User = {
+  user_id: string;
+  user_name_zh: string;
+  tenant_id: string;
+  tenant_name_zh: string;
+  tenant_enabled: boolean;
+  tenant_status: "active" | "deleted";
+  created_at: string;
+  phone_verified: boolean;
+  phone_tail: string | null;
+  verification_method: string | null;
+  verified_at: string | null;
+  verification_id: string | null;
+};
 type Editor = { kind: "user"; row?: User } | { kind: "tenant"; row?: Tenant } | { kind: "password"; row: User };
 type Values = { user_id: string; user_name_zh: string; tenant_id: string; tenant_name_zh: string; enabled: boolean; password: string; confirm_password: string };
 
@@ -22,17 +36,19 @@ export function AccountManagement({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState("users");
   const [search, setSearch] = useState("");
   const [tenant, setTenant] = useState<string>();
+  const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [verification, setVerification] = useState<User | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [form] = Form.useForm<Values>();
   const refreshSequence = useRef(0);
-  async function refresh() {
+  async function refresh(showDeleted = includeDeleted) {
     const sequence = ++refreshSequence.current;
     setLoading(true);
     try {
       const [u, t] = await Promise.all([
-        apiRequest<{ items: User[] }>("/api/admin/users"),
+        apiRequest<{ items: User[] }>(showDeleted ? "/api/admin/users?include_deleted_registrations=true" : "/api/admin/users"),
         apiRequest<{ items: Tenant[] }>("/api/admin/tenants"),
       ]);
       if (sequence !== refreshSequence.current) return;
@@ -100,24 +116,43 @@ export function AccountManagement({ onClose }: { onClose: () => void }) {
   }
   const keyword = search.trim().toLowerCase();
   const matches = (...values: string[]) => values.some((value) => value.toLowerCase().includes(keyword));
+  const searchLabel = tab === "users" ? "搜索用户 ID、名称或验证编号" : "搜索 ID 或名称";
   const idRules = [{ required: true, pattern: /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/, message: "以字母或数字开头，1～64 位字母、数字、下划线或连字符" }];
   return <section className="account-page">
     <WorkspaceHeader title="系统管理" icon="users" actions={<Button className="action-secondary" icon={<Icon name="arrow-up" size={16} rotate={-90} />} onClick={onClose}>返回聊天</Button>} />
     <div className="account-page-content">
-    <Tabs activeKey={tab} onChange={(value) => { setTab(value); setSearch(""); }} items={[{ key: "users", label: <span className="resource-tab-label"><Icon name="users" size={18} />用户管理</span> }, { key: "tenants", label: <span className="resource-tab-label"><Icon name="building-2" size={18} />租户管理</span> }]} />
+    <Tabs activeKey={tab} onChange={(value) => { setTab(value); setSearch(""); }} items={[
+      { key: "users", label: <span className="resource-tab-label"><Icon name="users" size={18} />用户管理</span> },
+      { key: "tenants", label: <span className="resource-tab-label"><Icon name="building-2" size={18} />租户管理</span> },
+      { key: "reports", label: <span className="resource-tab-label"><Icon name="circle-alert" size={18} />投诉举报</span> },
+    ]} />
+    {tab === "reports" ? <AdminReports /> : <>
     <div className="account-toolbar resource-actions skill-resource-actions">
-      <Input className="skill-search" prefix={<Icon name="search" size={14} />} allowClear aria-label="搜索 ID 或名称" placeholder="搜索 ID 或名称" value={search} onChange={(event) => setSearch(event.target.value)} />
+      <Input className="skill-search" prefix={<Icon name="search" size={14} />} allowClear aria-label={searchLabel} placeholder={searchLabel} value={search} onChange={(event) => setSearch(event.target.value)} />
       {tab === "users" ? <Select style={{ width: 140 }} allowClear placeholder="全部租户" aria-label="筛选租户" value={tenant} onChange={setTenant} options={tenants.map((t) => ({ value: t.tenant_id, label: `${t.tenant_name_zh}（${t.tenant_id}）` }))} /> : null}
+      {tab === "users" ? <Checkbox checked={includeDeleted} onChange={(event) => {
+        const checked = event.target.checked;
+        setIncludeDeleted(checked);
+        void refresh(checked);
+      }}>含已删除的注册账号</Checkbox> : null}
       <div className="skill-actions-trailing"><Button type="primary" icon={<Icon name="plus" size={14} />} onClick={() => open({ kind: tab === "users" ? "user" : "tenant" })}>{tab === "users" ? "创建用户" : "创建租户"}</Button>
       <Button className="action-secondary" icon={<Icon name="refresh-cw" size={14} />} aria-label={tab === "users" ? "刷新用户列表" : "刷新租户列表"} onClick={() => void refresh()} loading={loading} /></div>
     </div>
-    {tab === "users" ? <Table<User> rowKey="user_id" loading={loading} scroll={{ x: 800 }} pagination={{ ...tablePagination, pageSize: 10, showSizeChanger: false }}
-      dataSource={users.filter((u) => matches(u.user_id, u.user_name_zh) && (!tenant || tenant === u.tenant_id))}
+    {tab === "users" ? <Table<User> rowKey="user_id" loading={loading} scroll={{ x: 920 }} pagination={{ ...tablePagination, pageSize: 10, showSizeChanger: false }}
+      dataSource={users.filter((u) =>
+        matches(u.user_id, u.user_name_zh, u.verification_id ?? "")
+        && (!tenant || tenant === u.tenant_id)
+        && (includeDeleted || u.tenant_status !== "deleted")
+      )}
       columns={[
-        { title: "用户 ID", dataIndex: "user_id" }, { title: "用户名称", dataIndex: "user_name_zh" },
+        { title: "用户 ID", render: (_, u) => <>{u.user_id}{u.tenant_status === "deleted" ? <Tag>已删除</Tag> : null}</> },
+        { title: "用户名称", dataIndex: "user_name_zh" },
         { title: "所属租户", render: (_, u) => <>{u.tenant_name_zh}（{u.tenant_id}）{!u.tenant_enabled ? <Tag>已停用</Tag> : null}</> },
         { title: "创建时间", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString() },
-        { title: "操作", className: "table-actions-cell", fixed: "right", width: 240, render: (_, u) => <Space><Button type="link" onClick={() => open({ kind: "user", row: u })}>编辑</Button><Button type="link" onClick={() => open({ kind: "password", row: u })}>修改密码</Button><Button type="link" danger disabled={u.user_id === "admin"} onClick={() => remove(u)}>删除</Button></Space> },
+        { title: "注册验证", width: 128, render: (_, u) => u.phone_verified
+          ? <Button type="link" aria-label={`${u.user_id} 的手机号已验证`} onClick={() => setVerification(u)}>手机号已验证</Button>
+          : "—" },
+        { title: "操作", className: "table-actions-cell", fixed: "right", width: 240, render: (_, u) => u.tenant_status === "deleted" ? "—" : <Space><Button type="link" onClick={() => open({ kind: "user", row: u })}>编辑</Button><Button type="link" onClick={() => open({ kind: "password", row: u })}>修改密码</Button><Button type="link" danger disabled={u.user_id === "admin"} onClick={() => remove(u)}>删除</Button></Space> },
       ]} /> : <Table<Tenant> rowKey="tenant_id" loading={loading} scroll={{ x: 600 }} pagination={{ ...tablePagination, pageSize: 10, showSizeChanger: false }}
       dataSource={tenants.filter((t) => matches(t.tenant_id, t.tenant_name_zh))}
       columns={[
@@ -126,7 +161,19 @@ export function AccountManagement({ onClose }: { onClose: () => void }) {
         { title: "创建时间", dataIndex: "created_at", render: (v: string) => new Date(v).toLocaleString() },
         { title: "操作", className: "table-actions-cell", fixed: "right", width: 90, render: (_, t) => <Button type="link" onClick={() => open({ kind: "tenant", row: t })}>编辑</Button> },
       ]} />}
+    </>}
     </div>
+    <Modal title="手机号已验证" open={verification !== null} onCancel={() => setVerification(null)}
+      footer={<Button onClick={() => setVerification(null)}>关闭</Button>}>
+      {verification && <Descriptions column={1} items={[
+        { key: "user", label: "用户 ID", children: verification.user_id },
+        { key: "registered", label: "注册时间", children: new Date(verification.created_at).toLocaleString() },
+        { key: "verified", label: "核验成功时间", children: verification.verified_at && new Date(verification.verified_at).toLocaleString() },
+        { key: "method", label: "核验方式", children: verification.verification_method },
+        { key: "tail", label: "手机号尾号", children: verification.phone_tail },
+        { key: "number", label: "验证编号", children: <Typography.Text copyable>{verification.verification_id}</Typography.Text> },
+      ]} />}
+    </Modal>
     <Modal destroyOnHidden title={editor?.kind === "password" ? `修改密码 · ${editor.row.user_name_zh}` : `${editor?.row ? "编辑" : "创建"}${editor?.kind === "user" ? "用户" : "租户"}`} open={editor !== null} onCancel={() => { if (!saving) { setEditor(null); form.resetFields(); } }} onOk={() => form.submit()} confirmLoading={saving} okText="保存" cancelText="取消">
       <Form form={form} layout="vertical" onFinish={(values) => void save(values)} requiredMark={false}>
         {editor?.kind === "user" ? <>

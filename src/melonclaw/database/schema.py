@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 from melonclaw.database.knowledge_schema import register_knowledge_tables
+from melonclaw.database.report_schema import register_report_tables
 
 metadata = MetaData()
 
@@ -65,6 +66,68 @@ auth_sessions = Table(
     Column("login_user_id", String(64), ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("expires_at", DateTime(timezone=True), nullable=False),
+)
+
+user_phones = Table(
+    "user_phones",
+    metadata,
+    Column("user_id", String(64), ForeignKey("users.user_id", ondelete="RESTRICT"), primary_key=True),
+    Column("phone_hmac", String(64), nullable=False),
+    Column("phone_tail", String(4), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
+    UniqueConstraint("phone_hmac", name="uq_user_phones_hmac"),
+)
+
+sms_challenges = Table(
+    "sms_challenges",
+    metadata,
+    Column("challenge_id", String(32), primary_key=True),
+    Column("purpose", String(16), nullable=False),
+    Column("phone_hmac", String(64), nullable=False),
+    Column("user_id", String(64), ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=True),
+    Column("generation", Integer, nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("out_id", String(32), nullable=False),
+    Column("scheme_name", String(20), nullable=False),
+    Column("attempts", Integer, nullable=False, server_default="0"),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("purpose IN ('register', 'login', 'bind', 'reset')", name="ck_sms_challenges_purpose"),
+    CheckConstraint(
+        "status IN ('reserved', 'sent', 'verifying', 'consumed', 'replaced', 'failed', 'uncertain')",
+        name="ck_sms_challenges_status",
+    ),
+    UniqueConstraint("out_id", name="uq_sms_challenges_out_id"),
+    Index(
+        "uq_sms_challenges_active",
+        "phone_hmac",
+        "purpose",
+        unique=True,
+        postgresql_where=text("status IN ('reserved', 'sent', 'verifying')"),
+    ),
+)
+
+sms_quotas = Table(
+    "sms_quotas",
+    metadata,
+    Column("bucket", String(96), primary_key=True),
+    Column("window_start", DateTime(timezone=True), nullable=False),
+    Column("count", Integer, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+registration_verifications = Table(
+    "registration_verifications",
+    metadata,
+    Column("user_id", String(64), ForeignKey("users.user_id", ondelete="RESTRICT"), primary_key=True),
+    Column("verification_id", String(32), nullable=False),
+    Column("method", String(16), nullable=False),
+    Column("phone_tail", String(4), nullable=False),
+    Column("verified_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("method = 'sms_code'", name="ck_registration_verifications_method"),
+    UniqueConstraint("verification_id", name="uq_registration_verifications_id"),
 )
 
 projects = Table(
@@ -751,7 +814,8 @@ environment_operations = Table(
 )
 
 
-# 独立模块维护知识库定义，仍注册在同一业务 metadata 中。
+# 独立模块维护知识库和投诉定义，仍注册在同一业务 metadata 中。
 
 
 KNOWLEDGE_TABLES = register_knowledge_tables(metadata)
+reports, report_events = register_report_tables(metadata)

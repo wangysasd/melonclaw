@@ -89,6 +89,14 @@ def test_real_account_lifecycle(monkeypatch):
                 with pytest.raises(ValueError):
                     await service.login("alice", "initial-password")
                 token = await service.login("alice", "changed-password")
+                alice_headers = {"Authorization": f"Bearer {token}"}
+                async with repo.account_guard():
+                    assert (await client.patch("/api/auth/profile", json={"user_name_zh": "小爱"}, headers=alice_headers)).status_code == 409
+                renamed = await client.patch("/api/auth/profile", json={"user_name_zh": "  小爱  "}, headers=alice_headers)
+                assert renamed.status_code == 200
+                assert renamed.json() == {"ok": True, "user_name_zh": "小爱"}
+                assert (await service.session(token)).user_name_zh == "小爱"
+                assert (await repo.get_user_context("alice")).tenant_id == "system"
                 # 已挂起的任务阻止变更与删除。
                 mid = uuid4()
                 async with engine.begin() as conn:

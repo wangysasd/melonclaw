@@ -182,13 +182,23 @@ class ToolPoolMiddleware(AgentMiddleware):
         return bool(getattr(context, "knowledge_base_ids", ()))
 
     def filter_request(self, request: ModelRequest) -> ModelRequest:
-        """摘要与主模型共用同一份 Checkpoint 可见工具规则。"""
+        """摘要与主模型共用同一份 Checkpoint 可见工具规则。
+
+        常驻工具固定在前，工具池按需激活的工具统一追加在末尾，避免激活新工具时
+        顶偏常驻工具顺序并破坏模型前缀缓存。
+        """
         active = set(request.state["tool_pool"]["names"])
         # 本轮选了库才把四个只读查询工具钉进可见列表；未选择时仍留在动态目录。
         if self._knowledge_selected(request):
             active.update(KNOWLEDGE_TOOL_NAMES)
-        tools = [t for t in request.tools if isinstance(t, dict) or t.name not in self.catalog_names or t.name in active]
-        return request.override(tools=tools)
+        static_tools = []
+        dynamic_tools = []
+        for tool in request.tools:
+            if isinstance(tool, dict) or tool.name not in self.catalog_names:
+                static_tools.append(tool)
+            elif tool.name in active:
+                dynamic_tools.append(tool)
+        return request.override(tools=[*static_tools, *dynamic_tools])
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]],

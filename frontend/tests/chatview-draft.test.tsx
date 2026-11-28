@@ -174,6 +174,7 @@ describe("chatview draft", () => {
     const labels = [...scheduled.querySelectorAll(".message-actions button")].map((button) => button.textContent ?? "");
     expect(labels[0]).toContain("复制");
     expect(labels[1]).toContain("朗读");
+    expect(screen.queryByRole("button", { name: /^举\s*报$/ })).toBeNull();
     expect(screen.queryByText("不应展示的任务名")).toBeNull();
     expect(screen.queryByText("定时触发")).toBeNull();
     expect(screen.queryByRole("button", { name: "任务配置" })).toBeNull();

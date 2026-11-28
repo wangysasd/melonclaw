@@ -21,7 +21,7 @@ export function UserPicker({ compact = false }: { compact?: boolean }) {
 
   const items = session.users.map((user) => ({
     key: user.user_id,
-    label: user.display_name || user.username || user.user_id,
+    label: user.user_name_zh || user.username || user.display_name || user.user_id,
   }));
 
   if (!enabled) return null;
@@ -58,12 +58,12 @@ export function UserPicker({ compact = false }: { compact?: boolean }) {
             style={avatarStyle(session.userId)}
           >
             {current
-              ? userInitials(current.display_name || current.username, current.user_id)
+              ? userInitials(current.user_name_zh || current.username || current.display_name, current.user_id)
               : "?"}
           </span>
           <span className="user-trigger-copy">
             {current
-              ? current.display_name || current.username || current.user_id
+              ? current.user_name_zh || current.username || current.display_name || current.user_id
               : session.userId || "正在加载用户…"}
           </span>
           <Icon name="chevron-down" size={14} />

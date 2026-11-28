@@ -1,17 +1,20 @@
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
-import { logout } from "../api/auth";
+import { BindPhoneDialog } from "./BindPhoneDialog";
+import { EditNicknameDialog } from "./EditNicknameDialog";
+import { getAuthConfig, getAuthSession, logout } from "../api/auth";
+import { readBindDraft } from "../lib/loginDraft";
 import { App as AntdApp } from "antd";
 import { Dropdown, Tooltip } from "antd";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "../state/session";
 import { avatarStyle, userInitials } from "../lib/format";
 import { Icon } from "./Icon";
 import { UserPicker } from "./UserPicker";
 import { ToolCatalogDialog } from "./ToolCatalogDialog";
 
-export type WorkspaceView = "knowledge" | "chat" | "tasks" | "resources" | "amp" | "mindera" | "admin";
+export type WorkspaceView = "knowledge" | "chat" | "tasks" | "resources" | "amp" | "mindera" | "admin" | "reports";
 
-export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin, onTasks, onKnowledge }: {
+export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin, onTasks, onKnowledge, onFeedback }: {
   view: WorkspaceView;
   onHome: () => void;
   onTasks?: () => void;
@@ -20,13 +23,38 @@ export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin
   onAmp: () => void;
   onMindera: () => void;
   onAdmin?: () => void;
+  onFeedback?: () => void;
 }) {
   const session = useSession();
   const { message } = AntdApp.useApp();
+  const [nicknameOpen, setNicknameOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(false);
+  const [smsLogin, setSmsLogin] = useState(false);
+  const [phoneTail, setPhoneTail] = useState("");
   const [statusOpen, setStatusOpen] = useState(false);
+  useEffect(() => {
+    if (smsLogin && session.userId && session.userId !== "admin" && readBindDraft()) setPhoneOpen(true);
+  }, [smsLogin, session.userId]);
+  useEffect(() => {
+    let active = true;
+    void getAuthConfig().then(async (config) => {
+      if (!active) return;
+      setSmsLogin(Boolean(config.sms_login));
+      if (!config.sms_login || session.userId === "admin") { setPhoneTail(""); return; }
+      const user = await getAuthSession();
+      if (active) setPhoneTail(user.phone_tail ?? "");
+    }).catch(() => { if (active) setSmsLogin(false); });
+    return () => { active = false; };
+  }, [session.userId]);
+  const phoneItem = smsLogin && session.userId && session.userId !== "admin"
+    ? phoneTail
+      ? { key: "phone", disabled: true, label: `手机尾号 ${phoneTail}` }
+      : { key: "phone", label: "绑定手机号" }
+    : null;
   const current = session.users.find((user) => user.user_id === session.userId);
-  const fullName = current?.display_name || current?.username || session.userId || "正在加载用户…";
+  const nickname = current?.user_name_zh || current?.username || current?.display_name || "";
+  const fullName = nickname || session.userId || "正在加载用户…";
   const ready = session.status?.status === "ready";
   const statusLabel = !session.status ? "系统状态：加载中" : ready ? "系统状态：就绪" : "系统状态：需要检查配置";
   return (
@@ -70,13 +98,21 @@ export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin
           <Tooltip title={`当前用户：${fullName}`} placement="right" trigger={["hover", "focus"]}>
             <Dropdown trigger={["click"]} placement="rightBottom" classNames={{ root: "current-user-menu" }} menu={{
               selectable: false,
-              onClick: ({ key }) => { if (key === "password") setPasswordOpen(true); if (key === "logout") void logout().catch((err) => message.error(err instanceof Error ? err.message : "登出失败")); },
+              onClick: ({ key }) => {
+                if (key === "nickname") setNicknameOpen(true);
+                if (key === "password") setPasswordOpen(true);
+                if (key === "phone" && !phoneTail) setPhoneOpen(true);
+                if (key === "logout") void logout().catch((err) => message.error(err instanceof Error ? err.message : "登出失败"));
+              },
               items: [
                 { key: "name", className: "current-user-menu-profile", label: <span className="current-user-profile">
                   <span className="user-avatar" style={avatarStyle(session.userId)}>{current ? userInitials(fullName, session.userId) : "?"}</span>
                   <span className="current-user-name">{fullName}</span>
                 </span> },
                 { type: "divider" },
+                ...(phoneItem ? [phoneItem] : []),
+                { key: "reports", label: "意见反馈", onClick: onFeedback },
+                { key: "nickname", label: "修改昵称" },
                 { key: "password", label: "修改密码" },
                 { key: "logout", icon: <Icon name="log-out" size={16} />, label: "登出" },
               ],
@@ -88,7 +124,14 @@ export function GlobalNav({ view, onHome, onResources, onAmp, onMindera, onAdmin
           </Tooltip>
         </div>
       </nav>
+      <EditNicknameDialog
+        open={nicknameOpen}
+        currentName={current?.user_name_zh || current?.username || session.userId || ""}
+        onClose={() => setNicknameOpen(false)}
+        onSaved={() => session.refreshUsers()}
+      />
       {passwordOpen ? <ChangePasswordDialog onClose={() => setPasswordOpen(false)} /> : null}
+      {phoneOpen ? <BindPhoneDialog onClose={() => setPhoneOpen(false)} onBound={setPhoneTail} /> : null}
       <ToolCatalogDialog open={statusOpen} userId={session.userId} status={session.status} modelOptions={session.modelOptions} onClose={() => setStatusOpen(false)} />
     </>
   );

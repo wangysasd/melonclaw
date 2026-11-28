@@ -6,11 +6,17 @@ from uuid import uuid4
 from sqlalchemy import and_, case, delete, func, insert, or_, select, update
 
 from melonclaw.core.knowledge import (
+    LIBRARY_EVENT_ACTIONS,
     KnowledgeConflict,
     KnowledgeDenied,
     KnowledgeError,
+    KnowledgeForbidden,
+    is_system_admin,
+    knowledge_operation_item,
+    moderation_reason,
     require_role,
 )
+from melonclaw.database.knowledge_schema import EVENT_ACTIONS
 from melonclaw.database.schema import (
     KNOWLEDGE_TABLES,
     tenants,
@@ -22,6 +28,25 @@ bases, members, documents, revisions, texts, chunks, jobs, events = KNOWLEDGE_TA
 
 
 SHARE_SCOPES = {"everyone", "tenant", "selected"}
+EVENT_DETAIL_KEYS = {
+    "base_created": set(),
+    "document_deleted": set(),
+    "revision_published": set(),
+    "base_updated": {"fields", "version"},
+    "base_deleted": {"reason"},
+    "base_suspended": {"reason"},
+    "base_restored": {"reason"},
+    "member_granted": {"role"},
+    "member_updated": {"role"},
+    "member_revoked": set(),
+    "ownership_transferred": {"previous_owner", "new_owner"},
+    "share_scope_changed": {"previous", "share_scope"},
+}
+_MODERATION_STATUS = {
+    "base_suspended": "active",
+    "base_restored": "suspended",
+    "base_deleted": "suspended",
+}
 
 
 def visible_query(user_id):
@@ -52,6 +77,7 @@ def visible_query(user_id):
             actor.c.tenant_status == "active",
             actor_tenant.c.enabled.is_(True),
             or_(system_admin, and_(owner.c.tenant_status == "active", owner_tenant.c.enabled.is_(True))),
+            # 停用和删除不从通用查询放行。管理员查看已停用库走 suspended_admin_query。
             bases.c.status == "active",
             or_(
                 bases.c.owner_user_id == user_id,
@@ -61,7 +87,82 @@ def visible_query(user_id):
                 and_(bases.c.share_scope == "tenant", actor.c.tenant_id == owner.c.tenant_id),
             ),
         )
+        )
+
+
+def suspended_admin_query(user_id):
+    """仅 system/admin 可见的已停用库元数据。不授予文档、检索或下载。"""
+
+    actor, owner = users.alias("actor"), users.alias("owner")
+    actor_tenant = tenants.alias("actor_tenant")
+    return (
+        select(
+            bases.c.id,
+            bases.c.name,
+            bases.c.description,
+            bases.c.status,
+            bases.c.share_scope,
+            bases.c.version,
+            bases.c.owner_user_id,
+            bases.c.created_at,
+            bases.c.updated_at,
+            owner.c.user_name_zh.label("owner_name_zh"),
+        )
+        .select_from(
+            bases.join(owner, owner.c.user_id == bases.c.owner_user_id)
+            .join(actor, actor.c.user_id == user_id)
+            .join(actor_tenant, actor_tenant.c.tenant_id == actor.c.tenant_id)
+        )
+        .where(
+            actor.c.user_id == "admin",
+            actor.c.tenant_id == "system",
+            actor.c.tenant_status == "active",
+            actor_tenant.c.enabled.is_(True),
+            bases.c.status == "suspended",
+        )
     )
+
+
+def _system_admin(actor) -> bool:
+    return bool(actor) and is_system_admin(actor.user_id, actor.tenant_id)
+
+
+def _moderation_status_message(action, status):
+    if action == "base_restored" and status == "deleted":
+        return "已删除的知识库不能恢复。"
+    if action == "base_restored":
+        return "只能恢复已停用的知识库。"
+    if action == "base_suspended":
+        return "只能停用使用中的知识库。"
+    return "只能删除已停用的知识库。"
+
+
+def validate_knowledge_event(action, details):
+    if set(EVENT_DETAIL_KEYS) != set(EVENT_ACTIONS):
+        raise KnowledgeError("不允许的审计字段。")
+    if action not in EVENT_DETAIL_KEYS or set(details) - EVENT_DETAIL_KEYS[action]:
+        raise KnowledgeError("不允许的审计字段。")
+    if action in {"base_suspended", "base_restored"} and "reason" not in details:
+        raise KnowledgeError("处置原因无效。")
+    if "reason" in details:
+        moderation_reason(action, details["reason"])
+    if "role" in details and details["role"] not in {"viewer", "editor"}:
+        raise KnowledgeError("审计角色无效。")
+    if ("share_scope" in details or "previous" in details) and (
+        details.get("share_scope") not in SHARE_SCOPES or details.get("previous") not in SHARE_SCOPES
+    ):
+        raise KnowledgeError("审计共享范围无效。")
+    if "fields" in details and (
+        not isinstance(details["fields"], list)
+        or any(f not in {"name", "description", "chunk_config", "share_scope"} for f in details["fields"])
+        or len(details["fields"]) > 4
+    ):
+        raise KnowledgeError("审计字段列表无效。")
+    if "version" in details and (type(details["version"]) is not int or details["version"] <= 0):
+        raise KnowledgeError("审计版本无效。")
+    for key in ("previous_owner", "new_owner"):
+        if key in details and (not isinstance(details[key], str) or not 1 <= len(details[key]) <= 64):
+            raise KnowledgeError("审计账户标识无效。")
 
 
 class KnowledgeRepositoryMixin:
@@ -99,6 +200,59 @@ class KnowledgeRepositoryMixin:
             if not row:
                 raise KnowledgeDenied("知识库不存在或无权访问。")
             return dict(row)
+
+    async def knowledge_operation_history(self, user_id, kb_id, *, page, page_size):
+        """按库读取已有事件。只接受当前请求核验过的系统管理员，不返回正文。"""
+
+        async with self.engine.begin() as conn:
+            await conn.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            actor = await self.get_user_context(user_id, connection=conn)
+            if not _system_admin(actor):
+                raise KnowledgeForbidden("只有系统管理员可以查看知识库操作记录。")
+            base = (
+                await conn.execute(
+                    select(bases.c.id, bases.c.name, bases.c.status).where(bases.c.id == kb_id)
+                )
+            ).mappings().first()
+            if base is None:
+                raise KnowledgeDenied("知识库不存在。")
+            filtered = events.c.kb_id == kb_id
+            filtered = and_(filtered, events.c.action.in_(LIBRARY_EVENT_ACTIONS))
+            total = await conn.scalar(
+                select(func.count()).select_from(events).where(filtered)
+            )
+            rows = (
+                await conn.execute(
+                    select(
+                        events.c.id,
+                        events.c.kb_id,
+                        events.c.actor_user_id,
+                        events.c.action,
+                        events.c.target_id,
+                        events.c.safe_details,
+                        events.c.created_at,
+                        users.c.user_name_zh,
+                    )
+                    .select_from(
+                        events.outerjoin(users, users.c.user_id == events.c.actor_user_id)
+                    )
+                    .where(filtered)
+                    .order_by(events.c.created_at.desc(), events.c.id.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).mappings().all()
+        return {
+            "kb_id": base["id"],
+            "name": base["name"],
+            "status": base["status"],
+            "items": [
+                knowledge_operation_item(dict(row), kb_name=base["name"]) for row in rows
+            ],
+            "total": int(total or 0),
+            "page": page,
+            "page_size": page_size,
+        }
 
     async def _knowledge_owner_tenant(self, conn, base):
         tenant_id = await conn.scalar(select(users.c.tenant_id).where(users.c.user_id == base["owner_user_id"]))
@@ -183,42 +337,8 @@ class KnowledgeRepositoryMixin:
     async def _knowledge_event(
         self, conn, kb_id, actor, action, target_type="base", target_id=None, **details
     ):
-        # 只有角色、版本和受影响字段名进入审计；禁止传请求对象或正文。
-        allowed = {
-            "base_created": set(),
-            "document_deleted": set(),
-            "revision_published": set(),
-            "base_updated": {"fields", "version"},
-            "base_deleted": set(),
-            "member_granted": {"role"},
-            "member_updated": {"role"},
-            "member_revoked": set(),
-            "ownership_transferred": {"previous_owner", "new_owner"},
-            "share_scope_changed": {"previous", "share_scope"},
-        }
-        if action not in allowed or details.keys() - allowed[action]:
-            raise KnowledgeError("不允许的审计字段。")
-        if "role" in details and details["role"] not in {"viewer", "editor"}:
-            raise KnowledgeError("审计角色无效。")
-        if ("share_scope" in details or "previous" in details) and (
-            details.get("share_scope") not in SHARE_SCOPES or details.get("previous") not in SHARE_SCOPES
-        ):
-            raise KnowledgeError("审计共享范围无效。")
-        if "fields" in details and (
-            not isinstance(details["fields"], list)
-            or any(f not in {"name", "description", "chunk_config", "share_scope"} for f in details["fields"])
-            or len(details["fields"]) > 4
-        ):
-            raise KnowledgeError("审计字段列表无效。")
-        if "version" in details and (
-            type(details["version"]) is not int or details["version"] <= 0
-        ):
-            raise KnowledgeError("审计版本无效。")
-        for key in ("previous_owner", "new_owner"):
-            if key in details and (
-                not isinstance(details[key], str) or not 1 <= len(details[key]) <= 64
-            ):
-                raise KnowledgeError("审计账户标识无效。")
+        # 只有角色、版本、原因代码和受影响字段名进入审计；禁止传请求对象或正文。
+        validate_knowledge_event(action, details)
         await conn.execute(
             insert(events).values(
                 id=uuid4(),
@@ -378,6 +498,106 @@ class KnowledgeRepositoryMixin:
                 )
             )
             await self._knowledge_event(conn, kb_id, user_id, "base_deleted")
+
+    @asynccontextmanager
+    async def knowledge_moderation_transaction(self, user_id, kb_id):
+        async with self.engine.begin() as conn:
+            actor = await self.get_user_context(user_id, connection=conn)
+            if not _system_admin(actor):
+                raise KnowledgeDenied("知识库不存在或无权访问。")
+            owner_id = await conn.scalar(select(bases.c.owner_user_id).where(bases.c.id == kb_id))
+            if owner_id is None:
+                raise KnowledgeDenied("知识库不存在或无权访问。")
+            await conn.execute(
+                select(users.c.user_id)
+                .where(users.c.user_id.in_(sorted({user_id, owner_id})))
+                .order_by(users.c.user_id)
+                .with_for_update()
+            )
+            actor = await self.get_user_context(user_id, connection=conn)
+            if not _system_admin(actor):
+                raise KnowledgeDenied("知识库不存在或无权访问。")
+            row = (
+                await conn.execute(select(bases).where(bases.c.id == kb_id).with_for_update())
+            ).mappings().one()
+            if row["owner_user_id"] != owner_id:
+                raise KnowledgeConflict("所有权已变化，请刷新重试。")
+            yield conn, dict(row)
+
+    async def _knowledge_moderate(self, user_id, kb_id, version, reason, action):
+        moderation_reason(action, reason)
+        expected = _MODERATION_STATUS[action]
+        if type(version) is not int or version <= 0:
+            raise KnowledgeError("知识库版本无效。")
+        async with self.knowledge_moderation_transaction(user_id, kb_id) as (conn, row):
+            if row["version"] != version:
+                raise KnowledgeConflict("知识库已变化，请刷新重试。")
+            if row["status"] != expected:
+                raise KnowledgeConflict(_moderation_status_message(action, row["status"]))
+            if action in {"base_suspended", "base_deleted"}:
+                await self._knowledge_cancel_jobs(conn, [kb_id])
+            now = _now()
+            if action == "base_suspended":
+                status = "suspended"
+                extra = {}
+            elif action == "base_restored":
+                status = "active"
+                extra = {}
+            else:
+                status = "deleted"
+                extra = {"deleted_at": now}
+            await conn.execute(
+                update(bases)
+                .where(bases.c.id == kb_id)
+                .values(status=status, updated_at=now, version=bases.c.version + 1, **extra)
+            )
+            await self._knowledge_event(conn, kb_id, user_id, action, reason=reason)
+        return {"id": kb_id, "status": status, "version": version + 1}
+
+    async def knowledge_suspend(self, user_id, kb_id, version, reason):
+        return await self._knowledge_moderate(user_id, kb_id, version, reason, "base_suspended")
+
+    async def knowledge_restore(self, user_id, kb_id, version, reason):
+        return await self._knowledge_moderate(user_id, kb_id, version, reason, "base_restored")
+
+    async def knowledge_dispose(self, user_id, kb_id, version, reason):
+        return await self._knowledge_moderate(user_id, kb_id, version, reason, "base_deleted")
+
+    async def knowledge_moderation_list(self, user_id, *, page, page_size, search):
+        async with self.engine.begin() as conn:
+            await conn.exec_driver_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            actor = await self.get_user_context(user_id, connection=conn)
+            if not _system_admin(actor):
+                raise KnowledgeDenied("知识库不存在或无权访问。")
+            query = suspended_admin_query(user_id).where(bases.c.name.ilike("%" + search + "%"))
+            total = await conn.scalar(select(func.count()).select_from(query.subquery()))
+            rows = (
+                await conn.execute(
+                    query.order_by(bases.c.updated_at.desc(), bases.c.id)
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).mappings().all()
+        return {
+            "items": [
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "description": row["description"],
+                    "status": row["status"],
+                    "share_scope": row["share_scope"],
+                    "version": row["version"],
+                    "owner_user_id": row["owner_user_id"],
+                    "owner_name_zh": row["owner_name_zh"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+                for row in rows
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
 
     async def knowledge_members(self, user_id, kb_id, *, candidates=False, search=""):
         async with self.knowledge_transaction(user_id, kb_id) as (conn, row):

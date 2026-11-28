@@ -125,7 +125,9 @@ Conversation 的主键是 `chat_conversations.id`，表内没有重复的 `conve
 | 业务数据持久化 | `repository/` 的 `BusinessRepository` | `services/` 不直接写 SQL |
 | Skill 资源 | `services/skills.py` 解析正文；`skill_state.py` 统一有效状态；`skill_import.py` 导入更新；`skill_operations.py` 文件日志恢复；`skill_index.py` 索引重建 | 正文在文件系统，DB 保存归属、启停、版本和来源。持久草稿与内容提交受同数据根文件锁保护；更新保留 ID/偏好，删除先隔离目录。管理、Picker 和 Agent 共用有效状态；`skill_snapshot.py` 固定有效目录内容与摘要，`middleware/skill_refresh.py` 每轮刷新 Checkpoint 摘要。详见 [Skill 生命周期](design-docs/skill-lifecycle.md)。 |
 | Skill/模型资源管理 | `services/resource_service.py` | 权限矩阵在这里强制执行：global 资源仅 admin/owner 可管理，user 资源仅创建者（含 admin）可动 |
-| HTTP 身份 | `api/auth.py` 的 `require_session()` | 统一验证 JWT、来源和页面身份断言；附件由 `api/identity.py` 读取已验证身份。管理授权按当前 system/admin，业务入口在共享账户锁内要求租户启用，服务层校验资源归属。写操作结束后 `api/audit.py` 追加审计文件，不写业务表，见 [安全审计日志](design-docs/security-audit-log.md) |
+| HTTP 身份 | `api/auth.py` 的 `require_session()` | 统一验证 JWT、来源和页面身份断言；附件由 `api/identity.py` 读取已验证身份。管理授权按当前 system/admin，业务入口在共享账户锁内要求租户启用，服务层校验资源归属。写操作结束后 `api/audit.py` 追加审计文件，不写业务表；写入失败只记警告，并按配置后台通知，见 [安全审计日志](design-docs/security-audit-log.md) |
+
+投诉举报走 `api/routes/reports.py` → `services/reports.py` → `repository/reports.py`。匿名提交和查询是公开路径，其余请求仍经 `require_session()`。管理操作挂在 `/api/admin/reports`，沿用 system/admin 检查。知识库整库停用继续走原知识库接口。详见 [投诉举报与反馈](design-docs/reports.md)。
 
 凭据相关有一条硬规则：`DEEPSEEK_API_KEY`、`DATABASE_URL`、`LANGFUSE_SECRET_KEY` 等应用自身凭据**不能**注入给 Agent 执行的命令；系统基础环境与禁止注入规则集中在 `core/defaults.py`，Skill 业务变量只由数据库共享／个人资源解析，不从 `.env` 透传。
 
@@ -240,6 +242,10 @@ headers/env 字面值由 `core/mcp_credentials.py` 按明文存入数据库；�
 
 仅 profile=dev 开放免密登录和全员显式切换用户（含 admin）；非 dev 隐藏入口并拒绝对应接口。租户记忆不迁移，个人数据按用户所有权保留；Agent 缓存键增加租户维度。SSE 投递与业务执行生命周期分开，浏览器断开后执行继续，服务关闭才取消。账户变更使用 PostgreSQL 全局共享／独占事务锁与未完成助手消息检查，暂不追求管理操作的高并发吞吐。
 
+短信注册、登录和首次绑号仍走账户服务与账户仓储。阿里云号码认证调用在数据库事务外，核验通过后的建户、登录和绑号进入短事务。注册的租户、账号、手机号绑定和核验记录同事务提交。持久记录独立于短期验证请求，管理员通过现有认证入口查阅脱敏详情。短信默认关闭，密码登录继续可用。详见[短信注册与登录](design-docs/sms-registration-login.md)。
+
+公开登录配置额外返回运营主体名称和申请邮箱，供无需登录的隐私说明页使用，不返回短信凭据。详见[隐私说明](design-docs/privacy-notice.md)。
+
 
 账户来源白名单统一从 `core/config.py` 解析，应用组装时保存快照供 CORS 与写请求校验共用。白名单只放行同站跨域，跨站写入继续拒绝，Cookie 保持 Strict。公开 `/api/ready` 只读取 `manager.ready`，以 200/503 表达初始化状态，不暴露内部错误；登录配置接口不承担就绪判断。详见[账户 review 修复](design-docs/account-review-fixes.md)。
 
@@ -301,7 +307,7 @@ ChatRuntime.task_configuration_provider 注入 services/task_configuration.py，
 
 `services/environment.py` 为环境资源的权限与合并入口，`repository/environment.py` 管理持久化及原子审批；业务值只由数据库解析后显式传入 Backend，不修改进程环境。管理列表在服务层生成 masked_value 脱敏预览，仅超过 8 字符显示前后各 4 字符，短值全部遮盖，完整值不返回浏览器。`services/environment_chat.py` 在消息持久化／模型／监控之前提取敏感值，工具只携带消息绑定的引用；聊天确认进入 HITL，不进入子 Agent/PTC。两张新增表通过 `20261017_environment` 保留数据升级。系统基础环境和禁止注入规则集中在 `core/defaults.py`，旧默认凭据名单与部署白名单透传已删除。
 
-`repository/resource_versions.py` 为显式资源写入口提供单进程提交—发布协议；共享全局版本，个人用户版本。取消保护事务完成并同步发布，发布失败阻止缓存读取。runtime 六因子键为工作区、租户、模型选择、能力、全局版本、用户版本；预热命中不进行资源检查 IO，未命中才解析模型和资源。构建前后核对版本、有界重试，保留 LRU、构建锁及失败不缓存。仅单进程，离线 SQL／文件变更须重启。
+`repository/resource_versions.py` 为显式资源写入口提供单进程提交—发布协议；共享全局版本，个人用户版本。取消保护事务完成并同步发布，发布失败阻止缓存读取。runtime 六因子键为工作区、租户、模型选择、能力、全局版本、用户版本；预热命中不进行资源检查 IO，未命中才解析模型和资源。构建前后核对版本、有界重试，保留 LRU、构建锁；仅存在 MCP 临时连接失败时不缓存 Agent，确定性配置错误仍允许缓存。未命中时经 `services/mcp_tool_cache.py` 跨会话复用相同配置与全局版本的 MCP 工具发现结果（成功 10 分钟、临时失败 30 秒，同键单次发现），并在 `api/lifespan.py` 启动后后台预热共享 MCP。QuickJS 解释器通过 `LazyCodeInterpreterMiddleware` 按需启动，未调用 `eval` 不写入堆快照；不可变 Skill 快照在实例内缓存元数据。仅单进程，离线 SQL／文件变更须重启。
 
 API 先验签 JWT，再读取当前 active 用户及租户状态。业务请求在共享账户锁内拒绝停用租户，通过后复用该身份上下文。`services/preparation.py` 一次会话／项目归属联查后，在同次新消息、审批／问答准备与过期收尾复用上下文，不跨请求缓存。保留锁、幂等检查及副作用事务校验；两次主要身份／归属读取不代表整个消息只需两次 IO。准备计时覆盖认证依赖。范围、运行步骤与验收见[环境变量与聊天准备](design-docs/environment-and-preparation.md)。
 
@@ -324,7 +330,7 @@ SSE 事件拉取与源迭代器关闭显式复用每条流独立的 Context，�
 
 初始化 schema 直接包含知识库八张表和 `knowledge_search_chunks` 普通视图，不提供早期开发结构的保留数据升级。字段与约束见 [知识库设计](design-docs/knowledge-base.md)。知识库管理与模型用途配置已接入现有仓储、服务、Cookie API 和前端；PDF、Word、PowerPoint、图片、TXT/Markdown 导入、固定 OCR、分块嵌入与原子发布已实现。知识库嵌入由开发固定工厂提供，OCR 读取开发侧 .env，不读取用户目录默认，也不保存解析模型引用。初始化不创建默认模型或凭据。检索与普通聊天引用已实现，边界见下文。
 
-先安装 PostgreSQL 的 pgvector 扩展包（见 [部署说明](../ops/PGVECTOR.md)）；扩展尚未启用时脚本执行 `CREATE EXTENSION IF NOT EXISTS vector`，若数据库账号无权限，需数据库管理员预先安装扩展。固定向量维度 1024。空库执行 `uv run melonclaw-db-init`。已有业务库执行 `uv run melonclaw-db-update`，步骤 `20261117_knowledge` 创建当前八张表和检索视图，不改已有业务表。已有知识库表与当前结构不一致时升级失败并回滚。命令本身不清库，服务启动不会自动建表或升级。
+先安装 PostgreSQL 的 pgvector 扩展包（见 [部署说明](../ops/PGVECTOR.md)）；扩展尚未启用时脚本执行 `CREATE EXTENSION IF NOT EXISTS vector`，若数据库账号无权限，需数据库管理员预先安装扩展。固定向量维度 1024。空库执行 `uv run melonclaw-db-init`。已有业务库执行 `uv run melonclaw-db-update`，步骤 `20261117_knowledge` 创建当前八张表和检索视图，不改已有业务表。`20261126_knowledge_moderation` 只扩展知识库事件操作类型。已有知识库表与当前结构不一致时升级失败并回滚。命令本身不清库，服务启动不会自动建表或升级。system/admin 可按整库停用、恢复或逻辑删除；通用可见性查询仍只返回使用中的库。操作记录按库分页读取已有事件，不返回正文。审计文件写入失败时，若配置了接收地址，则在进程内告警，告警本身不写审计文件。
 
 
 知识库管理：`api/routes/knowledge.py → services/knowledge.py → repository/knowledge.py` 复用 BusinessRepository，不新增包或资源表。core/model_catalog.py 保留模型用途隔离；知识库建库不解析用户目录中的文档解析默认，`parser_model_id` 保留为可空外键且保持为空。知识库模型由开发维护，固定 OCR 与导入链路见[文档导入](design-docs/knowledge-base.md#文档导入)。建库绑定与模型/供应商更新通过事务级 catalog 锁串行化，资源更新沿原 resource_change 提交—发布边界失效。账户换租户保留知识库点名授权。删除用户或停用租户仍通过 account_guard 和用户→库→文档→版本→job 锁顺序取消相关作业；删除用户同时移除其成员授权。知识库事件同事务提交。知识库成员角色为查看者和编辑者。库设置与成员管理归所有者及系统管理员，转让后原所有者成为编辑者。共享范围记在 `knowledge_bases.share_scope`。知识库不开放嵌入或解析模型连接测试；聊天模型连接测试仍走既有模型管理入口。见[管理实现与边界](design-docs/knowledge-base.md#授权与账户变化)。

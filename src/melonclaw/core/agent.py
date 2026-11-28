@@ -31,7 +31,7 @@ from melonclaw.core.prompts import (
     FILE_EXECUTION_GUIDANCE,
     KNOWLEDGE_GUIDANCE,
     MCP_EXECUTION_GUIDANCE,
-    build_system_prompt,
+    build_static_system_prompt,
 )
 from melonclaw.core.task_agent import TaskAgentOptions, build_unattended_agent
 from melonclaw.core.tool_catalog import FIND_TOOLS_NAME
@@ -43,6 +43,7 @@ from melonclaw.middleware import (
     FileOperationOrderingMiddleware,
     UserInputGuardMiddleware,
 )
+from melonclaw.middleware.runtime_prompt import RuntimePromptTailMiddleware
 from melonclaw.middleware.skill_refresh import SkillRefreshMiddleware
 from melonclaw.middleware.task_context import TaskContextMiddleware
 from melonclaw.middleware.tool_name_guard import ToolNameGuardMiddleware
@@ -55,7 +56,11 @@ from melonclaw.tool.skill_install import SkillInstallProvider, build_skill_insta
 from melonclaw.tool.task_configuration import build_task_configuration_tool
 from melonclaw.tool.task_history import build_task_history_tool
 from melonclaw.tool.tool_discovery import build_tool_discovery
-from melonclaw.tool.tools import MCP_CATALOG_TOOL_NAME, build_agent_tools
+from melonclaw.tool.tools import (
+    MCP_CATALOG_TOOL_NAME,
+    McpDiscoveryResult,
+    build_agent_tools,
+)
 
 TOOL_NAMES_PREVIEW_LIMIT = 12
 
@@ -148,7 +153,9 @@ async def build_research_agent(
     client_capabilities: object = None,
     mcp_servers: dict[str, dict[str, Any]] | None = None,
     mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
+    mcp_discovery: McpDiscoveryResult | None = None,
     skill_dirs: tuple[tuple[str, Path], ...] = (),
+    immutable_skills: bool = False,
     unattended: TaskAgentOptions | None = None,
 ) -> CompiledStateGraph:
     """异步发现工具并构建绑定到指定工作区的通用助手。
@@ -170,7 +177,7 @@ async def build_research_agent(
         if any((runtime_backend, memory_service, attachment_hydration_provider,
                 skill_install_provider, mcp_install_provider, task_history_provider,
                 task_configuration_provider, knowledge_provider, environment_provider, environment, client_capabilities,
-                mcp_servers, mcp_tool_allowlists, skill_dirs)):
+                mcp_servers, mcp_tool_allowlists, mcp_discovery, skill_dirs, immutable_skills)):
             raise ValueError("无人值守执行不能混入普通聊天的能力或工作区挂载。")
         return await build_unattended_agent(
             settings, model=model, checkpointer=checkpointer, options=unattended,
@@ -185,6 +192,7 @@ async def build_research_agent(
         settings,
         mcp_servers=mcp_servers,
         mcp_tool_allowlists=mcp_tool_allowlists,
+        mcp_discovery=mcp_discovery,
     )
     if skill_install_provider is not None:
         tools.extend(build_skill_install_tools(skill_install_provider))
@@ -243,18 +251,20 @@ async def build_research_agent(
         print("动态工具选择器: ToolPoolMiddleware")
 
     middleware: list[AgentMiddleware] = [
-        SkillRefreshMiddleware(backend, skill_sources),
+        SkillRefreshMiddleware(backend, skill_sources, cache_snapshot=immutable_skills),
         ToolNameGuardMiddleware(),
         tool_selector,
         FileOperationOrderingMiddleware(),
         interpreter,
+        RuntimePromptTailMiddleware(resolved_mcp_servers),
     ]
     if user_input_enabled:
         # 提问工具和它的批次护栏必须成对出现：有工具没护栏，模型就能把
         # ask_user 和副作用工具放在同一批里执行。
         middleware[1:1] = [UserInputMiddleware(), UserInputGuardMiddleware()]
     if memory_service is not None:
-        middleware.insert(0, MemoryScopeMiddleware(memory_service))
+        # 长期 Memory 按用户变化且可能随时写入，放在静态解释器提示之后以保住前缀缓存。
+        middleware.append(MemoryScopeMiddleware(memory_service))
         print("已启用 Global/Tenant/User Memory（Store 持久化，主 Agent 受控工具）")
     if attachment_hydration_provider is not None:
         middleware.insert(0, AttachmentHydrationMiddleware(
@@ -299,8 +309,7 @@ async def build_research_agent(
         backend=backend,
         skills=skill_sources or None,
         permissions=skill_permissions or None,
-        system_prompt=build_system_prompt(
-            resolved_mcp_servers,
+        system_prompt=build_static_system_prompt(
             memory_enabled=memory_service is not None,
         ),
         context_schema=AgentContext,
@@ -311,6 +320,7 @@ async def build_research_agent(
 
     agent.melonclaw_usage_enabled = settings.agent_usage_enabled
     agent.melonclaw_mcp_failed = any(
-        getattr(tool, "metadata", None) and tool.metadata.get("mcp_failures") for tool in tools
+        getattr(tool, "metadata", None) and tool.metadata.get("mcp_transient_failures")
+        for tool in tools
     )
     return agent

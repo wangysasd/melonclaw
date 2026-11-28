@@ -8,6 +8,7 @@ import json
 import os
 import re
 from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.tools import BaseTool, StructuredTool
@@ -66,8 +67,14 @@ def build_mcp_catalog_tool(
     servers: Mapping[str, Mapping[str, Any]],
     tools_by_server: Mapping[str, Collection[str]],
     failures: Mapping[str, str] | None = None,
+    *,
+    transient_failures: Collection[str] = (),
 ) -> StructuredTool:
-    """构造只读的运行时 MCP 服务与发现状态清单工具。"""
+    """构造只读的运行时 MCP 服务与发现状态清单工具。
+
+    元数据 ``mcp_transient_failures`` 表示存在可能自行恢复的连接失败，运行时据此
+    不缓存 Agent；确定性的配置错误只标记 ``mcp_failures``，不阻止缓存。
+    """
 
     failed = failures or {}
     server_catalog = []
@@ -96,7 +103,10 @@ def build_mcp_catalog_tool(
 
     return StructuredTool.from_function(
         func=list_mcp_tools,
-        metadata={"mcp_failures": bool(failed)},
+        metadata={
+            "mcp_failures": bool(failed),
+            "mcp_transient_failures": bool(transient_failures),
+        },
         name=MCP_CATALOG_TOOL_NAME,
         description=(
             "只读查询当前运行时配置的 MCP 服务、传输方式、发现状态和"
@@ -106,13 +116,34 @@ def build_mcp_catalog_tool(
     )
 
 
-async def _load_mcp_tools_with_catalog(
+@dataclass(frozen=True)
+class McpDiscoveryResult:
+    """一次 MCP 发现的结果；工具每次调用自建连接，不含会话状态，可跨 Agent 复用。
+
+    ``transient_failures`` 只包含连接、超时、协议或 HTTP 错误等可能自行恢复的
+    服务；配置无法解析、工具定义无效属于确定性失败，只记录在 ``failures``。
+    """
+
+    tools: tuple[BaseTool, ...] = ()
+    catalog: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    failures: Mapping[str, str] = field(default_factory=dict)
+    transient_failures: frozenset[str] = frozenset()
+
+
+async def discover_mcp_tools(
     servers: dict[str, dict[str, Any]],
     tool_allowlists: dict[str, tuple[str, ...]] | None = None,
-) -> tuple[list[BaseTool], dict[str, tuple[str, ...]], dict[str, str]]:
-    """发现 MCP 工具，同时记录实际暴露给 Agent 的工具清单。"""
+) -> McpDiscoveryResult:
+    """发现 MCP 工具，同时记录实际暴露给 Agent 的工具清单与失败类型。"""
 
+    if not servers:
+        return McpDiscoveryResult()
     valid = {name: config for name, config in servers.items() if not config.get("configuration_error")}
+    tools, catalog = [], {}
+    failures = {name: "凭据或配置无法解析，请检查配置。" for name in servers if name not in valid}
+    transient: set[str] = set()
+    if not valid:
+        return McpDiscoveryResult(tuple(tools), catalog, failures, frozenset(transient))
     client = MultiServerMCPClient(valid)
 
     async def discover(name):
@@ -120,13 +151,12 @@ async def _load_mcp_tools_with_catalog(
             return await client.get_tools(server_name=name)
 
     discovered_by_server = await asyncio.gather(*(discover(name) for name in valid), return_exceptions=True)
-    tools, catalog = [], {}
-    failures = {name: "凭据或配置无法解析，请检查配置。" for name in servers if name not in valid}
     for server_name, discovered in zip(valid, discovered_by_server, strict=True):
         if isinstance(discovered, BaseException):
             if not isinstance(discovered, Exception):
                 raise discovered
             failures[server_name] = _safe_mcp_exception(discovered)
+            transient.add(server_name)
             continue
         allowlist = (tool_allowlists or {}).get(server_name)
         by_name = {tool.name: tool for tool in discovered}
@@ -139,7 +169,7 @@ async def _load_mcp_tools_with_catalog(
             continue
         tools.extend(wrapped)
         catalog[server_name] = tuple(tool.name for tool in wrapped)
-    return tools, catalog, failures
+    return McpDiscoveryResult(tuple(tools), catalog, failures, frozenset(transient))
 
 
 
@@ -183,8 +213,7 @@ async def load_mcp_tools(
         return []
 
     try:
-        tools, _, _ = await _load_mcp_tools_with_catalog(servers, tool_allowlists)
-        return tools
+        return list((await discover_mcp_tools(servers, tool_allowlists)).tools)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
@@ -200,20 +229,23 @@ async def build_agent_tools(
     *,
     mcp_servers: dict[str, dict[str, Any]] | None = None,
     mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
+    mcp_discovery: McpDiscoveryResult | None = None,
 ) -> list[BaseTool]:
     """异步组合已具备名称、描述与参数 schema 的应用和 MCP 工具。
 
-    MCP 配置由运行时按当前用户从数据库解析后显式传入。
+    MCP 配置由运行时按当前用户从数据库解析后显式传入；``mcp_discovery``
+    为运行时按同一配置预先发现（可能来自进程内缓存）的结果。
     """
 
     tools: list[BaseTool] = build_custom_tools(settings)
-    tools.extend(await build_mcp_tools(mcp_servers, mcp_tool_allowlists))
+    tools.extend(await build_mcp_tools(mcp_servers, mcp_tool_allowlists, mcp_discovery))
     return tools
 
 
 async def build_mcp_tools(
     mcp_servers: dict[str, dict[str, Any]] | None = None,
     mcp_tool_allowlists: dict[str, tuple[str, ...]] | None = None,
+    discovery: McpDiscoveryResult | None = None,
 ) -> list[BaseTool]:
     """普通聊天和后台共用的 MCP 装配；不附带其他聊天工具。"""
     servers = mcp_servers or {}
@@ -223,16 +255,17 @@ async def build_mcp_tools(
         tools.append(build_mcp_catalog_tool({}, {}))
         return tools
 
-    mcp_tools, catalog, failures = await _load_mcp_tools_with_catalog(
-        servers,
-        allowlists,
-    )
+    if discovery is None:
+        discovery = await discover_mcp_tools(servers, allowlists)
 
-    tools.extend(mcp_tools)
-    if failures:
+    tools.extend(discovery.tools)
+    if discovery.failures:
         failed_text = "、".join(
-            f"{name}（{detail}）" for name, detail in sorted(failures.items())
+            f"{name}（{detail}）" for name, detail in sorted(discovery.failures.items())
         )
         print(f"MCP 服务部分加载失败，已跳过：{failed_text}")
-    tools.append(build_mcp_catalog_tool(servers, catalog, failures))
+    tools.append(build_mcp_catalog_tool(
+        servers, discovery.catalog, discovery.failures,
+        transient_failures=discovery.transient_failures,
+    ))
     return tools
